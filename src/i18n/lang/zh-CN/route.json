@@ -15,6 +15,7 @@
   "postManage": "岗位管理",
   "roleManage": "角色管理",
   "server": "服务监控",
+  "stockAnalysis": "库存分析",
   "sysManage": "系统管理",
   "task": "定时任务",
   "taskLog": "任务日志",

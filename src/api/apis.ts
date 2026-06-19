@@ -15,6 +15,11 @@ import type {
   ApiSysServiceMonitor,
   ApiSysUser,
 } from './sysApis'
+import type {
+  ApiStockAmazon,
+  ApiStockAnalysis,
+  ApiStockGiga,
+} from './stockApis'
 import type { ApiDataScopeTest } from './tests'
 
 export type APIS =
@@ -34,7 +39,11 @@ export type APIS =
   | ApiSysScheduledTasks
   | ApiSysScheduledTasksLog
   | ApiDataScopeTest
+  | ApiStockGiga
+  | ApiStockAmazon
+  | ApiStockAnalysis
 
 export const ErrorFlag = '__________' // 错误标志
 export * from './sysApis'
+export * from './stockApis'
 export * from './tests'

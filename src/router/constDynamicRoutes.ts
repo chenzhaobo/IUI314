@@ -64,6 +64,10 @@ export const systemMenus: Record<string, routeMenuInfo> = {
     path: 'server-monitor',
     name: '服务监控',
   },
+  stockAnalysis: {
+    path: 'stock-analysis',
+    name: '库存分析',
+  },
 }
 
 export const constMenus: Record<string, routeMenuInfo> = { ...systemMenus }
