@@ -42,5 +42,9 @@
   "perfRun": "Test Run",
   "perfTask": "Task",
   "perfReport": "Report",
-  "perfBaseline": "Baseline"
+  "perfBaseline": "Baseline",
+  "baseConfig": "Base Config",
+  "perfScriptGroup": "Script",
+  "perfRunGroup": "Execution",
+  "perfReportGroup": "Report"
 }

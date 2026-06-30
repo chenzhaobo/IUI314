@@ -42,5 +42,9 @@
   "perfRun": "测试执行",
   "perfTask": "执行任务",
   "perfReport": "报告管理",
-  "perfBaseline": "基线对比"
+  "perfBaseline": "基线对比",
+  "baseConfig": "基础配置",
+  "perfScriptGroup": "脚本管理",
+  "perfRunGroup": "测试执行",
+  "perfReportGroup": "报告分析"
 }

@@ -43,12 +43,13 @@ const columns = [
   { title: '模块', dataIndex: 'module_name', width: 100, ellipsis: true, tooltip: true },
   { title: '功能', dataIndex: 'function_name', width: 100, ellipsis: true, tooltip: true },
   { title: '测试类型', dataIndex: 'test_type', width: 80, ellipsis: true, tooltip: true },
+  { title: '事务', dataIndex: 'txn_summary', width: 100, slotName: 'txnSummary' },
   { title: '版本', dataIndex: 'version', width: 60 },
   { title: '文件名', dataIndex: 'jmx_file_name', width: 180, ellipsis: true, tooltip: true },
   { title: '大小(KB)', dataIndex: 'jmx_file_size', width: 90, render: ({ record }: any) => (record.jmx_file_size / 1024).toFixed(1) },
   { title: '运行次数', dataIndex: 'run_count', width: 80 },
   { title: '状态', dataIndex: 'status', width: 60, slotName: 'status' },
-  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 160, fixed: 'right' as const },
+  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 220, fixed: 'right' as const },
 ]
 
 // ── 上传弹窗 ──────────────────────────────────
@@ -180,6 +181,61 @@ watch(domainFilter, (v) => {
   getList()
 })
 
+// ── 事务详情抽屉 ──────────────────────────────────
+const txnDrawerVisible = ref(false)
+const txnDrawerData = ref<any>(null)
+const txnDrawerTitle = ref('')
+
+const txnDetailColumns = [
+  { title: '#', width: 60, render: ({ rowIndex }: any) => rowIndex + 1 },
+  { title: '事务名称', dataIndex: 'name', width: 300, ellipsis: true, tooltip: true },
+  { title: '事务编码', dataIndex: 'txn_code', width: 180, ellipsis: true, tooltip: true },
+  { title: '类型', dataIndex: 'txn_type', width: 130, slotName: 'txnType' },
+  { title: '启用', dataIndex: 'enabled', width: 70, slotName: 'enabled' },
+  { title: '关键事务', dataIndex: 'is_key_txn', width: 90, slotName: 'keyTxn' },
+  { title: '父样本', dataIndex: 'is_parent', width: 80, slotName: 'isParent' },
+]
+
+function handleViewTxn(record: any) {
+  txnDrawerTitle.value = `事务详情 - ${record.name}`
+  const txnDetail = record.txn_detail_json
+  if (!txnDetail) {
+    txnDrawerData.value = { transactions: [], key_txn_count: 0, total_txn_count: 0, empty: true }
+  } else {
+    txnDrawerData.value = txnDetail
+  }
+  txnDrawerVisible.value = true
+}
+
+function getTxnSummary(record: any): string {
+  const txn = record.txn_detail_json
+  if (!txn) return '-'
+  return `${txn.key_txn_count ?? 0} / ${txn.total_txn_count ?? 0}`
+}
+
+// ── 重新解析 ──────────────────────────────────
+const reparsing = ref(false)
+
+async function handleReparse(record: any) {
+  reparsing.value = true
+  const { execute, error } = usePut(ApiPerfScript.reparse + '?id=' + record.id)
+  await execute()
+  reparsing.value = false
+  if (error.value) { Message.error('重新解析失败'); return }
+  Message.success('事务详情解析成功')
+  getList()
+}
+
+async function handleReparseAll() {
+  reparsing.value = true
+  const { execute, error, data } = usePost(ApiPerfScript.reparseAll, {})
+  await execute()
+  reparsing.value = false
+  if (error.value) { Message.error('批量解析失败'); return }
+  Message.success(data.value?.msg || '批量解析完成')
+  getList()
+}
+
 // ── 批量上传 ──────────────────────────────────
 const batchUploadVisible = ref(false)
 const batchFiles = ref<File[]>([])
@@ -254,6 +310,10 @@ async function handleBatchUploadSubmit() {
               <template #icon><icon-storage /></template>
               批量上传
             </a-button>
+            <a-button :loading="reparsing" @click="handleReparseAll">
+              <template #icon><icon-refresh /></template>
+              重新解析
+            </a-button>
           </a-space>
         </a-col>
       </a-row>
@@ -271,8 +331,15 @@ async function handleBatchUploadSubmit() {
         <template #status="{ record }">
           <a-tag :color="record.status === '1' ? 'green' : 'red'">{{ record.status === '1' ? '启用' : '禁用' }}</a-tag>
         </template>
+        <template #txnSummary="{ record }">
+          <a-button type="text" size="small" @click="handleViewTxn(record)">
+            {{ getTxnSummary(record) }}
+          </a-button>
+        </template>
         <template #operations="{ record }">
           <a-space>
+            <a-button type="text" size="small" @click="handleViewTxn(record)">事务详情</a-button>
+            <a-button type="text" size="small" :loading="reparsing" @click="handleReparse(record)">解析</a-button>
             <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
             <a-popconfirm content="确认删除？" @ok="handleDelete(record)">
               <a-button type="text" size="small" status="danger">删除</a-button>
@@ -325,6 +392,46 @@ async function handleBatchUploadSubmit() {
         </a-form-item>
       </a-form>
     </a-modal>
+
+    <!-- 事务详情抽屉 -->
+    <a-drawer :visible="txnDrawerVisible" :width="860" :title="txnDrawerTitle" @cancel="txnDrawerVisible = false" @ok="txnDrawerVisible = false">
+      <template v-if="txnDrawerData?.empty">
+        <a-empty description="该脚本尚未解析事务详情，请点击「解析」按钮重新解析" />
+      </template>
+      <template v-else>
+        <a-descriptions :data="[
+          { label: '事务总数', value: txnDrawerData?.total_txn_count ?? 0 },
+          { label: '[A]关键事务', value: txnDrawerData?.key_txn_count ?? 0 },
+          { label: '启用', value: txnDrawerData?.enabled_count ?? 0 },
+        ]" :column="3" layout="inline-horizontal" style="margin-bottom: 16px" />
+        <a-table
+          :data="txnDrawerData?.transactions || []"
+          :columns="txnDetailColumns"
+          :pagination="false"
+          row-key="name"
+          size="small"
+          column-resizable
+          :scroll="{ x: 920, y: 480 }"
+        >
+          <template #txnType="{ record }">
+            <a-tag :color="record.txn_type === 'transaction_controller' ? 'blue' : 'gray'" size="small">
+              {{ record.txn_type === 'transaction_controller' ? '事务控制器' : 'HTTP请求' }}
+            </a-tag>
+          </template>
+          <template #enabled="{ record }">
+            <a-tag :color="record.enabled ? 'green' : 'red'" size="small">{{ record.enabled ? '是' : '否' }}</a-tag>
+          </template>
+          <template #keyTxn="{ record }">
+            <a-tag v-if="record.is_key_txn" color="red" size="small">[A]</a-tag>
+            <span v-else>-</span>
+          </template>
+          <template #isParent="{ record }">
+            <a-tag v-if="record.is_parent" color="orange" size="small">是</a-tag>
+            <span v-else>-</span>
+          </template>
+        </a-table>
+      </template>
+    </a-drawer>
 
     <!-- 批量上传弹窗 -->
     <a-modal v-model:visible="batchUploadVisible" title="批量上传JMX脚本" :width="560" :ok-loading="batchUploading" @ok="handleBatchUploadSubmit">

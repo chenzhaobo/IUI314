@@ -129,14 +129,14 @@ function resolvePath(routePath: string, routeQuery?: string): string {
         </span>
       </template>
 
-      <div v-if="item.children && item.children.length > 0">
+      <template v-if="item.children && item.children.length > 0">
         <side-bar-menu-item
           v-for="child in item.children"
           :key="child.path"
           :base-path="resolvePath(child.path)"
           :item="child"
         />
-      </div>
+      </template>
     </a-sub-menu>
   </div>
 </template>

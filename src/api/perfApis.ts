@@ -60,6 +60,8 @@ export enum ApiPerfScript {
   delete = '/perf/script/delete',
   upload = '/perf/script/upload',
   batchUpload = '/perf/script/batch_upload',
+  reparse = '/perf/script/reparse_txn',
+  reparseAll = '/perf/script/reparse_all',
 }
 
 // ── 测试执行 ──────────────────────────────────
