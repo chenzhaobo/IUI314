@@ -16,6 +16,31 @@ import type {
   ApiSysUser,
 } from './sysApis'
 import type { ApiDataScopeTest } from './tests'
+import type {
+  ApiSecDefect,
+  ApiSecFinding,
+  ApiSecOrg,
+  ApiSecProjectGroup,
+  ApiSecReleaseWindow,
+  ApiSecScanRun,
+  ApiSecScanTask,
+  ApiSecScanTool,
+  ApiSecTestEnv,
+  ApiSecUserStory,
+} from './sechubApis'
+import type {
+  ApiPerfEnv,
+  ApiPerfCloud,
+  ApiPerfApp,
+  ApiPerfMenu,
+  ApiPerfScriptMenu,
+  ApiPerfScript,
+  ApiPerfRun,
+  ApiPerfReport,
+  ApiPerfBaseline,
+  ApiPerfIteration,
+  ApiPerfTask,
+} from './perfApis'
 
 export type APIS =
   | ApiSysLogin
@@ -34,7 +59,30 @@ export type APIS =
   | ApiSysScheduledTasks
   | ApiSysScheduledTasksLog
   | ApiDataScopeTest
+  | ApiSecScanTool
+  | ApiSecScanRun
+  | ApiSecFinding
+  | ApiSecOrg
+  | ApiSecDefect
+  | ApiSecProjectGroup
+  | ApiSecReleaseWindow
+  | ApiSecScanTask
+  | ApiSecTestEnv
+  | ApiSecUserStory
+  | ApiPerfEnv
+  | ApiPerfCloud
+  | ApiPerfApp
+  | ApiPerfMenu
+  | ApiPerfScriptMenu
+  | ApiPerfScript
+  | ApiPerfRun
+  | ApiPerfReport
+  | ApiPerfBaseline
+  | ApiPerfIteration
+  | ApiPerfTask
 
 export const ErrorFlag = '__________' // 错误标志
 export * from './sysApis'
 export * from './tests'
+export * from './sechubApis'
+export * from './perfApis'

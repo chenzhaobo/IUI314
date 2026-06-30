@@ -4,9 +4,7 @@ import { type ConfigEnv, defineConfig, loadEnv } from 'vite'
 
 import vue from '@vitejs/plugin-vue'
 import vueJsx from '@vitejs/plugin-vue-jsx'
-import VueDevTools from 'vite-plugin-vue-devtools'
 import UnoCSS from 'unocss/vite'
-import { visualizer } from 'rollup-plugin-visualizer'
 import { createSvgIconsPlugin } from 'vite-plugin-svg-icons'
 import { createHtmlPlugin } from 'vite-plugin-html'
 import { vitePluginForArco } from '@arco-plugins/vite-vue'
@@ -20,9 +18,8 @@ export default ({ mode }: ConfigEnv) =>
     plugins: [
       vue(),
       vueJsx(),
-      VueDevTools(),
       UnoCSS(),
-      visualizer(),
+      // visualizer(), // 构建分析用，按需开启
       // vueSetupExtend(),
       createSvgIconsPlugin({
         // 指定需要缓存的图标文件夹

@@ -5,6 +5,7 @@
   "disable": " Disable",
   "enable": " Enable",
   "hello": "hello",
+  "title": "Dashboard",
   "info": "info",
   "nav": {
     "changeDept": "ChangeDept",

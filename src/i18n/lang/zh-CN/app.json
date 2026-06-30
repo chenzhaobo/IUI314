@@ -5,6 +5,7 @@
   "disable": "禁用",
   "enable": "启用",
   "hello": "你好",
+  "title": "工作台",
   "info": "提示",
   "nav": {
     "changeDept": "部门切换",

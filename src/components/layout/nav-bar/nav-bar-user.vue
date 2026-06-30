@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { h, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import defaultAvatar from '@/assets/av.webp'
 
 import { Message, Modal } from '@arco-design/web-vue'
 import ChangeCom from './changeCom.vue'
@@ -157,9 +158,10 @@ get_options()
     <a-dropdown trigger="click">
       <div class="m-t-2px cursor-pointer">
         <img
-          :src="userStore.user.avatar"
+          :src="userStore.user.avatar || defaultAvatar"
           class="w-32px h-32px cursor-pointer b-rd-30px"
           alt="user"
+          @error="(e: Event) => (e.target as HTMLImageElement).src = defaultAvatar"
         >
       </div>
       <template #content>
