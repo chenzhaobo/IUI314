@@ -54,6 +54,18 @@ export default ({ mode }: ConfigEnv) =>
       host: '0.0.0.0',
       port: 9876,
       // open: true,
+      proxy: {
+        // API 请求代理到后端（开发环境）
+        '/api': {
+          target: 'http://127.0.0.1:3000',
+          changeOrigin: true,
+        },
+        // 上传/静态文件代理到后端
+        '/upload': {
+          target: 'http://127.0.0.1:3000',
+          changeOrigin: true,
+        },
+      },
     },
     build: getBuild(),
     esbuild: {

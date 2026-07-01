@@ -2,7 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { useGet, usePost, useDelete } from '@/hooks'
-import { ApiPerfScript, ApiPerfScriptMenu, ApiPerfMenu, ApiSysDictData } from '@/api/apis'
+import { ApiPerfScript, ApiPerfScriptMenu, ApiPerfMenu, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
 
 defineOptions({ name: 'PerfScriptBinding' })
 
@@ -18,28 +18,101 @@ watch(dictRaw, (val) => {
   }
 }, { immediate: true })
 
+// ── 领域选项（产品领域字典 sec_pg_product_domain）──────────────────────────
+const { data: domainDictRaw } = useGet<any>(ApiSysDictData.getByType, { dict_type: 'sec_pg_product_domain' }, { immediate: true })
+const domainOptions = computed(() => (Array.isArray(domainDictRaw.value) ? domainDictRaw.value : []).map((d: any) => ({ label: d.dict_label, value: d.dict_value })))
+const domainResolved = ref(false)
+const domainCode = ref('')
+
+// ── 项目组选项（从 sec_project_group 获取，按领域过滤）──────────────────────────
+const { data: pgRawData } = useGet<any>(ApiSecProjectGroup.getAll, {}, { immediate: true })
+const projectGroupOptions = computed(() => {
+  const all = Array.isArray(pgRawData.value) ? pgRawData.value : []
+  const dc = domainCode.value
+  const filtered = dc ? all.filter((pg: any) => pg.product_group_name === dc) : all
+  return filtered.map((pg: any) => ({ label: pg.name, value: pg.name }))
+})
+const projectGroupName = ref('')
+
 // ── 左侧菜单树 ──────────────────────────────────
 const treeData = ref<any[]>([])
 const selectedKeys = ref<string[]>([])
 const selectedMenuId = ref('')
 const selectedMenuName = ref('')
 
-const { data: treeRawData, execute: fetchTree } = useGet<any[]>(ApiPerfMenu.tree, computed(() => ({ product_line: productLine.value })), { immediate: false })
+const { data: treeRawData, execute: fetchTree } = useGet<any[]>(ApiPerfMenu.tree, computed(() => ({ product_line: productLine.value, domain_code: domainCode.value || undefined, project_group_name: projectGroupName.value || undefined })), { immediate: false })
+
+// 领域默认选择（读取 is_default='Y' 的字典项）
+watch(domainDictRaw, (val) => {
+  if (domainResolved.value) return
+  if (!Array.isArray(val)) return
+  domainResolved.value = true
+  if (!domainCode.value && val.length > 0) {
+    const defaultItem = val.find((d: any) => d.is_default === 'Y')
+    if (defaultItem) {
+      domainCode.value = defaultItem.dict_value
+      return // domainCode watch 会触发 fetch
+    }
+  }
+  // 没有默认领域，如果产品线已就绪则直接 fetch
+  if (productLine.value) {
+    fetchTree()
+    fetchBindList()
+  }
+}, { immediate: true })
 
 watch(productLine, (val) => {
   selectedKeys.value = []
   selectedMenuId.value = ''
   selectedMenuName.value = ''
+  treeData.value = []
   if (val) {
-    fetchTree()
     bindListQuery.value.product_line = val
     bindListQuery.value.menu_ids = ''
     bindListQuery.value.page_num = 1
-    fetchBindList()
-  } else {
-    treeData.value = []
+    // 等领域字典加载完成后再 fetch（避免双重请求被斩断）
+    if (domainResolved.value) {
+      fetchTree()
+      fetchBindList()
+    }
   }
-}, { immediate: false })
+})
+
+// ── 领域 / 项目组变化联动 ──────────────────────────────
+let skipPgWatch = false
+
+watch(domainCode, () => {
+  // 领域变化时清空项目组
+  if (projectGroupName.value) {
+    skipPgWatch = true
+    projectGroupName.value = ''
+  }
+  if (productLine.value && domainResolved.value) {
+    selectedKeys.value = []
+    selectedMenuId.value = ''
+    selectedMenuName.value = ''
+    bindListQuery.value.menu_ids = ''
+    bindListQuery.value.domain_code = domainCode.value
+    bindListQuery.value.project_group_name = ''
+    bindListQuery.value.page_num = 1
+    fetchTree()
+    fetchBindList()
+  }
+})
+
+watch(projectGroupName, () => {
+  if (skipPgWatch) { skipPgWatch = false; return }
+  if (productLine.value && domainResolved.value) {
+    selectedKeys.value = []
+    selectedMenuId.value = ''
+    selectedMenuName.value = ''
+    bindListQuery.value.menu_ids = ''
+    bindListQuery.value.project_group_name = projectGroupName.value
+    bindListQuery.value.page_num = 1
+    fetchTree()
+    fetchBindList()
+  }
+})
 
 watch(treeRawData, (val) => {
   treeData.value = Array.isArray(val) ? val : []
@@ -104,7 +177,7 @@ function handleTreeSelect(keys: string[], data: { node: any }) {
 }
 
 // ── 右侧：脚本绑定列表 ──────────────────────────────────
-const bindListQuery = ref({ page_num: 1, page_size: 20, menu_ids: '', product_line: '' })
+const bindListQuery = ref({ page_num: 1, page_size: 20, menu_ids: '', product_line: '', domain_code: '', project_group_name: '' })
 const { isFetching: bindLoading, data: bindListRaw, execute: fetchBindList } = useGet<any>(ApiPerfScriptMenu.getList, bindListQuery, { immediate: false })
 const bindList = computed(() => bindListRaw.value?.list || [])
 const bindTotal = computed(() => bindListRaw.value?.total || 0)
@@ -211,11 +284,17 @@ async function handleAddSubmit() {
 
 <template>
   <div class="perf-script-bindng">
-    <!-- 顶部产品线选择栏 -->
+    <!-- 顶部筛选栏 -->
     <a-card :bordered="false" class="m-b-8px">
       <a-row :gutter="16" align="center">
-        <a-col :span="6">
+        <a-col :span="5">
           <a-select v-model="productLine" :options="productLineOptions" placeholder="选择产品线" allow-search />
+        </a-col>
+        <a-col :span="5">
+          <a-select v-model="domainCode" :options="domainOptions" placeholder="全部领域" allow-clear />
+        </a-col>
+        <a-col :span="5">
+          <a-select v-model="projectGroupName" :options="projectGroupOptions" placeholder="全部项目组" allow-search allow-clear />
         </a-col>
       </a-row>
     </a-card>

@@ -1,3 +1,4 @@
+import { Message } from '@arco-design/web-vue'
 import NProgress from 'nprogress'
 import type { RouteRecordRaw, Router } from 'vue-router'
 
@@ -23,17 +24,30 @@ export async function useRouterGuard(router: Router) {
     //  token 有效
     if (valid) {
       if (to.path === '/login') {
-        next({ path: '/' })
-        NProgress.done()
+        // serverError 时允许停留在登录页，避免 token 仍有效导致 /login → / → getUserInfo 死循环
+        if (permissionStore.serverError) {
+          next()
+          NProgress.done()
+        }
+        else {
+          next({ path: '/' })
+          NProgress.done()
+        }
       }
       else {
         const userStore = useUserStore()
 
         if (permissionStore.isReloading) {
           if (!(await userStore.getUserInfo())) {
-            next(`/login?redirect=${to.fullPath}`)
+            // 后端不可达：标记 serverError 并重置 isReloading，跳转登录页
+            // 不清除 token，用户刷新后若后端恢复可正常登录
+            permissionStore.setServerError(true)
+            permissionStore.setIsReloading(false)
+            Message.error('无法连接服务器，请检查后端服务是否正常')
+            next('/login')
           }
           else {
+            permissionStore.setServerError(false)
             const aRoutes = await permissionStore.generateRoutes()
             aRoutes.forEach((aRoute) => {
               if (!isHttp(aRoute.path))

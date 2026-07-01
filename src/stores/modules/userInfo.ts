@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 import { unref } from 'vue'
 
 import { usePermissionStore } from './permission'
-import { ApiSysLogin, ApiSysUser } from '@/api/sysApis'
+import { ApiSysLogin, ApiSysUser, ErrorFlag } from '@/api/apis'
 import defaultAvatar from '@/assets/av.webp'
 import { useEncrypt, useGet, usePost, usePut } from '@/hooks'
 import type { FullUserInfo, LoginForm, LoginFormLocal, TokenInfo } from '@/types/base/login'
@@ -59,13 +59,25 @@ export const useUserStore = defineStore('userInfo', {
         exp_in: token.exp_in,
         type: token.token_type,
       }
+      // 登录成功后重置路由加载状态，确保路由守卫重新调用 getUserInfo 和 generateRoutes
+      usePermissionStore().setIsReloading(true)
+      usePermissionStore().setServerError(false)
     },
     // 获取用户信息
     async getUserInfo(): Promise<boolean> {
-      const { data, execute } = useGet<FullUserInfo>(ApiSysLogin.getUserInfo, null, { refetch: false })
-      await execute()
+      const { data, error, execute } = useGet<FullUserInfo>(ApiSysLogin.getUserInfo, null, { refetch: false })
+      try {
+        await execute()
+      }
+      catch {
+        return false
+      }
+      // 请求失败（网络错误/后端不可达）或返回错误标志时，直接返回 false
+      if (error.value || !data.value || data.value === (ErrorFlag as unknown)) {
+        return false
+      }
       const user = data.value
-      if (user) {
+      if (user && user.user) {
         this.user = {
           name: user.user.user_name,
           avatar:
@@ -81,9 +93,7 @@ export const useUserStore = defineStore('userInfo', {
         }
         return true
       }
-      else {
-        return false
-      }
+      return false
     },
     // 获取本地用户信息
     getLocalUserInfo() {

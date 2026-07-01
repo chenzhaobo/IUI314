@@ -51,12 +51,24 @@ const menuQuery = ref({
 })
 
 // 领域默认选择（读取 is_default='Y' 的字典项，必须在 menuQuery 定义之后）
+const domainResolved = ref(false)
 watch(domainDictRaw, (val) => {
-  if (!menuQuery.value.domain_code && Array.isArray(val) && val.length > 0) {
+  if (domainResolved.value) return
+  if (!Array.isArray(val)) return
+  domainResolved.value = true
+  if (!menuQuery.value.domain_code && val.length > 0) {
     const defaultItem = val.find((d: any) => d.is_default === 'Y')
     if (defaultItem) {
+      // 设置默认领域 → domain_code watch 会触发 fetch
       menuQuery.value.domain_code = defaultItem.dict_value
+      return
     }
+  }
+  // 没有默认领域，如果产品线已就绪则直接 fetch
+  if (productLine.value) {
+    fetchTree()
+    fetchStats()
+    getMenuList()
   }
 }, { immediate: true })
 
@@ -226,13 +238,16 @@ watch(productLine, (val) => {
   selectedNode.value = null
   loadedButtonKeys.value.clear()
   if (val) {
-    fetchTree()
-    fetchStats()
-    fetchEnvList()
-    fetchAppList()
     menuQuery.value.product_line = val
     menuQuery.value.page_num = 1
-    getMenuList()
+    fetchEnvList()
+    fetchAppList()
+    // 等领域字典加载完成后再 fetch tree/stats/list（避免双重请求被掐断）
+    if (domainResolved.value) {
+      fetchTree()
+      fetchStats()
+      getMenuList()
+    }
   }
 })
 

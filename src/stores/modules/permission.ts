@@ -22,6 +22,7 @@ export const usePermissionStore = defineStore('permission', {
     addRoutes: new Array<AppRouteRecordRaw>(),
     isReloading: true,
     routeIsDone: false,
+    serverError: false,
   }),
   getters: {
     getPermissionRoutes(): AppRouteRecordRaw[] {
@@ -59,6 +60,9 @@ export const usePermissionStore = defineStore('permission', {
     },
     setRouteIsDone(v: boolean) {
       this.routeIsDone = v
+    },
+    setServerError(v: boolean) {
+      this.serverError = v
     },
   },
 })

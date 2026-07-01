@@ -2,7 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { useGet, usePost, usePut, useDelete, useToken } from '@/hooks'
-import { ApiPerfScript } from '@/api/apis'
+import { ApiPerfScript, ApiSecProjectGroup } from '@/api/apis'
 
 defineOptions({ name: 'PerfScript' })
 
@@ -11,18 +11,18 @@ const queryParams = ref({
   page_num: 1,
   page_size: 10,
   keyword: '',
-  domain: '',
+  project_group_id: '',
 })
 
 const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<any>(ApiPerfScript.getList, queryParams, { immediate: true })
 const dataList = computed(() => rawListData.value?.list || [])
 const total = computed(() => rawListData.value?.total || 0)
-const domainList = computed(() => {
-  const set = new Set<string>()
-  for (const s of dataList.value) {
-    if (s.domain) set.add(s.domain)
-  }
-  return Array.from(set)
+
+// ── 项目组选项 ──────────────────────────────────
+const { data: pgRawData } = useGet<any>(ApiSecProjectGroup.getAll, {}, { immediate: true })
+const projectGroupOptions = computed(() => {
+  const all = Array.isArray(pgRawData.value) ? pgRawData.value : []
+  return all.map((pg: any) => ({ label: pg.name, value: pg.id }))
 })
 
 function handleSearch() {
@@ -35,13 +35,16 @@ function handlePageChange(page: number) {
   getList()
 }
 
+// ── 时间格式化 ──────────────────────────────────
+function formatTime(time?: string | null) {
+  if (!time) return '-'
+  return time.replace('T', ' ').substring(0, 19)
+}
+
 const columns = [
   { title: '脚本名称', dataIndex: 'name', width: 160, ellipsis: true, tooltip: true },
   { title: '编码', dataIndex: 'code', width: 120 },
-  { title: '云', dataIndex: 'cloud', width: 100, slotName: 'cloud' },
-  { title: '领域', dataIndex: 'domain', width: 100, slotName: 'domain' },
-  { title: '模块', dataIndex: 'module_name', width: 100, slotName: 'module_name' },
-  { title: '功能', dataIndex: 'function_name', width: 100, slotName: 'function_name' },
+  { title: '应用编码', dataIndex: 'app_code', width: 90 },
   { title: '测试类型', dataIndex: 'test_type', width: 80, ellipsis: true, tooltip: true },
   { title: '绑定数', dataIndex: 'bind_count', width: 70 },
   { title: '事务', dataIndex: 'txn_summary', width: 100, slotName: 'txnSummary' },
@@ -49,6 +52,9 @@ const columns = [
   { title: '文件名', dataIndex: 'jmx_file_name', width: 180, ellipsis: true, tooltip: true },
   { title: '大小(KB)', dataIndex: 'jmx_file_size', width: 90, render: ({ record }: any) => (record.jmx_file_size / 1024).toFixed(1) },
   { title: '运行次数', dataIndex: 'run_count', width: 80 },
+  { title: '创建时间', dataIndex: 'created_at', width: 160, slotName: 'created_at' },
+  { title: '更新时间', dataIndex: 'updated_at', width: 160, slotName: 'updated_at' },
+  { title: '更新人', dataIndex: 'update_by', width: 100, ellipsis: true, tooltip: true },
   { title: '状态', dataIndex: 'status', width: 60, slotName: 'status' },
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 220, fixed: 'right' as const },
 ]
@@ -62,17 +68,13 @@ const uploadForm = ref({
   description: '',
   tags: '',
   remark: '',
-  cloud: '',
-  domain: '',
-  module_name: '',
-  function_name: '',
   test_type: '',
 })
 const uploadFile = ref<File | null>(null)
 const uploading = ref(false)
 
 function handleUploadClick() {
-  uploadForm.value = { name: '', code: '', project_group_id: '', description: '', tags: '', remark: '', cloud: '', domain: '', module_name: '', function_name: '', test_type: '' }
+  uploadForm.value = { name: '', code: '', project_group_id: '', description: '', tags: '', remark: '', test_type: '' }
   uploadFile.value = null
   uploadVisible.value = true
 }
@@ -102,10 +104,6 @@ async function handleUploadSubmit() {
   formData.append('description', uploadForm.value.description)
   formData.append('tags', uploadForm.value.tags)
   formData.append('remark', uploadForm.value.remark)
-  formData.append('cloud', uploadForm.value.cloud)
-  formData.append('domain', uploadForm.value.domain)
-  formData.append('module_name', uploadForm.value.module_name)
-  formData.append('function_name', uploadForm.value.function_name)
   formData.append('test_type', uploadForm.value.test_type)
 
   uploading.value = true
@@ -160,7 +158,6 @@ async function handleDelete(record: any) {
   getList()
 }
 
-// 云/领域/模块/功能 从脚本绑定自动派生，不可手动编辑
 const editFields = [
   { label: '脚本名称', field: 'name', required: true },
   { label: '脚本编码', field: 'code', required: true },
@@ -171,10 +168,8 @@ const editFields = [
   { label: '备注', field: 'remark' },
 ]
 
-// ── 领域筛选 ──────────────────────────────────
-const domainFilter = ref('')
-watch(domainFilter, (v) => {
-  queryParams.value.domain = v
+// ── 项目组筛选 ──────────────────────────────────
+watch(() => queryParams.value.project_group_id, () => {
   queryParams.value.page_num = 1
   getList()
 })
@@ -188,6 +183,7 @@ const txnDetailColumns = [
   { title: '#', width: 60, render: ({ rowIndex }: any) => rowIndex + 1 },
   { title: '事务名称', dataIndex: 'name', width: 300, ellipsis: true, tooltip: true },
   { title: '事务编码', dataIndex: 'txn_code', width: 180, ellipsis: true, tooltip: true },
+  { title: '按钮Key', dataIndex: 'button_key', width: 120, ellipsis: true, tooltip: true },
   { title: '类型', dataIndex: 'txn_type', width: 130, slotName: 'txnType' },
   { title: '启用', dataIndex: 'enabled', width: 70, slotName: 'enabled' },
   { title: '关键事务', dataIndex: 'is_key_txn', width: 90, slotName: 'keyTxn' },
@@ -289,15 +285,13 @@ async function handleBatchUploadSubmit() {
   <div class="perf-script">
     <a-card :bordered="false" class="m-b-8px">
       <a-row :gutter="16">
-        <a-col :span="6">
+        <a-col :span="8">
           <a-input-search v-model="queryParams.keyword" placeholder="搜索脚本名称/编码" allow-clear @search="handleSearch" @press-enter="handleSearch" />
         </a-col>
-        <a-col :span="4">
-          <a-select v-model="domainFilter" placeholder="选择领域" allow-clear>
-            <a-option v-for="d in domainList" :key="d" :value="d">{{ d }}</a-option>
-          </a-select>
+        <a-col :span="5">
+          <a-select v-model="queryParams.project_group_id" :options="projectGroupOptions" placeholder="全部项目组" allow-search allow-clear />
         </a-col>
-        <a-col :span="6">
+        <a-col :span="8">
           <a-space>
             <a-button type="primary" @click="handleSearch">搜索</a-button>
             <a-button type="primary" status="success" @click="handleUploadClick">
@@ -326,26 +320,8 @@ async function handleBatchUploadSubmit() {
         row-key="id"
         @page-change="handlePageChange"
       >
-        <template #cloud="{ record }">
-          <span v-if="record.cloud">{{ record.cloud }}</span>
-          <a-tag v-if="record.derived" size="small" color="arcoblue">派生</a-tag>
-          <span v-if="!record.cloud" style="color:#999">-</span>
-        </template>
-        <template #domain="{ record }">
-          <span v-if="record.domain">{{ record.domain }}</span>
-          <a-tag v-if="record.derived" size="small" color="arcoblue">派生</a-tag>
-          <span v-if="!record.domain" style="color:#999">-</span>
-        </template>
-        <template #module_name="{ record }">
-          <span v-if="record.module_name">{{ record.module_name }}</span>
-          <a-tag v-if="record.derived" size="small" color="arcoblue">派生</a-tag>
-          <span v-if="!record.module_name" style="color:#999">-</span>
-        </template>
-        <template #function_name="{ record }">
-          <span v-if="record.function_name">{{ record.function_name }}</span>
-          <a-tag v-if="record.derived" size="small" color="arcoblue">派生</a-tag>
-          <span v-if="!record.function_name" style="color:#999">-</span>
-        </template>
+        <template #created_at="{ record }">{{ formatTime(record.created_at) }}</template>
+        <template #updated_at="{ record }">{{ formatTime(record.updated_at) }}</template>
         <template #status="{ record }">
           <a-tag :color="record.status === '1' ? 'green' : 'red'">{{ record.status === '1' ? '启用' : '禁用' }}</a-tag>
         </template>
@@ -376,9 +352,6 @@ async function handleBatchUploadSubmit() {
         <a-form-item label="脚本编码" required>
           <a-input v-model="uploadForm.code" placeholder="如：login_test" />
         </a-form-item>
-        <a-alert type="info" :style="{ marginBottom: '12px' }">
-          云、领域、模块、功能字段将在脚本绑定菜单后自动从绑定关系派生，无需手动填写。
-        </a-alert>
         <a-form-item label="测试类型">
           <a-input v-model="uploadForm.test_type" placeholder="如：列表测试" />
         </a-form-item>
@@ -400,30 +373,6 @@ async function handleBatchUploadSubmit() {
     <!-- 编辑弹窗 -->
     <a-modal v-model:visible="editVisible" title="编辑脚本" :width="560" @ok="handleEditSubmit">
       <a-form :model="editForm" layout="vertical">
-        <a-row :gutter="16">
-          <a-col :span="12">
-            <a-form-item label="云（绑定派生）">
-              <a-input v-model="editForm.cloud" disabled placeholder="从脚本绑定自动获取" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="12">
-            <a-form-item label="领域（绑定派生）">
-              <a-input v-model="editForm.domain" disabled placeholder="从脚本绑定自动获取" />
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-row :gutter="16">
-          <a-col :span="12">
-            <a-form-item label="模块（绑定派生）">
-              <a-input v-model="editForm.module_name" disabled placeholder="从脚本绑定自动获取" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="12">
-            <a-form-item label="功能（绑定派生）">
-              <a-input v-model="editForm.function_name" disabled placeholder="从脚本绑定自动获取" />
-            </a-form-item>
-          </a-col>
-        </a-row>
         <a-form-item v-for="f in editFields" :key="f.field" :label="f.label" :required="f.required">
           <a-input v-model="editForm[f.field]" :placeholder="`请输入${f.label}`" />
         </a-form-item>
@@ -474,7 +423,7 @@ async function handleBatchUploadSubmit() {
     <a-modal v-model:visible="batchUploadVisible" title="批量上传JMX脚本" :width="560" :ok-loading="batchUploading" @ok="handleBatchUploadSubmit">
       <a-alert type="info" :style="{ marginBottom: '12px' }">
         文件名需符合规范: code-基准-云-领域-模块-功能-测试类型.jmx
-        系统将从文件名自动解析领域信息并查重跳过已存在脚本。
+        系统将从文件名自动解析编码和测试类型，并按MD5查重跳过已存在脚本。
       </a-alert>
       <a-form layout="vertical">
         <a-form-item label="项目组ID（可选）">
