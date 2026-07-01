@@ -66,6 +66,14 @@ async function getList() {
   total.value = data.value?.total || 0
 }
 
+async function handleUploadSuccess(reportId: string) {
+  await getReportList()
+  if (reportId) {
+    selectedReportId.value = reportId
+  }
+  await getList()
+}
+
 async function handleAutoFetch() {
   const { data, execute } = usePost<string>(ApiStockAmazon.autoFetch, {})
   await execute()
@@ -225,7 +233,7 @@ onMounted(() => {
     <!-- 上传报表弹窗 -->
     <StockAnalysisUploadModal
       v-model:visible="uploadModalVisible"
-      @success="getReportList"
+      @success="handleUploadSuccess"
     />
   </div>
 </template>

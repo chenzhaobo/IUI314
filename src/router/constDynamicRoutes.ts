@@ -68,6 +68,14 @@ export const systemMenus: Record<string, routeMenuInfo> = {
     path: 'stock-analysis',
     name: '库存分析',
   },
+  gigaItems: {
+    path: 'giga-items',
+    name: 'Giga商品',
+  },
+  skuMapping: {
+    path: 'sku-mapping',
+    name: 'SKU映射',
+  },
 }
 
 export const constMenus: Record<string, routeMenuInfo> = { ...systemMenus }

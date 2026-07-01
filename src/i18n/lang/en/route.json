@@ -21,5 +21,8 @@
   "test": "Test",
   "userCenter": "userCenter",
   "userManage": "User",
-  "vue": "vue"
+  "vue": "vue",
+  "stockAnalysis": "Stock Analysis",
+  "gigaItems": "Giga Items",
+  "skuMapping": "SKU Mapping"
 }

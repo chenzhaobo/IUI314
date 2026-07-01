@@ -23,3 +23,14 @@ export enum ApiStockAnalysis {
   getResult = '/stock/analysis/result',
   export = '/stock/analysis/export',
 }
+
+/**
+ * @description: 库存分析 - SKU 映射 Api
+ */
+export enum ApiStockSkuMapping {
+  getList = '/stock/sku-mapping/list',
+  add = '/stock/sku-mapping/add',
+  edit = '/stock/sku-mapping/edit',
+  delete = '/stock/sku-mapping/delete',
+  autoGen = '/stock/sku-mapping/auto_gen',
+}

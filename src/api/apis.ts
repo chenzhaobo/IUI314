@@ -42,6 +42,7 @@ export type APIS =
   | ApiStockGiga
   | ApiStockAmazon
   | ApiStockAnalysis
+  | ApiStockSkuMapping
 
 export const ErrorFlag = '__________' // 错误标志
 export * from './sysApis'

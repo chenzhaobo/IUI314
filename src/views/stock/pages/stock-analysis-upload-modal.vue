@@ -4,10 +4,13 @@ import { ref } from 'vue'
 import { ErrorFlag } from '@/api/apis'
 import { ApiStockAmazon } from '@/api/stockApis'
 import { usePost } from '@/hooks'
+import type { amazonUploadResp } from '@/types/stock/stock'
 
 defineOptions({ name: 'StockAnalysisUploadModal' })
 
-const emit = defineEmits(['success'])
+const emit = defineEmits<{
+  success: [reportId: string]
+}>()
 const visible = defineModel<boolean>('visible', { required: true })
 
 const selectedFile = ref<File | null>(null)
@@ -33,15 +36,16 @@ async function handleOk() {
   const formData = new FormData()
   formData.append('file', selectedFile.value)
   loading.value = true
-  const { data, execute } = usePost<string>(ApiStockAmazon.upload, formData)
+  const { data, execute } = usePost<amazonUploadResp>(ApiStockAmazon.upload, formData)
   await execute()
   loading.value = false
   if (data.value === ErrorFlag)
     return false
-  Message.success(data.value || '上传成功')
+  const reportId = data.value?.report_id || ''
+  Message.success(`上传并解析成功，共 ${data.value?.total_count ?? 0} 条 listing`)
   selectedFile.value = null
   fileName.value = ''
-  emit('success')
+  emit('success', reportId)
   return true
 }
 

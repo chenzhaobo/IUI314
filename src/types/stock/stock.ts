@@ -50,6 +50,12 @@ export interface amazonAutoFetchReq {
   profile_id?: string
 }
 
+// Amazon 报告上传响应
+export interface amazonUploadResp {
+  report_id: string
+  total_count: number
+}
+
 // 库存分析请求
 export interface stockAnalysisReq {
   report_id: string
