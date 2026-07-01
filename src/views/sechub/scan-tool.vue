@@ -14,7 +14,7 @@ const columns = [
   { title: '文档URL', dataIndex: 'docs_url', width: 120, ellipsis: true, tooltip: true },
   { title: '排序', dataIndex: 'order_num', width: 60 },
   { title: '状态', dataIndex: 'status', width: 60 },
-  { title: '操作', dataIndex: 'operations', slot: 'operations', width: 120, fixed: 'right' as const },
+  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 120, fixed: 'right' as const },
 ]
 
 const fields = [

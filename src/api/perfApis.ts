@@ -9,7 +9,6 @@ export enum ApiPerfEnv {
   add = '/perf/env/add',
   edit = '/perf/env/edit',
   delete = '/perf/env/delete',
-  sync = '/perf/env/sync',
 }
 
 // ── 迭代管理 ──────────────────────────────────────
@@ -31,6 +30,7 @@ export enum ApiPerfCloud {
 // ── 应用目录 ──────────────────────────────────────
 export enum ApiPerfApp {
   getList = '/perf/app/list',
+  bindDomain = '/perf/app/bind_domain',
 }
 
 // ── 菜单目录 ──────────────────────────────────────
@@ -40,6 +40,10 @@ export enum ApiPerfMenu {
   stats = '/perf/menu/stats',
   scope = '/perf/menu/scope',
   sync = '/perf/menu/sync',
+  buttons = '/perf/menu/buttons',
+  markButtons = '/perf/menu/buttons/mark',
+  tableInfo = '/perf/menu/table-info',
+  autoMatchPg = '/perf/menu/auto_match_pg',
 }
 
 // ── 脚本-菜单绑定 ──────────────────────────────────────
@@ -98,4 +102,22 @@ export enum ApiPerfTask {
   retryFailed = '/perf/task/retry_failed',
   cancel = '/perf/task/cancel',
   delete = '/perf/task/delete',
+}
+
+// ── 模块管理 ──────────────────────────────────
+export enum ApiPerfModule {
+  getList = '/perf/module/list',
+  getById = '/perf/module/get_by_id',
+  add = '/perf/module/add',
+  edit = '/perf/module/edit',
+  delete = '/perf/module/delete',
+  import = '/perf/module/import',
+}
+
+// ── 表统计 ──────────────────────────────────
+export enum ApiPerfTableStats {
+  sync = '/perf/table-stats/sync',
+  cancel = '/perf/table-stats/cancel',
+  status = '/perf/table-stats/status',
+  list = '/perf/table-stats/list',
 }

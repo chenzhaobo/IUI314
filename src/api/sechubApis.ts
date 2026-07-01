@@ -53,6 +53,7 @@ export enum ApiSecDefect {
 // ── 项目组 ────────────────────────────────────────
 export enum ApiSecProjectGroup {
   getList = '/sechub/project-group/list',
+  getAll = '/sechub/project-group/get_all',
   getById = '/sechub/project-group/get_by_id',
   add = '/sechub/project-group/add',
   edit = '/sechub/project-group/edit',

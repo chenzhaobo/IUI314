@@ -79,7 +79,7 @@ const columns = [
   { title: '负责人', dataIndex: 'assignee_names', width: 100 },
   { title: '发现人', dataIndex: 'discoverer_names', width: 100 },
   { title: '安全缺陷', dataIndex: 'is_security', width: 80 },
-  { title: '操作', slot: 'operations', width: 150, fixed: 'right' as const },
+  { title: '操作', slotName: 'operations', width: 150, fixed: 'right' as const },
 ]
 </script>
 <template>

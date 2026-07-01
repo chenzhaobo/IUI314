@@ -103,7 +103,7 @@ const columns = [
   { title: '首次发现', dataIndex: 'first_seen_at', width: 160 },
   { title: '最近发现', dataIndex: 'last_seen_at', width: 160 },
   { title: '负责人', dataIndex: 'assignee_names', width: 100 },
-  { title: '操作', slot: 'operations', width: 200, fixed: 'right' as const },
+  { title: '操作', slotName: 'operations', width: 200, fixed: 'right' as const },
 ]
 </script>
 <template>

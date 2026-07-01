@@ -9,7 +9,7 @@ const columns = [
   { title: '参数', dataIndex: 'params_json', ellipsis: true, tooltip: true },
   { title: '启用', dataIndex: 'enabled', width: 60 },
   { title: '最后运行', dataIndex: 'last_run_at', width: 160 },
-  { title: '操作', dataIndex: 'operations', slot: 'operations', width: 120, fixed: 'right' as const },
+  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 120, fixed: 'right' as const },
 ]
 const fields = [
   { label: '任务名称', field: 'task_name', required: true },

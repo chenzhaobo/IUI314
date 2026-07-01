@@ -11,7 +11,7 @@ import {
   isObject,
 } from '@vueuse/core'
 
-import { ApiSysLogin, ErrorFlag } from '@/api/apis'
+import { ErrorFlag } from '@/api/apis'
 import { useToken } from '@/hooks'
 import { useSetupI18n } from '@/i18n'
 import { router } from '@/router'
@@ -36,19 +36,18 @@ export const useRequest = createFetch({
     },
     async afterFetch({ data, response }) {
       const { isExpiredSoon } = useToken()
-      const status = data.code || 200
-      if (status === 200)
+      const status = data?.code || 200
+      if (status === 200) {
         data = data.data || {}
-
-      if (status === 401)
+      } else if (status === 401) {
         // JWT未授权，跳转登录页
         await log_out()
-      if (status === 403)
-      // API未授权，跳转到403页面
+      } else if (status === 403) {
+        // API未授权，跳转到403页面
         await go_to_403()
-
-      if (status === 500) {
-        Message.error(data.msg)
+      } else {
+        // 400/500/其他错误码：显示后端错误信息
+        Message.error(data?.msg || `请求失败 (${status})`)
         data = ErrorFlag
       }
       if (isExpiredSoon) {
@@ -58,12 +57,22 @@ export const useRequest = createFetch({
       NProgress.done()
       return { data, response }
     },
-    async onFetchError({ response, error }) {
-      if (response?.status === 401
-        || (response?.status === 500 && response.url.includes(ApiSysLogin.getUserInfo)))
+    async onFetchError({ data, response, error }) {
+      // 网络层错误（无响应）或后端返回非JSON错误体
+      if (response?.status === 401) {
         await log_out()
+      } else if (response?.status === 403) {
+        await go_to_403()
+      } else if (data?.msg) {
+        // 后端返回了 JSON 格式的错误信息
+        Message.error(data.msg)
+      } else if (error) {
+        Message.error('网络请求失败，请检查网络连接')
+      } else {
+        Message.error(`请求失败 (${response?.status || '未知错误'})`)
+      }
       NProgress.done()
-      return { error }
+      return { data: ErrorFlag, error: undefined }
     },
   },
 })
@@ -126,7 +135,7 @@ export function usePost<T = unknown>(
   options?: UseFetchOptions,
 ): UseFetchReturn<T> {
   return useRequest<T>(url, { ...options })
-    .post(payload)
+    .post(payload, 'json')
     .json()
 }
 
@@ -142,7 +151,7 @@ export function usePut<T = unknown>(
   options?: UseFetchOptions,
 ) {
   return useRequest<T>(url, { ...options })
-    .put(payload)
+    .put(payload, 'json')
     .json()
 }
 
@@ -158,7 +167,7 @@ export function useDelete<T = unknown>(
   options?: UseFetchOptions,
 ): UseFetchReturn<T> {
   return useRequest<T>(url, { ...options })
-    .delete(payload)
+    .delete(payload, 'json')
     .json()
 }
 

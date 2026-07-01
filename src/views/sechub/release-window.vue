@@ -9,7 +9,7 @@ const columns = [
   { title: '结束日期', dataIndex: 'end_date', width: 120 },
   { title: '发布日期', dataIndex: 'release_date', width: 120 },
   { title: '状态', dataIndex: 'status', width: 80 },
-  { title: '操作', dataIndex: 'operations', slot: 'operations', width: 120, fixed: 'right' as const },
+  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 120, fixed: 'right' as const },
 ]
 const fields = [
   { label: '窗口代码', field: 'window_code', required: true },

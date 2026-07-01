@@ -6,6 +6,7 @@
 import { computed, ref, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { useGet, usePost, usePut, useDelete } from '@/hooks'
+import { ErrorFlag } from '@/api/apis'
 
 export interface SecField {
   label: string
@@ -22,8 +23,16 @@ export interface SecColumn {
   width?: number
   ellipsis?: boolean
   tooltip?: boolean
-  slot?: string
+  slotName?: string
   fixed?: 'left' | 'right'
+}
+
+export interface SecFilter {
+  label: string
+  field: string
+  type?: 'select'
+  options?: { label: string; value: string }[]
+  placeholder?: string
 }
 
 const props = withDefaults(
@@ -35,6 +44,7 @@ const props = withDefaults(
     apiDelete?: string
     columns: SecColumn[]
     fields: SecField[]
+    filters?: SecFilter[]
     searchFields?: string[]
     idField?: string
     nameField?: string
@@ -48,11 +58,18 @@ const props = withDefaults(
 )
 
 // ── 查询 ──────────────────────────────────────────
-const queryParams = ref({
+const queryParams = ref<Record<string, any>>({
   page_num: 1,
   page_size: 10,
   keyword: '',
 })
+
+// 初始化过滤字段默认值
+if (props.filters) {
+  props.filters.forEach((f) => {
+    queryParams.value[f.field] = ''
+  })
+}
 
 const {
   isFetching: isLoading,
@@ -100,18 +117,16 @@ async function handleSubmit() {
   }
 
   if (isEdit.value && props.apiEdit) {
-    const { execute, error } = usePut(props.apiEdit, formData)
+    const { execute, data, error } = usePut(props.apiEdit, formData)
     await execute()
-    if (error.value) {
-      Message.error('编辑失败')
+    if (error.value || data.value === ErrorFlag) {
       return
     }
     Message.success('编辑成功')
   } else if (props.apiAdd) {
-    const { execute, error } = usePost(props.apiAdd, formData)
+    const { execute, data, error } = usePost(props.apiAdd, formData)
     await execute()
-    if (error.value) {
-      Message.error('新增失败')
+    if (error.value || data.value === ErrorFlag) {
       return
     }
     Message.success('新增成功')
@@ -136,10 +151,9 @@ async function handleDelete(record?: any) {
 
   if (!props.apiDelete) return
 
-  const { execute, error } = useDelete(props.apiDelete, { ids })
+  const { execute, data, error } = useDelete(props.apiDelete, { ids })
   await execute()
-  if (error.value) {
-    Message.error('删除失败')
+  if (error.value || data.value === ErrorFlag) {
     return
   }
   Message.success('删除成功')
@@ -154,6 +168,11 @@ function handleSearch() {
 
 function handleReset() {
   queryParams.value.keyword = ''
+  if (props.filters) {
+    props.filters.forEach((f) => {
+      queryParams.value[f.field] = ''
+    })
+  }
   queryParams.value.page_num = 1
   getList()
 }
@@ -174,8 +193,8 @@ function handlePageSizeChange(size: number) {
   <div class="sechub-crud-page">
     <!-- 搜索栏 -->
     <a-card :bordered="false" class="m-b-8px">
-      <a-row :gutter="16">
-        <a-col :span="8">
+      <a-row :gutter="16" align="center">
+        <a-col :span="6">
           <a-input-search
             v-model="queryParams.keyword"
             placeholder="输入关键词搜索"
@@ -184,6 +203,18 @@ function handlePageSizeChange(size: number) {
             @press-enter="handleSearch"
           />
         </a-col>
+        <template v-if="filters && filters.length">
+          <a-col v-for="f in filters" :key="f.field" :span="5">
+            <a-select
+              v-model="queryParams[f.field]"
+              :placeholder="f.placeholder || `选择${f.label}`"
+              allow-clear
+              @change="handleSearch"
+            >
+              <a-option v-for="opt in f.options" :key="opt.value" :value="opt.value">{{ opt.label }}</a-option>
+            </a-select>
+          </a-col>
+        </template>
         <a-col :span="4">
           <a-space>
             <a-button type="primary" @click="handleSearch">搜索</a-button>

@@ -40,6 +40,8 @@ import type {
   ApiPerfBaseline,
   ApiPerfIteration,
   ApiPerfTask,
+  ApiPerfModule,
+  ApiPerfTableStats,
 } from './perfApis'
 
 export type APIS =
@@ -80,6 +82,8 @@ export type APIS =
   | ApiPerfBaseline
   | ApiPerfIteration
   | ApiPerfTask
+  | ApiPerfModule
+  | ApiPerfTableStats
 
 export const ErrorFlag = '__________' // 错误标志
 export * from './sysApis'

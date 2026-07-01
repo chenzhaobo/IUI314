@@ -1,8 +1,8 @@
 <script lang="ts" setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { useGet, usePost, usePut, useDelete } from '@/hooks'
-import { ApiPerfEnv } from '@/api/apis'
+import { ApiPerfEnv, ApiSysDictData } from '@/api/apis'
 
 defineOptions({ name: 'PerfEnvManage' })
 
@@ -13,7 +13,23 @@ const queryParams = ref({
   keyword: '',
   env_type: '',
   status: '',
+  product_line: '',
 })
+
+// ── 产品线字典 ──────────────────────────────────
+const { data: dictRaw } = useGet<any>(ApiSysDictData.getByType, { dict_type: 'perf_product_line' }, { immediate: true })
+const productLineOptions = computed(() => (Array.isArray(dictRaw.value) ? dictRaw.value : []).map((d: any) => ({ label: d.dict_label, value: d.dict_value })))
+const defaultProductLine = computed(() => {
+  const arr = Array.isArray(dictRaw.value) ? dictRaw.value : []
+  const defaultItem = arr.find((d: any) => d.is_default === 'Y')
+  return defaultItem?.dict_value || arr[0]?.dict_value || ''
+})
+
+watch(dictRaw, (val) => {
+  if (!queryParams.value.product_line && Array.isArray(val) && val.length > 0) {
+    queryParams.value.product_line = defaultProductLine.value
+  }
+}, { immediate: true })
 
 const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<any>(ApiPerfEnv.getList, queryParams, { immediate: true })
 const dataList = computed(() => rawListData.value?.list || [])
@@ -39,6 +55,7 @@ const envTypeOptions = [
 const columns = [
   { title: '环境名称', dataIndex: 'env_name', width: 160, ellipsis: true, tooltip: true },
   { title: '编码', dataIndex: 'env_code', width: 100 },
+  { title: '产品线', dataIndex: 'product_line', width: 80 },
   { title: '类型', dataIndex: 'env_type', width: 70, slotName: 'env_type' },
   { title: 'DB地址', dataIndex: 'db_host', width: 130 },
   { title: '端口', dataIndex: 'db_port', width: 60 },
@@ -47,7 +64,7 @@ const columns = [
   { title: '同步状态', dataIndex: 'sync_status', width: 80, slotName: 'sync_status' },
   { title: '最后同步', dataIndex: 'last_sync_at', width: 160, slotName: 'last_sync' },
   { title: '状态', dataIndex: 'status', width: 60, slotName: 'status' },
-  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 210, fixed: 'right' as const },
+  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 140, fixed: 'right' as const },
 ]
 
 // ── 新增/编辑弹窗 ──────────────────────────────────
@@ -59,7 +76,7 @@ const submitting = ref(false)
 function handleAdd() {
   isEdit.value = false
   form.value = {
-    env_name: '', env_code: '', env_type: 'sit',
+    env_name: '', env_code: '', env_type: 'sit', product_line: defaultProductLine.value,
     db_host: '', db_port: 5432, db_user: 'fitest',
     db_password: '', db_prefix: 'benchmarksit_', meta_db_name: 'benchmarksit_meta',
     status: '1', remark: '',
@@ -106,25 +123,9 @@ async function handleDelete(record: any) {
   getList()
 }
 
-// ── 同步菜单（从被测系统 meta 库拉取到当前环境）──────────────────────────
-const syncingId = ref('')
-
 function formatTime(time: string) {
   if (!time) return '-'
   return time.replace('T', ' ').substring(0, 19)
-}
-async function handleSyncMenus(record: any) {
-  syncingId.value = record.id
-  try {
-    const { execute, error, data } = usePost<any>(ApiPerfEnv.sync, { id: record.id })
-    await execute()
-    if (error.value) { Message.error('同步失败，请查看同步状态'); return }
-    const r = data.value
-    Message.success(`同步成功：${r?.cloud_count ?? 0} 云 / ${r?.app_count ?? 0} 应用 / ${r?.menu_count ?? 0} 菜单`)
-    getList()
-  } finally {
-    syncingId.value = ''
-  }
 }
 </script>
 
@@ -137,6 +138,9 @@ async function handleSyncMenus(record: any) {
         </a-col>
         <a-col :span="4">
           <a-select v-model="queryParams.env_type" :options="envTypeOptions" placeholder="环境类型" allow-clear @change="handleSearch" />
+        </a-col>
+        <a-col :span="4">
+          <a-select v-model="queryParams.product_line" :options="productLineOptions" placeholder="产品线" allow-clear @change="handleSearch" />
         </a-col>
         <a-col :span="6">
           <a-space>
@@ -176,7 +180,6 @@ async function handleSyncMenus(record: any) {
         <template #operations="{ record }">
           <a-space>
             <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
-            <a-button type="text" size="small" status="success" :loading="syncingId === record.id" @click="handleSyncMenus(record)">同步菜单</a-button>
             <a-popconfirm content="确认删除？删除后不可恢复" @ok="handleDelete(record)">
               <a-button type="text" size="small" status="danger">删除</a-button>
             </a-popconfirm>
@@ -209,6 +212,11 @@ async function handleSyncMenus(record: any) {
                 <a-option value="perf">性能</a-option>
                 <a-option value="prod">生产</a-option>
               </a-select>
+            </a-form-item>
+          </a-col>
+          <a-col :span="8">
+            <a-form-item label="产品线">
+              <a-select v-model="form.product_line" :options="productLineOptions" placeholder="选择产品线" allow-search />
             </a-form-item>
           </a-col>
           <a-col :span="8">

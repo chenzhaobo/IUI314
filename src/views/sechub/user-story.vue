@@ -11,7 +11,7 @@ const columns = [
   { title: '测试用例', dataIndex: 'test_case_count', width: 80 },
   { title: '发现数', dataIndex: 'finding_count', width: 80 },
   { title: '缺陷数', dataIndex: 'defect_count', width: 80 },
-  { title: '操作', dataIndex: 'operations', slot: 'operations', width: 120, fixed: 'right' as const },
+  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 120, fixed: 'right' as const },
 ]
 const fields = [
   { label: '故事代码', field: 'story_code', required: true },

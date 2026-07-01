@@ -2,14 +2,21 @@
 import { ref, computed, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { useGet, usePost, useDelete } from '@/hooks'
-import { ApiPerfScript, ApiPerfEnv, ApiPerfScriptMenu, ApiPerfMenu } from '@/api/apis'
+import { ApiPerfScript, ApiPerfScriptMenu, ApiPerfMenu, ApiSysDictData } from '@/api/apis'
 
 defineOptions({ name: 'PerfScriptBinding' })
 
-// ── 环境选择 ──────────────────────────────────
-const envId = ref('')
-const { data: envData } = useGet<any>(ApiPerfEnv.getList, { page_num: 1, page_size: 100 }, { immediate: true })
-const envOptions = computed(() => (envData.value?.list || []).map((e: any) => ({ label: e.env_name, value: e.id })))
+// ── 产品线选择（数据字典）──────────────────────────
+const productLine = ref('')
+const { data: dictRaw } = useGet<any>(ApiSysDictData.getByType, { dict_type: 'perf_product_line' }, { immediate: true })
+const productLineOptions = computed(() => (Array.isArray(dictRaw.value) ? dictRaw.value : []).map((d: any) => ({ label: d.dict_label, value: d.dict_value })))
+
+watch(dictRaw, (val) => {
+  if (!productLine.value && Array.isArray(val) && val.length > 0) {
+    const defaultItem = val.find((d: any) => d.is_default === 'Y')
+    productLine.value = defaultItem?.dict_value || val[0]?.dict_value || ''
+  }
+}, { immediate: true })
 
 // ── 左侧菜单树 ──────────────────────────────────
 const treeData = ref<any[]>([])
@@ -17,16 +24,15 @@ const selectedKeys = ref<string[]>([])
 const selectedMenuId = ref('')
 const selectedMenuName = ref('')
 
-const { data: treeRawData, execute: fetchTree } = useGet<any[]>(ApiPerfMenu.tree, computed(() => ({ env_id: envId.value })), { immediate: false })
+const { data: treeRawData, execute: fetchTree } = useGet<any[]>(ApiPerfMenu.tree, computed(() => ({ product_line: productLine.value })), { immediate: false })
 
-watch(envId, (val) => {
+watch(productLine, (val) => {
   selectedKeys.value = []
   selectedMenuId.value = ''
   selectedMenuName.value = ''
   if (val) {
     fetchTree()
-    // 默认加载全部绑定记录
-    bindListQuery.value.env_id = val
+    bindListQuery.value.product_line = val
     bindListQuery.value.menu_ids = ''
     bindListQuery.value.page_num = 1
     fetchBindList()
@@ -36,7 +42,7 @@ watch(envId, (val) => {
 }, { immediate: false })
 
 watch(treeRawData, (val) => {
-  treeData.value = val || []
+  treeData.value = Array.isArray(val) ? val : []
 })
 
 /// 从 treeData 中按 key 查找完整节点（含 children 子树）
@@ -69,7 +75,6 @@ function collectMenuIds(node: any): string[] {
 function handleTreeSelect(keys: string[], data: { node: any }) {
   selectedKeys.value = keys
   bindListQuery.value.page_num = 1
-  bindListQuery.value.env_id = envId.value
   if (keys.length === 0) {
     // 取消选中 → 显示全部
     selectedMenuId.value = ''
@@ -99,7 +104,7 @@ function handleTreeSelect(keys: string[], data: { node: any }) {
 }
 
 // ── 右侧：脚本绑定列表 ──────────────────────────────────
-const bindListQuery = ref({ page_num: 1, page_size: 20, menu_ids: '', env_id: '' })
+const bindListQuery = ref({ page_num: 1, page_size: 20, menu_ids: '', product_line: '' })
 const { isFetching: bindLoading, data: bindListRaw, execute: fetchBindList } = useGet<any>(ApiPerfScriptMenu.getList, bindListQuery, { immediate: false })
 const bindList = computed(() => bindListRaw.value?.list || [])
 const bindTotal = computed(() => bindListRaw.value?.total || 0)
@@ -187,7 +192,7 @@ async function handleAddSubmit() {
     const { execute, error } = usePost(ApiPerfScriptMenu.bind, {
       script_id: sid,
       menu_ids: [selectedMenuId.value],
-      env_id: envId.value,
+      product_line: productLine.value,
       test_scenario: testScenario.value || undefined,
     })
     await execute()
@@ -206,17 +211,17 @@ async function handleAddSubmit() {
 
 <template>
   <div class="perf-script-bindng">
-    <!-- 顶部环境选择栏 -->
+    <!-- 顶部产品线选择栏 -->
     <a-card :bordered="false" class="m-b-8px">
       <a-row :gutter="16" align="center">
         <a-col :span="6">
-          <a-select v-model="envId" :options="envOptions" placeholder="请选择环境" allow-search />
+          <a-select v-model="productLine" :options="productLineOptions" placeholder="选择产品线" allow-search />
         </a-col>
       </a-row>
     </a-card>
 
-    <a-card :bordered="false" v-if="!envId">
-      <a-empty description="请先选择环境" />
+    <a-card :bordered="false" v-if="!productLine">
+      <a-empty description="请先选择产品线" />
     </a-card>
 
     <div v-else class="bind-layout">

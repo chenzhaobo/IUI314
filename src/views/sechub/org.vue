@@ -10,7 +10,7 @@ const columns = [
   { title: '层级', dataIndex: 'level_no', width: 60 },
   { title: '排序', dataIndex: 'order_num', width: 60 },
   { title: '状态', dataIndex: 'status', width: 60 },
-  { title: '操作', dataIndex: 'operations', slot: 'operations', width: 120, fixed: 'right' as const },
+  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 120, fixed: 'right' as const },
 ]
 const fields = [
   { label: '父节点ID', field: 'pid' },

@@ -9,7 +9,7 @@ const columns = [
   { title: 'API前缀', dataIndex: 'api_prefix', width: 120 },
   { title: '凭证代码', dataIndex: 'credential_code', width: 120 },
   { title: '状态', dataIndex: 'status', width: 60 },
-  { title: '操作', dataIndex: 'operations', slot: 'operations', width: 120, fixed: 'right' as const },
+  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 120, fixed: 'right' as const },
 ]
 const fields = [
   { label: '环境名称', field: 'env_name', required: true },

@@ -38,11 +38,12 @@ function handlePageChange(page: number) {
 const columns = [
   { title: '脚本名称', dataIndex: 'name', width: 160, ellipsis: true, tooltip: true },
   { title: '编码', dataIndex: 'code', width: 120 },
-  { title: '云', dataIndex: 'cloud', width: 80, ellipsis: true, tooltip: true },
-  { title: '领域', dataIndex: 'domain', width: 100, ellipsis: true, tooltip: true },
-  { title: '模块', dataIndex: 'module_name', width: 100, ellipsis: true, tooltip: true },
-  { title: '功能', dataIndex: 'function_name', width: 100, ellipsis: true, tooltip: true },
+  { title: '云', dataIndex: 'cloud', width: 100, slotName: 'cloud' },
+  { title: '领域', dataIndex: 'domain', width: 100, slotName: 'domain' },
+  { title: '模块', dataIndex: 'module_name', width: 100, slotName: 'module_name' },
+  { title: '功能', dataIndex: 'function_name', width: 100, slotName: 'function_name' },
   { title: '测试类型', dataIndex: 'test_type', width: 80, ellipsis: true, tooltip: true },
+  { title: '绑定数', dataIndex: 'bind_count', width: 70 },
   { title: '事务', dataIndex: 'txn_summary', width: 100, slotName: 'txnSummary' },
   { title: '版本', dataIndex: 'version', width: 60 },
   { title: '文件名', dataIndex: 'jmx_file_name', width: 180, ellipsis: true, tooltip: true },
@@ -159,13 +160,10 @@ async function handleDelete(record: any) {
   getList()
 }
 
+// 云/领域/模块/功能 从脚本绑定自动派生，不可手动编辑
 const editFields = [
   { label: '脚本名称', field: 'name', required: true },
   { label: '脚本编码', field: 'code', required: true },
-  { label: '云', field: 'cloud' },
-  { label: '领域', field: 'domain' },
-  { label: '模块', field: 'module_name' },
-  { label: '功能', field: 'function_name' },
   { label: '测试类型', field: 'test_type' },
   { label: '版本', field: 'version' },
   { label: '标签', field: 'tags' },
@@ -328,6 +326,26 @@ async function handleBatchUploadSubmit() {
         row-key="id"
         @page-change="handlePageChange"
       >
+        <template #cloud="{ record }">
+          <span v-if="record.cloud">{{ record.cloud }}</span>
+          <a-tag v-if="record.derived" size="small" color="arcoblue">派生</a-tag>
+          <span v-if="!record.cloud" style="color:#999">-</span>
+        </template>
+        <template #domain="{ record }">
+          <span v-if="record.domain">{{ record.domain }}</span>
+          <a-tag v-if="record.derived" size="small" color="arcoblue">派生</a-tag>
+          <span v-if="!record.domain" style="color:#999">-</span>
+        </template>
+        <template #module_name="{ record }">
+          <span v-if="record.module_name">{{ record.module_name }}</span>
+          <a-tag v-if="record.derived" size="small" color="arcoblue">派生</a-tag>
+          <span v-if="!record.module_name" style="color:#999">-</span>
+        </template>
+        <template #function_name="{ record }">
+          <span v-if="record.function_name">{{ record.function_name }}</span>
+          <a-tag v-if="record.derived" size="small" color="arcoblue">派生</a-tag>
+          <span v-if="!record.function_name" style="color:#999">-</span>
+        </template>
         <template #status="{ record }">
           <a-tag :color="record.status === '1' ? 'green' : 'red'">{{ record.status === '1' ? '启用' : '禁用' }}</a-tag>
         </template>
@@ -358,14 +376,9 @@ async function handleBatchUploadSubmit() {
         <a-form-item label="脚本编码" required>
           <a-input v-model="uploadForm.code" placeholder="如：login_test" />
         </a-form-item>
-        <a-row :gutter="16">
-          <a-col :span="12"><a-form-item label="云"><a-input v-model="uploadForm.cloud" placeholder="如：司库云" /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item label="领域"><a-input v-model="uploadForm.domain" placeholder="如：账户管理" /></a-form-item></a-col>
-        </a-row>
-        <a-row :gutter="16">
-          <a-col :span="12"><a-form-item label="模块"><a-input v-model="uploadForm.module_name" placeholder="如：银行账户管理" /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item label="功能"><a-input v-model="uploadForm.function_name" placeholder="如：销户申请" /></a-form-item></a-col>
-        </a-row>
+        <a-alert type="info" :style="{ marginBottom: '12px' }">
+          云、领域、模块、功能字段将在脚本绑定菜单后自动从绑定关系派生，无需手动填写。
+        </a-alert>
         <a-form-item label="测试类型">
           <a-input v-model="uploadForm.test_type" placeholder="如：列表测试" />
         </a-form-item>
@@ -387,6 +400,30 @@ async function handleBatchUploadSubmit() {
     <!-- 编辑弹窗 -->
     <a-modal v-model:visible="editVisible" title="编辑脚本" :width="560" @ok="handleEditSubmit">
       <a-form :model="editForm" layout="vertical">
+        <a-row :gutter="16">
+          <a-col :span="12">
+            <a-form-item label="云（绑定派生）">
+              <a-input v-model="editForm.cloud" disabled placeholder="从脚本绑定自动获取" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-item label="领域（绑定派生）">
+              <a-input v-model="editForm.domain" disabled placeholder="从脚本绑定自动获取" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+        <a-row :gutter="16">
+          <a-col :span="12">
+            <a-form-item label="模块（绑定派生）">
+              <a-input v-model="editForm.module_name" disabled placeholder="从脚本绑定自动获取" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-item label="功能（绑定派生）">
+              <a-input v-model="editForm.function_name" disabled placeholder="从脚本绑定自动获取" />
+            </a-form-item>
+          </a-col>
+        </a-row>
         <a-form-item v-for="f in editFields" :key="f.field" :label="f.label" :required="f.required">
           <a-input v-model="editForm[f.field]" :placeholder="`请输入${f.label}`" />
         </a-form-item>
