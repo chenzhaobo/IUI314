@@ -58,6 +58,7 @@ export enum ApiSecProjectGroup {
   add = '/sechub/project-group/add',
   edit = '/sechub/project-group/edit',
   delete = '/sechub/project-group/delete',
+  batchImport = '/sechub/project-group/import',
 }
 
 // ── 发布窗口 ──────────────────────────────────────

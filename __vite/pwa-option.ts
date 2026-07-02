@@ -8,8 +8,8 @@ export const getPwaOptions: Partial<VitePWAOptions> = {
   },
   includeAssets: ['favicon.svg', 'safari-pinned-tab.svg'],
   manifest: {
-    name: 'IUI314',
-    short_name: '314',
+    name: '技术测试平台',
+    short_name: '技术测试',
     theme_color: '#FAFAFA',
     id: '/',
     display: 'standalone',

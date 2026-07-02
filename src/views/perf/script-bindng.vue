@@ -196,6 +196,7 @@ const bindColumns = [
   { title: '状态', dataIndex: 'script_status', width: 60, slotName: 'status' },
   { title: '测试场景', dataIndex: 'test_scenario', width: 200, ellipsis: true, tooltip: true },
   { title: '绑定时间', dataIndex: 'created_at', width: 160, slotName: 'created_at' },
+  { title: '事务按钮', dataIndex: 'txn_buttons', width: 90, slotName: 'txnButtons' },
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 80, fixed: 'right' as const },
 ]
 
@@ -212,6 +213,33 @@ async function handleUnbind(record: any) {
   if (error.value) { Message.error('解绑失败'); return }
   Message.success('解绑成功')
   fetchBindList()
+}
+
+// ── 事务按钮详情 ──────────────────────────────────
+const txnButtonDrawerVisible = ref(false)
+const txnButtonDrawerTitle = ref('')
+const txnButtonList = ref<any[]>([])
+const txnButtonLoading = ref(false)
+
+const txnButtonColumns = [
+  { title: '#', width: 50, render: ({ rowIndex }: any) => rowIndex + 1 },
+  { title: '事务编码', dataIndex: 'txn_code', width: 180, ellipsis: true, tooltip: true },
+  { title: '事务名称', dataIndex: 'txn_name', width: 250, ellipsis: true, tooltip: true },
+  { title: '按钮Key', dataIndex: 'button_key', width: 120, ellipsis: true, tooltip: true },
+  { title: '按钮名称', dataIndex: 'button_name', width: 120, ellipsis: true, tooltip: true },
+  { title: '匹配状态', dataIndex: 'match_status', width: 100, slotName: 'matchStatus' },
+]
+
+async function handleViewTxnButtons(record: any) {
+  txnButtonDrawerTitle.value = `事务按钮关联 - ${record.script_name}`
+  txnButtonDrawerVisible.value = true
+  txnButtonLoading.value = true
+  txnButtonList.value = []
+  const { execute, error, data } = useGet<any[]>(ApiPerfScriptMenu.txnButtons, { script_menu_id: record.id })
+  await execute()
+  txnButtonLoading.value = false
+  if (error.value) { Message.error('获取事务按钮失败'); return }
+  txnButtonList.value = Array.isArray(data.value) ? data.value : []
 }
 
 // ── 添加脚本弹窗 ──────────────────────────────────
@@ -341,6 +369,9 @@ async function handleAddSubmit() {
           <template #status="{ record }">
             <a-tag :color="record.script_status === '1' ? 'green' : 'red'">{{ record.script_status === '1' ? '启用' : '禁用' }}</a-tag>
           </template>
+          <template #txnButtons="{ record }">
+            <a-button type="text" size="small" @click="handleViewTxnButtons(record)">查看</a-button>
+          </template>
           <template #operations="{ record }">
             <a-popconfirm content="确认解绑？" @ok="handleUnbind(record)">
               <a-button type="text" size="small" status="danger">解绑</a-button>
@@ -374,6 +405,25 @@ async function handleAddSubmit() {
         </template>
       </a-table>
     </a-modal>
+
+    <!-- 事务按钮详情抽屉 -->
+    <a-drawer :visible="txnButtonDrawerVisible" :width="780" :title="txnButtonDrawerTitle" @cancel="txnButtonDrawerVisible = false" @ok="txnButtonDrawerVisible = false">
+      <a-table
+        :loading="txnButtonLoading"
+        :data="txnButtonList"
+        :columns="txnButtonColumns"
+        :pagination="false"
+        row-key="txn_code"
+        size="small"
+        :scroll="{ x: 720, y: 480 }"
+      >
+        <template #matchStatus="{ record }">
+          <a-tag v-if="record.match_status === 'matched'" color="green" size="small">已匹配</a-tag>
+          <a-tag v-else-if="record.match_status === 'unmatched'" color="orange" size="small">未匹配</a-tag>
+          <a-tag v-else color="gray" size="small">无按钮Key</a-tag>
+        </template>
+      </a-table>
+    </a-drawer>
   </div>
 </template>
 

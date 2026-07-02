@@ -1,7 +1,6 @@
-<svg width="512" height="512" fill='none' xmlns="http://www.w3.org/2000/svg">
-  <text font-weight="bold" stroke="#FFF" transform="matrix(0.7699577830844271,0,0,0.9892808198928833,-2.829707403210218,19.02246980845817) " xml:space="preserve" text-anchor="start" font-family="Helvetica, Arial, sans-serif" font-size="250" id="svg_5" y="216.529068" x="53.838344" stroke-width="0" fill="#ff0000">U</text>
-  <rect x="110" y="35" fill='#FF3565' rx="12" ry="12" width="135" height="25"/>
-  <rect x="15" y="75" fill='#FF0000' rx="15" ry="15" width="28" height="112"/>
-  <rect x="90" y="75" fill='#FF0000' rx="15" ry="15" width="32" height="112" />
-  <rect x="155" y="125" fill='#FF0000' rx="12" ry="12" width="28" height="135" transform="rotate(-14)"/>
+<svg width="512" height="512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M256 32 L448 104 L448 272 C448 352 368 432 256 472 C144 432 64 352 64 272 L64 104 Z"
+        fill="none" stroke="#FF3565" stroke-width="28" stroke-linejoin="round"/>
+  <path d="M272 112 L200 268 L244 268 L216 392 L312 216 L264 216 Z"
+        fill="#FF3565"/>
 </svg>

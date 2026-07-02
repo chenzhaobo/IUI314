@@ -53,6 +53,7 @@ export enum ApiPerfScriptMenu {
   unbind = '/perf/script-menu/unbind',
   menuIds = '/perf/script-menu/menu_ids',
   scriptIds = '/perf/script-menu/script_ids',
+  txnButtons = '/perf/script-menu/txn_buttons',
 }
 
 // ── 性能脚本管理 ──────────────────────────────────
@@ -66,6 +67,8 @@ export enum ApiPerfScript {
   batchUpload = '/perf/script/batch_upload',
   reparse = '/perf/script/reparse_txn',
   reparseAll = '/perf/script/reparse_all',
+  autoBind = '/perf/script/auto_bind',
+  autoBindAll = '/perf/script/auto_bind_all',
 }
 
 // ── 测试执行 ──────────────────────────────────

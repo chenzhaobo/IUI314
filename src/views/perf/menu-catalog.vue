@@ -134,6 +134,7 @@ const { data: statsData, execute: fetchStats } = useGet<any>(ApiPerfMenu.stats, 
 // ── 左侧树 ──────────────────────────────────
 const treeData = ref<any[]>([])
 const selectedKeys = ref<string[]>([])
+const expandedKeys = ref<string[]>([])
 const selectedNode = ref<any>(null)
 const treeLoading = ref(false)
 const loadedButtonKeys = ref<Set<string>>(new Set())
@@ -163,6 +164,11 @@ async function handleTreeExpand(_keys: (string | number)[], data: { expanded: bo
   if (extra?.type !== 'menu' || !extra?.form_id) return
   const key = String(node.key)
   if (loadedButtonKeys.value.has(key)) return
+
+  // 如果该菜单已有子菜单（非按钮节点），说明不是末级菜单，不加载按钮到树中
+  const hasMenuChildren = (node.children || []).some((c: any) => c.extra?.type !== 'button')
+  if (hasMenuChildren) return
+
   loadedButtonKeys.value.add(key)
 
   try {
@@ -183,10 +189,14 @@ async function handleTreeExpand(_keys: (string | number)[], data: { expanded: bo
 
     const targetNode = findTreeNode(treeData.value, key)
     if (targetNode) {
-      targetNode.children = btnChildren
-      targetNode.is_leaf = btnChildren.length === 0
-      if (btnChildren.length === 0) {
-        targetNode.title = targetNode.title + ' (无按钮)'
+      // 仅在没有子菜单时才用按钮填充
+      const existingMenuChildren = (targetNode.children || []).filter((c: any) => c.extra?.type !== 'button')
+      if (existingMenuChildren.length === 0) {
+        targetNode.children = btnChildren
+        targetNode.is_leaf = btnChildren.length === 0
+        if (btnChildren.length === 0) {
+          targetNode.title = targetNode.title + ' (无按钮)'
+        }
       }
     }
   } catch (e) {
@@ -198,12 +208,32 @@ function handleTreeSelect(keys: string[], data: { node: any }) {
   selectedKeys.value = keys as string[]
   selectedNode.value = data?.node || null
   const extra = data?.node?.extra
+  const node = data?.node
+
+  // 点击有子节点的节点时，自动展开下一级
+  if (node && node.children && node.children.length > 0 && !node.is_leaf) {
+    const nodeKey = String(node.key)
+    if (!expandedKeys.value.includes(nodeKey)) {
+      expandedKeys.value = [...expandedKeys.value, nodeKey]
+    }
+  }
 
   if (extra?.type === 'menu' && extra?.form_id) {
-    currentFormNumber.value = extra.form_id
-    buttonQuery.value.keyword = ''
-    buttonQuery.value.is_important = ''
-    getButtonList()
+    // 判断是否有子菜单（非按钮节点）
+    const hasMenuChildren = (node?.children || []).some((c: any) => c.extra?.type === 'menu')
+    if (!hasMenuChildren) {
+      // 真正的末级菜单 — 显示按钮面板
+      currentFormNumber.value = extra.form_id
+      buttonQuery.value.keyword = ''
+      buttonQuery.value.is_important = ''
+      getButtonList()
+      return
+    }
+    // 有子菜单 — 走菜单列表逻辑
+    menuQuery.value.app_id = ''
+    menuQuery.value.parent_id = extra.id
+    menuQuery.value.page_num = 1
+    getMenuList()
   } else if (extra?.type === 'button') {
     // 按钮节点 — 保持父菜单的按钮面板
   } else {
@@ -225,8 +255,13 @@ function handleTreeSelect(keys: string[], data: { node: any }) {
 const selectedNodeType = computed(() => {
   const extra = selectedNode.value?.extra
   if (!extra) return 'root'
-  if (extra.type === 'menu' && extra.form_id) return 'leaf-menu'
   if (extra.type === 'button') return 'button'
+  if (extra.type === 'menu' && extra.form_id) {
+    // 有子菜单的菜单节点 → 显示菜单列表（下级菜单）
+    const node = selectedNode.value
+    const hasMenuChildren = (node?.children || []).some((c: any) => c.extra?.type === 'menu')
+    if (!hasMenuChildren) return 'leaf-menu' // 真正的末级菜单 — 显示按钮面板
+  }
   return 'menu-list'
 })
 
@@ -235,6 +270,7 @@ watch(productLine, (val) => {
   sourceEnvId.value = ''
   treeData.value = []
   selectedKeys.value = []
+  expandedKeys.value = []
   selectedNode.value = null
   loadedButtonKeys.value.clear()
   if (val) {
@@ -263,6 +299,7 @@ watch(() => menuQuery.value.domain_code, () => {
   if (productLine.value) {
     loadedButtonKeys.value.clear()
     selectedKeys.value = []
+    expandedKeys.value = []
     selectedNode.value = null
     menuQuery.value.app_id = ''
     menuQuery.value.parent_id = ''
@@ -281,6 +318,7 @@ watch(() => menuQuery.value.project_group_name, () => {
   if (productLine.value) {
     loadedButtonKeys.value.clear()
     selectedKeys.value = []
+    expandedKeys.value = []
     selectedNode.value = null
     menuQuery.value.app_id = ''
     menuQuery.value.parent_id = ''
@@ -299,6 +337,10 @@ const syncMenuVisible = ref(false)
 const syncMenuLoading = ref(false)
 const syncMenuProductLine = ref('')
 const syncMenuEnvId = ref('')
+
+// 同步结果弹窗
+const syncResultVisible = ref(false)
+const syncResult = ref<any>(null)
 
 // 弹窗内的环境列表
 const { data: syncMenuEnvData, execute: fetchSyncMenuEnvList } = useGet<any>(ApiPerfEnv.getList, computed(() => ({ page_num: 1, page_size: 100, product_line: syncMenuProductLine.value })), { immediate: false })
@@ -328,9 +370,9 @@ async function confirmSyncMenu() {
     const { execute, error, data } = usePost<any>(ApiPerfMenu.sync, { env_id: syncMenuEnvId.value, product_line: syncMenuProductLine.value })
     await execute()
     if (error.value) { Message.error('同步失败，请查看环境同步状态'); return }
-    const r = data.value
-    Message.success(`同步成功：${r?.cloud_count ?? 0} 云 / ${r?.app_count ?? 0} 应用 / ${r?.menu_count ?? 0} 菜单 / ${r?.entity_count ?? 0} 实体 / ${r?.button_count ?? 0} 按钮`)
+    syncResult.value = data.value
     syncMenuVisible.value = false
+    syncResultVisible.value = true
     loadedButtonKeys.value.clear()
     fetchTree()
     fetchStats()
@@ -470,6 +512,25 @@ async function handleAutoMatchPg() {
   } finally {
     autoMatchLoading.value = false
   }
+}
+
+function handleDownloadUnmatchedApps() {
+  const apps = autoMatchResult.value?.unmatched_apps as string[] | undefined
+  if (!apps || apps.length === 0) { Message.warning('没有未匹配应用可下载'); return }
+  const ts = new Date()
+  const dateStr = `${ts.getFullYear()}${String(ts.getMonth() + 1).padStart(2, '0')}${String(ts.getDate()).padStart(2, '0')}${String(ts.getHours()).padStart(2, '0')}${String(ts.getMinutes()).padStart(2, '0')}`
+  const header = `序号\t未匹配应用`
+  const lines = apps.map((name, i) => `${i + 1}\t${name}`)
+  const content = '\uFEFF' + [header, ...lines].join('\n')
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `未匹配应用清单_${dateStr}.csv`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
 }
 
 // ════════════════════════════════════════════════════
@@ -620,8 +681,10 @@ watch([sourceEnvId, currentFormNumber], () => {
           <a-tree
             :data="treeData"
             v-model:selected-keys="selectedKeys"
+            v-model:expanded-keys="expandedKeys"
             :field-names="{ key: 'key', title: 'title', children: 'children' }"
             block-node
+            :default-expand-all="false"
             @select="handleTreeSelect"
             @expand="handleTreeExpand"
           />
@@ -768,6 +831,29 @@ watch([sourceEnvId, currentFormNumber], () => {
       </a-form>
     </a-modal>
 
+    <!-- 同步菜单结果弹窗 -->
+    <a-modal v-model:visible="syncResultVisible" title="同步菜单结果" :footer="false" :width="480">
+      <a-result
+        v-if="syncResult"
+        status="success"
+        title="同步完成"
+        :sub-title="`产品线: ${syncMenuProductLine} | 环境: ${(syncMenuEnvOptions.find((e:any) => e.value === syncMenuEnvId)?.label) || ''}`"
+      >
+        <template #extra>
+          <a-button type="primary" @click="syncResultVisible = false">关闭</a-button>
+        </template>
+        <a-descriptions :column="2" layout="inline" bordered size="small">
+          <a-descriptions-item label="云">{{ syncResult.cloud_count ?? 0 }}</a-descriptions-item>
+          <a-descriptions-item label="应用">{{ syncResult.app_count ?? 0 }}</a-descriptions-item>
+          <a-descriptions-item label="菜单总数">{{ syncResult.menu_count ?? 0 }}</a-descriptions-item>
+          <a-descriptions-item label="新增菜单">{{ syncResult.new_count ?? 0 }}</a-descriptions-item>
+          <a-descriptions-item label="更新菜单">{{ syncResult.updated_count ?? 0 }}</a-descriptions-item>
+          <a-descriptions-item label="实体元数据">{{ syncResult.entity_count ?? 0 }}</a-descriptions-item>
+          <a-descriptions-item label="按钮">{{ syncResult.button_count ?? 0 }}</a-descriptions-item>
+        </a-descriptions>
+      </a-result>
+    </a-modal>
+
     <!-- 同步表统计弹窗 -->
     <a-modal v-model:visible="syncStatsVisible" title="同步表统计" @ok="confirmTableStatsSync" :ok-loading="syncStatsLoading" :width="460">
       <a-alert type="info" :show-icon="true" style="margin-bottom: 12px">
@@ -799,7 +885,13 @@ watch([sourceEnvId, currentFormNumber], () => {
         <a-descriptions-item label="更新菜单数">{{ autoMatchResult?.menus_updated ?? 0 }} 条</a-descriptions-item>
       </a-descriptions>
       <div v-if="autoMatchResult?.unmatched_apps?.length" style="margin-top: 8px">
-        <div style="font-weight: 600; margin-bottom: 4px">未匹配应用（{{ autoMatchResult.unmatched_apps.length }}个）：</div>
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px">
+          <span style="font-weight: 600">未匹配应用（{{ autoMatchResult.unmatched_apps.length }}个）：</span>
+          <a-button type="text" size="small" @click="handleDownloadUnmatchedApps">
+            <template #icon><icon-download /></template>
+            下载清单
+          </a-button>
+        </div>
         <a-list :data="autoMatchResult.unmatched_apps.slice(0, 20)" size="small" :bordered="true" max-height="200">
           <template #item="{ item }">{{ item }}</template>
         </a-list>
@@ -852,6 +944,18 @@ watch([sourceEnvId, currentFormNumber], () => {
   min-width: 320px;
   max-height: calc(100vh - 280px);
   overflow-y: auto;
+}
+:deep(.arco-tree-node-switcher) {
+  width: 22px !important;
+  height: 22px !important;
+  min-width: 22px !important;
+}
+:deep(.arco-tree-node-switcher-icon) {
+  font-size: 16px !important;
+}
+:deep(.arco-tree-node-title) {
+  font-size: 14px;
+  padding: 2px 4px;
 }
 .table-panel {
   flex: 1;

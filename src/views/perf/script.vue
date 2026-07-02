@@ -56,7 +56,7 @@ const columns = [
   { title: '更新时间', dataIndex: 'updated_at', width: 160, slotName: 'updated_at' },
   { title: '更新人', dataIndex: 'update_by', width: 100, ellipsis: true, tooltip: true },
   { title: '状态', dataIndex: 'status', width: 60, slotName: 'status' },
-  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 220, fixed: 'right' as const },
+  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 280, fixed: 'right' as const },
 ]
 
 // ── 上传弹窗 ──────────────────────────────────
@@ -230,6 +230,40 @@ async function handleReparseAll() {
   getList()
 }
 
+// ── 自动关联 ──────────────────────────────────
+const autoBinding = ref(false)
+const autoBindingAll = ref(false)
+
+async function handleAutoBind(record: any) {
+  autoBinding.value = true
+  const { execute, error, data } = usePost(ApiPerfScript.autoBind + '?id=' + record.id)
+  await execute()
+  autoBinding.value = false
+  if (error.value) { Message.error('自动关联失败'); return }
+  const r = data.value
+  if (r) {
+    Message.success(`匹配${r.menu_count}个菜单，新建${r.bind_count}条绑定，事务匹配${r.txn_matched}/${r.txn_total}`)
+  } else {
+    Message.success('自动关联完成')
+  }
+  getList()
+}
+
+async function handleAutoBindAll() {
+  autoBindingAll.value = true
+  const { execute, error, data } = usePost(ApiPerfScript.autoBindAll, {})
+  await execute()
+  autoBindingAll.value = false
+  if (error.value) { Message.error('批量自动关联失败'); return }
+  const r = data.value
+  if (r) {
+    Message.success(r.message || `批量关联完成: 共${r.total}个脚本, ${r.matched}个匹配到菜单`)
+  } else {
+    Message.success('批量自动关联完成')
+  }
+  getList()
+}
+
 // ── 批量上传 ──────────────────────────────────
 const batchUploadVisible = ref(false)
 const batchFiles = ref<File[]>([])
@@ -306,6 +340,10 @@ async function handleBatchUploadSubmit() {
               <template #icon><icon-refresh /></template>
               重新解析
             </a-button>
+            <a-button type="primary" status="success" :loading="autoBindingAll" @click="handleAutoBindAll">
+              <template #icon><icon-link /></template>
+              批量自动关联
+            </a-button>
           </a-space>
         </a-col>
       </a-row>
@@ -334,6 +372,7 @@ async function handleBatchUploadSubmit() {
           <a-space>
             <a-button type="text" size="small" @click="handleViewTxn(record)">事务详情</a-button>
             <a-button type="text" size="small" :loading="reparsing" @click="handleReparse(record)">解析</a-button>
+            <a-button type="text" size="small" :loading="autoBinding" @click="handleAutoBind(record)">自动关联</a-button>
             <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
             <a-popconfirm content="确认删除？" @ok="handleDelete(record)">
               <a-button type="text" size="small" status="danger">删除</a-button>

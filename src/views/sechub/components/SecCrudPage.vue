@@ -246,6 +246,7 @@ function handlePageSizeChange(size: number) {
             <template #icon><icon-delete /></template>
             批量删除
           </a-button>
+          <slot name="extra-actions" />
         </a-space>
       </a-row>
 
