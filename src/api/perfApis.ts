@@ -177,3 +177,9 @@ export enum ApiPerfBenchmark {
   updateTarget = '/perf/benchmark/update_target',
   manualPass = '/perf/benchmark/manual_pass',
 }
+
+// ── 平台配置 ──────────────────────────────────────
+export enum ApiPerfConfig {
+  list = '/perf/config/list',
+  save = '/perf/config/save',
+}
