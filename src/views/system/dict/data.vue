@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 
 import { useRoute } from 'vue-router'
 import { ApiSysDictData } from '@/api/apis'
@@ -48,6 +48,18 @@ const {
   ApiSysDictData.getList,
   queryParams,
   { immediate: true },
+)
+
+// 监听路由 query 变化（同页面不同 dict_type 时重新加载）
+watch(
+  () => route.query.dict_type,
+  (newType) => {
+    if (newType && newType !== queryParams.value.dict_type) {
+      queryParams.value.dict_type = newType as string
+      queryParams.value.page_num = 1
+      getList()
+    }
+  },
 )
 
 const handleAdd = () => modalRef.value?.handleAdd()
