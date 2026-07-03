@@ -10,6 +10,13 @@ export enum ApiSysLogin {
 }
 
 /**
+ * @description: 国际化翻译Api（公开接口）
+ */
+export enum ApiSysI18n {
+  messages = '/comm/i18n/messages',
+}
+
+/**
  * @description: 系统用户Api
  */
 export enum ApiSysUser {

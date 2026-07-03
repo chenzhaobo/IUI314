@@ -2,7 +2,7 @@ import { createApp } from 'vue'
 
 import { registerSW } from 'virtual:pwa-register'
 import App from './App.vue'
-import { useSetupI18n } from '@/i18n'
+import { loadMessages, useSetupI18n } from '@/i18n'
 import { setupRoutes } from '@/router'
 import { setupStores } from '@/stores'
 
@@ -16,8 +16,9 @@ registerSW({ immediate: true })
 async function bootApp() {
   const app = createApp(App)
   setupStores(app)
-  await setupRoutes(app)
   useSetupI18n().setupI18n(app)
+  await loadMessages()
+  await setupRoutes(app)
   app.mount('#app')
 }
 
