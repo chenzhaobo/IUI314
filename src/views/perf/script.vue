@@ -12,9 +12,21 @@ const queryParams = ref({
   page_size: 10,
   keyword: '',
   project_group_id: '',
+  bind_status: '',
+  owner: '',
 })
 
-const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<any>(ApiPerfScript.getList, queryParams, { immediate: true })
+// 动态构建请求参数，空值不传后端
+const listParams = computed(() => {
+  const p: Record<string, any> = { page_num: queryParams.value.page_num, page_size: queryParams.value.page_size }
+  if (queryParams.value.keyword) p.keyword = queryParams.value.keyword
+  if (queryParams.value.project_group_id) p.project_group_id = queryParams.value.project_group_id
+  if (queryParams.value.bind_status) p.bind_status = queryParams.value.bind_status
+  if (queryParams.value.owner) p.owner = queryParams.value.owner
+  return p
+})
+
+const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<any>(ApiPerfScript.getList, listParams, { immediate: true })
 const dataList = computed(() => rawListData.value?.list || [])
 const total = computed(() => rawListData.value?.total || 0)
 
@@ -27,11 +39,18 @@ const projectGroupOptions = computed(() => {
 
 function handleSearch() {
   queryParams.value.page_num = 1
+  selectedIds.value = []
+  getList()
+}
+
+function handleRefresh() {
+  selectedIds.value = []
   getList()
 }
 
 function handlePageChange(page: number) {
   queryParams.value.page_num = page
+  selectedIds.value = []
   getList()
 }
 
@@ -45,12 +64,14 @@ const columns = [
   { title: '脚本名称', dataIndex: 'name', width: 160, ellipsis: true, tooltip: true },
   { title: '编码', dataIndex: 'code', width: 120 },
   { title: '应用编码', dataIndex: 'app_code', width: 90 },
+  { title: '项目组', dataIndex: 'project_group_name', width: 120, ellipsis: true, tooltip: true },
   { title: '测试类型', dataIndex: 'test_type', width: 80, ellipsis: true, tooltip: true },
+  { title: '责任人', dataIndex: 'owner', width: 80, ellipsis: true, tooltip: true },
   { title: '绑定数', dataIndex: 'bind_count', width: 70 },
+  { title: '关联状态', dataIndex: 'bind_status', width: 90, slotName: 'bindStatus' },
   { title: '事务', dataIndex: 'txn_summary', width: 100, slotName: 'txnSummary' },
   { title: '版本', dataIndex: 'version', width: 60 },
   { title: '文件名', dataIndex: 'jmx_file_name', width: 180, ellipsis: true, tooltip: true },
-  { title: '大小(KB)', dataIndex: 'jmx_file_size', width: 90, render: ({ record }: any) => (record.jmx_file_size / 1024).toFixed(1) },
   { title: '运行次数', dataIndex: 'run_count', width: 80 },
   { title: '创建时间', dataIndex: 'created_at', width: 160, slotName: 'created_at' },
   { title: '更新时间', dataIndex: 'updated_at', width: 160, slotName: 'updated_at' },
@@ -161,15 +182,81 @@ async function handleDelete(record: any) {
 const editFields = [
   { label: '脚本名称', field: 'name', required: true },
   { label: '脚本编码', field: 'code', required: true },
+  { label: '应用编码', field: 'app_code' },
   { label: '测试类型', field: 'test_type' },
+  { label: '责任人', field: 'owner' },
+  { label: '状态', field: 'status' },
   { label: '版本', field: 'version' },
+  { label: '云', field: 'cloud' },
+  { label: '领域', field: 'domain' },
+  { label: '模块', field: 'module_name' },
+  { label: '功能', field: 'function_name' },
   { label: '标签', field: 'tags' },
   { label: '描述', field: 'description' },
   { label: '备注', field: 'remark' },
 ]
 
+// ── 执行参数配置 ──────────────────────────────────
+const paramsVisible = ref(false)
+const paramsLoading = ref(false)
+const paramsForm = ref({
+  script_id: '',
+  threads: undefined as number | undefined,
+  rampup: undefined as number | undefined,
+  loops: undefined as number | undefined,
+  duration: undefined as number | undefined,
+  timeout_sec: undefined as number | undefined,
+  extra_props: '',
+})
+const paramsScriptName = ref('')
+
+function handleParams(record: any) {
+  paramsScriptName.value = record.name
+  paramsForm.value.script_id = record.id
+  const dp = record.default_params_json
+  paramsForm.value = {
+    script_id: record.id,
+    threads: dp?.threads ?? undefined,
+    rampup: dp?.rampup ?? undefined,
+    loops: dp?.loops ?? undefined,
+    duration: dp?.duration ?? undefined,
+    timeout_sec: dp?.timeout_sec ?? undefined,
+    extra_props: dp?.extra_props ?? '',
+  }
+  paramsVisible.value = true
+}
+
+async function handleParamsSubmit() {
+  paramsLoading.value = true
+  const { execute, error } = usePut(ApiPerfScript.updateParams, {
+    script_id: paramsForm.value.script_id,
+    params: {
+      threads: paramsForm.value.threads ?? null,
+      rampup: paramsForm.value.rampup ?? null,
+      loops: paramsForm.value.loops ?? null,
+      duration: paramsForm.value.duration ?? null,
+      timeout_sec: paramsForm.value.timeout_sec ?? null,
+      extra_props: paramsForm.value.extra_props || null,
+    },
+  })
+  await execute()
+  paramsLoading.value = false
+  if (error.value) { Message.error('保存失败'); return }
+  Message.success('参数已保存')
+  paramsVisible.value = false
+  getList()
+}
+
 // ── 项目组筛选 ──────────────────────────────────
 watch(() => queryParams.value.project_group_id, () => {
+  queryParams.value.page_num = 1
+  getList()
+})
+watch(() => queryParams.value.bind_status, () => {
+  queryParams.value.page_num = 1
+  getList()
+})
+watch(() => queryParams.value.owner, () => {
   queryParams.value.page_num = 1
   getList()
 })
@@ -208,37 +295,38 @@ function getTxnSummary(record: any): string {
 }
 
 // ── 重新解析 ──────────────────────────────────
-const reparsing = ref(false)
+const reparsingAll = ref(false)
+const reparsingIds = ref<Set<string>>(new Set())
 
 async function handleReparse(record: any) {
-  reparsing.value = true
+  reparsingIds.value.add(record.id)
   const { execute, error } = usePut(ApiPerfScript.reparse + '?id=' + record.id)
   await execute()
-  reparsing.value = false
+  reparsingIds.value.delete(record.id)
   if (error.value) { Message.error('重新解析失败'); return }
   Message.success('事务详情解析成功')
   getList()
 }
 
 async function handleReparseAll() {
-  reparsing.value = true
+  reparsingAll.value = true
   const { execute, error, data } = usePost(ApiPerfScript.reparseAll, {})
   await execute()
-  reparsing.value = false
+  reparsingAll.value = false
   if (error.value) { Message.error('批量解析失败'); return }
   Message.success(data.value?.msg || '批量解析完成')
   getList()
 }
 
 // ── 自动关联 ──────────────────────────────────
-const autoBinding = ref(false)
 const autoBindingAll = ref(false)
+const autoBindingIds = ref<Set<string>>(new Set())
 
 async function handleAutoBind(record: any) {
-  autoBinding.value = true
+  autoBindingIds.value.add(record.id)
   const { execute, error, data } = usePost(ApiPerfScript.autoBind + '?id=' + record.id)
   await execute()
-  autoBinding.value = false
+  autoBindingIds.value.delete(record.id)
   if (error.value) { Message.error('自动关联失败'); return }
   const r = data.value
   if (r) {
@@ -313,6 +401,41 @@ async function handleBatchUploadSubmit() {
     batchUploading.value = false
   }
 }
+
+// ── 批量设置责任人 ──────────────────────────────────
+const selectedIds = ref<string[]>([])
+const setOwnerVisible = ref(false)
+const setOwnerLoading = ref(false)
+const setOwnerValue = ref('')
+
+function handleSetOwnerClick() {
+  if (selectedIds.value.length === 0) {
+    Message.warning('请先勾选脚本')
+    return
+  }
+  setOwnerValue.value = ''
+  setOwnerVisible.value = true
+}
+
+async function handleSetOwnerSubmit() {
+  if (!setOwnerValue.value.trim()) { Message.warning('请输入责任人'); return }
+  setOwnerLoading.value = true
+  const { execute, error, data } = usePut<any>(ApiPerfScript.batchSetOwner, {
+    ids: selectedIds.value,
+    owner: setOwnerValue.value.trim(),
+  })
+  await execute()
+  setOwnerLoading.value = false
+  if (error.value) { Message.error('设置失败'); return }
+  Message.success(data.value?.data || '设置成功')
+  setOwnerVisible.value = false
+  selectedIds.value = []
+  getList()
+}
+
+function handleSelectionChange(keys: string[]) {
+  selectedIds.value = keys
+}
 </script>
 
 <template>
@@ -325,9 +448,22 @@ async function handleBatchUploadSubmit() {
         <a-col :span="5">
           <a-select v-model="queryParams.project_group_id" :options="projectGroupOptions" placeholder="全部项目组" allow-search allow-clear />
         </a-col>
-        <a-col :span="8">
+        <a-col :span="4">
+          <a-select v-model="queryParams.bind_status" placeholder="关联状态" allow-clear>
+            <a-option value="bound">已关联</a-option>
+            <a-option value="unbound">未关联</a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="3">
+          <a-input v-model="queryParams.owner" placeholder="责任人" allow-clear @press-enter="handleSearch" />
+        </a-col>
+        <a-col :span="6">
           <a-space>
             <a-button type="primary" @click="handleSearch">搜索</a-button>
+            <a-button @click="handleRefresh">
+              <template #icon><icon-sync /></template>
+              刷新
+            </a-button>
             <a-button type="primary" status="success" @click="handleUploadClick">
               <template #icon><icon-upload /></template>
               上传脚本
@@ -336,13 +472,17 @@ async function handleBatchUploadSubmit() {
               <template #icon><icon-storage /></template>
               批量上传
             </a-button>
-            <a-button :loading="reparsing" @click="handleReparseAll">
+            <a-button :loading="reparsingAll" @click="handleReparseAll">
               <template #icon><icon-refresh /></template>
               重新解析
             </a-button>
             <a-button type="primary" status="success" :loading="autoBindingAll" @click="handleAutoBindAll">
               <template #icon><icon-link /></template>
               批量自动关联
+            </a-button>
+            <a-button status="warning" :disabled="selectedIds.length === 0" @click="handleSetOwnerClick">
+              <template #icon><icon-user-group /></template>
+              设置责任人{{ selectedIds.length > 0 ? `(${selectedIds.length})` : '' }}
             </a-button>
           </a-space>
         </a-col>
@@ -356,12 +496,17 @@ async function handleBatchUploadSubmit() {
         :columns="columns"
         :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true, showPageSize: true }"
         row-key="id"
+        :row-selection="{ type: 'checkbox', showCheckedAll: true }"
+        v-model:selectedKeys="selectedIds"
         @page-change="handlePageChange"
       >
         <template #created_at="{ record }">{{ formatTime(record.created_at) }}</template>
         <template #updated_at="{ record }">{{ formatTime(record.updated_at) }}</template>
         <template #status="{ record }">
           <a-tag :color="record.status === '1' ? 'green' : 'red'">{{ record.status === '1' ? '启用' : '禁用' }}</a-tag>
+        </template>
+        <template #bindStatus="{ record }">
+          <a-tag :color="record.bind_count > 0 ? 'green' : 'gray'">{{ record.bind_count > 0 ? '已关联' : '未关联' }}</a-tag>
         </template>
         <template #txnSummary="{ record }">
           <a-button type="text" size="small" @click="handleViewTxn(record)">
@@ -371,9 +516,10 @@ async function handleBatchUploadSubmit() {
         <template #operations="{ record }">
           <a-space>
             <a-button type="text" size="small" @click="handleViewTxn(record)">事务详情</a-button>
-            <a-button type="text" size="small" :loading="reparsing" @click="handleReparse(record)">解析</a-button>
-            <a-button type="text" size="small" :loading="autoBinding" @click="handleAutoBind(record)">自动关联</a-button>
+            <a-button type="text" size="small" :loading="reparsingIds.has(record.id) || reparsingAll" @click="handleReparse(record)">解析</a-button>
+            <a-button type="text" size="small" :loading="autoBindingIds.has(record.id) || autoBindingAll" @click="handleAutoBind(record)">自动关联</a-button>
             <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
+                        <a-button type="text" size="small" status="success" @click="handleParams(record)">参数</a-button>
             <a-popconfirm content="确认删除？" @ok="handleDelete(record)">
               <a-button type="text" size="small" status="danger">删除</a-button>
             </a-popconfirm>
@@ -414,6 +560,49 @@ async function handleBatchUploadSubmit() {
       <a-form :model="editForm" layout="vertical">
         <a-form-item v-for="f in editFields" :key="f.field" :label="f.label" :required="f.required">
           <a-input v-model="editForm[f.field]" :placeholder="`请输入${f.label}`" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <!-- 执行参数配置弹窗 -->
+    <a-modal v-model:visible="paramsVisible" :title="`执行参数配置 - ${paramsScriptName}`" :width="520" :ok-loading="paramsLoading" @ok="handleParamsSubmit">
+      <a-alert type="info" :style="{ marginBottom: '12px' }">
+        配置此脚本的默认执行参数。触发执行时，如未显式传参，将使用此配置作为默认值。
+      </a-alert>
+      <a-form :model="paramsForm" layout="vertical">
+        <a-row :gutter="16">
+          <a-col :span="12">
+            <a-form-item label="线程数">
+              <a-input-number v-model="paramsForm.threads" :min="1" placeholder="如 10" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-item label="Ramp-up(秒)">
+              <a-input-number v-model="paramsForm.rampup" :min="0" placeholder="如 5" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+        <a-row :gutter="16">
+          <a-col :span="12">
+            <a-form-item label="循环次数">
+              <a-input-number v-model="paramsForm.loops" :min="1" placeholder="如 1" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-item label="持续时间(秒)">
+              <a-input-number v-model="paramsForm.duration" :min="0" placeholder="0=不限" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+        <a-row :gutter="16">
+          <a-col :span="12">
+            <a-form-item label="超时时间(秒)">
+              <a-input-number v-model="paramsForm.timeout_sec" :min="60" placeholder="如 1800" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+        <a-form-item label="额外JMeter属性">
+          <a-input v-model="paramsForm.extra_props" placeholder="key1=val1,key2=val2" />
         </a-form-item>
       </a-form>
     </a-modal>
@@ -470,6 +659,18 @@ async function handleBatchUploadSubmit() {
         </a-form-item>
         <a-form-item label="选择JMX文件（可多选）" required>
           <a-upload :auto-upload="false" multiple accept=".jmx" @change="handleBatchFileChange" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <!-- 批量设置责任人弹窗 -->
+    <a-modal v-model:visible="setOwnerVisible" title="批量设置责任人" :width="420" :ok-loading="setOwnerLoading" @ok="handleSetOwnerSubmit">
+      <a-alert type="info" :style="{ marginBottom: '12px' }">
+        已选择 {{ selectedIds.length }} 个脚本，将统一设置责任人。
+      </a-alert>
+      <a-form layout="vertical">
+        <a-form-item label="责任人" required>
+          <a-input v-model="setOwnerValue" placeholder="请输入责任人姓名" />
         </a-form-item>
       </a-form>
     </a-modal>

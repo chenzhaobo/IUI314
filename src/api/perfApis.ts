@@ -9,6 +9,7 @@ export enum ApiPerfEnv {
   add = '/perf/env/add',
   edit = '/perf/env/edit',
   delete = '/perf/env/delete',
+  healthCheck = '/perf/env/health_check',
 }
 
 // ── 迭代管理 ──────────────────────────────────────
@@ -40,10 +41,12 @@ export enum ApiPerfMenu {
   stats = '/perf/menu/stats',
   scope = '/perf/menu/scope',
   sync = '/perf/menu/sync',
+  syncPreview = '/perf/menu/sync/preview',
   buttons = '/perf/menu/buttons',
   markButtons = '/perf/menu/buttons/mark',
   tableInfo = '/perf/menu/table-info',
   autoMatchPg = '/perf/menu/auto_match_pg',
+  createModules = '/perf/menu/create_modules',
 }
 
 // ── 脚本-菜单绑定 ──────────────────────────────────────
@@ -69,6 +72,10 @@ export enum ApiPerfScript {
   reparseAll = '/perf/script/reparse_all',
   autoBind = '/perf/script/auto_bind',
   autoBindAll = '/perf/script/auto_bind_all',
+  updateParams = '/perf/script/update_params',
+  versionHistory = '/perf/script/version_history',
+  saveVersion = '/perf/script/save_version',
+  batchSetOwner = '/perf/script/batch_set_owner',
 }
 
 // ── 测试执行 ──────────────────────────────────
@@ -78,6 +85,7 @@ export enum ApiPerfRun {
   trigger = '/perf/run/trigger',
   cancel = '/perf/run/cancel',
   log = '/perf/run/log',
+  sseLog = '/perf/run/sse_log',
 }
 
 // ── 聚合报告 ──────────────────────────────────
@@ -85,6 +93,9 @@ export enum ApiPerfReport {
   list = '/perf/report/list',
   detail = '/perf/report/detail',
   summary = '/perf/report/summary',
+  preview = '/perf/report/preview',
+  export = '/perf/report/export',
+  trend = '/perf/report/trend',
 }
 
 // ── 性能基线 ──────────────────────────────────
@@ -95,6 +106,8 @@ export enum ApiPerfBaseline {
   edit = '/perf/baseline/edit',
   delete = '/perf/baseline/delete',
   compare = '/perf/baseline/compare',
+  significanceTest = '/perf/baseline/significance_test',
+  recommend = '/perf/baseline/recommend',
 }
 
 // ── 执行任务 ──────────────────────────────────
@@ -105,6 +118,8 @@ export enum ApiPerfTask {
   retryFailed = '/perf/task/retry_failed',
   cancel = '/perf/task/cancel',
   delete = '/perf/task/delete',
+  updatePriority = '/perf/task/update_priority',
+  queueList = '/perf/task/queue_list',
 }
 
 // ── 模块管理 ──────────────────────────────────
@@ -115,12 +130,50 @@ export enum ApiPerfModule {
   edit = '/perf/module/edit',
   delete = '/perf/module/delete',
   import = '/perf/module/import',
+  syncCloud = '/perf/module/sync_cloud',
+  cloudOptions = '/perf/module/cloud_options',
+}
+
+// ── 参数模板 ──────────────────────────────────
+export enum ApiPerfParamTemplate {
+  getList = '/perf/param-template/list',
+  getById = '/perf/param-template/get_by_id',
+  add = '/perf/param-template/add',
+  edit = '/perf/param-template/edit',
+  delete = '/perf/param-template/delete',
 }
 
 // ── 表统计 ──────────────────────────────────
 export enum ApiPerfTableStats {
   sync = '/perf/table-stats/sync',
+  syncPreview = '/perf/table-stats/sync/preview',
   cancel = '/perf/table-stats/cancel',
   status = '/perf/table-stats/status',
   list = '/perf/table-stats/list',
+  entityList = '/perf/table-stats/entity/list',
+  dbSizes = '/perf/table-stats/db-sizes',
+}
+
+// ── 迭代汇总 ──────────────────────────────────
+export enum ApiPerfSummary {
+  getList = '/perf/summary/list',
+  getById = '/perf/summary/get_by_id',
+  generate = '/perf/summary/generate',
+}
+
+// ── 跨迭代比对 ──────────────────────────────────
+export enum ApiPerfComparison {
+  getList = '/perf/comparison/list',
+  getById = '/perf/comparison/get_by_id',
+  compare = '/perf/comparison/compare',
+  details = '/perf/comparison/details',
+}
+
+// ── 基准测试比对 ──────────────────────────────────
+export enum ApiPerfBenchmark {
+  report = '/perf/benchmark/report',
+  trend = '/perf/benchmark/trend',
+  targetList = '/perf/benchmark/target_list',
+  updateTarget = '/perf/benchmark/update_target',
+  manualPass = '/perf/benchmark/manual_pass',
 }

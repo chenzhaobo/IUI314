@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
-import { useGet } from '@/hooks'
+import { useGet, useToken } from '@/hooks'
 import { ApiPerfReport, ApiPerfScript, ApiPerfIteration } from '@/api/apis'
 
 defineOptions({ name: 'PerfReport' })
@@ -40,7 +40,7 @@ const columns = [
   { title: '吞吐量(req/s)', dataIndex: 'summary_json.throughput', width: 110, slotName: 'throughput' },
   { title: '开始时间', dataIndex: 'started_at', width: 160, slotName: 'started_at' },
   { title: '耗时(秒)', dataIndex: 'duration_ms', width: 90, slotName: 'duration' },
-  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 120, fixed: 'right' as const },
+  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 220, fixed: 'right' as const },
 ]
 
 // ── 聚合报告明细（页签展示） ──────────────────────────────────
@@ -94,6 +94,51 @@ onMounted(async () => {
     }, 500)
   }
 })
+
+// ── HTML报告预览 ──────────────────────────────────
+const previewVisible = ref(false)
+const previewRunId = ref('')
+const previewHtml = ref('')
+const previewLoading = ref(false)
+
+async function handlePreview(record: any) {
+  previewRunId.value = record.id
+  previewVisible.value = true
+  previewLoading.value = true
+  previewHtml.value = ''
+  const { token } = useToken()
+  const base = import.meta.env.VITE_API_BASE_URL || ''
+  try {
+    const resp = await fetch(`${base}/perf/report/preview?run_id=${encodeURIComponent(record.id)}`, {
+      headers: { Authorization: token },
+    })
+    previewHtml.value = await resp.text()
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+// ── CSV导出 ──────────────────────────────────
+async function handleExport(record: any) {
+  const { token } = useToken()
+  const base = import.meta.env.VITE_API_BASE_URL || ''
+  try {
+    const resp = await fetch(`${base}/perf/report/export?run_id=${encodeURIComponent(record.id)}`, {
+      headers: { Authorization: token },
+    })
+    const blob = await resp.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `report_${record.id.substring(0, 8)}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  } catch {
+    Message.error('导出失败')
+  }
+}
 
 function formatTime(time?: string | null) {
   if (!time) return '-'
@@ -152,7 +197,11 @@ function fmt(n: number | undefined | null, digits = 2): string {
             <template #duration="{ record }">{{ record.duration_ms ? fmt(record.duration_ms / 1000, 1) + 's' : '-' }}</template>
 
             <template #operations="{ record }">
-              <a-button type="text" size="small" @click="handleViewDetail(record)">查看明细</a-button>
+              <a-space>
+                <a-button type="text" size="small" @click="handleViewDetail(record)">查看明细</a-button>
+                <a-button type="text" size="small" @click="handlePreview(record)">HTML预览</a-button>
+                <a-button type="text" size="small" @click="handleExport(record)">导出CSV</a-button>
+              </a-space>
             </template>
           </a-table>
         </a-card>
@@ -185,6 +234,14 @@ function fmt(n: number | undefined | null, digits = 2): string {
         </a-card>
       </a-tab-pane>
     </a-tabs>
+
+    <!-- HTML报告预览弹窗 -->
+    <a-modal v-model:visible="previewVisible" :title="`HTML报告预览 — ${previewRunId.substring(0, 8)}`" :width="1200" :footer="false" :body-style="{ padding: '0', height: '80vh' }">
+      <a-spin :loading="previewLoading" style="width: 100%; height: 100%">
+        <iframe v-if="previewHtml" :srcdoc="previewHtml" style="width: 100%; height: 80vh; border: none;" />
+        <a-empty v-else description="报告不存在" style="padding-top: 200px" />
+      </a-spin>
+    </a-modal>
   </div>
 </template>
 

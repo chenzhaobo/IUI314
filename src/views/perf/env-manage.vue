@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { useGet, usePost, usePut, useDelete } from '@/hooks'
+import { useGet, usePost, usePut, useDelete, useToken } from '@/hooks'
 import { ApiPerfEnv, ApiSysDictData } from '@/api/apis'
 
 defineOptions({ name: 'PerfEnvManage' })
@@ -64,7 +64,7 @@ const columns = [
   { title: '同步状态', dataIndex: 'sync_status', width: 80, slotName: 'sync_status' },
   { title: '最后同步', dataIndex: 'last_sync_at', width: 160, slotName: 'last_sync' },
   { title: '状态', dataIndex: 'status', width: 60, slotName: 'status' },
-  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 140, fixed: 'right' as const },
+  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 200, fixed: 'right' as const },
 ]
 
 // ── 新增/编辑弹窗 ──────────────────────────────────
@@ -127,6 +127,28 @@ function formatTime(time: string) {
   if (!time) return '-'
   return time.replace('T', ' ').substring(0, 19)
 }
+
+// ── 环境健康检查 ──────────────────────────────────
+const healthCheckVisible = ref(false)
+const healthCheckLoading = ref(false)
+const healthCheckResult = ref<any>(null)
+
+async function handleHealthCheck(record: any) {
+  healthCheckVisible.value = true
+  healthCheckLoading.value = true
+  healthCheckResult.value = null
+  const { token } = useToken()
+  const base = import.meta.env.VITE_API_BASE_URL || ''
+  try {
+    const resp = await fetch(`${base}/perf/env/health_check?id=${encodeURIComponent(record.id)}`, {
+      headers: { Authorization: token },
+    })
+    const data = await resp.json()
+    healthCheckResult.value = data.data || data
+  } finally {
+    healthCheckLoading.value = false
+  }
+}
 </script>
 
 <template>
@@ -180,6 +202,7 @@ function formatTime(time: string) {
         <template #operations="{ record }">
           <a-space>
             <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
+            <a-button type="text" size="small" @click="handleHealthCheck(record)">健康检查</a-button>
             <a-popconfirm content="确认删除？删除后不可恢复" @ok="handleDelete(record)">
               <a-button type="text" size="small" status="danger">删除</a-button>
             </a-popconfirm>
@@ -268,6 +291,26 @@ function formatTime(time: string) {
           <a-textarea v-model="form.remark" :auto-size="{ minRows: 2, maxRows: 4 }" />
         </a-form-item>
       </a-form>
+    </a-modal>
+
+    <!-- 环境健康检查弹窗 -->
+    <a-modal v-model:visible="healthCheckVisible" title="环境健康检查" :footer="false" :width="480">
+      <a-spin :loading="healthCheckLoading" style="width: 100%">
+        <div v-if="healthCheckResult" style="text-align: center; padding: 20px 0">
+          <a-result
+            :status="healthCheckResult.status === 'healthy' ? 'success' : 'error'"
+            :title="healthCheckResult.status === 'healthy' ? '连接正常' : '连接异常'"
+          >
+            <template #extra>
+              <a-descriptions :column="1" layout="inline" bordered size="small" style="text-align: left">
+                <a-descriptions-item label="数据库地址">{{ healthCheckResult.db_host }}:{{ healthCheckResult.db_port }}</a-descriptions-item>
+                <a-descriptions-item v-if="healthCheckResult.latency_ms !== undefined" label="连接延迟">{{ healthCheckResult.latency_ms }} ms</a-descriptions-item>
+                <a-descriptions-item v-if="healthCheckResult.error" label="错误信息">{{ healthCheckResult.error }}</a-descriptions-item>
+              </a-descriptions>
+            </template>
+          </a-result>
+        </div>
+      </a-spin>
     </a-modal>
   </div>
 </template>

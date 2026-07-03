@@ -178,7 +178,7 @@ async function handleDelete(record: any) {
 
 // ── 查看任务详情（跳转到run列表，按task_id筛选） ──────────────────────────────────
 function handleViewRuns(record: any) {
-  router.push({ path: '/perf/run', query: { task_id: record.id } })
+  router.push({ path: '/perf/run-group/run', query: { task_id: record.id } })
 }
 
 // ── 自动刷新轮询 ──────────────────────────────────

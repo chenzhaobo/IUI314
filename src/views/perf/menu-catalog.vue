@@ -2,7 +2,9 @@
 import { ref, computed, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { useGet, usePost, usePut } from '@/hooks'
-import { ApiPerfEnv, ApiPerfApp, ApiPerfMenu, ApiPerfTableStats, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
+import { ApiPerfEnv, ApiPerfApp, ApiPerfMenu, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
+import SyncMenuModal from './components/SyncMenuModal.vue'
+import AutoMatchModal from './components/AutoMatchModal.vue'
 
 defineOptions({ name: 'PerfMenuCatalog' })
 
@@ -330,164 +332,23 @@ watch(() => menuQuery.value.project_group_name, () => {
 })
 
 // ════════════════════════════════════════════════════
-// 同步菜单 — 弹窗编辑所有参数
+// 同步菜单 — 弹窗
 // ════════════════════════════════════════════════════
-
 const syncMenuVisible = ref(false)
-const syncMenuLoading = ref(false)
-const syncMenuProductLine = ref('')
-const syncMenuEnvId = ref('')
-
-// 同步结果弹窗
-const syncResultVisible = ref(false)
-const syncResult = ref<any>(null)
-
-// 弹窗内的环境列表
-const { data: syncMenuEnvData, execute: fetchSyncMenuEnvList } = useGet<any>(ApiPerfEnv.getList, computed(() => ({ page_num: 1, page_size: 100, product_line: syncMenuProductLine.value })), { immediate: false })
-const syncMenuEnvOptions = computed(() => (syncMenuEnvData.value?.list || []).map((e: any) => ({ label: e.env_name, value: e.id })))
 
 function openSyncMenuModal() {
-  syncMenuProductLine.value = productLine.value
-  syncMenuEnvId.value = sourceEnvId.value
   syncMenuVisible.value = true
-  if (syncMenuProductLine.value) {
-    fetchSyncMenuEnvList()
-  }
 }
 
-watch(syncMenuProductLine, () => {
-  syncMenuEnvId.value = ''
-  if (syncMenuProductLine.value) {
-    fetchSyncMenuEnvList()
-  }
-})
-
-async function confirmSyncMenu() {
-  if (!syncMenuProductLine.value) { Message.warning('请选择产品线'); return }
-  if (!syncMenuEnvId.value) { Message.warning('请选择来源环境'); return }
-  syncMenuLoading.value = true
-  try {
-    const { execute, error, data } = usePost<any>(ApiPerfMenu.sync, { env_id: syncMenuEnvId.value, product_line: syncMenuProductLine.value })
-    await execute()
-    if (error.value) { Message.error('同步失败，请查看环境同步状态'); return }
-    syncResult.value = data.value
-    syncMenuVisible.value = false
-    syncResultVisible.value = true
-    loadedButtonKeys.value.clear()
-    fetchTree()
-    fetchStats()
-    getMenuList()
-  } finally {
-    syncMenuLoading.value = false
-  }
+function handleSyncSuccess() {
+  loadedButtonKeys.value.clear()
+  fetchTree()
+  fetchStats()
+  getMenuList()
 }
 
 // ════════════════════════════════════════════════════
-// 同步表统计 — 弹窗编辑所有参数，支持选中菜单
-// ════════════════════════════════════════════════════
-
-const syncStatsVisible = ref(false)
-const syncStatsLoading = ref(false)
-const syncStatsProductLine = ref('')
-const syncStatsEnvId = ref('')
-const statsConcurrency = ref(4)
-const syncStatsEnvIdForPolling = ref('')
-
-const { data: syncStatsEnvData, execute: fetchSyncStatsEnvList } = useGet<any>(ApiPerfEnv.getList, computed(() => ({ page_num: 1, page_size: 100, product_line: syncStatsProductLine.value })), { immediate: false })
-const syncStatsEnvOptions = computed(() => (syncStatsEnvData.value?.list || []).map((e: any) => ({ label: e.env_name, value: e.id })))
-
-const syncStatsSelectedHint = computed(() => {
-  if (selectedMenuIds.value.length > 0) {
-    return `已选择 ${selectedMenuIds.value.length} 个菜单，将仅同步选中菜单的表统计`
-  }
-  return '未选择菜单，将同步所有表统计'
-})
-
-function openSyncStatsModal() {
-  if (isSyncing.value) { Message.warning('当前已有同步任务在运行'); return }
-  syncStatsProductLine.value = productLine.value
-  syncStatsEnvId.value = sourceEnvId.value
-  syncStatsVisible.value = true
-  if (syncStatsProductLine.value) {
-    fetchSyncStatsEnvList()
-  }
-}
-
-watch(syncStatsProductLine, () => {
-  syncStatsEnvId.value = ''
-  if (syncStatsProductLine.value) {
-    fetchSyncStatsEnvList()
-  }
-})
-
-async function confirmTableStatsSync() {
-  if (!syncStatsProductLine.value) { Message.warning('请选择产品线'); return }
-  if (!syncStatsEnvId.value) { Message.warning('请选择环境'); return }
-  syncStatsLoading.value = true
-  try {
-    const payload: any = {
-      env_id: syncStatsEnvId.value,
-      product_line: syncStatsProductLine.value,
-      concurrency: statsConcurrency.value,
-    }
-    if (selectedMenuIds.value.length > 0) {
-      payload.menu_ids = selectedMenuIds.value
-    }
-    const { execute, error } = usePost<string>(ApiPerfTableStats.sync, payload)
-    await execute()
-    if (error.value) { Message.error('触发同步失败'); return }
-    Message.success('表统计同步已启动')
-    syncStatsEnvIdForPolling.value = syncStatsEnvId.value
-    syncStatsVisible.value = false
-    startPolling()
-  } finally {
-    syncStatsLoading.value = false
-  }
-}
-
-async function handleTableStatsCancel() {
-  const { execute, error } = usePost(ApiPerfTableStats.cancel, { env_id: syncStatsEnvIdForPolling.value })
-  await execute()
-  if (error.value) { Message.error('取消失败'); return }
-  Message.info('已发送取消信号')
-}
-
-// ── 同步状态轮询 ──────────────────────────────────
-const syncStatus = ref<any>({ status: 'idle', done_count: 0, total_count: 0, error_count: 0 })
-let syncPollTimer: ReturnType<typeof setInterval> | null = null
-
-const isSyncing = computed(() => syncStatus.value?.status === 'running')
-const syncProgress = computed(() => {
-  if (!syncStatus.value || syncStatus.value.total_count === 0) return 0
-  return Math.round((syncStatus.value.done_count / syncStatus.value.total_count) * 100)
-})
-
-const { data: syncStatusData, execute: fetchSyncStatus } = useGet<any>(ApiPerfTableStats.status, computed(() => ({ env_id: syncStatsEnvIdForPolling.value })), { immediate: false })
-
-watch(syncStatusData, (val) => {
-  if (val) syncStatus.value = val
-})
-
-function startPolling() {
-  stopPolling()
-  fetchSyncStatus()
-  syncPollTimer = setInterval(() => {
-    fetchSyncStatus()
-    if (syncStatus.value && ['completed', 'failed', 'cancelled', 'idle'].includes(syncStatus.value.status)) {
-      stopPolling()
-    }
-  }, 3000)
-}
-
-function stopPolling() {
-  if (syncPollTimer) {
-    clearInterval(syncPollTimer)
-    syncPollTimer = null
-  }
-}
-
-// ════════════════════════════════════════════════════
-// 自动匹配项目组 — 支持选中菜单
+// 自动匹配项目组
 // ════════════════════════════════════════════════════
 const autoMatchLoading = ref(false)
 const autoMatchResult = ref<any>(null)
@@ -512,25 +373,6 @@ async function handleAutoMatchPg() {
   } finally {
     autoMatchLoading.value = false
   }
-}
-
-function handleDownloadUnmatchedApps() {
-  const apps = autoMatchResult.value?.unmatched_apps as string[] | undefined
-  if (!apps || apps.length === 0) { Message.warning('没有未匹配应用可下载'); return }
-  const ts = new Date()
-  const dateStr = `${ts.getFullYear()}${String(ts.getMonth() + 1).padStart(2, '0')}${String(ts.getDate()).padStart(2, '0')}${String(ts.getHours()).padStart(2, '0')}${String(ts.getMinutes()).padStart(2, '0')}`
-  const header = `序号\t未匹配应用`
-  const lines = apps.map((name, i) => `${i + 1}\t${name}`)
-  const content = '\uFEFF' + [header, ...lines].join('\n')
-  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `未匹配应用清单_${dateStr}.csv`
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
 }
 
 // ════════════════════════════════════════════════════
@@ -658,15 +500,6 @@ watch([sourceEnvId, currentFormNumber], () => {
         <a-divider direction="vertical" />
         <a-statistic title="测试范围内" :value="statsData.in_scope_menus || 0" :value-style="{ color: '#00b42a' }" />
       </div>
-
-      <!-- 表统计同步进度条 -->
-      <a-progress
-        v-if="isSyncing || (syncStatus.status === 'completed')"
-        :percent="syncProgress"
-        :status="syncStatus.status === 'completed' ? 'success' : 'normal'"
-        :format="() => `${syncStatus.done_count || 0} / ${syncStatus.total_count || 0}`"
-        style="margin-top: 8px"
-      />
     </a-card>
 
     <a-card :bordered="false" v-if="!productLine">
@@ -775,16 +608,6 @@ watch([sourceEnvId, currentFormNumber], () => {
               <template #icon><icon-link /></template>
               自动匹配项目组
             </a-button>
-            <a-button
-              :type="isSyncing ? 'outline' : 'primary'"
-              :status="isSyncing ? 'warning' : 'normal'"
-              :disabled="!productLine || isSyncing"
-              @click="openSyncStatsModal"
-            >
-              <template #icon><icon-storage /></template>
-              同步表统计
-            </a-button>
-            <a-button v-if="isSyncing" status="danger" @click="handleTableStatsCancel">停止</a-button>
           </div>
 
           <a-table
@@ -817,89 +640,21 @@ watch([sourceEnvId, currentFormNumber], () => {
     </div>
 
     <!-- 同步菜单弹窗 -->
-    <a-modal v-model:visible="syncMenuVisible" title="同步菜单" @ok="confirmSyncMenu" :ok-loading="syncMenuLoading" :width="460">
-      <a-alert type="info" :show-icon="true" style="margin-bottom: 12px">
-        将从来源环境同步云、应用、菜单、实体元数据和按钮数据到目标产品线。
-      </a-alert>
-      <a-form :model="{ }" layout="vertical">
-        <a-form-item label="产品线">
-          <a-select v-model="syncMenuProductLine" :options="productLineOptions" placeholder="选择产品线" allow-search />
-        </a-form-item>
-        <a-form-item label="来源环境">
-          <a-select v-model="syncMenuEnvId" :options="syncMenuEnvOptions" placeholder="选择来源环境" allow-search :disabled="!syncMenuProductLine" />
-        </a-form-item>
-      </a-form>
-    </a-modal>
-
-    <!-- 同步菜单结果弹窗 -->
-    <a-modal v-model:visible="syncResultVisible" title="同步菜单结果" :footer="false" :width="480">
-      <a-result
-        v-if="syncResult"
-        status="success"
-        title="同步完成"
-        :sub-title="`产品线: ${syncMenuProductLine} | 环境: ${(syncMenuEnvOptions.find((e:any) => e.value === syncMenuEnvId)?.label) || ''}`"
-      >
-        <template #extra>
-          <a-button type="primary" @click="syncResultVisible = false">关闭</a-button>
-        </template>
-        <a-descriptions :column="2" layout="inline" bordered size="small">
-          <a-descriptions-item label="云">{{ syncResult.cloud_count ?? 0 }}</a-descriptions-item>
-          <a-descriptions-item label="应用">{{ syncResult.app_count ?? 0 }}</a-descriptions-item>
-          <a-descriptions-item label="菜单总数">{{ syncResult.menu_count ?? 0 }}</a-descriptions-item>
-          <a-descriptions-item label="新增菜单">{{ syncResult.new_count ?? 0 }}</a-descriptions-item>
-          <a-descriptions-item label="更新菜单">{{ syncResult.updated_count ?? 0 }}</a-descriptions-item>
-          <a-descriptions-item label="实体元数据">{{ syncResult.entity_count ?? 0 }}</a-descriptions-item>
-          <a-descriptions-item label="按钮">{{ syncResult.button_count ?? 0 }}</a-descriptions-item>
-        </a-descriptions>
-      </a-result>
-    </a-modal>
-
-    <!-- 同步表统计弹窗 -->
-    <a-modal v-model:visible="syncStatsVisible" title="同步表统计" @ok="confirmTableStatsSync" :ok-loading="syncStatsLoading" :width="460">
-      <a-alert type="info" :show-icon="true" style="margin-bottom: 12px">
-        将查询各业务库表的行数和空间占用，过程较慢，请耐心等待。可随时停止。
-      </a-alert>
-      <a-form :model="{ }" layout="vertical">
-        <a-form-item label="产品线">
-          <a-select v-model="syncStatsProductLine" :options="productLineOptions" placeholder="选择产品线" allow-search />
-        </a-form-item>
-        <a-form-item label="来源环境">
-          <a-select v-model="syncStatsEnvId" :options="syncStatsEnvOptions" placeholder="选择环境" allow-search :disabled="!syncStatsProductLine" />
-        </a-form-item>
-        <a-form-item label="并发数" help="同时连接的业务库数量，建议 2~8">
-          <a-input-number v-model="statsConcurrency" :min="1" :max="20" style="width: 100%" />
-        </a-form-item>
-        <a-form-item>
-          <a-alert type="normal" :show-icon="true">{{ syncStatsSelectedHint }}</a-alert>
-        </a-form-item>
-      </a-form>
-    </a-modal>
+    <SyncMenuModal
+      v-model:visible="syncMenuVisible"
+      :product-line="productLine"
+      :source-env-id="sourceEnvId"
+      :product-line-options="productLineOptions"
+      @success="handleSyncSuccess"
+    />
 
     <!-- 自动匹配项目组结果弹窗 -->
-    <a-modal v-model:visible="autoMatchVisible" title="自动匹配项目组结果" :footer="false" :width="560">
-      <a-descriptions :column="1" layout="inline" bordered size="small" style="margin-bottom: 12px">
-        <a-descriptions-item label="回填模块项目组">{{ autoMatchResult?.modules_backfilled ?? 0 }} 条</a-descriptions-item>
-        <a-descriptions-item label="匹配应用数">{{ autoMatchResult?.apps_matched ?? 0 }} / {{ (autoMatchResult?.apps_matched ?? 0) + (autoMatchResult?.unmatched_apps?.length ?? 0) }}</a-descriptions-item>
-        <a-descriptions-item label="更新应用数">{{ autoMatchResult?.apps_updated ?? 0 }} 条</a-descriptions-item>
-        <a-descriptions-item label="匹配菜单数">{{ autoMatchResult?.menus_matched ?? 0 }}</a-descriptions-item>
-        <a-descriptions-item label="更新菜单数">{{ autoMatchResult?.menus_updated ?? 0 }} 条</a-descriptions-item>
-      </a-descriptions>
-      <div v-if="autoMatchResult?.unmatched_apps?.length" style="margin-top: 8px">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px">
-          <span style="font-weight: 600">未匹配应用（{{ autoMatchResult.unmatched_apps.length }}个）：</span>
-          <a-button type="text" size="small" @click="handleDownloadUnmatchedApps">
-            <template #icon><icon-download /></template>
-            下载清单
-          </a-button>
-        </div>
-        <a-list :data="autoMatchResult.unmatched_apps.slice(0, 20)" size="small" :bordered="true" max-height="200">
-          <template #item="{ item }">{{ item }}</template>
-        </a-list>
-        <div v-if="autoMatchResult.unmatched_apps.length > 20" style="color: var(--color-text-3); font-size: 12px; margin-top: 4px">
-          ...还有 {{ autoMatchResult.unmatched_apps.length - 20 }} 个未显示
-        </div>
-      </div>
-    </a-modal>
+    <AutoMatchModal
+      v-model:visible="autoMatchVisible"
+      :result="autoMatchResult"
+      :product-line="productLine"
+      @modules-created="() => { getMenuList(); fetchStats() }"
+    />
   </div>
 </template>
 

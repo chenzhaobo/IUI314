@@ -1,9 +1,11 @@
 <script lang="ts" setup>
-import { ref, computed, watch, onUnmounted, onMounted } from 'vue'
+import { ref, computed, watch, onUnmounted, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
+import { EventSourcePolyfill, type MessageEvent } from 'event-source-polyfill'
 import { useGet, usePost, usePut } from '@/hooks'
 import { ApiPerfRun, ApiPerfScript, ApiPerfIteration, ApiPerfTask } from '@/api/apis'
+import { useToken } from '@/hooks/app'
 
 defineOptions({ name: 'PerfRun' })
 const router = useRouter()
@@ -95,10 +97,10 @@ async function handleTriggerSubmit() {
 
 // ── 跳转报告页 ──────────────────────────────────
 function handleViewReport(record: any) {
-  router.push({ path: '/perf/report', query: { run_id: record.id } })
+  router.push({ path: '/perf/report-group/report', query: { run_id: record.id } })
 }
 
-// ── 查看日志 ──────────────────────────────────
+// ── 查看日志（静态） ──────────────────────────────────
 const logVisible = ref(false)
 const logContent = ref('')
 
@@ -108,6 +110,55 @@ async function handleViewLog(record: any) {
   if (error.value) { Message.error('获取日志失败'); return }
   logContent.value = data.value || '无日志'
   logVisible.value = true
+}
+
+// ── 实时日志 SSE ──────────────────────────────────
+const sseLogVisible = ref(false)
+const sseLogContent = ref('')
+const sseRunStatus = ref('')
+let currentSSE: EventSourcePolyfill | null = null
+const logAreaRef = ref<HTMLElement>()
+const { token } = useToken()
+const baseUrl = import.meta.env.VITE_API_BASE_URL
+
+function handleSSELog(record: any) {
+  sseLogContent.value = ''
+  sseRunStatus.value = record.run_status || ''
+  sseLogVisible.value = true
+
+  const url = `${baseUrl}/${ApiPerfRun.sseLog}?id=${record.id}`
+  currentSSE = new EventSourcePolyfill(url, {
+    withCredentials: false,
+    headers: { Authorization: token.value },
+  })
+
+  currentSSE.onmessage = (e: MessageEvent) => {
+    sseLogContent.value += e.data + '\n'
+    nextTick(() => {
+      if (logAreaRef.value) logAreaRef.value.scrollTop = logAreaRef.value.scrollHeight
+    })
+  }
+
+  currentSSE.addEventListener('status', (e: MessageEvent) => {
+    sseRunStatus.value = e.data
+  })
+
+  currentSSE.addEventListener('end', () => {
+    sseRunStatus.value = sseRunStatus.value || 'done'
+    currentSSE?.close()
+    currentSSE = null
+  })
+
+  currentSSE.onerror = () => {
+    currentSSE?.close()
+    currentSSE = null
+  }
+}
+
+function closeSSELog() {
+  currentSSE?.close()
+  currentSSE = null
+  sseLogVisible.value = false
 }
 
 // ── 取消执行 ──────────────────────────────────
@@ -135,6 +186,8 @@ watch(dataList, (list) => {
 })
 onUnmounted(() => {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+  currentSSE?.close()
+  currentSSE = null
 })
 
 // ── 批量执行 ──────────────────────────────────
@@ -176,7 +229,7 @@ async function handleBatchSubmit() {
     <a-card :bordered="false" class="m-b-8px">
       <a-row :gutter="16">
         <a-col v-if="filterTaskId" :span="6">
-          <a-button @click="router.push('/perf/task')">
+          <a-button @click="router.push('/perf/run-group/task')">
             <template #icon><icon-left /></template>
             返回任务列表
           </a-button>
@@ -243,6 +296,7 @@ async function handleBatchSubmit() {
         <template #operations="{ record }">
           <a-space>
             <a-button type="text" size="small" @click="handleViewReport(record)" :disabled="record.run_status !== 'success'">报告</a-button>
+            <a-button v-if="record.run_status === 'pending' || record.run_status === 'running'" type="text" size="small" status="success" @click="handleSSELog(record)">实时日志</a-button>
             <a-button type="text" size="small" @click="handleViewLog(record)">日志</a-button>
             <a-button v-if="record.run_status === 'pending' || record.run_status === 'running'" type="text" size="small" status="warning" @click="handleCancel(record)">取消</a-button>
           </a-space>
@@ -276,11 +330,25 @@ async function handleBatchSubmit() {
       </a-form>
     </a-modal>
 
-    <!-- 日志弹窗 -->
+    <!-- 静态日志弹窗 -->
     <a-modal v-model:visible="logVisible" title="执行日志" :width="800" :footer="false">
       <a-typography-text style="white-space: pre-wrap; font-family: monospace; font-size: 12px; max-height: 500px; overflow-y: auto; display: block;">
         {{ logContent }}
       </a-typography-text>
+    </a-modal>
+
+    <!-- 实时日志 SSE 弹窗 -->
+    <a-modal v-model:visible="sseLogVisible" title="实时执行日志" :width="800" :footer="false" @cancel="closeSSELog" @close="closeSSELog">
+      <template #title>
+        实时执行日志
+        <a-tag v-if="sseRunStatus" :color="sseRunStatus === 'success' ? 'green' : sseRunStatus === 'failed' ? 'red' : 'blue'" size="small" style="margin-left: 8px">{{ sseRunStatus }}</a-tag>
+      </template>
+      <div ref="logAreaRef" style="white-space: pre-wrap; font-family: monospace; font-size: 12px; max-height: 500px; overflow-y: auto; background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 4px;">
+        {{ sseLogContent || '等待日志输出...' }}
+      </div>
+      <div style="text-align: right; margin-top: 8px;">
+        <a-button @click="closeSSELog">关闭</a-button>
+      </div>
     </a-modal>
 
     <!-- 批量执行弹窗 -->

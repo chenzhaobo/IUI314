@@ -124,7 +124,7 @@ function handleCompareWithBaseline(record: any) {
 
 // 跳转到聚合报告查看明细
 function handleViewDetail(record: any) {
-  router.push({ path: '/perf/report', query: { run_id: record.run_id } })
+  router.push({ path: '/perf/report-group/report', query: { run_id: record.run_id } })
 }
 
 async function handleCompareSubmit() {

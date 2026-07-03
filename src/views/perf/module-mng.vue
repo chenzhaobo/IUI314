@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed, onMounted } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { useGet, usePost, usePut, useDelete } from '@/hooks'
+import { useGet, usePost, usePut, useDelete, useDicts } from '@/hooks'
 import { ApiPerfModule, ApiSecProjectGroup } from '@/api/apis'
 import * as XLSX from 'xlsx'
 
@@ -18,7 +18,19 @@ async function loadProjectGroups() {
   projectGroupOptions.value = list.map((pg: any) => ({ label: pg.name, value: pg.id }))
   projectGroupMap.value = new Map(list.map((pg: any) => [pg.id, pg.name]))
 }
-onMounted(() => loadProjectGroups())
+
+// ── 所属云选项 ──────────────────────────────
+const cloudOptions = ref<string[]>([])
+async function loadCloudOptions() {
+  const { execute, data } = useGet<string[]>(ApiPerfModule.cloudOptions, {}, { immediate: false })
+  await execute()
+  cloudOptions.value = data.value || []
+}
+
+onMounted(() => {
+  loadProjectGroups()
+  loadCloudOptions()
+})
 
 // ── 列表查询 ──────────────────────────────────
 const queryParams = ref({
@@ -26,8 +38,8 @@ const queryParams = ref({
   page_size: 20,
   keyword: '',
   status: '',
+  project_group_id: '',
   parent_cloud: '',
-  material_type: '',
 })
 
 const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<any>(ApiPerfModule.getList, queryParams, { immediate: true })
@@ -43,18 +55,20 @@ function handlePageChange(page: number) {
   getList()
 }
 
-const statusOptions = [
+// ── 字典：状态 ──────────────────────────────
+const dicts = useDicts('perf_module_status')
+const statusOptions = computed(() => [
   { label: '全部', value: '' },
-  { label: '可用', value: '可用' },
-  { label: '不可用', value: '不可用' },
-]
+  ...(dicts.value['perf_module_status'] || []).map((d: any) => ({ label: d.label, value: d.value })),
+])
+const statusTagColor: Record<string, string> = { '可用': 'green', '禁用': 'red' }
 
 const columns = [
   { title: '名称', dataIndex: 'name', width: 180, ellipsis: true, tooltip: true },
   { title: '编码', dataIndex: 'code', width: 130, ellipsis: true, tooltip: true },
   { title: '状态', dataIndex: 'status', width: 80, slotName: 'status' },
   { title: '模块简码', dataIndex: 'module_code', width: 120, ellipsis: true, tooltip: true },
-  { title: '关联项目组', dataIndex: 'scrum_team', width: 140, ellipsis: true, tooltip: true },
+  { title: '关联项目组', dataIndex: 'scrum_team', width: 140, ellipsis: true, tooltip: true, slotName: 'scrum_team' },
   { title: '物料简码', dataIndex: 'material_short_code', width: 120, ellipsis: true, tooltip: true },
   { title: '物料类型', dataIndex: 'material_type', width: 100, ellipsis: true, tooltip: true },
   { title: '所属云', dataIndex: 'parent_cloud', width: 120, ellipsis: true, tooltip: true },
@@ -124,6 +138,23 @@ async function handleDelete(record: any) {
   if (error.value) { Message.error('删除失败'); return }
   Message.success('删除成功')
   getList()
+}
+
+// ── 同步所属云 ──────────────────────────────────
+const syncingCloud = ref(false)
+async function handleSyncCloud() {
+  syncingCloud.value = true
+  try {
+    const { execute, error, data } = usePost<any>(ApiPerfModule.syncCloud, {})
+    await execute()
+    if (error.value) { Message.error('同步失败'); return }
+    const r = data.value || {}
+    Message.success(`同步完成：共 ${r.total ?? 0} 条，更新 ${r.updated ?? 0} 条，跳过 ${r.skipped ?? 0} 条，未匹配 ${r.unmatched ?? 0} 条`)
+    getList()
+    loadCloudOptions()
+  } finally {
+    syncingCloud.value = false
+  }
 }
 
 // ── Excel 导入 ──────────────────────────────────
@@ -228,12 +259,14 @@ async function handleFileChange(e: Event) {
           <a-select v-model="queryParams.status" :options="statusOptions" placeholder="状态" allow-clear @change="handleSearch" />
         </a-col>
         <a-col :span="4">
-          <a-input v-model="queryParams.parent_cloud" placeholder="所属云" allow-clear @press-enter="handleSearch" />
+          <a-select v-model="queryParams.parent_cloud" placeholder="所属云" allow-clear allow-search @change="handleSearch">
+            <a-option v-for="c in cloudOptions" :key="c" :value="c">{{ c }}</a-option>
+          </a-select>
         </a-col>
-        <a-col :span="4">
-          <a-input v-model="queryParams.material_type" placeholder="物料类型" allow-clear @press-enter="handleSearch" />
+        <a-col :span="5">
+          <a-select v-model="queryParams.project_group_id" :options="projectGroupOptions" placeholder="项目组" allow-clear allow-search @change="handleSearch" />
         </a-col>
-        <a-col :span="6">
+        <a-col :span="5">
           <a-space>
             <a-button type="primary" @click="handleSearch">搜索</a-button>
             <a-button type="primary" status="success" @click="handleAdd">
@@ -245,6 +278,14 @@ async function handleFileChange(e: Event) {
               Excel导入
             </a-button>
           </a-space>
+        </a-col>
+      </a-row>
+      <a-row :gutter="16" style="margin-top: 8px">
+        <a-col :span="6">
+          <a-button :loading="syncingCloud" @click="handleSyncCloud">
+            <template #icon><icon-sync /></template>
+            同步所属云
+          </a-button>
         </a-col>
       </a-row>
     </a-card>
@@ -260,7 +301,10 @@ async function handleFileChange(e: Event) {
         @page-change="handlePageChange"
       >
         <template #status="{ record }">
-          <a-tag :color="record.status === '可用' ? 'green' : 'red'">{{ record.status }}</a-tag>
+          <a-tag :color="statusTagColor[record.status] || 'gray'">{{ record.status }}</a-tag>
+        </template>
+        <template #scrum_team="{ record }">
+          {{ projectGroupMap.get(record.project_group_id) || record.scrum_team || '-' }}
         </template>
         <template #operations="{ record }">
           <a-space>
@@ -296,9 +340,7 @@ async function handleFileChange(e: Event) {
           </a-col>
           <a-col :span="12">
             <a-form-item label="状态">
-              <a-select v-model="form.status">
-                <a-option value="可用">可用</a-option>
-                <a-option value="不可用">不可用</a-option>
+              <a-select v-model="form.status" :options="statusOptions.filter(o => o.value)">
               </a-select>
             </a-form-item>
           </a-col>
