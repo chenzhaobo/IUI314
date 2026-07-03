@@ -6,7 +6,7 @@ $ports = @(9876, 9877)
 $stopped = $false
 
 foreach ($port in $ports) {
-    $connection = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
+    $connection = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
     if ($connection) {
         $processId = $connection.OwningProcess | Select-Object -First 1
         Write-Host "[Frontend] Stopping service (port $port, PID: $processId)..." -ForegroundColor Yellow
@@ -26,8 +26,19 @@ foreach ($port in $ports) {
 }
 
 if ($stopped) {
-    Start-Sleep -Milliseconds 500
-    Write-Host "[Frontend] Service stopped" -ForegroundColor Green
+    Start-Sleep -Seconds 1
+    # 验证端口是否真正释放
+    $stillListening = $false
+    foreach ($p in $ports) {
+        $verifyConn = Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue
+        if ($verifyConn) {
+            Write-Host "[Frontend] Failed to stop: port $p still in use (PID: $($verifyConn.OwningProcess | Select-Object -First 1))" -ForegroundColor Red
+            $stillListening = $true
+        }
+    }
+    if (-not $stillListening) {
+        Write-Host "[Frontend] Service stopped" -ForegroundColor Green
+    }
 } else {
     Write-Host "[Frontend] Service is not running" -ForegroundColor DarkGray
 }

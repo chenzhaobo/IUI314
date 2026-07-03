@@ -8,8 +8,8 @@ Set-Location $scriptDir
 
 $port = 9876
 
-# Check if port is already in use
-$connection = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
+# Check if port is already in use (only Listen state, ignore TimeWait)
+$connection = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
 if ($connection) {
     Write-Host "[Frontend] Port $port is already in use, service may already be running" -ForegroundColor Red
     exit 1
