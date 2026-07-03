@@ -52,5 +52,7 @@
   "orgGroup": "组织架构",
   "perfScriptGroup": "脚本管理",
   "perfRunGroup": "测试执行",
-  "perfReportGroup": "报告分析"
+  "perfReportGroup": "压测报告",
+  "perfBenchmarkReportGroup": "基准报告",
+  "perfBenchmarkReport": "基准报告"
 }

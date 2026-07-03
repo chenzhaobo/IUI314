@@ -52,5 +52,7 @@
   "orgGroup": "Organization",
   "perfScriptGroup": "Script",
   "perfRunGroup": "Execution",
-  "perfReportGroup": "Report"
+  "perfReportGroup": "Perf Report",
+  "perfBenchmarkReportGroup": "Benchmark Report",
+  "perfBenchmarkReport": "Benchmark Report"
 }
