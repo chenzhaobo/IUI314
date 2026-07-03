@@ -8,6 +8,22 @@ import type { userInformation } from '@/types/system/userInformation'
 import DictTag from '@/components/common/dict-tag.vue'
 
 defineOptions({ name: 'DictDataManageTable' })
+
+// 语义颜色名映射到 Arco Tag 实际颜色（与 dict-tag.vue 保持一致）
+const colorMap: Record<string, string> = {
+  primary: 'arcoblue',
+  success: 'green',
+  warning: 'orange',
+  danger: 'red',
+  info: 'gray',
+  default: '',
+}
+function mapColor(color?: string): string | undefined {
+  if (!color)
+    return undefined
+  return colorMap[color] ?? color
+}
+
 const props = defineProps({
   isLoading: {
     type: Boolean,
@@ -113,15 +129,13 @@ function handleSelectionChange(keys: (string | number)[]) {
     @selection-change="handleSelectionChange"
   >
     <template #dictLabel="{ record }">
-      <span v-if="record.css_class && record.css_class !== ''">
-        <a-tag :color="record.css_class">{{ record.dict_label }}</a-tag>
-      </span>
-      <span v-else-if="record.list_class && record.list_class !== ''">
-        <a-tag :color="record.list_class">{{ record.dict_label }}</a-tag>
-      </span>
-      <span v-else>
+      <a-tag
+        v-if="mapColor(record.css_class || record.list_class)"
+        :color="mapColor(record.css_class || record.list_class)"
+      >
         {{ record.dict_label }}
-      </span>
+      </a-tag>
+      <span v-else>{{ record.dict_label }}</span>
     </template>
     <template #operation="{ record }">
       <a-button
