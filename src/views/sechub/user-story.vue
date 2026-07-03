@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import SecCrudPage from './components/SecCrudPage.vue'
 import { ApiSecUserStory } from '@/api/apis'
-defineOptions({ name: 'SecUserStory' })
+defineOptions({ name: 'user-story' })
 const columns = [
   { title: '故事代码', dataIndex: 'story_code', width: 120 },
   { title: '故事标题', dataIndex: 'story_title', width: 200, ellipsis: true, tooltip: true },

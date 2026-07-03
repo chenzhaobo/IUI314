@@ -4,7 +4,7 @@ import { Message } from '@arco-design/web-vue'
 import { ApiSecFinding } from '@/api/apis'
 import { useGet, usePost, usePut } from '@/hooks'
 
-defineOptions({ name: 'SecFinding' })
+defineOptions({ name: 'finding' })
 
 // ── 查询 ──────────────────────────────────────────
 const queryParams = ref({

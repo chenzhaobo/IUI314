@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import SecCrudPage from './components/SecCrudPage.vue'
 import { ApiSecScanTask } from '@/api/apis'
-defineOptions({ name: 'SecScanTask' })
+defineOptions({ name: 'scan-task' })
 const columns = [
   { title: '任务名称', dataIndex: 'task_name', width: 160, ellipsis: true, tooltip: true },
   { title: '工具代码', dataIndex: 'tool_code', width: 100 },

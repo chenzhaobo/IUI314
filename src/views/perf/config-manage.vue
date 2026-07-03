@@ -4,7 +4,7 @@ import { Message } from '@arco-design/web-vue'
 import { useGet, usePut } from '@/hooks'
 import { ApiPerfConfig } from '@/api/apis'
 
-defineOptions({ name: 'PerfConfigManage' })
+defineOptions({ name: 'config-manage' })
 
 // ── 加载配置列表 ──────────────────────────────────
 const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<any>(ApiPerfConfig.list, {}, { immediate: true })

@@ -4,7 +4,7 @@ import { Message } from '@arco-design/web-vue'
 import { ApiSecScanRun } from '@/api/apis'
 import { useGet, usePost } from '@/hooks'
 
-defineOptions({ name: 'SecScanRun' })
+defineOptions({ name: 'scan-run' })
 
 const queryParams = ref({ page_num: 1, page_size: 10 })
 const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<any>(ApiSecScanRun.getList, queryParams, { immediate: true })

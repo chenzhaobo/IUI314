@@ -5,7 +5,7 @@ import { Message } from '@arco-design/web-vue'
 import { useGet, useToken } from '@/hooks'
 import { ApiPerfReport, ApiPerfScript, ApiPerfIteration } from '@/api/apis'
 
-defineOptions({ name: 'PerfReport' })
+defineOptions({ name: 'report' })
 const route = useRoute()
 
 // ── 页签控制 ──────────────────────────────────

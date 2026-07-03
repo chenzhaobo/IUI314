@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import SecCrudPage from './components/SecCrudPage.vue'
 import { ApiSecOrg } from '@/api/apis'
-defineOptions({ name: 'SecOrg' })
+defineOptions({ name: 'org' })
 const columns = [
   { title: '名称', dataIndex: 'name', width: 160, ellipsis: true, tooltip: true },
   { title: '代码', dataIndex: 'code', width: 120 },

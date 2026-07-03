@@ -4,7 +4,7 @@ import { Message } from '@arco-design/web-vue'
 import { useGet, usePost, usePut, useDelete, useToken } from '@/hooks'
 import { ApiPerfEnv, ApiSysDictData } from '@/api/apis'
 
-defineOptions({ name: 'PerfEnvManage' })
+defineOptions({ name: 'env-manage' })
 
 // ── 列表查询 ──────────────────────────────────
 const queryParams = ref({

@@ -5,7 +5,7 @@ import SecCrudPage from './components/SecCrudPage.vue'
 import { useGet, usePost } from '@/hooks'
 import { ApiSecProjectGroup, ApiSysDictData } from '@/api/apis'
 
-defineOptions({ name: 'SecProjectGroup' })
+defineOptions({ name: 'project-group' })
 
 // ── 数据字典：产品领域 / 业务领域 ──────────────────────
 const { data: domainDict } = useGet<any>(ApiSysDictData.getByType, { dict_type: 'sec_pg_product_domain' }, { immediate: true })

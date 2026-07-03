@@ -6,7 +6,7 @@ import { ApiPerfEnv, ApiPerfApp, ApiPerfMenu, ApiSysDictData, ApiSecProjectGroup
 import SyncMenuModal from './components/SyncMenuModal.vue'
 import AutoMatchModal from './components/AutoMatchModal.vue'
 
-defineOptions({ name: 'PerfMenuCatalog' })
+defineOptions({ name: 'menu-catalog' })
 
 // ── 产品线选择（数据字典）──────────────────────────
 const productLine = ref('')

@@ -4,7 +4,7 @@ import { Message } from '@arco-design/web-vue'
 import { useGet, usePost } from '@/hooks'
 import { ApiPerfEnv, ApiPerfTableStats, ApiSysDictData } from '@/api/apis'
 
-defineOptions({ name: 'PerfEntityMeta' })
+defineOptions({ name: 'entity-meta' })
 
 // ── 产品线选择（数据字典）──────────────────────────
 const productLine = ref('')

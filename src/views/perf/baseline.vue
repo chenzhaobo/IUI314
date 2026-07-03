@@ -7,7 +7,7 @@ import { ApiPerfBaseline, ApiPerfRun, ApiPerfScript } from '@/api/apis'
 
 const router = useRouter()
 
-defineOptions({ name: 'PerfBaseline' })
+defineOptions({ name: 'baseline' })
 
 // ── 基线列表 ──────────────────────────────────
 const queryParams = ref({ page_num: 1, page_size: 10, keyword: '', script_id: '' })

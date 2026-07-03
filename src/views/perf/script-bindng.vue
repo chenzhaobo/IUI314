@@ -4,7 +4,7 @@ import { Message } from '@arco-design/web-vue'
 import { useGet, usePost, useDelete } from '@/hooks'
 import { ApiPerfScript, ApiPerfScriptMenu, ApiPerfMenu, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
 
-defineOptions({ name: 'PerfScriptBinding' })
+defineOptions({ name: 'script-bindng' })
 
 // ── 产品线选择（数据字典）──────────────────────────
 const productLine = ref('')

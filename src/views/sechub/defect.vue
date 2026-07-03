@@ -4,7 +4,7 @@ import { Message } from '@arco-design/web-vue'
 import { ApiSecDefect } from '@/api/apis'
 import { useGet, usePost, usePut, useDelete } from '@/hooks'
 
-defineOptions({ name: 'SecDefect' })
+defineOptions({ name: 'defect' })
 
 const queryParams = ref({ page_num: 1, page_size: 10, keyword: '', project_group_id: '' })
 const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<any>(ApiSecDefect.getList, queryParams, { immediate: true })

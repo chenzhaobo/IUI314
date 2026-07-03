@@ -2,7 +2,7 @@
 import SecCrudPage from './components/SecCrudPage.vue'
 import { ApiSecScanTool } from '@/api/apis'
 
-defineOptions({ name: 'SecScanTool' })
+defineOptions({ name: 'scan-tool' })
 
 const columns = [
   { title: '工具代码', dataIndex: 'code', width: 120 },

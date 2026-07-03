@@ -5,7 +5,7 @@ import { useGet, usePut } from '@/hooks'
 import { ApiPerfBenchmark, ApiPerfIteration } from '@/api/apis'
 import TxnTrendChart from './components/TxnTrendChart.vue'
 
-defineOptions({ name: 'PerfBenchmarkReport' })
+defineOptions({ name: 'benchmark-report' })
 
 // ── 迭代列表（下拉用） ──────────────────────────────────
 const { data: iterData } = useGet<any>(ApiPerfIteration.getList, { page_num: 1, page_size: 100 }, { immediate: true })

@@ -4,7 +4,7 @@ import { Message } from '@arco-design/web-vue'
 import { useGet, usePost, usePut, useDelete } from '@/hooks'
 import { ApiPerfIteration } from '@/api/apis'
 
-defineOptions({ name: 'PerfIteration' })
+defineOptions({ name: 'iteration' })
 
 // ── 当前迭代 ──────────────────────────────────
 const { data: currentIter, execute: fetchCurrent } = useGet<any>(ApiPerfIteration.current, {}, { immediate: true })

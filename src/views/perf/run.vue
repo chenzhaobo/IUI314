@@ -7,7 +7,7 @@ import { useGet, usePost, usePut } from '@/hooks'
 import { ApiPerfRun, ApiPerfScript, ApiPerfIteration, ApiPerfTask } from '@/api/apis'
 import { useToken } from '@/hooks/app'
 
-defineOptions({ name: 'PerfRun' })
+defineOptions({ name: 'run' })
 const router = useRouter()
 const route = useRoute()
 

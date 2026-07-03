@@ -4,7 +4,7 @@ import { Message } from '@arco-design/web-vue'
 import { useGet, usePost } from '@/hooks'
 import { ApiPerfSummary, ApiPerfIteration } from '@/api/apis'
 
-defineOptions({ name: 'PerfSummary' })
+defineOptions({ name: 'summary' })
 
 // ── 迭代列表（下拉用） ──────────────────────────────────
 const { data: iterData } = useGet<any>(ApiPerfIteration.getList, { page_num: 1, page_size: 100 }, { immediate: true })

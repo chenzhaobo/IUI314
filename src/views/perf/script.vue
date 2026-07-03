@@ -4,7 +4,7 @@ import { Message } from '@arco-design/web-vue'
 import { useGet, usePost, usePut, useDelete, useToken } from '@/hooks'
 import { ApiPerfScript, ApiSecProjectGroup } from '@/api/apis'
 
-defineOptions({ name: 'PerfScript' })
+defineOptions({ name: 'script' })
 
 // ── 列表查询 ──────────────────────────────────
 const queryParams = ref({

@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import SecCrudPage from './components/SecCrudPage.vue'
 import { ApiSecReleaseWindow } from '@/api/apis'
-defineOptions({ name: 'SecReleaseWindow' })
+defineOptions({ name: 'release-window' })
 const columns = [
   { title: '窗口代码', dataIndex: 'window_code', width: 120 },
   { title: '窗口名称', dataIndex: 'window_name', width: 160, ellipsis: true, tooltip: true },

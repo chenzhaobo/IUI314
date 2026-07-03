@@ -5,7 +5,7 @@ import { Message } from '@arco-design/web-vue'
 import { useGet, usePost, usePut, useDelete } from '@/hooks'
 import { ApiPerfTask, ApiPerfScript, ApiPerfIteration } from '@/api/apis'
 
-defineOptions({ name: 'PerfTask' })
+defineOptions({ name: 'task' })
 const router = useRouter()
 
 // ── 任务列表 ──────────────────────────────────

@@ -12,7 +12,7 @@ import type { MonitorTable, ServerMonitor } from '@/types/system/server-monitor'
 
 // 导出名称
 defineOptions({
-  name: systemMenus.serverMonitor.name,
+  name: systemMenus.serverMonitor.path,
 })
 
 const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })

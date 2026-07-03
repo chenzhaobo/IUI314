@@ -4,7 +4,7 @@ import { Message } from '@arco-design/web-vue'
 import { useGet, usePut } from '@/hooks'
 import { ApiPerfBenchmark } from '@/api/apis'
 
-defineOptions({ name: 'PerfTxnTarget' })
+defineOptions({ name: 'txn-target' })
 
 // ── 列表查询 ──────────────────────────────────
 const queryParams = ref({

@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import SecCrudPage from './components/SecCrudPage.vue'
 import { ApiSecTestEnv } from '@/api/apis'
-defineOptions({ name: 'SecTestEnv' })
+defineOptions({ name: 'test-env' })
 const columns = [
   { title: '环境名称', dataIndex: 'env_name', width: 140 },
   { title: '环境类型', dataIndex: 'env_type', width: 100 },

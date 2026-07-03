@@ -5,7 +5,7 @@ import { useGet, usePost, usePut, useDelete, useDicts } from '@/hooks'
 import { ApiPerfModule, ApiSecProjectGroup } from '@/api/apis'
 import * as XLSX from 'xlsx'
 
-defineOptions({ name: 'PerfModuleMng' })
+defineOptions({ name: 'module-mng' })
 
 // ── 项目组列表（下拉选择用）────────────────────────────
 const projectGroupOptions = ref<{ label: string; value: string }[]>([])
