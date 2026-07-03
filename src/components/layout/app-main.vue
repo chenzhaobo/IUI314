@@ -24,6 +24,8 @@ const appMainHeight = computed(() => {
 const scrollbarStyle = computed(() => `height: ${appMainHeight.value};overflow:auto;`)
 
 const cacheList = computed(() => tabBarStore.getCacheList)
+// NOTE: cacheList 存的是路由 name（= sys_menu.path），keep-alive :include 按组件 defineOptions({ name }) 匹配
+// 新建视图时务必确保两者一致，否则缓存失效 → 10+ 页签灰屏。系统视图用 systemMenus.xxx.path
 </script>
 
 <template>
