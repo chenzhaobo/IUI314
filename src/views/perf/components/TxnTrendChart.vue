@@ -52,9 +52,10 @@ use([GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, LineCh
 const chartRef = ref<InstanceType<typeof VChart>>()
 const option = ref<EChartsOption>()
 
+const trendQuery = ref({ txn_code: '' })
 const { data: trendData, execute: fetchTrend, isFetching: loading } = useGet<any[]>(
   ApiPerfBenchmark.trend,
-  { txn_code: '' },
+  trendQuery,
   { immediate: false },
 )
 
@@ -165,7 +166,8 @@ watch(
   () => props.visible,
   async (val) => {
     if (val && props.txnCode) {
-      await fetchTrend({ txn_code: props.txnCode })
+      trendQuery.value = { txn_code: props.txnCode }
+      await fetchTrend()
       const data = trendData.value || []
       if (data.length > 0) {
         initChart(data)
@@ -179,7 +181,8 @@ watch(
   () => props.txnCode,
   async (val) => {
     if (val && props.visible) {
-      await fetchTrend({ txn_code: val })
+      trendQuery.value = { txn_code: val }
+      await fetchTrend()
       const data = trendData.value || []
       if (data.length > 0) {
         initChart(data)

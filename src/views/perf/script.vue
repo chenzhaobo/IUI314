@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed, watch } from 'vue'
-import { Message } from '@arco-design/web-vue'
-import { useGet, usePost, usePut, useDelete, useToken } from '@/hooks'
+import { Message, Modal } from '@arco-design/web-vue'
+import { useGet, usePost, usePut, useDelete } from '@/hooks'
 import { ApiPerfScript, ApiSecProjectGroup, ApiSysDictData } from '@/api/apis'
 
 defineOptions({ name: 'script' })
@@ -269,27 +269,48 @@ watch(() => queryParams.value.owner, () => {
 const txnDrawerVisible = ref(false)
 const txnDrawerData = ref<any>(null)
 const txnDrawerTitle = ref('')
+const txnDrawerScriptId = ref('')
 
 const txnDetailColumns = [
-  { title: '#', width: 60, render: ({ rowIndex }: any) => rowIndex + 1 },
-  { title: '事务名称', dataIndex: 'name', width: 300, ellipsis: true, tooltip: true },
-  { title: '事务编码', dataIndex: 'txn_code', width: 180, ellipsis: true, tooltip: true },
-  { title: '按钮Key', dataIndex: 'button_key', width: 120, ellipsis: true, tooltip: true },
-  { title: '类型', dataIndex: 'txn_type', width: 130, slotName: 'txnType' },
-  { title: '启用', dataIndex: 'enabled', width: 70, slotName: 'enabled' },
-  { title: '关键事务', dataIndex: 'is_key_txn', width: 90, slotName: 'keyTxn' },
-  { title: '父样本', dataIndex: 'is_parent', width: 80, slotName: 'isParent' },
+  { title: '#', width: 50, render: ({ rowIndex }: any) => rowIndex + 1 },
+  { title: '事务名称', dataIndex: 'name', width: 220, ellipsis: true, tooltip: true },
+  { title: '事务编码', dataIndex: 'txn_code', width: 150, ellipsis: true, tooltip: true },
+  { title: '按钮Key', dataIndex: 'button_key', width: 100, ellipsis: true, tooltip: true },
+  { title: '匹配状态', dataIndex: 'match_status', width: 90, slotName: 'matchStatus' },
+  { title: '类型', dataIndex: 'txn_type', width: 110, slotName: 'txnType' },
+  { title: '启用', dataIndex: 'enabled', width: 60, slotName: 'enabled' },
+  { title: '关键事务', dataIndex: 'is_key_txn', width: 80, slotName: 'keyTxn' },
+  { title: '父样本', dataIndex: 'is_parent', width: 70, slotName: 'isParent' },
 ]
 
 function handleViewTxn(record: any) {
   txnDrawerTitle.value = `事务详情 - ${record.name}`
+  txnDrawerScriptId.value = record.id
   const txnDetail = record.txn_detail_json
   if (!txnDetail) {
     txnDrawerData.value = { transactions: [], key_txn_count: 0, total_txn_count: 0, empty: true }
   } else {
-    txnDrawerData.value = txnDetail
+    txnDrawerData.value = JSON.parse(JSON.stringify(txnDetail))
   }
+  txnMatchMap.value = {}
   txnDrawerVisible.value = true
+  // 加载匹配状态
+  loadTxnButtons(record.id)
+}
+
+const txnMatchMap = ref<Record<string, { match_status: string; button_name: string | null }>>({})
+
+async function loadTxnButtons(scriptId: string) {
+  const { execute, data } = useGet<any[]>(ApiPerfScript.txnButtons, { script_id: scriptId })
+  await execute()
+  const list = Array.isArray(data.value) ? data.value : []
+  const map: Record<string, { match_status: string; button_name: string | null }> = {}
+  list.forEach((item: any) => {
+    if (item.txn_code) {
+      map[item.txn_code] = { match_status: item.match_status, button_name: item.button_name }
+    }
+  })
+  txnMatchMap.value = map
 }
 
 function getTxnSummary(record: any): string {
@@ -313,8 +334,20 @@ async function handleReparse(record: any) {
 }
 
 async function handleReparseAll() {
+  Modal.confirm({
+    title: '批量重新解析',
+    content: '全量解析会重新解析所有脚本的事务详情并同步到事务管理，耗时较长。确认执行？',
+    okText: '全量解析',
+    cancelText: '差量更新',
+    hideCancel: false,
+    onOk: () => doReparseAll('all'),
+    onCancel: () => doReparseAll('incremental'),
+  })
+}
+
+async function doReparseAll(mode: string) {
   reparsingAll.value = true
-  const { execute, error, data } = usePost(ApiPerfScript.reparseAll, {})
+  const { execute, error, data } = usePost(ApiPerfScript.reparseAll + '?mode=' + mode, {})
   await execute()
   reparsingAll.value = false
   if (error.value) { Message.error('批量解析失败'); return }
@@ -614,7 +647,7 @@ function handleSelectionChange(keys: string[]) {
     </a-modal>
 
     <!-- 事务详情抽屉 -->
-    <a-drawer :visible="txnDrawerVisible" :width="860" :title="txnDrawerTitle" @cancel="txnDrawerVisible = false" @ok="txnDrawerVisible = false">
+    <a-drawer :visible="txnDrawerVisible" :width="1060" :title="txnDrawerTitle" @cancel="txnDrawerVisible = false" @ok="txnDrawerVisible = false">
       <template v-if="txnDrawerData?.empty">
         <a-empty description="该脚本尚未解析事务详情，请点击「解析」按钮重新解析" />
       </template>
@@ -631,8 +664,15 @@ function handleSelectionChange(keys: string[]) {
           row-key="name"
           size="small"
           column-resizable
-          :scroll="{ x: 920, y: 480 }"
+          :scroll="{ x: 1130 }"
+          style="height: calc(100vh - 220px)"
         >
+          <template #matchStatus="{ record }">
+            <a-tag v-if="record.txn_code && txnMatchMap[record.txn_code]" :color="txnMatchMap[record.txn_code].match_status === 'matched' ? 'green' : txnMatchMap[record.txn_code].match_status === 'unmatched' ? 'orange' : 'gray'" size="small">
+              {{ txnMatchMap[record.txn_code].match_status === 'matched' ? '已匹配' : txnMatchMap[record.txn_code].match_status === 'unmatched' ? '未匹配' : '无Key' }}
+            </a-tag>
+            <span v-else style="color: #999">-</span>
+          </template>
           <template #txnType="{ record }">
             <a-tag :color="record.txn_type === 'transaction_controller' ? 'blue' : 'gray'" size="small">
               {{ record.txn_type === 'transaction_controller' ? '事务控制器' : 'HTTP请求' }}

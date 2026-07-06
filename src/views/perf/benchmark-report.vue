@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { useGet, usePut, usePost } from '@/hooks'
-import { ApiPerfBenchmark, ApiPerfIteration } from '@/api/apis'
+import { ApiPerfBenchmark, ApiPerfIteration, ApiSysDictData } from '@/api/apis'
 import TxnTrendChart from './components/TxnTrendChart.vue'
 
 defineOptions({ name: 'benchmark-report' })
@@ -10,6 +10,18 @@ defineOptions({ name: 'benchmark-report' })
 // ── 迭代列表（下拉用） ──────────────────────────────────
 const { data: iterData } = useGet<any>(ApiPerfIteration.getList, { page_num: 1, page_size: 100 }, { immediate: true })
 const iterOptions = computed(() => iterData.value?.list?.map((i: any) => ({ label: i.name, value: i.id })) || [])
+
+// ── 事务类型字典 ──────────────────────────────────
+const { data: txnTypeDictRaw } = useGet<any>(ApiSysDictData.getByType, { dict_type: 'sys_txn_type' }, { immediate: true })
+const txnTypeOptions = computed(() => {
+  const list = Array.isArray(txnTypeDictRaw.value) ? txnTypeDictRaw.value : []
+  return list.map((d: any) => ({ label: d.dict_label, value: d.dict_value }))
+})
+const txnTypeMap = computed(() => {
+  const map: Record<string, string> = {}
+  txnTypeOptions.value.forEach((d: any) => { map[d.value] = d.label })
+  return map
+})
 
 // ── 基准报告列表 ──────────────────────────────────
 const queryParams = ref({
@@ -19,6 +31,7 @@ const queryParams = ref({
   app: '',
   domain: '',
   menu: '',
+  txn_type: '',
   iteration_id: '',
   pass_status: '',
   compare_status: '',
@@ -139,25 +152,83 @@ async function handleRebuild() {
   }
 }
 
-const columns = [
-  { title: '云', dataIndex: 'cloud', width: 90, ellipsis: true, tooltip: true, fixed: 'left' as const },
-  { title: '应用', dataIndex: 'app', width: 90, ellipsis: true, tooltip: true },
-  { title: '领域', dataIndex: 'domain', width: 90, ellipsis: true, tooltip: true },
-  { title: '菜单', dataIndex: 'menu', width: 100, ellipsis: true, tooltip: true },
-  { title: '事务编码', dataIndex: 'txn_code', width: 140, ellipsis: true, tooltip: true },
-  { title: '事务名称', dataIndex: 'txn_name', width: 200, ellipsis: true, tooltip: true },
-  { title: '目标值(秒)', dataIndex: 'target_value_ms', width: 90, align: 'center' as const, slotName: 'target_value' },
-  { title: '比对值(秒)', dataIndex: 'baseline_value_ms', width: 90, align: 'center' as const, slotName: 'baseline_value' },
-  { title: '最新结果(秒)', dataIndex: 'average_ms', width: 100, align: 'center' as const, slotName: 'avg_value' },
-  { title: '最新结果迭代', dataIndex: 'iteration_name', width: 140, ellipsis: true, tooltip: true },
-  { title: '最新结果时间', dataIndex: 'created_at', width: 160, slotName: 'created_at' },
-  { title: '错误率', dataIndex: 'error_pct', width: 80, align: 'center' as const, slotName: 'error_pct' },
-  { title: '达标状态', dataIndex: 'pass_status', width: 90, align: 'center' as const, slotName: 'pass_status' },
-  { title: '比对状态', dataIndex: 'compare_status', width: 90, align: 'center' as const, slotName: 'compare_status' },
-  { title: '比对值更新时间', dataIndex: 'baseline_updated_at', width: 160, slotName: 'baseline_updated_at' },
-  { title: '比对值更新迭代', dataIndex: 'baseline_iteration_name', width: 140, ellipsis: true, tooltip: true },
-  { title: '操作', key: 'action', width: 150, align: 'center' as const, slotName: 'action', fixed: 'right' as const },
+const allColumns = [
+  { key: 'cloud', title: '云', dataIndex: 'cloud', width: 90, ellipsis: true, tooltip: true, fixed: 'left' as const },
+  { key: 'app', title: '应用', dataIndex: 'app', width: 90, ellipsis: true, tooltip: true },
+  { key: 'domain', title: '领域', dataIndex: 'domain', width: 90, ellipsis: true, tooltip: true },
+  { key: 'menu', title: '菜单', dataIndex: 'menu', width: 100, ellipsis: true, tooltip: true },
+  { key: 'txn_code', title: '事务编码', dataIndex: 'txn_code', width: 140, ellipsis: true, tooltip: true },
+  { key: 'txn_type', title: '事务类型', dataIndex: 'txn_type', width: 100, align: 'center' as const, slotName: 'txn_type' },
+  { key: 'txn_name', title: '事务名称', dataIndex: 'txn_name', width: 200, ellipsis: true, tooltip: true },
+  { key: 'target_value_ms', title: '目标值(秒)', dataIndex: 'target_value_ms', width: 90, align: 'center' as const, slotName: 'target_value' },
+  { key: 'baseline_value_ms', title: '比对值(秒)', dataIndex: 'baseline_value_ms', width: 90, align: 'center' as const, slotName: 'baseline_value' },
+  { key: 'average_ms', title: '最新结果(秒)', dataIndex: 'average_ms', width: 100, align: 'center' as const, slotName: 'avg_value' },
+  { key: 'iteration_name', title: '最新结果迭代', dataIndex: 'iteration_name', width: 140, ellipsis: true, tooltip: true },
+  { key: 'created_at', title: '最新结果时间', dataIndex: 'created_at', width: 160, slotName: 'created_at' },
+  { key: 'error_pct', title: '错误率', dataIndex: 'error_pct', width: 80, align: 'center' as const, slotName: 'error_pct' },
+  { key: 'pass_status', title: '达标状态', dataIndex: 'pass_status', width: 90, align: 'center' as const, slotName: 'pass_status' },
+  { key: 'compare_status', title: '比对状态', dataIndex: 'compare_status', width: 90, align: 'center' as const, slotName: 'compare_status' },
+  { key: 'baseline_updated_at', title: '比对值更新时间', dataIndex: 'baseline_updated_at', width: 160, slotName: 'baseline_updated_at' },
+  { key: 'baseline_iteration_name', title: '比对值更新迭代', dataIndex: 'baseline_iteration_name', width: 140, ellipsis: true, tooltip: true },
+  { key: 'action', title: '操作', key: 'action', width: 150, align: 'center' as const, slotName: 'action', fixed: 'right' as const },
 ]
+
+// ── 列配置（拖拽排序 + 显示/隐藏） ──────────────────────────────────
+const STORAGE_KEY = 'benchmark_report_columns'
+const columnSettingVisible = ref(false)
+
+// 从 localStorage 恢复用户上次配置，否则全部显示
+function loadColumnConfig(): { keys: string[]; hidden: string[] } {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    if (saved) return JSON.parse(saved)
+  } catch {}
+  return { keys: allColumns.map(c => c.key), hidden: [] }
+}
+
+const columnConfig = ref(loadColumnConfig())
+
+const visibleColumns = computed(() => {
+  const hiddenSet = new Set(columnConfig.value.hidden)
+  // 按用户排序的 keys 顺序，过滤掉隐藏列
+  return columnConfig.value.keys
+    .filter(k => !hiddenSet.has(k))
+    .map(k => allColumns.find(c => c.key === k))
+    .filter(Boolean) as typeof allColumns
+})
+
+function toggleColumnVisible(key: string) {
+  const hidden = new Set(columnConfig.value.hidden)
+  if (hidden.has(key)) {
+    hidden.delete(key)
+  } else {
+    hidden.add(key)
+  }
+  columnConfig.value.hidden = Array.from(hidden)
+  saveColumnConfig()
+}
+
+function moveColumn(key: string, direction: 'up' | 'down') {
+  const keys = [...columnConfig.value.keys]
+  const idx = keys.indexOf(key)
+  if (idx < 0) return
+  if (direction === 'up' && idx > 0) {
+    [keys[idx], keys[idx - 1]] = [keys[idx - 1], keys[idx]]
+  } else if (direction === 'down' && idx < keys.length - 1) {
+    [keys[idx], keys[idx + 1]] = [keys[idx + 1], keys[idx]]
+  }
+  columnConfig.value.keys = keys
+  saveColumnConfig()
+}
+
+function resetColumns() {
+  columnConfig.value = { keys: allColumns.map(c => c.key), hidden: [] }
+  saveColumnConfig()
+}
+
+function saveColumnConfig() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(columnConfig.value))
+}
 </script>
 
 <template>
@@ -176,6 +247,9 @@ const columns = [
         </a-col>
         <a-col :span="4">
           <a-select v-model="queryParams.menu" :options="allMenus" placeholder="菜单" allow-search allow-clear />
+        </a-col>
+        <a-col :span="4">
+          <a-select v-model="queryParams.txn_type" :options="txnTypeOptions" placeholder="事务类型" allow-search allow-clear />
         </a-col>
         <a-col :span="4">
           <a-select v-model="queryParams.iteration_id" :options="iterOptions" placeholder="迭代" allow-search allow-clear />
@@ -216,10 +290,30 @@ const columns = [
           <a-button type="primary" status="warning" :loading="rebuilding" @click="handleRebuild">
             补偿重建
           </a-button>
+          <a-popover v-model:popup-visible="columnSettingVisible" trigger="click" position="bottom">
+            <a-button>列设置</a-button>
+            <template #content>
+              <div style="width: 260px; max-height: 420px; overflow-y: auto">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px">
+                  <span style="font-weight: 600">列顺序与显示</span>
+                  <a-button type="text" size="mini" @click="resetColumns">重置</a-button>
+                </div>
+                <div v-for="key in columnConfig.keys" :key="key" style="display: flex; align-items: center; padding: 4px 0; gap: 8px">
+                  <a-checkbox :model-value="!columnConfig.hidden.includes(key)" @change="toggleColumnVisible(key)">
+                    {{ allColumns.find(c => c.key === key)?.title || key }}
+                  </a-checkbox>
+                  <span style="margin-left: auto; display: flex; gap: 2px">
+                    <a-button type="text" size="mini" :disabled="columnConfig.keys.indexOf(key) === 0" @click="moveColumn(key, 'up')">↑</a-button>
+                    <a-button type="text" size="mini" :disabled="columnConfig.keys.indexOf(key) === columnConfig.keys.length - 1" @click="moveColumn(key, 'down')">↓</a-button>
+                  </span>
+                </div>
+              </div>
+            </template>
+          </a-popover>
         </a-space>
       </div>
       <a-table
-        :columns="columns"
+        :columns="visibleColumns"
         :data="dataList"
         :loading="isLoading"
         :pagination="{
@@ -236,6 +330,9 @@ const columns = [
         <template #baseline_value="{ record }">{{ fmtSec(record.baseline_value_ms) }}</template>
         <template #avg_value="{ record }">{{ fmtSec(record.average_ms) }}</template>
         <template #error_pct="{ record }">{{ fmtPct(record.error_pct) }}</template>
+        <template #txn_type="{ record }">
+          {{ txnTypeMap[record.txn_type] || '-' }}
+        </template>
         <template #pass_status="{ record }">
           <a-tag :color="(passStatusMap[record.pass_status]?.color) || 'gray'">
             {{ passStatusMap[record.pass_status]?.text || record.pass_status || '-' }}

@@ -73,6 +73,8 @@ export enum ApiPerfScript {
   autoBind = '/perf/script/auto_bind',
   autoBindAll = '/perf/script/auto_bind_all',
   updateParams = '/perf/script/update_params',
+  updateTxnDetail = '/perf/script/update_txn_detail',
+  txnButtons = '/perf/script/txn_buttons',
   versionHistory = '/perf/script/version_history',
   saveVersion = '/perf/script/save_version',
   batchSetOwner = '/perf/script/batch_set_owner',
@@ -177,9 +179,14 @@ export enum ApiPerfBenchmark {
   report = '/perf/benchmark/report',
   trend = '/perf/benchmark/trend',
   targetList = '/perf/benchmark/target_list',
+  txnStats = '/perf/benchmark/txn_stats',
   updateTarget = '/perf/benchmark/update_target',
+  updateTxnInfo = '/perf/benchmark/update_txn_info',
   manualPass = '/perf/benchmark/manual_pass',
   rebuildHistory = '/perf/benchmark/rebuild_history',
+  txnScripts = '/perf/benchmark/txn_scripts',
+  scriptTxnDiff = '/perf/benchmark/script_txn_diff',
+  importTxn = '/perf/benchmark/import_txn',
 }
 
 // ── 平台配置 ──────────────────────────────────────
