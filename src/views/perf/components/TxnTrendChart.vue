@@ -95,7 +95,7 @@ function initChart(data: any[]) {
       },
     },
     legend: {
-      data: ['实际值', '比对值', '目标值'],
+      data: ['最新结果', '比对值', '目标值'],
       top: 5,
     },
     grid: {
@@ -129,7 +129,7 @@ function initChart(data: any[]) {
     ],
     series: [
       {
-        name: '实际值',
+        name: '最新结果',
         type: 'line',
         data: actualData,
         itemStyle: { color: '#1890ff' },

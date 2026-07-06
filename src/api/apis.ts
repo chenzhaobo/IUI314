@@ -42,7 +42,14 @@ import type {
   ApiPerfTask,
   ApiPerfModule,
   ApiPerfTableStats,
+  ApiPerfTestPlan,
 } from './perfApis'
+import type {
+  ApiInfraHost,
+  ApiInfraVm,
+  ApiInfraService,
+  ApiInfraEnvMapping,
+} from './infraApis'
 
 export type APIS =
   | ApiSysLogin
@@ -84,9 +91,15 @@ export type APIS =
   | ApiPerfTask
   | ApiPerfModule
   | ApiPerfTableStats
+  | ApiPerfTestPlan
+  | ApiInfraHost
+  | ApiInfraVm
+  | ApiInfraService
+  | ApiInfraEnvMapping
 
 export const ErrorFlag = '__________' // 错误标志
 export * from './sysApis'
 export * from './tests'
 export * from './sechubApis'
 export * from './perfApis'
+export * from './infraApis'

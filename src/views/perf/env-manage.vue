@@ -79,14 +79,23 @@ function handleAdd() {
     env_name: '', env_code: '', env_type: 'sit', product_line: defaultProductLine.value,
     db_host: '', db_port: 5432, db_user: 'fitest',
     db_password: '', db_prefix: 'benchmarksit_', meta_db_name: 'benchmarksit_meta',
-    status: '1', remark: '',
+    status: '1', remark: '', jmx_params_json: { p_URL: '', p_userName: '', p_passWord: '', p_accountId: '' },
   }
   modalVisible.value = true
 }
 
 function handleEdit(record: any) {
   isEdit.value = true
-  form.value = { ...record }
+  const jmxParams = record.jmx_params_json || {}
+  form.value = {
+    ...record,
+    jmx_params_json: {
+      p_URL: jmxParams.p_URL || '',
+      p_userName: jmxParams.p_userName || '',
+      p_passWord: jmxParams.p_passWord || '',
+      p_accountId: jmxParams.p_accountId || '',
+    },
+  }
   modalVisible.value = true
 }
 
@@ -290,6 +299,31 @@ async function handleHealthCheck(record: any) {
         <a-form-item label="备注">
           <a-textarea v-model="form.remark" :auto-size="{ minRows: 2, maxRows: 4 }" />
         </a-form-item>
+        <a-divider orientation="left">JMeter 参数覆盖</a-divider>
+        <a-row :gutter="16">
+          <a-col :span="12">
+            <a-form-item label="应用URL">
+              <a-input v-model="form.jmx_params_json.p_URL" placeholder="如：http://172.20.198.18:8023/ierp/" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-item label="用户名">
+              <a-input v-model="form.jmx_params_json.p_userName" placeholder="如：17299999999" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+        <a-row :gutter="16">
+          <a-col :span="12">
+            <a-form-item label="密码">
+              <a-input v-model="form.jmx_params_json.p_passWord" placeholder="如：1234567" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-item label="租户ID">
+              <a-input v-model="form.jmx_params_json.p_accountId" placeholder="如：2007312591172407296" />
+            </a-form-item>
+          </a-col>
+        </a-row>
       </a-form>
     </a-modal>
 

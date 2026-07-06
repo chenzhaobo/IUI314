@@ -98,24 +98,15 @@ onMounted(async () => {
 // ── HTML报告预览 ──────────────────────────────────
 const previewVisible = ref(false)
 const previewRunId = ref('')
-const previewHtml = ref('')
+const previewUrl = ref('')
 const previewLoading = ref(false)
 
 async function handlePreview(record: any) {
   previewRunId.value = record.id
   previewVisible.value = true
-  previewLoading.value = true
-  previewHtml.value = ''
-  const { token } = useToken()
+  previewLoading.value = false
   const base = import.meta.env.VITE_API_BASE_URL || ''
-  try {
-    const resp = await fetch(`${base}/perf/report/preview?run_id=${encodeURIComponent(record.id)}`, {
-      headers: { Authorization: token },
-    })
-    previewHtml.value = await resp.text()
-  } finally {
-    previewLoading.value = false
-  }
+  previewUrl.value = `${base}/perf/report/html/${encodeURIComponent(record.id)}/html_report/index.html`
 }
 
 // ── CSV导出 ──────────────────────────────────
@@ -237,10 +228,8 @@ function fmt(n: number | undefined | null, digits = 2): string {
 
     <!-- HTML报告预览弹窗 -->
     <a-modal v-model:visible="previewVisible" :title="`HTML报告预览 — ${previewRunId.substring(0, 8)}`" :width="1200" :footer="false" :body-style="{ padding: '0', height: '80vh' }">
-      <a-spin :loading="previewLoading" style="width: 100%; height: 100%">
-        <iframe v-if="previewHtml" :srcdoc="previewHtml" style="width: 100%; height: 80vh; border: none;" />
-        <a-empty v-else description="报告不存在" style="padding-top: 200px" />
-      </a-spin>
+      <iframe v-if="previewUrl" :src="previewUrl" style="width: 100%; height: 80vh; border: none;" />
+      <a-empty v-else description="报告不存在" style="padding-top: 200px" />
     </a-modal>
   </div>
 </template>

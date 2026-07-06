@@ -271,10 +271,10 @@ async function handleBatchSubmit() {
       <a-table :loading="isLoading" :data="dataList" :columns="columns"
         :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true, showPageSize: true }"
         row-key="id" @page-change="handlePageChange">
-        <template #task_name="{ record }">{{ record.task_id ? (taskMap[record.task_id]?.name || record.task_id) : '-' }}</template>
+        <template #task_name="{ record }">{{ record.task_name || record.task_id || '-' }}</template>
         <template #started_at="{ record }">{{ formatTime(record.started_at) }}</template>
         <template #script_name="{ record }">
-          {{ scriptMap[record.script_id]?.name || record.script_id?.substring(0, 8) || '-' }}
+          {{ record.script_name || record.script_id?.substring(0, 8) || '-' }}
         </template>
         <template #iteration="{ record }">
           {{ record.iteration_id ? (iterMap[record.iteration_id]?.name || record.iteration_id) : '-' }}

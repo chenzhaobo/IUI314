@@ -76,6 +76,7 @@ export enum ApiPerfScript {
   versionHistory = '/perf/script/version_history',
   saveVersion = '/perf/script/save_version',
   batchSetOwner = '/perf/script/batch_set_owner',
+  domainList = '/perf/script/domain_list',
 }
 
 // ── 测试执行 ──────────────────────────────────
@@ -167,6 +168,8 @@ export enum ApiPerfComparison {
   getById = '/perf/comparison/get_by_id',
   compare = '/perf/comparison/compare',
   details = '/perf/comparison/details',
+  updateAnalysis = '/perf/comparison/update_analysis',
+  delete = '/perf/comparison/delete',
 }
 
 // ── 基准测试比对 ──────────────────────────────────
@@ -176,10 +179,27 @@ export enum ApiPerfBenchmark {
   targetList = '/perf/benchmark/target_list',
   updateTarget = '/perf/benchmark/update_target',
   manualPass = '/perf/benchmark/manual_pass',
+  rebuildHistory = '/perf/benchmark/rebuild_history',
 }
 
 // ── 平台配置 ──────────────────────────────────────
 export enum ApiPerfConfig {
   list = '/perf/config/list',
   save = '/perf/config/save',
+}
+
+// ── 测试计划 ──────────────────────────────────────
+export enum ApiPerfTestPlan {
+  getList = '/perf/test-plan/list',
+  getById = '/perf/test-plan/get_by_id',
+  add = '/perf/test-plan/add',
+  edit = '/perf/test-plan/edit',
+  delete = '/perf/test-plan/delete',
+  preview = '/perf/test-plan/preview',
+  trigger = '/perf/test-plan/trigger',
+}
+
+// ── 业务领域选项 ──────────────────────────────────────
+export enum ApiPerfDomain {
+  domainOptions = '/perf/module/domain_options',
 }

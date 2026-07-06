@@ -2,9 +2,13 @@
 import { ref, computed, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { useGet, usePost, usePut, useDelete, useToken } from '@/hooks'
-import { ApiPerfScript, ApiSecProjectGroup } from '@/api/apis'
+import { ApiPerfScript, ApiSecProjectGroup, ApiSysDictData } from '@/api/apis'
 
 defineOptions({ name: 'script' })
+
+// ── 测试类型字典 ──────────────────────────────
+const { data: testTypeDictRaw } = useGet<any>(ApiSysDictData.getByType, { dict_type: 'sec_pg_script_type' }, { immediate: true })
+const testTypeOptions = computed(() => (Array.isArray(testTypeDictRaw.value) ? testTypeDictRaw.value : []))
 
 // ── 列表查询 ──────────────────────────────────
 const queryParams = ref({
@@ -538,7 +542,9 @@ function handleSelectionChange(keys: string[]) {
           <a-input v-model="uploadForm.code" placeholder="如：login_test" />
         </a-form-item>
         <a-form-item label="测试类型">
-          <a-input v-model="uploadForm.test_type" placeholder="如：列表测试" />
+          <a-select v-model="uploadForm.test_type" placeholder="请选择测试类型" allow-clear>
+            <a-option v-for="d in testTypeOptions" :key="d.dict_value" :value="d.dict_value" :label="d.dict_label" />
+          </a-select>
         </a-form-item>
         <a-form-item label="项目组ID">
           <a-input v-model="uploadForm.project_group_id" placeholder="可选" />

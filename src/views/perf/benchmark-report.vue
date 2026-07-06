@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { useGet, usePut } from '@/hooks'
+import { useGet, usePut, usePost } from '@/hooks'
 import { ApiPerfBenchmark, ApiPerfIteration } from '@/api/apis'
 import TxnTrendChart from './components/TxnTrendChart.vue'
 
@@ -117,6 +117,28 @@ function fmtPct(v?: number | null): string {
   return v.toFixed(2) + '%'
 }
 
+// ── 补偿重建 ──────────────────────────────────
+const rebuilding = ref(false)
+const { execute: doRebuild } = usePost<any>(ApiPerfBenchmark.rebuildHistory, {})
+
+async function handleRebuild() {
+  rebuilding.value = true
+  try {
+    const res = await doRebuild()
+    const data = res?.value || res
+    if (data) {
+      Message.success(`补偿重建完成：处理 ${data.total} 条，成功 ${data.success} 条，失败 ${data.failed} 条`)
+    } else {
+      Message.success('补偿重建完成')
+    }
+    getList()
+  } catch (e: any) {
+    Message.error('补偿重建失败: ' + (e?.message || e))
+  } finally {
+    rebuilding.value = false
+  }
+}
+
 const columns = [
   { title: '云', dataIndex: 'cloud', width: 90, ellipsis: true, tooltip: true, fixed: 'left' as const },
   { title: '应用', dataIndex: 'app', width: 90, ellipsis: true, tooltip: true },
@@ -126,13 +148,14 @@ const columns = [
   { title: '事务名称', dataIndex: 'txn_name', width: 200, ellipsis: true, tooltip: true },
   { title: '目标值(秒)', dataIndex: 'target_value_ms', width: 90, align: 'center' as const, slotName: 'target_value' },
   { title: '比对值(秒)', dataIndex: 'baseline_value_ms', width: 90, align: 'center' as const, slotName: 'baseline_value' },
-  { title: '本次结果(秒)', dataIndex: 'average_ms', width: 100, align: 'center' as const, slotName: 'avg_value' },
+  { title: '最新结果(秒)', dataIndex: 'average_ms', width: 100, align: 'center' as const, slotName: 'avg_value' },
+  { title: '最新结果迭代', dataIndex: 'iteration_name', width: 140, ellipsis: true, tooltip: true },
+  { title: '最新结果时间', dataIndex: 'created_at', width: 160, slotName: 'created_at' },
   { title: '错误率', dataIndex: 'error_pct', width: 80, align: 'center' as const, slotName: 'error_pct' },
   { title: '达标状态', dataIndex: 'pass_status', width: 90, align: 'center' as const, slotName: 'pass_status' },
   { title: '比对状态', dataIndex: 'compare_status', width: 90, align: 'center' as const, slotName: 'compare_status' },
   { title: '比对值更新时间', dataIndex: 'baseline_updated_at', width: 160, slotName: 'baseline_updated_at' },
   { title: '比对值更新迭代', dataIndex: 'baseline_iteration_name', width: 140, ellipsis: true, tooltip: true },
-  { title: '执行时间', dataIndex: 'created_at', width: 160, slotName: 'created_at' },
   { title: '操作', key: 'action', width: 150, align: 'center' as const, slotName: 'action', fixed: 'right' as const },
 ]
 </script>
@@ -188,6 +211,13 @@ const columns = [
 
     <!-- 列表 -->
     <a-card :bordered="false">
+      <div style="margin-bottom: 12px">
+        <a-space>
+          <a-button type="primary" status="warning" :loading="rebuilding" @click="handleRebuild">
+            补偿重建
+          </a-button>
+        </a-space>
+      </div>
       <a-table
         :columns="columns"
         :data="dataList"

@@ -3,7 +3,7 @@ import { ref, computed, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { useGet, usePost, usePut, useDelete } from '@/hooks'
-import { ApiPerfTask, ApiPerfScript, ApiPerfIteration } from '@/api/apis'
+import { ApiPerfTask, ApiPerfScript, ApiPerfIteration, ApiPerfDomain } from '@/api/apis'
 
 defineOptions({ name: 'task' })
 const router = useRouter()
@@ -48,6 +48,7 @@ const statusTextMap: Record<string, string> = {
 const columns = [
   { title: '任务名称', dataIndex: 'name', width: 180, ellipsis: true, tooltip: true },
   { title: '领域', dataIndex: 'domain', width: 120, ellipsis: true, tooltip: true },
+  { title: '迭代', dataIndex: 'iteration_name', width: 140, ellipsis: true, tooltip: true },
   { title: '执行策略', dataIndex: 'task_type', width: 90, slotName: 'task_type' },
   { title: '进度', dataIndex: 'progress', width: 200, slotName: 'progress' },
   { title: '成功/失败/待执行', dataIndex: 'counts', width: 140, slotName: 'counts' },
@@ -67,8 +68,15 @@ const domainOptions = computed(() => {
   for (const s of (scriptData.value?.list || [])) {
     if (s.domain) domains.add(s.domain)
   }
-  return Array.from(domains).map(d => ({ label: d, value: d }))
+  // 合并从字典 API 获取的业务领域
+  for (const d of (domainDict.value || [])) {
+    domains.add(d)
+  }
+  return Array.from(domains).sort().map(d => ({ label: d, value: d }))
 })
+
+// 业务领域字典（从 perf_module.product_group 去重）
+const { data: domainDict } = useGet<string[]>(ApiPerfDomain.domainOptions, {}, { immediate: true })
 
 // ── 迭代列表 ──────────────────────────────────
 const { data: iterData } = useGet<any>(ApiPerfIteration.getList, { page_num: 1, page_size: 100, status: '1' }, { immediate: true })
@@ -109,16 +117,19 @@ function handleTriggerClick() {
   triggerVisible.value = true
 }
 
-// 按领域批量选择脚本
+// 按领域筛选脚本（仅筛选，不覆盖已选脚本）
 function handleDomainChange(domain: string) {
-  if (!domain) {
-    triggerForm.value.script_ids = []
-    return
-  }
+  if (!domain) return
+  // 将该领域下尚未选中的脚本追加到已选列表
   const scriptsInDomain = (scriptData.value?.list || [])
     .filter((s: any) => s.domain === domain)
     .map((s: any) => s.id)
-  triggerForm.value.script_ids = scriptsInDomain
+  const existing = new Set(triggerForm.value.script_ids)
+  for (const sid of scriptsInDomain) {
+    if (!existing.has(sid)) {
+      triggerForm.value.script_ids.push(sid)
+    }
+  }
   if (!triggerForm.value.name) {
     triggerForm.value.name = `${domain}-批量执行`
   }
@@ -126,7 +137,12 @@ function handleDomainChange(domain: string) {
 
 async function handleTriggerSubmit() {
   if (!triggerForm.value.name) { Message.warning('请输入任务名称'); return }
-  if (triggerForm.value.script_ids.length === 0) { Message.warning('请选择至少一个脚本'); return }
+  if (triggerForm.value.script_ids.length === 0 && !triggerForm.value.domain) {
+    Message.warning('请选择脚本或指定领域'); return
+  }
+  if (triggerForm.value.script_ids.length === 0 && triggerForm.value.domain) {
+    Message.info(`将动态解析领域「${triggerForm.value.domain}」下的脚本`)
+  }
   triggerSubmitting.value = true
   const { execute, error } = usePost(ApiPerfTask.trigger, {
     name: triggerForm.value.name,
@@ -310,7 +326,7 @@ function getProgress(record: any): number {
         <a-form-item v-if="triggerForm.task_type === 'parallel'" label="最大并发数">
           <a-input-number v-model="triggerForm.max_concurrency" :min="1" :max="10" />
         </a-form-item>
-        <a-form-item label="选择脚本（可多选）" required>
+        <a-form-item label="选择脚本（可多选，指定领域后可不选）">
           <a-select
             v-model="triggerForm.script_ids"
             :options="scriptOptions"

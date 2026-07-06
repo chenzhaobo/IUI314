@@ -84,6 +84,11 @@ function fmtSec(ms?: number | null): string {
   return (ms / 1000).toFixed(1)
 }
 
+function fmtTime(time?: string | null): string {
+  if (!time) return '-'
+  return time.replace('T', ' ').substring(0, 19)
+}
+
 const columns = [
   { title: '事务编码', dataIndex: 'txn_code', width: 150, ellipsis: true, tooltip: true, fixed: 'left' as const },
   { title: '事务全称', dataIndex: 'txn_name', width: 250, ellipsis: true, tooltip: true },
@@ -92,6 +97,9 @@ const columns = [
   { title: '领域', dataIndex: 'domain', width: 100, ellipsis: true, tooltip: true },
   { title: '菜单', dataIndex: 'menu', width: 120, ellipsis: true, tooltip: true },
   { title: '目标值(秒)', dataIndex: 'target_value_ms', width: 100, align: 'center' as const, slotName: 'target_value' },
+  { title: '比对值(秒)', dataIndex: 'baseline_value_ms', width: 100, align: 'center' as const, slotName: 'baseline_value' },
+  { title: '比对值更新迭代', dataIndex: 'baseline_iteration_name', width: 140, ellipsis: true, tooltip: true },
+  { title: '比对值更新时间', dataIndex: 'baseline_updated_at', width: 160, slotName: 'baseline_updated_at' },
   { title: '来源', dataIndex: 'source', width: 80, align: 'center' as const },
   { title: '操作', key: 'action', width: 80, align: 'center' as const, slotName: 'action', fixed: 'right' as const },
 ]
@@ -138,6 +146,8 @@ const columns = [
         @page-change="handlePageChange"
       >
         <template #target_value="{ record }">{{ fmtSec(record.target_value_ms) }}</template>
+        <template #baseline_value="{ record }">{{ fmtSec(record.baseline_value_ms) }}</template>
+        <template #baseline_updated_at="{ record }">{{ fmtTime(record.baseline_updated_at) }}</template>
         <template #action="{ record }">
           <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
         </template>
