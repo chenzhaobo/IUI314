@@ -70,7 +70,9 @@ const columns = [
 // ── 新增/编辑弹窗 ──────────────────────────────────
 const modalVisible = ref(false)
 const isEdit = ref(false)
-const form = ref<any>({})
+const form = ref<any>({
+  jmx_params_json: { p_URL: '', p_userName: '', p_passWord: '', p_accountId: '' }
+})
 const submitting = ref(false)
 
 function handleAdd() {

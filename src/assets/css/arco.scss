@@ -22,6 +22,23 @@ body {
         position: relative !important;
     }
 
+    // 表格列宽拖拽手柄样式
+    .arco-table-th {
+        position: relative;
+        .arco-table-col-resize-handle {
+            width: 3px !important;
+            right: -1px !important;
+            background-color: var(--color-border-2);
+            transition: background-color 0.2s;
+            &:hover {
+                background-color: rgb(var(--primary-6));
+            }
+        }
+        &:hover .arco-table-col-resize-handle {
+            background-color: rgb(var(--primary-5));
+        }
+    }
+
     //调整modal-simple
     .arco-modal-simple{
         width: 300px !important;
