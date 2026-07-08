@@ -436,7 +436,7 @@ function saveColumnConfig() {
         <a-divider direction="vertical" />
         <a-statistic title="首次" :value="statsData.initial_count || 0" :value-style="{ color: '#ff7d00' }" />
         <a-divider direction="vertical" />
-        <a-statistic title="失败数" :value="statsData.fail_count || 0" :value-style="{ color: '#f53f3f' }" />
+        <a-statistic title="失败" :value="statsData.failed_count || 0" :value-style="{ color: '#f53f3f' }" />
       </div>
     </a-card>
 
