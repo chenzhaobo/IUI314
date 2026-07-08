@@ -474,7 +474,7 @@ function saveColumnConfig() {
           </a-popover>
         </a-space>
       </div>
-      <a-table
+<a-table
         :columns="visibleColumns"
         :data="dataList"
         :loading="isLoading"

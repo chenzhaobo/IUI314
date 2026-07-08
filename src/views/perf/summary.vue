@@ -113,7 +113,8 @@ const txnColumns = [
 
     <!-- 列表 -->
     <a-card :bordered="false">
-      <a-table
+<a-table
+  column-resizable
         :columns="columns"
         :data="dataList"
         :loading="isLoading"
@@ -164,7 +165,7 @@ const txnColumns = [
         <a-descriptions-item label="错误率(%)">{{ detailData?.avg_error_pct?.toFixed(2) }}</a-descriptions-item>
         <a-descriptions-item label="吞吐量">{{ detailData?.avg_throughput?.toFixed(2) }}</a-descriptions-item>
       </a-descriptions>
-      <a-table :columns="txnColumns" :data="txnList" row-key="txn_code" :pagination="{ pageSize: 10 }" size="small">
+      <a-table column-resizable :columns="txnColumns" :data="txnList" row-key="txn_code" :pagination="{ pageSize: 10 }" size="small">
         <template #success="{ record }">
           <a-tag :color="record.success ? 'green' : 'red'">{{ record.success ? '通过' : '失败' }}</a-tag>
         </template>

@@ -179,7 +179,7 @@ function deltaText(delta: number, digits = 2): string {
     </a-card>
 
     <a-card :bordered="false">
-      <a-table :loading="isLoading" :data="dataList" :columns="columns"
+      <a-table column-resizable :loading="isLoading" :data="dataList" :columns="columns"
         :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true, showPageSize: true }"
         row-key="id" @page-change="handlePageChange">
         <template #created_at="{ record }">{{ formatTime(record.created_at) }}</template>
@@ -251,7 +251,7 @@ function deltaText(delta: number, digits = 2): string {
         </a-col>
       </a-row>
 
-      <a-table v-if="compareResult" :data="compareResult.rows" :columns="compareColumns" row-key="label" :scroll="{ x: 1600 }" :pagination="false">
+      <a-table column-resizable v-if="compareResult" :data="compareResult.rows" :columns="compareColumns" row-key="label" :scroll="{ x: 1600 }" :pagination="false">
         <template #delta_avg="{ record }">
           <span :style="{ color: deltaColor(record.delta_avg) }">{{ deltaText(record.delta_avg) }}</span>
         </template>

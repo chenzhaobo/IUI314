@@ -73,7 +73,8 @@ const columns = computed<TableColumnData[]>(() => [
       <a-skeleton-line :rows="10" />
     </a-space>
   </a-skeleton>
-  <a-table
+<a-table
+  column-resizable
     v-if="tableData && tableData?.length > 0"
     :columns="columns"
     :data="tableData"

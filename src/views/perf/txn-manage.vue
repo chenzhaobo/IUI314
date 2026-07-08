@@ -674,7 +674,8 @@ const scriptColumns = [
           {{ selectedMenuName ? `事务列表 - ${selectedMenuName}` : '全部事务' }}
         </template>
 
-        <a-table
+<a-table
+  column-resizable
           :columns="columns"
           :data="dataList"
           :loading="isLoading"
@@ -748,7 +749,8 @@ const scriptColumns = [
 
     <!-- 脚本关联抽屉 -->
     <a-drawer v-model:visible="scriptDrawerVisible" :width="720" :title="`关联脚本 - ${scriptDrawerTxnName}`">
-      <a-table
+<a-table
+  column-resizable
         :columns="scriptColumns"
         :data="scriptListData || []"
         :loading="loadingScripts"

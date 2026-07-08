@@ -43,6 +43,8 @@ import type {
   ApiPerfModule,
   ApiPerfTableStats,
   ApiPerfTestPlan,
+  ApiPerfLoadNode,
+  ApiPerfAttachment,
 } from './perfApis'
 import type {
   ApiInfraHost,
@@ -92,6 +94,8 @@ export type APIS =
   | ApiPerfModule
   | ApiPerfTableStats
   | ApiPerfTestPlan
+  | ApiPerfLoadNode
+  | ApiPerfAttachment
   | ApiInfraHost
   | ApiInfraVm
   | ApiInfraService

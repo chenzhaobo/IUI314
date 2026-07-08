@@ -1,8 +1,8 @@
 <script lang="ts" setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { useGet, usePost, usePut, useDelete } from '@/hooks'
-import { ApiPerfTestPlan, ApiPerfScript, ApiPerfEnv, ApiPerfIteration, ApiSysDictData } from '@/api/apis'
+import { ApiPerfTestPlan, ApiPerfScript, ApiPerfEnv, ApiPerfIteration, ApiSysDictData, ApiPerfLoadNode } from '@/api/apis'
 
 defineOptions({ name: 'PerfTestPlan' })
 
@@ -73,6 +73,17 @@ function envName(envId?: string | null) {
   return e ? e.label : envId
 }
 
+// ── 在线压测机列表 ──────────────────────────────────
+const { data: loadNodeData } = useGet<any>(ApiPerfLoadNode.onlineList, {}, { immediate: true })
+const loadNodeOptions = computed(() => [
+  { label: '本地执行（默认，不经过 Agent）', value: '' },
+  { label: '自动选择 Agent 节点', value: 'auto' },
+  ...(loadNodeData.value || []).map((n: any) => ({
+    label: `${n.node_name} (${n.host_ip}:${n.agent_port}) [${n.current_load || 0}/${n.max_concurrency || 1}]`,
+    value: n.id,
+  })),
+])
+
 // ── 迭代列表 ──────────────────────────────────
 const { data: iterData } = useGet<any>(ApiPerfIteration.getList, { page_num: 1, page_size: 100, status: '1' }, { immediate: true })
 const iterOptions = computed(() => (iterData.value?.list || []).map((i: any) => ({ label: `${i.name} (${i.code})`, value: i.id })))
@@ -95,6 +106,7 @@ const editForm = ref({
     duration: undefined as number | undefined,
     extra_props: '',
     timeout_sec: 600,
+    load_node_id: '',
   },
   status: '1',
   cron_expr: '',
@@ -118,7 +130,7 @@ function handleAdd() {
     env_id: '',
     task_type: 'sequential',
     max_concurrency: 1,
-    default_params_json: { threads: undefined, rampup: undefined, loops: undefined, duration: undefined, extra_props: '', timeout_sec: 600 },
+    default_params_json: { threads: undefined, rampup: undefined, loops: undefined, duration: undefined, extra_props: '', timeout_sec: 600, load_node_id: '' },
     status: '1',
     cron_expr: '',
     schedule_enabled: '0',
@@ -152,6 +164,7 @@ async function handleEdit(record: any) {
         duration: dp.duration,
         extra_props: dp.extra_props || '',
         timeout_sec: dp.timeout_sec || 600,
+        load_node_id: dp.load_node_id || '',
       },
       status: data.value.plan.status,
       cron_expr: data.value.plan.cron_expr || '',
@@ -300,6 +313,7 @@ const triggerForm = ref({
   duration: undefined as number | undefined,
   extra_props: '',
   timeout_sec: undefined as number | undefined,
+  load_node_id: '',
 })
 
 function handleTrigger(record: any) {
@@ -315,8 +329,25 @@ function handleTrigger(record: any) {
     duration: undefined,
     extra_props: '',
     timeout_sec: undefined,
+    load_node_id: '',
   }
   triggerVisible.value = true
+  fetchPlanEstimate(record.id, record.max_concurrency || 1)
+}
+
+// ── 预估执行时间 ──────────────────────────────────
+const estimateResult = ref<any>(null)
+const estimateLoading = ref(false)
+
+function fetchPlanEstimate(planId: string, maxConcurrency: number) {
+  estimateResult.value = null
+  if (!planId) return
+  estimateLoading.value = true
+  const { execute, data } = useGet(ApiPerfTestPlan.estimateTime, { plan_id: planId, max_concurrency: maxConcurrency })
+  execute().then(() => {
+    estimateResult.value = data.value?.data || null
+    estimateLoading.value = false
+  })
 }
 
 async function handleTriggerSubmit() {
@@ -358,7 +389,8 @@ async function handleTriggerSubmit() {
       </a-card>
 
       <a-card :bordered="false">
-        <a-table
+<a-table
+  column-resizable
           :loading="isLoading"
           :data="dataList"
           :columns="columns"
@@ -435,6 +467,9 @@ async function handleTriggerSubmit() {
           </a-form-item>
 
           <a-divider orientation="left">默认执行参数</a-divider>
+          <a-form-item label="默认执行机">
+            <a-select v-model="editForm.default_params_json.load_node_id" :options="loadNodeOptions" placeholder="选择默认执行机" allow-clear />
+          </a-form-item>
           <a-row :gutter="16">
             <a-col :span="8"><a-form-item label="线程数"><a-input-number v-model="editForm.default_params_json.threads" :min="1" placeholder="默认" /></a-form-item></a-col>
             <a-col :span="8"><a-form-item label="Ramp-up(秒)"><a-input-number v-model="editForm.default_params_json.rampup" :min="0" placeholder="默认" /></a-form-item></a-col>
@@ -496,7 +531,8 @@ async function handleTriggerSubmit() {
 
           <a-divider orientation="left">额外脚本（点击切换：添加 ✓ → 排除 ✗ → 移除）</a-divider>
           <a-input-search v-model="scriptSearchKeyword" placeholder="搜索脚本名称/编码/领域" allow-clear style="margin-bottom: 8px" />
-          <a-table
+<a-table
+  column-resizable
             :data="filteredScripts"
             :pagination="{ pageSize: 10, showTotal: true }"
             row-key="id"
@@ -543,7 +579,8 @@ async function handleTriggerSubmit() {
           <a-statistic title="额外添加" :value="previewData.extra_scripts" />
           <a-statistic title="排除" :value="previewData.excluded" />
         </div>
-        <a-table
+<a-table
+  column-resizable
           v-if="previewData"
           :data="previewData.scripts"
           :columns="previewColumns"
@@ -579,6 +616,9 @@ async function handleTriggerSubmit() {
             </a-form-item>
           </a-col>
         </a-row>
+        <a-form-item label="执行机">
+          <a-select v-model="triggerForm.load_node_id" :options="loadNodeOptions" placeholder="选择执行机" allow-clear />
+        </a-form-item>
         <a-divider orientation="left">覆盖执行参数（留空使用计划默认值）</a-divider>
         <a-row :gutter="16">
           <a-col :span="6"><a-form-item label="线程数"><a-input-number v-model="triggerForm.threads" :min="1" placeholder="默认" /></a-form-item></a-col>
@@ -592,6 +632,20 @@ async function handleTriggerSubmit() {
         <a-form-item label="额外JMeter属性">
           <a-input v-model="triggerForm.extra_props" placeholder="key1=value1,key2=value2" />
         </a-form-item>
+        <a-alert v-if="estimateResult || estimateLoading" type="info" :loading="estimateLoading" style="margin-top: 8px">
+          <template #title>
+            <span>预估执行时间</span>
+          </template>
+          <div v-if="estimateResult" style="font-size: 13px; line-height: 1.8">
+            <span>预估总耗时：</span>
+            <b style="color: #165dff; font-size: 16px">{{ estimateResult.estimated_human }}</b>
+            <span style="color: #86909c; margin-left: 8px">（串行 {{ estimateResult.serial_total_human }}）</span>
+            <br />
+            <span>脚本总数：{{ estimateResult.total_scripts }}（有历史数据 {{ estimateResult.scripts_with_data }}，无数据 {{ estimateResult.scripts_no_data }}）</span>
+            <br />
+            <span>平均单个：{{ estimateResult.avg_per_script_human }}，最长：{{ estimateResult.max_script_human }}</span>
+          </div>
+        </a-alert>
       </a-form>
     </a-modal>
   </div>

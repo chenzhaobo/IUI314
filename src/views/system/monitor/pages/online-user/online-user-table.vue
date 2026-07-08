@@ -125,7 +125,8 @@ function handleForceLogout(row?: onlineUser) {
 </script>
 
 <template>
-  <a-table
+<a-table
+  column-resizable
     :columns="columns"
     :data="tableData || []"
     row-key="id"

@@ -2,7 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { Message, Modal } from '@arco-design/web-vue'
 import { useGet, usePost, usePut, useDelete } from '@/hooks'
-import { ApiPerfScript, ApiSecProjectGroup, ApiSysDictData } from '@/api/apis'
+import { ApiPerfScript, ApiSecProjectGroup, ApiSysDictData, ApiPerfAttachment } from '@/api/apis'
 
 defineOptions({ name: 'script' })
 
@@ -64,6 +64,18 @@ function formatTime(time?: string | null) {
   return time.replace('T', ' ').substring(0, 19)
 }
 
+// ── 耗时格式化 ──────────────────────────────────
+function formatDuration(ms?: number | null) {
+  if (!ms || ms <= 0) return '-'
+  const totalSec = Math.floor(ms / 1000)
+  const h = Math.floor(totalSec / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  const s = totalSec % 60
+  if (h > 0) return `${h}h${m}m${s}s`
+  if (m > 0) return `${m}m${s}s`
+  return `${s}s`
+}
+
 const columns = [
   { title: '脚本名称', dataIndex: 'name', width: 160, ellipsis: true, tooltip: true },
   { title: '编码', dataIndex: 'code', width: 120 },
@@ -77,6 +89,7 @@ const columns = [
   { title: '版本', dataIndex: 'version', width: 60 },
   { title: '文件名', dataIndex: 'jmx_file_name', width: 180, ellipsis: true, tooltip: true },
   { title: '运行次数', dataIndex: 'run_count', width: 80 },
+  { title: '最近耗时', dataIndex: 'last_duration_ms', width: 100, slotName: 'lastDuration' },
   { title: '创建时间', dataIndex: 'created_at', width: 160, slotName: 'created_at' },
   { title: '更新时间', dataIndex: 'updated_at', width: 160, slotName: 'updated_at' },
   { title: '更新人', dataIndex: 'update_by', width: 100, ellipsis: true, tooltip: true },
@@ -270,6 +283,99 @@ const txnDrawerVisible = ref(false)
 const txnDrawerData = ref<any>(null)
 const txnDrawerTitle = ref('')
 const txnDrawerScriptId = ref('')
+
+// ── 附件管理抽屉 ──────────────────────────────────
+const attachmentVisible = ref(false)
+const attachmentScriptId = ref('')
+const attachmentScriptName = ref('')
+const attachmentList = ref<any[]>([])
+const attachmentLoading = ref(false)
+const attUploadFile = ref<File | null>(null)
+const attFileType = ref('')
+const attTargetDir = ref('lib/ext')
+const attUploading = ref(false)
+
+function handleAttachments(record: any) {
+  attachmentScriptId.value = record.id
+  attachmentScriptName.value = record.name
+  attachmentVisible.value = true
+  loadAttachments()
+}
+
+async function loadAttachments() {
+  attachmentLoading.value = true
+  const { data, execute } = useGet<any>(ApiPerfAttachment.list, { id: attachmentScriptId.value }, { immediate: false })
+  await execute()
+  attachmentList.value = data.value || []
+  attachmentLoading.value = false
+}
+
+function handleAttFileChange(fileList: any[]) {
+  if (fileList.length > 0) {
+    const item = fileList[0]
+    attUploadFile.value = item.file || item
+    const name = item.name || item.file?.name || ''
+    // 自动推断文件类型
+    if (name.endsWith('.jar')) attFileType.value = 'jar'
+    else if (name.endsWith('.csv')) attFileType.value = 'csv'
+    else if (name.endsWith('.properties')) attFileType.value = 'props'
+    else attFileType.value = 'data'
+  }
+}
+
+async function handleAttUpload() {
+  if (!attUploadFile.value) { Message.warning('请选择文件'); return }
+  attUploading.value = true
+  try {
+    const { token } = useToken()
+    const formData = new FormData()
+    formData.append('file', attUploadFile.value)
+    formData.append('script_id', attachmentScriptId.value)
+    formData.append('file_type', attFileType.value)
+    formData.append('target_dir', attTargetDir.value)
+    const resp = await fetch(import.meta.env.VITE_API_BASE_URL + ApiPerfAttachment.upload, {
+      method: 'POST',
+      body: formData,
+      headers: { Authorization: token },
+    })
+    const data = await resp.json()
+    if (data.code === 200) {
+      Message.success('上传成功')
+      attUploadFile.value = null
+      loadAttachments()
+    } else {
+      Message.error(data.msg || '上传失败')
+    }
+  } catch (e) {
+    Message.error('上传失败')
+  } finally {
+    attUploading.value = false
+  }
+}
+
+async function handleAttDelete(record: any) {
+  const { execute, error } = useDelete(ApiPerfAttachment.delete, { attachment_id: record.id })
+  await execute()
+  if (error.value) { Message.error('删除失败'); return }
+  Message.success('删除成功')
+  loadAttachments()
+}
+
+function formatFileSize(bytes: number) {
+  if (!bytes) return '-'
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(2) + ' MB'
+}
+
+const attachmentColumns = [
+  { title: '文件名', dataIndex: 'file_name', width: 200, ellipsis: true, tooltip: true },
+  { title: '类型', dataIndex: 'file_type', width: 80, slotName: 'att_type' },
+  { title: '大小', dataIndex: 'file_size', width: 100, slotName: 'att_size' },
+  { title: 'MD5', dataIndex: 'md5', width: 120, ellipsis: true, tooltip: true },
+  { title: '目标目录', dataIndex: 'target_dir', width: 120 },
+  { title: '操作', dataIndex: 'operations', slotName: 'att_ops', width: 80 },
+]
 
 const txnDetailColumns = [
   { title: '#', width: 50, render: ({ rowIndex }: any) => rowIndex + 1 },
@@ -527,7 +633,8 @@ function handleSelectionChange(keys: string[]) {
     </a-card>
 
     <a-card :bordered="false">
-      <a-table
+<a-table
+  column-resizable
         :loading="isLoading"
         :data="dataList"
         :columns="columns"
@@ -539,6 +646,7 @@ function handleSelectionChange(keys: string[]) {
       >
         <template #created_at="{ record }">{{ formatTime(record.created_at) }}</template>
         <template #updated_at="{ record }">{{ formatTime(record.updated_at) }}</template>
+        <template #lastDuration="{ record }">{{ formatDuration(record.last_duration_ms) }}</template>
         <template #status="{ record }">
           <a-tag :color="record.status === '1' ? 'green' : 'red'">{{ record.status === '1' ? '启用' : '禁用' }}</a-tag>
         </template>
@@ -556,6 +664,7 @@ function handleSelectionChange(keys: string[]) {
             <a-button type="text" size="small" :loading="reparsingIds.has(record.id) || reparsingAll" @click="handleReparse(record)">解析</a-button>
             <a-button type="text" size="small" :loading="autoBindingIds.has(record.id) || autoBindingAll" @click="handleAutoBind(record)">自动关联</a-button>
             <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
+            <a-button type="text" size="small" @click="handleAttachments(record)">附件</a-button>
                         <a-button type="text" size="small" status="success" @click="handleParams(record)">参数</a-button>
             <a-popconfirm content="确认删除？" @ok="handleDelete(record)">
               <a-button type="text" size="small" status="danger">删除</a-button>
@@ -657,7 +766,7 @@ function handleSelectionChange(keys: string[]) {
           { label: '[A]关键事务', value: txnDrawerData?.key_txn_count ?? 0 },
           { label: '启用', value: txnDrawerData?.enabled_count ?? 0 },
         ]" :column="3" layout="inline-horizontal" style="margin-bottom: 16px" />
-        <a-table
+<a-table
           :data="txnDrawerData?.transactions || []"
           :columns="txnDetailColumns"
           :pagination="false"
@@ -720,6 +829,63 @@ function handleSelectionChange(keys: string[]) {
         </a-form-item>
       </a-form>
     </a-modal>
+
+    <!-- 附件管理抽屉 -->
+    <a-drawer :visible="attachmentVisible" :width="680" :title="`附件管理 - ${attachmentScriptName}`" @cancel="attachmentVisible = false" @ok="attachmentVisible = false">
+      <a-card :bordered="false" style="margin-bottom: 16px">
+        <a-form layout="vertical">
+          <a-row :gutter="12">
+            <a-col :span="10">
+              <a-form-item label="选择文件">
+                <a-upload :auto-upload="false" :limit="1" accept=".jar,.csv,.properties,.props" @change="handleAttFileChange" />
+              </a-form-item>
+            </a-col>
+            <a-col :span="6">
+              <a-form-item label="文件类型">
+                <a-select v-model="attFileType" placeholder="自动识别">
+                  <a-option value="jar">jar (插件)</a-option>
+                  <a-option value="csv">csv (数据)</a-option>
+                  <a-option value="props">props (配置)</a-option>
+                  <a-option value="data">data (其他)</a-option>
+                </a-select>
+              </a-form-item>
+            </a-col>
+            <a-col :span="5">
+              <a-form-item label="部署目录">
+                <a-input v-model="attTargetDir" placeholder="lib/ext" />
+              </a-form-item>
+            </a-col>
+            <a-col :span="3">
+              <a-form-item label=" ">
+                <a-button type="primary" :loading="attUploading" @click="handleAttUpload">上传</a-button>
+              </a-form-item>
+            </a-col>
+          </a-row>
+        </a-form>
+      </a-card>
+<a-table
+  column-resizable
+        :loading="attachmentLoading"
+        :data="attachmentList"
+        :columns="attachmentColumns"
+        :pagination="false"
+        row-key="id"
+        size="small"
+        :scroll="{ x: 700 }"
+      >
+        <template #att_type="{ record }">
+          <a-tag :color="record.file_type === 'jar' ? 'blue' : record.file_type === 'csv' ? 'green' : record.file_type === 'props' ? 'orange' : 'gray'" size="small">
+            {{ record.file_type }}
+          </a-tag>
+        </template>
+        <template #att_size="{ record }">{{ formatFileSize(record.file_size) }}</template>
+        <template #att_ops="{ record }">
+          <a-popconfirm content="确认删除此附件？" @ok="handleAttDelete(record)">
+            <a-button type="text" size="small" status="danger">删除</a-button>
+          </a-popconfirm>
+        </template>
+      </a-table>
+    </a-drawer>
   </div>
 </template>
 

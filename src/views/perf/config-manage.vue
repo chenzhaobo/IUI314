@@ -26,6 +26,15 @@ const groupLabels: Record<string, string> = {
   report: '报告路径配置',
 }
 
+// 判断是否为布尔类型配置（值为 true/false）
+function isBoolConfig(c: any): boolean {
+  return c.config_value === 'true' || c.config_value === 'false'
+}
+
+function handleBoolChange(c: any, val: boolean | string | number) {
+  c.config_value = val ? 'true' : 'false'
+}
+
 // ── 编辑 ──────────────────────────────────
 const saving = ref(false)
 
@@ -74,7 +83,13 @@ function getGroupLabel(key: string) {
             <a-row :gutter="24">
               <a-col v-for="c in configs" :key="c.id" :span="12">
                 <a-form-item :label="c.label || c.config_key">
+                  <a-switch
+                    v-if="isBoolConfig(c)"
+                    :model-value="c.config_value === 'true'"
+                    @change="(val: boolean | string | number) => handleBoolChange(c, val)"
+                  />
                   <a-input
+                    v-else
                     v-model="c.config_value"
                     :placeholder="`请输入${c.label || c.config_key}`"
                     allow-clear

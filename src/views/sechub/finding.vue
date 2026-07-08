@@ -133,7 +133,8 @@ const columns = [
     </a-card>
     <!-- 表格 -->
     <a-card :bordered="false">
-      <a-table
+<a-table
+  column-resizable
         :loading="isLoading"
         :data="dataList"
         :columns="columns"

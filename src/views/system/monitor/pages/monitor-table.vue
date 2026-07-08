@@ -76,7 +76,7 @@ watchEffect(() => {
           <span>{{ title }}</span>
         </div>
       </template>
-      <a-table :data="tableData" :columns="columns" :pagination="false" />
+      <a-table column-resizable :data="tableData" :columns="columns" :pagination="false" />
     </a-card>
   </div>
 </template>

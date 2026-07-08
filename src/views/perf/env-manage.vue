@@ -186,7 +186,8 @@ async function handleHealthCheck(record: any) {
     </a-card>
 
     <a-card :bordered="false">
-      <a-table
+<a-table
+  column-resizable
         :loading="isLoading"
         :data="dataList"
         :columns="columns"

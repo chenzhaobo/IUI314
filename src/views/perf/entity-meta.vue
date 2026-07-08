@@ -444,7 +444,8 @@ onUnmounted(() => {
       </div>
 
       <!-- 表统计列表 -->
-      <a-table
+<a-table
+  column-resizable
         v-if="activeTab === 'stats'"
         :loading="statsLoading"
         :data="statsList"
@@ -469,7 +470,8 @@ onUnmounted(() => {
       </a-table>
 
       <!-- 实体元数据列表 -->
-      <a-table
+<a-table
+  column-resizable
         v-else-if="activeTab === 'entity'"
         :loading="entityLoading"
         :data="entityList"
@@ -527,7 +529,8 @@ onUnmounted(() => {
           <a-divider direction="vertical" />
           <a-statistic title="表总数" :value="dbSizesTableTotal" show-group-separator />
         </div>
-        <a-table
+<a-table
+  column-resizable
           :loading="dbSizesLoading"
           :data="dbSizesList"
           :columns="dbSizesColumns"

@@ -50,7 +50,8 @@ const columns = [
       </a-space>
     </a-card>
     <a-card :bordered="false">
-      <a-table
+<a-table
+  column-resizable
         :loading="isLoading"
         :data="dataList"
         :columns="columns"

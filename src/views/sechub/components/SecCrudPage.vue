@@ -250,7 +250,8 @@ function handlePageSizeChange(size: number) {
         </a-space>
       </a-row>
 
-      <a-table
+<a-table
+  column-resizable
         :loading="isLoading"
         :data="dataList"
         :columns="columns"

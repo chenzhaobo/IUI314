@@ -126,7 +126,8 @@ function handleSelectionChange(keys: (string | number)[]) {
       <a-skeleton-line :rows="10" />
     </a-space>
   </a-skeleton>
-  <a-table
+<a-table
+  column-resizable
     v-else
     :columns="columns"
     :data="tableData || []"

@@ -558,7 +558,8 @@ watch([sourceEnvId, currentFormNumber], () => {
             </a-col>
           </a-row>
 
-          <a-table
+<a-table
+  column-resizable
             :loading="buttonLoading"
             :data="buttonList"
             :columns="buttonColumns"
@@ -610,7 +611,8 @@ watch([sourceEnvId, currentFormNumber], () => {
             </a-button>
           </div>
 
-          <a-table
+<a-table
+  column-resizable
             :loading="menuLoading"
             :data="menuList"
             :columns="menuColumns"

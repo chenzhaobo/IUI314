@@ -241,7 +241,8 @@ function getRoleLabel(value: string) {
 
     <!-- 树表 -->
     <a-card :bordered="false">
-      <a-table
+<a-table
+  column-resizable
         :loading="isLoading"
         :data="treeData"
         :columns="columns"

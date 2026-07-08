@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { ref, watch } from 'vue'
+import { ref, watch, nextTick } from 'vue'
 import { LineChart, type LineSeriesOption } from 'echarts/charts'
 import {
   GridComponent,
@@ -69,13 +69,13 @@ function msToSec(ms?: number | null): number | null {
   return Number((ms / 1000).toFixed(3))
 }
 
-function initChart(data: any[]) {
+function buildOption(data: any[]): EChartsOption {
   const xLabels = data.map((d) => fmtTime(d.created_at) || d.iteration_name || '')
   const actualData = data.map((d) => msToSec(d.average_ms))
   const baselineData = data.map((d) => msToSec(d.baseline_value_ms))
   const targetData = data.map((d) => msToSec(d.target_value_ms))
 
-  option.value = {
+  return {
     tooltip: {
       trigger: 'axis',
       formatter: (params: any) => {
@@ -158,35 +158,24 @@ function initChart(data: any[]) {
       },
     ],
   }
-
-  chartRef.value?.setOption(option.value as ECBasicOption, { notMerge: true })
 }
 
 watch(
-  () => props.visible,
-  async (val) => {
-    if (val && props.txnCode) {
-      trendQuery.value = { txn_code: props.txnCode }
+  () => [props.visible, props.txnCode] as const,
+  async ([visible, txnCode]) => {
+    if (visible && txnCode) {
+      trendQuery.value = { txn_code: txnCode }
       await fetchTrend()
       const data = trendData.value || []
       if (data.length > 0) {
-        initChart(data)
+        option.value = buildOption(data)
+        await nextTick()
+        chartRef.value?.setOption(option.value as ECBasicOption, { notMerge: true })
+      } else {
+        option.value = undefined
       }
-    }
-  },
-  { immediate: true },
-)
-
-watch(
-  () => props.txnCode,
-  async (val) => {
-    if (val && props.visible) {
-      trendQuery.value = { txn_code: val }
-      await fetchTrend()
-      const data = trendData.value || []
-      if (data.length > 0) {
-        initChart(data)
-      }
+    } else if (!visible) {
+      option.value = undefined
     }
   },
 )
@@ -204,6 +193,7 @@ watch(
       <VChart
         v-if="option"
         ref="chartRef"
+        :option="option as ECBasicOption"
         :style="{ height: '420px', width: '100%' }"
         :autoresize="true"
       />

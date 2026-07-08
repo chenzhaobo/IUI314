@@ -98,7 +98,7 @@ const columns = [
       </a-row>
     </a-card>
     <a-card :bordered="false">
-      <a-table :loading="isLoading" :data="dataList" :columns="columns" :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true }" row-key="id" @page-change="(p: number) => { queryParams.page_num = p; getList() }">
+      <a-table column-resizable :loading="isLoading" :data="dataList" :columns="columns" :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true }" row-key="id" @page-change="(p: number) => { queryParams.page_num = p; getList() }">
         <template #operations="{ record }">
           <a-space>
             <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>

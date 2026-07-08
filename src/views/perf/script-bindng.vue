@@ -356,7 +356,8 @@ async function handleAddSubmit() {
           </a-button>
         </template>
 
-        <a-table
+<a-table
+  column-resizable
           :loading="bindLoading"
           :data="bindList"
           :columns="bindColumns"
@@ -385,7 +386,8 @@ async function handleAddSubmit() {
     <a-modal v-model:visible="addVisible" title="添加脚本绑定" :width="900" :ok-loading="addSubmitting" @ok="handleAddSubmit" ok-text="绑定选中">
       <a-input v-model="testScenario" placeholder="测试场景（可选，如：列表查询基准测试）" allow-clear style="margin-bottom: 12px" />
       <a-input-search v-model="scriptQuery.keyword" placeholder="搜索脚本名称/编码" allow-clear style="margin-bottom: 12px" @search="handleScriptSearch" @press-enter="handleScriptSearch" />
-      <a-table
+<a-table
+  column-resizable
         :loading="scriptLoading"
         :data="allScripts"
         :columns="addColumns"
@@ -408,7 +410,8 @@ async function handleAddSubmit() {
 
     <!-- 事务按钮详情抽屉 -->
     <a-drawer :visible="txnButtonDrawerVisible" :width="780" :title="txnButtonDrawerTitle" @cancel="txnButtonDrawerVisible = false" @ok="txnButtonDrawerVisible = false">
-      <a-table
+<a-table
+  column-resizable
         :loading="txnButtonLoading"
         :data="txnButtonList"
         :columns="txnButtonColumns"

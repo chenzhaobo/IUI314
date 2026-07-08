@@ -3,7 +3,7 @@ import { ref, computed, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { useGet, usePost, usePut, useDelete } from '@/hooks'
-import { ApiPerfTask, ApiPerfScript, ApiPerfIteration, ApiPerfDomain } from '@/api/apis'
+import { ApiPerfTask, ApiPerfScript, ApiPerfIteration, ApiPerfDomain, ApiPerfLoadNode } from '@/api/apis'
 
 defineOptions({ name: 'task' })
 const router = useRouter()
@@ -24,10 +24,12 @@ const total = computed(() => rawListData.value?.total || 0)
 function handleSearch() {
   queryParams.value.page_num = 1
   getList()
+  resetPollTimer()
 }
 function handlePageChange(page: number) {
   queryParams.value.page_num = page
   getList()
+  resetPollTimer()
 }
 
 // ── 时间格式化 ──────────────────────────────────
@@ -83,6 +85,17 @@ const { data: iterData } = useGet<any>(ApiPerfIteration.getList, { page_num: 1, 
 const iterOptions = computed(() => (iterData.value?.list || []).map((i: any) => ({ label: `${i.name} (${i.code})`, value: i.id })))
 const { data: currentIterData } = useGet<any>(ApiPerfIteration.current, {}, { immediate: true })
 
+// 获取在线压测机列表
+const { data: loadNodeData } = useGet<any>(ApiPerfLoadNode.onlineList, {}, { immediate: true })
+const loadNodeOptions = computed(() => [
+  { label: '本地执行（默认，不经过 Agent）', value: '' },
+  { label: '自动选择 Agent 节点', value: 'auto' },
+  ...(loadNodeData.value || []).map((n: any) => ({
+    label: `${n.node_name} (${n.host_ip}:${n.agent_port}) [${n.current_load || 0}/${n.max_concurrency || 1}]`,
+    value: n.id,
+  })),
+])
+
 // ── 触发任务弹窗 ──────────────────────────────────
 const triggerVisible = ref(false)
 const triggerSubmitting = ref(false)
@@ -98,7 +111,36 @@ const triggerForm = ref({
   loops: undefined as number | undefined,
   duration: undefined as number | undefined,
   extra_props: '',
+  load_node_id: '',
 })
+
+// ── 预估执行时间 ──────────────────────────────────
+const estimateResult = ref<any>(null)
+const estimateLoading = ref(false)
+let estimateTimer: any = null
+
+function fetchEstimate() {
+  if (estimateTimer) clearTimeout(estimateTimer)
+  const ids = triggerForm.value.script_ids
+  if (!ids || ids.length === 0) {
+    estimateResult.value = null
+    return
+  }
+  estimateTimer = setTimeout(async () => {
+    estimateLoading.value = true
+    const { execute, data } = usePost(ApiPerfTask.estimateTime, {
+      script_ids: ids,
+      max_concurrency: triggerForm.value.task_type === 'parallel' ? triggerForm.value.max_concurrency : 1,
+    })
+    await execute()
+    estimateResult.value = data.value?.data || null
+    estimateLoading.value = false
+  }, 400)
+}
+
+watch(() => [triggerForm.value.script_ids, triggerForm.value.task_type, triggerForm.value.max_concurrency], () => {
+  if (triggerVisible.value) fetchEstimate()
+}, { deep: true })
 
 function handleTriggerClick() {
   triggerForm.value = {
@@ -113,6 +155,7 @@ function handleTriggerClick() {
     loops: undefined,
     duration: undefined,
     extra_props: '',
+    load_node_id: '',
   }
   triggerVisible.value = true
 }
@@ -156,13 +199,14 @@ async function handleTriggerSubmit() {
     loops: triggerForm.value.loops,
     duration: triggerForm.value.duration,
     extra_props: triggerForm.value.extra_props || undefined,
+    load_node_id: triggerForm.value.load_node_id || undefined,
   })
   await execute()
   triggerSubmitting.value = false
   if (error.value) { Message.error('触发失败'); return }
   Message.success(`任务已触发，共 ${triggerForm.value.script_ids.length} 个脚本`)
   triggerVisible.value = false
-  setTimeout(() => getList(), 1000)
+  setTimeout(() => { getList(); resetPollTimer() }, 1000)
 }
 
 // ── 重试失败项 ──────────────────────────────────
@@ -172,6 +216,7 @@ async function handleRetryFailed(record: any) {
   if (error.value) { Message.error('重试失败'); return }
   Message.success('已触发重试')
   getList()
+  resetPollTimer()
 }
 
 // ── 取消任务 ──────────────────────────────────
@@ -181,6 +226,7 @@ async function handleCancel(record: any) {
   if (error.value) { Message.error('取消失败'); return }
   Message.success('已取消')
   getList()
+  resetPollTimer()
 }
 
 // ── 删除任务 ──────────────────────────────────
@@ -190,6 +236,7 @@ async function handleDelete(record: any) {
   if (error.value) { Message.error('删除失败'); return }
   Message.success('删除成功')
   getList()
+  resetPollTimer()
 }
 
 // ── 查看任务详情（跳转到run列表，按task_id筛选） ──────────────────────────────────
@@ -197,19 +244,41 @@ function handleViewRuns(record: any) {
   router.push({ path: '/perf/run-group/run', query: { task_id: record.id } })
 }
 
-// ── 自动刷新轮询 ──────────────────────────────────
-let pollTimer: ReturnType<typeof setInterval> | null = null
+// ── 自动刷新轮询（用户操作后 60s 重置）──────────────────────────────────
+const POLL_INTERVAL = 60000 // 60秒
+let pollTimer: ReturnType<typeof setTimeout> | null = null
+
+function clearPollTimer() {
+  if (pollTimer) { clearTimeout(pollTimer); pollTimer = null }
+}
+
+function startPollTimer() {
+  clearPollTimer()
+  pollTimer = setTimeout(async () => {
+    pollTimer = null
+    await getList()
+    // 刷新后若仍有活跃任务则继续轮询
+    const hasActive = dataList.value.some((r: any) => r.task_status === 'running' || r.task_status === 'pending')
+    if (hasActive) startPollTimer()
+  }, POLL_INTERVAL)
+}
+
+// 用户操作后重置计时器（如搜索、翻页、筛选）
+function resetPollTimer() {
+  const hasActive = dataList.value.some((r: any) => r.task_status === 'running' || r.task_status === 'pending')
+  if (hasActive || pollTimer) startPollTimer()
+}
+
 watch(dataList, (list) => {
   const hasActive = list.some((r: any) => r.task_status === 'running' || r.task_status === 'pending')
   if (hasActive && !pollTimer) {
-    pollTimer = setInterval(() => getList(), 5000)
+    startPollTimer()
   } else if (!hasActive && pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
+    clearPollTimer()
   }
-})
+}, { deep: true })
 onUnmounted(() => {
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+  clearPollTimer()
 })
 
 // ── 进度计算 ──────────────────────────────────
@@ -256,7 +325,8 @@ function getProgress(record: any): number {
     </a-card>
 
     <a-card :bordered="false">
-      <a-table
+<a-table
+  column-resizable
         :loading="isLoading"
         :data="dataList"
         :columns="columns"
@@ -326,6 +396,9 @@ function getProgress(record: any): number {
         <a-form-item v-if="triggerForm.task_type === 'parallel'" label="最大并发数">
           <a-input-number v-model="triggerForm.max_concurrency" :min="1" :max="10" />
         </a-form-item>
+        <a-form-item label="执行机">
+          <a-select v-model="triggerForm.load_node_id" :options="loadNodeOptions" placeholder="选择执行机" allow-clear />
+        </a-form-item>
         <a-form-item label="选择脚本（可多选，指定领域后可不选）">
           <a-select
             v-model="triggerForm.script_ids"
@@ -336,6 +409,20 @@ function getProgress(record: any): number {
             :virtual-list-props="{ height: 200 }"
           />
         </a-form-item>
+        <a-alert v-if="estimateResult" type="info" :loading="estimateLoading" style="margin-bottom: 12px">
+          <template #title>
+            <span>预估执行时间</span>
+          </template>
+          <div style="font-size: 13px; line-height: 1.8">
+            <span>预估总耗时：</span>
+            <b style="color: #165dff; font-size: 16px">{{ estimateResult.estimated_human }}</b>
+            <span style="color: #86909c; margin-left: 8px">（串行 {{ estimateResult.serial_total_human }}）</span>
+            <br />
+            <span>脚本总数：{{ estimateResult.total_scripts }}（有历史数据 {{ estimateResult.scripts_with_data }}，无数据 {{ estimateResult.scripts_no_data }}）</span>
+            <br />
+            <span>平均单个：{{ estimateResult.avg_per_script_human }}，最长：{{ estimateResult.max_script_human }}</span>
+          </div>
+        </a-alert>
         <a-row :gutter="16">
           <a-col :span="12"><a-form-item label="线程数"><a-input-number v-model="triggerForm.threads" :min="1" placeholder="覆盖默认值" /></a-form-item></a-col>
           <a-col :span="12"><a-form-item label="Ramp-up(秒)"><a-input-number v-model="triggerForm.rampup" :min="0" placeholder="覆盖默认值" /></a-form-item></a-col>

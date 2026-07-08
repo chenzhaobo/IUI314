@@ -58,6 +58,11 @@ export const useRequest = createFetch({
       return { data, response }
     },
     async onFetchError({ data, response, error }) {
+      // 忽略请求被中止的错误（如重复请求时前一个被取消）
+      if (error?.name === 'AbortError') {
+        NProgress.done()
+        return { data: ErrorFlag, error: undefined }
+      }
       // 网络层错误（无响应）或后端返回非JSON错误体
       if (response?.status === 401) {
         await log_out()

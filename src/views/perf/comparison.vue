@@ -155,7 +155,8 @@ const txnColumns = [
 
     <!-- 列表 -->
     <a-card :bordered="false">
-      <a-table
+<a-table
+  column-resizable
         :columns="columns"
         :data="dataList"
         :loading="isLoading"
@@ -209,7 +210,7 @@ const txnColumns = [
         <a-descriptions-item label="新增">{{ detailData?.txn_new_count }}</a-descriptions-item>
         <a-descriptions-item label="移除">{{ detailData?.txn_removed_count }}</a-descriptions-item>
       </a-descriptions>
-      <a-table :columns="txnColumns" :data="txnRows" row-key="txn_code" :pagination="{ pageSize: 15 }" size="small">
+      <a-table column-resizable :columns="txnColumns" :data="txnRows" row-key="txn_code" :pagination="{ pageSize: 15 }" size="small">
         <template #delta_avg="{ record }">
           <span :style="{ color: record.delta_avg > 0 ? 'red' : record.delta_avg < 0 ? 'green' : 'inherit' }">{{ fmtNum(record.delta_avg) }}</span>
         </template>

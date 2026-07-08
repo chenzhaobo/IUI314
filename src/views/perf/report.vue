@@ -12,7 +12,7 @@ const route = useRoute()
 const activeTab = ref('list')
 
 // ── 报告列表 ──────────────────────────────────
-const queryParams = ref({ page_num: 1, page_size: 10, script_id: '', iteration_id: '' })
+const queryParams = ref({ page_num: 1, page_size: 10, script_id: '', iteration_id: '', keyword: '', trigger_type: '', domain_code: '' })
 const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<any>(ApiPerfReport.list, queryParams, { immediate: true })
 const dataList = computed(() => rawListData.value?.list || [])
 const total = computed(() => rawListData.value?.total || 0)
@@ -27,10 +27,16 @@ const scriptOptions = computed(() => (scriptData.value?.list || []).map((s: any)
 // 迭代筛选下拉
 const { data: iterData } = useGet<any>(ApiPerfIteration.getList, { page_num: 1, page_size: 100, status: '1' }, { immediate: true })
 const iterOptions = computed(() => (iterData.value?.list || []).map((i: any) => ({ label: i.name, value: i.id })))
+const iterMap = computed(() => {
+  const m: Record<string, any> = {}
+  for (const i of (iterData.value?.list || [])) m[i.id] = i
+  return m
+})
 
 const columns = [
   { title: '脚本名称', dataIndex: 'script_name', width: 200, ellipsis: true, tooltip: true, fixed: 'left' as const },
-  { title: '触发方式', dataIndex: 'trigger_type', width: 80 },
+  { title: '迭代', dataIndex: 'iteration_id', width: 140, slotName: 'iteration', ellipsis: true, tooltip: true },
+  { title: '触发方式', dataIndex: 'trigger_type', width: 80, slotName: 'trigger_type' },
   { title: '样本数', dataIndex: 'summary_json.sample_count', width: 80, slotName: 'sample_count' },
   { title: '平均(ms)', dataIndex: 'summary_json.average_ms', width: 90, slotName: 'avg_ms' },
   { title: 'P90(ms)', dataIndex: 'summary_json.pct90_ms', width: 90, slotName: 'p90_ms' },
@@ -39,6 +45,7 @@ const columns = [
   { title: '错误率', dataIndex: 'summary_json.error_pct', width: 80, slotName: 'error_pct' },
   { title: '吞吐量(req/s)', dataIndex: 'summary_json.throughput', width: 110, slotName: 'throughput' },
   { title: '开始时间', dataIndex: 'started_at', width: 160, slotName: 'started_at' },
+  { title: '结束时间', dataIndex: 'finished_at', width: 160, slotName: 'finished_at' },
   { title: '耗时(秒)', dataIndex: 'duration_ms', width: 90, slotName: 'duration' },
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 220, fixed: 'right' as const },
 ]
@@ -80,8 +87,16 @@ async function handleViewDetail(record: any) {
   detailLoading.value = false
 }
 
-// ── 从 URL 参数自动打开明细（从执行页跳转） ──────────────────────────────────
+// ── 从 URL 参数自动过滤/打开明细（从执行页跳转） ──────────────────────────────────
 onMounted(async () => {
+  // 从执行页“历史”按钮跳转：按 script_id 过滤
+  const sid = route.query.script_id as string
+  if (sid) {
+    queryParams.value.script_id = sid
+    await getList()
+  }
+
+  // 从执行页“报告”按钮跳转：直接打开明细
   const rid = route.query.run_id as string
   if (rid) {
     setTimeout(() => {
@@ -151,12 +166,23 @@ function fmt(n: number | undefined | null, digits = 2): string {
         <a-card :bordered="false" class="m-b-8px">
           <a-row :gutter="16">
             <a-col :span="6">
-              <a-select v-model="queryParams.script_id" :options="scriptOptions" placeholder="按脚本筛选" allow-clear @change="handleSearch" />
+              <a-input-search v-model="queryParams.keyword" placeholder="搜索脚本名称" allow-clear @search="handleSearch" @press-enter="handleSearch" />
             </a-col>
-            <a-col :span="6">
+            <a-col :span="5">
+              <a-select v-model="queryParams.script_id" :options="scriptOptions" placeholder="按脚本筛选" allow-clear allow-search @change="handleSearch" />
+            </a-col>
+            <a-col :span="4">
               <a-select v-model="queryParams.iteration_id" :options="iterOptions" placeholder="按迭代筛选" allow-clear @change="handleSearch" />
             </a-col>
             <a-col :span="4">
+              <a-select v-model="queryParams.trigger_type" placeholder="触发方式" allow-clear @change="handleSearch">
+                <a-option value="task">task</a-option>
+                <a-option value="retry">retry</a-option>
+                <a-option value="manual">manual</a-option>
+                <a-option value="import">import</a-option>
+              </a-select>
+            </a-col>
+            <a-col :span="5">
               <a-button type="primary" @click="handleSearch">搜索</a-button>
             </a-col>
           </a-row>
@@ -164,16 +190,22 @@ function fmt(n: number | undefined | null, digits = 2): string {
 
         <!-- 报告列表 -->
         <a-card :bordered="false" title="压测报告列表">
-          <a-table
+<a-table
+  column-resizable
             :loading="isLoading"
             :data="dataList"
             :columns="columns"
             row-key="id"
-            :scroll="{ x: 1500 }"
+            :scroll="{ x: 1900 }"
             :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true, showPageSize: true }"
             @page-change="handlePageChange"
           >
             <template #started_at="{ record }">{{ formatTime(record.started_at) }}</template>
+            <template #finished_at="{ record }">{{ formatTime(record.finished_at) }}</template>
+            <template #iteration="{ record }">{{ record.iteration_id ? (iterMap[record.iteration_id]?.name || record.iteration_id.substring(0, 8)) : '-' }}</template>
+            <template #trigger_type="{ record }">
+              <a-tag :color="record.trigger_type === 'task' ? 'blue' : (record.trigger_type === 'retry' ? 'orange' : 'gray')">{{ record.trigger_type }}</a-tag>
+            </template>
             <template #sample_count="{ record }">{{ record.summary_json?.sample_count ?? '-' }}</template>
             <template #avg_ms="{ record }">{{ record.summary_json ? fmt(record.summary_json.average_ms, 0) : '-' }}</template>
             <template #p90_ms="{ record }">{{ record.summary_json ? fmt(record.summary_json.pct90_ms, 0) : '-' }}</template>
@@ -201,7 +233,8 @@ function fmt(n: number | undefined | null, digits = 2): string {
       <!-- 聚合报告明细 -->
       <a-tab-pane key="detail" :title="`聚合报告明细${detailScriptName ? ' — ' + detailScriptName : ''}`">
         <a-card :bordered="false">
-          <a-table
+<a-table
+  column-resizable
             :loading="detailLoading"
             :data="detailList"
             :columns="detailColumns"

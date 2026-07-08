@@ -4,7 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { EventSourcePolyfill, type MessageEvent } from 'event-source-polyfill'
 import { useGet, usePost, usePut } from '@/hooks'
-import { ApiPerfRun, ApiPerfScript, ApiPerfIteration, ApiPerfTask } from '@/api/apis'
+import { ApiPerfRun, ApiPerfScript, ApiPerfIteration, ApiPerfTask, ApiPerfLoadNode } from '@/api/apis'
 import { useToken } from '@/hooks/app'
 
 defineOptions({ name: 'run' })
@@ -20,8 +20,8 @@ const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<an
 const dataList = computed(() => rawListData.value?.list || [])
 const total = computed(() => rawListData.value?.total || 0)
 
-function handleSearch() { queryParams.value.page_num = 1; getList() }
-function handlePageChange(page: number) { queryParams.value.page_num = page; getList() }
+function handleSearch() { queryParams.value.page_num = 1; getList(); resetPollTimer() }
+function handlePageChange(page: number) { queryParams.value.page_num = page; getList(); resetPollTimer() }
 
 // ── 时间格式化 ──────────────────────────────────
 function formatTime(time?: string | null) {
@@ -45,13 +45,14 @@ const columns = [
   { title: '错误率', dataIndex: 'summary_json.error_pct', width: 80, slotName: 'error_pct' },
   { title: '吞吐量', dataIndex: 'summary_json.throughput', width: 90, slotName: 'throughput' },
   { title: '开始时间', dataIndex: 'started_at', width: 160, slotName: 'started_at' },
+  { title: '结束时间', dataIndex: 'finished_at', width: 160, slotName: 'finished_at' },
   { title: '耗时(秒)', dataIndex: 'duration_ms', width: 90, slotName: 'duration' },
-  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 180, fixed: 'right' as const },
+  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 220, fixed: 'right' as const },
 ]
 
 // ── 触发执行弹窗 ──────────────────────────────────
 const triggerVisible = ref(false)
-const triggerForm = ref({ script_id: '', threads: undefined as number | undefined, rampup: undefined as number | undefined, loops: undefined as number | undefined, duration: undefined as number | undefined, extra_props: '', baseline_run_id: '', iteration_id: '' })
+const triggerForm = ref({ script_id: '', threads: undefined as number | undefined, rampup: undefined as number | undefined, loops: undefined as number | undefined, duration: undefined as number | undefined, extra_props: '', baseline_run_id: '', iteration_id: '', load_node_id: '' })
 
 // 获取脚本列表供选择
 const { data: scriptData } = useGet<any>(ApiPerfScript.getList, { page_num: 1, page_size: 100 }, { immediate: true })
@@ -80,8 +81,18 @@ const iterMap = computed(() => {
 })
 const { data: currentIterData } = useGet<any>(ApiPerfIteration.current, {}, { immediate: true })
 
+// 获取在线压测机列表
+const { data: loadNodeData } = useGet<any>(ApiPerfLoadNode.onlineList, {}, { immediate: true })
+const loadNodeOptions = computed(() => [
+  { label: '本地服务（默认）', value: '' },
+  ...(loadNodeData.value || []).map((n: any) => ({
+    label: `${n.node_name} (${n.host_ip}:${n.agent_port}) [${n.current_load || 0}/${n.max_concurrency || 1}]`,
+    value: n.id,
+  })),
+])
+
 function handleTriggerClick() {
-  triggerForm.value = { script_id: '', threads: undefined, rampup: undefined, loops: undefined, duration: undefined, extra_props: '', baseline_run_id: '', iteration_id: currentIterData.value?.id || '' }
+  triggerForm.value = { script_id: '', threads: undefined, rampup: undefined, loops: undefined, duration: undefined, extra_props: '', baseline_run_id: '', iteration_id: currentIterData.value?.id || '', load_node_id: '' }
   triggerVisible.value = true
 }
 
@@ -168,24 +179,66 @@ async function handleCancel(record: any) {
   if (error.value) { Message.error('取消失败'); return }
   Message.success('已取消')
   getList()
+  resetPollTimer()
+}
+
+// ── 单条重试 ──────────────────────────────────
+const retryingRunIds = ref<Set<string>>(new Set())
+
+async function handleRetry(record: any) {
+  if (retryingRunIds.value.has(record.id)) return
+  retryingRunIds.value.add(record.id)
+  const { execute, error } = usePost(ApiPerfRun.retry, { run_id: record.id })
+  await execute()
+  retryingRunIds.value.delete(record.id)
+  if (error.value) { Message.error('重试失败'); return }
+  Message.success('已触发重试，新记录将出现在列表中')
+  getList()
+  resetPollTimer()
+}
+
+// ── 查看历史记录（跳转报告管理列表，按 script_id 过滤） ──────────────────────────────────
+function handleViewHistory(record: any) {
+  router.push({ path: '/perf/report-group/report', query: { script_id: record.script_id } })
 }
 
 // ── 刷新 ──────────────────────────────────
-function handleRefresh() { getList() }
+function handleRefresh() { getList(); resetPollTimer() }
 
-// ── 自动刷新轮询 ──────────────────────────────────
-let pollTimer: ReturnType<typeof setInterval> | null = null
+// ── 自动刷新轮询（用户操作后 60s 重置）──────────────────────────────────
+const POLL_INTERVAL = 60000 // 60秒
+let pollTimer: ReturnType<typeof setTimeout> | null = null
+
+function clearPollTimer() {
+  if (pollTimer) { clearTimeout(pollTimer); pollTimer = null }
+}
+
+function startPollTimer() {
+  clearPollTimer()
+  pollTimer = setTimeout(async () => {
+    pollTimer = null
+    await getList()
+    const hasActive = dataList.value.some((r: any) => r.run_status === 'pending' || r.run_status === 'running')
+    if (hasActive) startPollTimer()
+  }, POLL_INTERVAL)
+}
+
+// 用户操作后重置计时器
+function resetPollTimer() {
+  const hasActive = dataList.value.some((r: any) => r.run_status === 'pending' || r.run_status === 'running')
+  if (hasActive || pollTimer) startPollTimer()
+}
+
 watch(dataList, (list) => {
   const hasActive = list.some((r: any) => r.run_status === 'pending' || r.run_status === 'running')
   if (hasActive && !pollTimer) {
-    pollTimer = setInterval(() => getList(), 5000)
+    startPollTimer()
   } else if (!hasActive && pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
+    clearPollTimer()
   }
-})
+}, { deep: true })
 onUnmounted(() => {
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+  clearPollTimer()
   currentSSE?.close()
   currentSSE = null
 })
@@ -193,10 +246,10 @@ onUnmounted(() => {
 // ── 批量执行 ──────────────────────────────────
 const batchVisible = ref(false)
 const batchSubmitting = ref(false)
-const batchForm = ref({ script_ids: [] as string[], threads: undefined as number | undefined, rampup: undefined as number | undefined, loops: undefined as number | undefined, duration: undefined as number | undefined, extra_props: '', iteration_id: '' })
+const batchForm = ref({ script_ids: [] as string[], threads: undefined as number | undefined, rampup: undefined as number | undefined, loops: undefined as number | undefined, duration: undefined as number | undefined, extra_props: '', iteration_id: '', load_node_id: '' })
 
 function handleBatchClick() {
-  batchForm.value = { script_ids: [], threads: undefined, rampup: undefined, loops: undefined, duration: undefined, extra_props: '', iteration_id: currentIterData.value?.id || '' }
+  batchForm.value = { script_ids: [], threads: undefined, rampup: undefined, loops: undefined, duration: undefined, extra_props: '', iteration_id: currentIterData.value?.id || '', load_node_id: '' }
   batchVisible.value = true
 }
 
@@ -214,6 +267,7 @@ async function handleBatchSubmit() {
     loops: batchForm.value.loops,
     duration: batchForm.value.duration,
     extra_props: batchForm.value.extra_props || undefined,
+    load_node_id: batchForm.value.load_node_id || undefined,
   })
   await execute()
   batchSubmitting.value = false
@@ -268,11 +322,12 @@ async function handleBatchSubmit() {
     </a-card>
 
     <a-card :bordered="false">
-      <a-table :loading="isLoading" :data="dataList" :columns="columns"
+      <a-table column-resizable :loading="isLoading" :data="dataList" :columns="columns"
         :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true, showPageSize: true }"
         row-key="id" @page-change="handlePageChange">
         <template #task_name="{ record }">{{ record.task_name || record.task_id || '-' }}</template>
         <template #started_at="{ record }">{{ formatTime(record.started_at) }}</template>
+        <template #finished_at="{ record }">{{ formatTime(record.finished_at) }}</template>
         <template #script_name="{ record }">
           {{ record.script_name || record.script_id?.substring(0, 8) || '-' }}
         </template>
@@ -298,7 +353,9 @@ async function handleBatchSubmit() {
             <a-button type="text" size="small" @click="handleViewReport(record)" :disabled="record.run_status !== 'success'">报告</a-button>
             <a-button v-if="record.run_status === 'pending' || record.run_status === 'running'" type="text" size="small" status="success" @click="handleSSELog(record)">实时日志</a-button>
             <a-button type="text" size="small" @click="handleViewLog(record)">日志</a-button>
+            <a-button type="text" size="small" @click="handleViewHistory(record)">历史</a-button>
             <a-button v-if="record.run_status === 'pending' || record.run_status === 'running'" type="text" size="small" status="warning" @click="handleCancel(record)">取消</a-button>
+            <a-button v-if="record.run_status === 'failed' || record.run_status === 'timeout' || record.run_status === 'cancelled'" type="text" size="small" status="warning" :loading="retryingRunIds.has(record.id)" @click="handleRetry(record)">重试</a-button>
           </a-space>
         </template>
       </a-table>
@@ -312,6 +369,9 @@ async function handleBatchSubmit() {
         </a-form-item>
         <a-form-item label="关联迭代">
           <a-select v-model="triggerForm.iteration_id" :options="iterOptions" placeholder="选择迭代（默认当前迭代）" allow-clear />
+        </a-form-item>
+        <a-form-item label="执行机">
+          <a-select v-model="triggerForm.load_node_id" :options="loadNodeOptions" placeholder="选择执行机（默认本地）" allow-clear />
         </a-form-item>
         <a-row :gutter="16">
           <a-col :span="12"><a-form-item label="线程数"><a-input-number v-model="triggerForm.threads" :min="1" placeholder="覆盖默认值" /></a-form-item></a-col>
@@ -359,6 +419,9 @@ async function handleBatchSubmit() {
         </a-form-item>
         <a-form-item label="关联迭代">
           <a-select v-model="batchForm.iteration_id" :options="iterOptions" placeholder="选择迭代（默认当前迭代）" allow-clear />
+        </a-form-item>
+        <a-form-item label="执行机">
+          <a-select v-model="batchForm.load_node_id" :options="loadNodeOptions" placeholder="选择执行机（默认本地）" allow-clear />
         </a-form-item>
         <a-row :gutter="16">
           <a-col :span="12"><a-form-item label="线程数"><a-input-number v-model="batchForm.threads" :min="1" placeholder="覆盖默认值" /></a-form-item></a-col>
