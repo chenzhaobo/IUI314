@@ -89,6 +89,7 @@ export enum ApiPerfRun {
   cancel = '/perf/run/cancel',
   log = '/perf/run/log',
   sseLog = '/perf/run/sse_log',
+  retry = '/perf/run/retry',
 }
 
 // ── 聚合报告 ──────────────────────────────────
@@ -123,6 +124,7 @@ export enum ApiPerfTask {
   delete = '/perf/task/delete',
   updatePriority = '/perf/task/update_priority',
   queueList = '/perf/task/queue_list',
+  estimateTime = '/perf/task/estimate_time',
 }
 
 // ── 模块管理 ──────────────────────────────────
@@ -177,6 +179,7 @@ export enum ApiPerfComparison {
 // ── 基准测试比对 ──────────────────────────────────
 export enum ApiPerfBenchmark {
   report = '/perf/benchmark/report',
+  reportStats = '/perf/benchmark/report_stats',
   trend = '/perf/benchmark/trend',
   targetList = '/perf/benchmark/target_list',
   txnStats = '/perf/benchmark/txn_stats',
@@ -187,6 +190,7 @@ export enum ApiPerfBenchmark {
   txnScripts = '/perf/benchmark/txn_scripts',
   scriptTxnDiff = '/perf/benchmark/script_txn_diff',
   importTxn = '/perf/benchmark/import_txn',
+  importHistory = '/perf/benchmark/import_history',
 }
 
 // ── 平台配置 ──────────────────────────────────────
@@ -204,9 +208,28 @@ export enum ApiPerfTestPlan {
   delete = '/perf/test-plan/delete',
   preview = '/perf/test-plan/preview',
   trigger = '/perf/test-plan/trigger',
+  estimateTime = '/perf/test-plan/estimate_time',
 }
 
 // ── 业务领域选项 ──────────────────────────────────────
 export enum ApiPerfDomain {
   domainOptions = '/perf/module/domain_options',
+}
+
+// ── 压测机管理 ──────────────────────────────────────
+export enum ApiPerfLoadNode {
+  getList = '/perf/loadnode/list',
+  getById = '/perf/loadnode/get_by_id',
+  add = '/perf/loadnode/add',
+  edit = '/perf/loadnode/edit',
+  delete = '/perf/loadnode/delete',
+  testConnection = '/perf/loadnode/test',
+  onlineList = '/perf/loadnode/online',
+}
+
+// ── 脚本附件管理 ──────────────────────────────────────
+export enum ApiPerfAttachment {
+  upload = '/perf/script/attachment_upload',
+  list = '/perf/script/attachment_list',
+  delete = '/perf/script/attachment_delete',
 }

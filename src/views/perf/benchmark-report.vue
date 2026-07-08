@@ -1,11 +1,44 @@
 <script lang="ts" setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { useGet, usePut, usePost } from '@/hooks'
-import { ApiPerfBenchmark, ApiPerfIteration, ApiSysDictData } from '@/api/apis'
+import * as XLSX from 'xlsx'
+import { useGet, usePut, usePost, useToken } from '@/hooks'
+import { ApiPerfBenchmark, ApiPerfIteration, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
 import TxnTrendChart from './components/TxnTrendChart.vue'
 
 defineOptions({ name: 'benchmark-report' })
+
+// ── 产品线选择（数据字典）──────────────────────────
+const productLine = ref('')
+const { data: dictRaw } = useGet<any>(ApiSysDictData.getByType, { dict_type: 'perf_product_line' }, { immediate: true })
+const productLineOptions = computed(() => (Array.isArray(dictRaw.value) ? dictRaw.value : []).map((d: any) => ({ label: d.dict_label, value: d.dict_value })))
+
+watch(dictRaw, (val) => {
+  if (!productLine.value && Array.isArray(val) && val.length > 0) {
+    const defaultItem = val.find((d: any) => d.is_default === 'Y')
+    productLine.value = defaultItem?.dict_value || val[0]?.dict_value || ''
+  }
+}, { immediate: true })
+
+// ── 产品领域字典（sec_pg_product_domain）──────────────────────────
+const { data: domainDictRaw } = useGet<any>(ApiSysDictData.getByType, { dict_type: 'sec_pg_product_domain' }, { immediate: true })
+const domainOptions = computed(() => (Array.isArray(domainDictRaw.value) ? domainDictRaw.value : []).map((d: any) => ({ label: d.dict_label, value: d.dict_value })))
+
+// ── 业务领域字典（sec_pg_business_area）──────────────────────────
+const { data: bizAreaDictRaw } = useGet<any>(ApiSysDictData.getByType, { dict_type: 'sec_pg_business_area' }, { immediate: true })
+const bizAreaOptions = computed(() => {
+  const list = Array.isArray(bizAreaDictRaw.value) ? bizAreaDictRaw.value : []
+  return list.map((d: any) => ({ label: d.dict_label, value: d.dict_value }))
+})
+
+// ── 项目组选项（从 sec_project_group 获取，按领域过滤）──────────────────────────
+const { data: pgRawData } = useGet<any>(ApiSecProjectGroup.getAll, {}, { immediate: true })
+const projectGroupOptions = computed(() => {
+  const all = Array.isArray(pgRawData.value) ? pgRawData.value : []
+  const dc = queryParams.value.domain_code
+  const filtered = dc ? all.filter((pg: any) => pg.product_group_name === dc) : all
+  return filtered.map((pg: any) => ({ label: pg.name, value: pg.name }))
+})
 
 // ── 迭代列表（下拉用） ──────────────────────────────────
 const { data: iterData } = useGet<any>(ApiPerfIteration.getList, { page_num: 1, page_size: 100 }, { immediate: true })
@@ -26,11 +59,11 @@ const txnTypeMap = computed(() => {
 // ── 基准报告列表 ──────────────────────────────────
 const queryParams = ref({
   page_num: 1,
-  page_size: 20,
-  cloud: '',
-  app: '',
-  domain: '',
-  menu: '',
+  page_size: 10,
+  product_line: '',
+  domain_code: '',
+  business_area: '',
+  project_group_name: '',
   txn_type: '',
   iteration_id: '',
   pass_status: '',
@@ -38,6 +71,8 @@ const queryParams = ref({
   keyword: '',
 })
 
+// 产品线变化时同步到 queryParams（实际重新查询在下方 watch 中触发）
+// 注意：getList 和 fetchStats 定义在后，watch 回调在它们定义后才会触发
 const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<any>(
   ApiPerfBenchmark.report,
   queryParams,
@@ -46,36 +81,31 @@ const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<an
 const dataList = computed(() => rawListData.value?.list || [])
 const total = computed(() => rawListData.value?.total || 0)
 
+// ── 基准报告统计 ──────────────────────────────────
+const { data: statsData, execute: fetchStats } = useGet<any>(ApiPerfBenchmark.reportStats, queryParams, { immediate: true })
+
+// 产品线变化时同步到 queryParams 并重新查询
+watch(productLine, (val) => {
+  queryParams.value.product_line = val
+  queryParams.value.page_num = 1
+  getList()
+  fetchStats()
+})
+
 function handleSearch() {
   queryParams.value.page_num = 1
   getList()
+  fetchStats()
 }
 function handlePageChange(page: number) {
   queryParams.value.page_num = page
   getList()
 }
-
-// ── 下拉选项（从列表数据中提取去重值） ──────────────────────────────────
-const allClouds = computed(() => {
-  const set = new Set<string>()
-  dataList.value.forEach((r: any) => { if (r.cloud) set.add(r.cloud) })
-  return Array.from(set).map(v => ({ label: v, value: v }))
-})
-const allApps = computed(() => {
-  const set = new Set<string>()
-  dataList.value.forEach((r: any) => { if (r.app) set.add(r.app) })
-  return Array.from(set).map(v => ({ label: v, value: v }))
-})
-const allDomains = computed(() => {
-  const set = new Set<string>()
-  dataList.value.forEach((r: any) => { if (r.domain) set.add(r.domain) })
-  return Array.from(set).map(v => ({ label: v, value: v }))
-})
-const allMenus = computed(() => {
-  const set = new Set<string>()
-  dataList.value.forEach((r: any) => { if (r.menu) set.add(r.menu) })
-  return Array.from(set).map(v => ({ label: v, value: v }))
-})
+function handlePageSizeChange(size: number) {
+  queryParams.value.page_size = size
+  queryParams.value.page_num = 1
+  getList()
+}
 
 // ── 状态映射 ──────────────────────────────────
 const passStatusMap: Record<string, { color: string; text: string }> = {
@@ -112,12 +142,13 @@ async function handleManualPass(record: any) {
   await doManualPass({ txn_code: record.txn_code })
   Message.success('已标记为通过')
   getList()
+  fetchStats()
 }
 
 // ── 工具函数 ──────────────────────────────────
 function fmtSec(ms?: number | null): string {
   if (ms === null || ms === undefined) return '-'
-  return (ms / 1000).toFixed(1)
+  return (ms / 1000).toFixed(2)
 }
 
 function fmtTime(time?: string | null): string {
@@ -130,9 +161,103 @@ function fmtPct(v?: number | null): string {
   return v.toFixed(2) + '%'
 }
 
+function fmtSuccessRate(errorPct?: number | null): string {
+  if (errorPct === null || errorPct === undefined) return '-'
+  return (100 - errorPct).toFixed(2) + '%'
+}
+
 // ── 补偿重建 ──────────────────────────────────
 const rebuilding = ref(false)
 const { execute: doRebuild } = usePost<any>(ApiPerfBenchmark.rebuildHistory, {})
+
+// ── 导入历史数据 ──────────────────────────────────
+const importHistoryRef = ref<HTMLInputElement | null>(null)
+const importingHistory = ref(false)
+
+function handleImportHistoryClick() {
+  importHistoryRef.value?.click()
+}
+
+function downloadHistoryTemplate() {
+  const header = [
+    '脚本编码', '迭代名称', '执行时间',
+    '事务编码', '事务名称',
+    '样本数', '平均响应时间(ms)', 'P90(ms)', 'P95(ms)', 'P99(ms)',
+    '错误率(%)', '吞吐量(req/s)', '是否关键事务',
+  ]
+  const sample = [
+    [
+      'tda02084', 'V2024Q4', '2024-12-15 14:30:00',
+      'am01437-search001', '[A]-(am01437-search001)-销户申请',
+      1000, 120.5, 180.0, 220.0, 350.0,
+      0.5, 15.3, 'Y',
+    ],
+    [
+      'tda02084', 'V2024Q4', '2024-12-15 14:30:00',
+      'am01438-save001', '[A]-(am01438-save001)-保存数据',
+      500, 85.2, 120.0, 150.0, 200.0,
+      0.0, 10.1, 'Y',
+    ],
+  ]
+  const ws = XLSX.utils.aoa_to_sheet([header, ...sample])
+  ws['!cols'] = [
+    { wch: 14 }, { wch: 12 }, { wch: 20 },
+    { wch: 22 }, { wch: 36 },
+    { wch: 8 }, { wch: 16 }, { wch: 10 }, { wch: 10 }, { wch: 10 },
+    { wch: 10 }, { wch: 14 }, { wch: 12 },
+  ]
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, '历史数据导入模板')
+  XLSX.writeFile(wb, '历史数据导入模板.xlsx')
+}
+
+async function handleImportHistoryFile(e: Event) {
+  const target = e.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+
+  // 校验文件类型
+  if (!file.name.match(/\.xlsx$/i)) {
+    Message.warning('请上传 .xlsx 文件')
+    target.value = ''
+    return
+  }
+
+  importingHistory.value = true
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const { token } = useToken()
+    const resp = await fetch(import.meta.env.VITE_API_BASE_URL + ApiPerfBenchmark.importHistory, {
+      method: 'POST',
+      body: formData,
+      headers: { Authorization: token },
+    })
+    const result = await resp.json()
+    if (result.code === 200) {
+      const d = result.data || {}
+      const rebuildInfo = d.rebuild || {}
+      let msg = `导入完成：共 ${d.total_rows || 0} 行，创建 ${d.run_created || 0} 个执行记录，${d.detail_created || 0} 条事务明细`
+      if (rebuildInfo.total !== undefined) {
+        msg += `\n补偿重建：处理 ${rebuildInfo.total} 个，成功 ${rebuildInfo.success}，失败 ${rebuildInfo.failed}`
+      }
+      if (d.errors && d.errors.length > 0) {
+        msg += `\n警告：${d.errors.join('；')}`
+      }
+      Message.success({ content: msg, duration: 8000 })
+      getList()
+      fetchStats()
+    } else {
+      Message.error(result.msg || '导入失败')
+    }
+  } catch (err: any) {
+    Message.error('导入失败: ' + (err?.message || err))
+  } finally {
+    importingHistory.value = false
+    target.value = ''
+  }
+}
 
 async function handleRebuild() {
   rebuilding.value = true
@@ -145,6 +270,7 @@ async function handleRebuild() {
       Message.success('补偿重建完成')
     }
     getList()
+    fetchStats()
   } catch (e: any) {
     Message.error('补偿重建失败: ' + (e?.message || e))
   } finally {
@@ -153,19 +279,19 @@ async function handleRebuild() {
 }
 
 const allColumns = [
-  { key: 'cloud', title: '云', dataIndex: 'cloud', width: 90, ellipsis: true, tooltip: true, fixed: 'left' as const },
-  { key: 'app', title: '应用', dataIndex: 'app', width: 90, ellipsis: true, tooltip: true },
-  { key: 'domain', title: '领域', dataIndex: 'domain', width: 90, ellipsis: true, tooltip: true },
+  { key: 'cloud', title: '云', dataIndex: 'cloud', width: 100, ellipsis: true, tooltip: true, fixed: 'left' as const },
+  { key: 'app', title: '应用', dataIndex: 'app', width: 100, ellipsis: true, tooltip: true },
+  { key: 'domain', title: '领域', dataIndex: 'domain', width: 80, ellipsis: true, tooltip: true },
   { key: 'menu', title: '菜单', dataIndex: 'menu', width: 100, ellipsis: true, tooltip: true },
   { key: 'txn_code', title: '事务编码', dataIndex: 'txn_code', width: 140, ellipsis: true, tooltip: true },
   { key: 'txn_type', title: '事务类型', dataIndex: 'txn_type', width: 100, align: 'center' as const, slotName: 'txn_type' },
   { key: 'txn_name', title: '事务名称', dataIndex: 'txn_name', width: 200, ellipsis: true, tooltip: true },
-  { key: 'target_value_ms', title: '目标值(秒)', dataIndex: 'target_value_ms', width: 90, align: 'center' as const, slotName: 'target_value' },
-  { key: 'baseline_value_ms', title: '比对值(秒)', dataIndex: 'baseline_value_ms', width: 90, align: 'center' as const, slotName: 'baseline_value' },
-  { key: 'average_ms', title: '最新结果(秒)', dataIndex: 'average_ms', width: 100, align: 'center' as const, slotName: 'avg_value' },
+  { key: 'target_value_ms', title: '目标值', dataIndex: 'target_value_ms', width: 90, align: 'center' as const, slotName: 'target_value' },
+  { key: 'baseline_value_ms', title: '比对值', dataIndex: 'baseline_value_ms', width: 90, align: 'center' as const, slotName: 'baseline_value' },
+  { key: 'average_ms', title: '最新结果', dataIndex: 'average_ms', width: 100, align: 'center' as const, slotName: 'avg_value' },
   { key: 'iteration_name', title: '最新结果迭代', dataIndex: 'iteration_name', width: 140, ellipsis: true, tooltip: true },
   { key: 'created_at', title: '最新结果时间', dataIndex: 'created_at', width: 160, slotName: 'created_at' },
-  { key: 'error_pct', title: '错误率', dataIndex: 'error_pct', width: 80, align: 'center' as const, slotName: 'error_pct' },
+  { key: 'error_pct', title: '成功率', dataIndex: 'error_pct', width: 100, align: 'center' as const, slotName: 'error_pct' },
   { key: 'pass_status', title: '达标状态', dataIndex: 'pass_status', width: 90, align: 'center' as const, slotName: 'pass_status' },
   { key: 'compare_status', title: '比对状态', dataIndex: 'compare_status', width: 90, align: 'center' as const, slotName: 'compare_status' },
   { key: 'baseline_updated_at', title: '比对值更新时间', dataIndex: 'baseline_updated_at', width: 160, slotName: 'baseline_updated_at' },
@@ -233,54 +359,85 @@ function saveColumnConfig() {
 
 <template>
   <div class="page-container">
-    <!-- 搜索栏 -->
+    <!-- 搜索栏 + 统计 -->
     <a-card :bordered="false" class="mb-12px">
-      <a-row :gutter="12">
-        <a-col :span="4">
-          <a-select v-model="queryParams.cloud" :options="allClouds" placeholder="云" allow-search allow-clear />
-        </a-col>
-        <a-col :span="4">
-          <a-select v-model="queryParams.app" :options="allApps" placeholder="应用" allow-search allow-clear />
-        </a-col>
-        <a-col :span="4">
-          <a-select v-model="queryParams.domain" :options="allDomains" placeholder="领域" allow-search allow-clear />
-        </a-col>
-        <a-col :span="4">
-          <a-select v-model="queryParams.menu" :options="allMenus" placeholder="菜单" allow-search allow-clear />
-        </a-col>
-        <a-col :span="4">
-          <a-select v-model="queryParams.txn_type" :options="txnTypeOptions" placeholder="事务类型" allow-search allow-clear />
-        </a-col>
-        <a-col :span="4">
-          <a-select v-model="queryParams.iteration_id" :options="iterOptions" placeholder="迭代" allow-search allow-clear />
-        </a-col>
-        <a-col :span="4">
-          <a-input v-model="queryParams.keyword" placeholder="事务编码/名称" allow-clear @press-enter="handleSearch" />
-        </a-col>
-      </a-row>
-      <a-row :gutter="12" style="margin-top: 8px">
-        <a-col :span="4">
-          <a-select v-model="queryParams.pass_status" placeholder="达标状态" allow-clear>
+      <div class="filter-row">
+        <div class="filter-item">
+          <span class="filter-label">产品线</span>
+          <a-select v-model="productLine" :options="productLineOptions" placeholder="选择产品线" allow-search style="width: 130px" />
+        </div>
+        <div class="filter-item">
+          <span class="filter-label">产品领域</span>
+          <a-select v-model="queryParams.domain_code" :options="domainOptions" placeholder="全部领域" allow-clear style="width: 130px" />
+        </div>
+        <div class="filter-item">
+          <span class="filter-label">业务领域</span>
+          <a-select v-model="queryParams.business_area" :options="bizAreaOptions" placeholder="全部" allow-clear allow-search style="width: 130px" />
+        </div>
+        <div class="filter-item">
+          <span class="filter-label">项目组</span>
+          <a-select v-model="queryParams.project_group_name" :options="projectGroupOptions" placeholder="全部" allow-clear allow-search style="width: 130px" />
+        </div>
+        <div class="filter-item">
+          <span class="filter-label">事务类型</span>
+          <a-select v-model="queryParams.txn_type" :options="txnTypeOptions" placeholder="全部" allow-clear style="width: 110px" />
+        </div>
+        <div class="filter-item">
+          <span class="filter-label">迭代</span>
+          <a-select v-model="queryParams.iteration_id" :options="iterOptions" placeholder="全部" allow-clear allow-search style="width: 130px" />
+        </div>
+        <div class="filter-item">
+          <span class="filter-label">达标状态</span>
+          <a-select v-model="queryParams.pass_status" placeholder="全部" allow-clear style="width: 110px">
             <a-option value="pass">达标</a-option>
             <a-option value="fail">不达标</a-option>
             <a-option value="no_target">无目标值</a-option>
           </a-select>
-        </a-col>
-        <a-col :span="4">
-          <a-select v-model="queryParams.compare_status" placeholder="比对状态" allow-clear>
+        </div>
+        <div class="filter-item">
+          <span class="filter-label">比对状态</span>
+          <a-select v-model="queryParams.compare_status" placeholder="全部" allow-clear style="width: 110px">
             <a-option value="improved">改善</a-option>
             <a-option value="normal">正常</a-option>
             <a-option value="degraded">腐化</a-option>
             <a-option value="initial">首次</a-option>
             <a-option value="failed">失败</a-option>
           </a-select>
-        </a-col>
-        <a-col :span="4">
-          <a-space>
-            <a-button type="primary" @click="handleSearch">查询</a-button>
-          </a-space>
-        </a-col>
-      </a-row>
+        </div>
+        <div class="filter-item">
+          <span class="filter-label">事务名称</span>
+          <a-input v-model="queryParams.keyword" placeholder="编码/名称" allow-clear style="width: 130px" @press-enter="handleSearch" />
+        </div>
+        <a-button type="primary" @click="handleSearch">
+          <template #icon><icon-search /></template>
+          搜索
+        </a-button>
+      </div>
+
+      <!-- 统计数字 -->
+      <div class="stats-row" v-if="statsData">
+        <a-statistic title="事务总数" :value="statsData.total || 0" />
+        <a-divider direction="vertical" />
+        <a-statistic title="达标" :value="statsData.pass_count || 0" :value-style="{ color: '#00b42a' }" />
+        <a-divider direction="vertical" />
+        <a-statistic title="达标率" :value="statsData.pass_rate || 0" suffix="%" :value-style="{ color: (statsData.pass_rate || 0) >= 80 ? '#00b42a' : '#ff7d00' }" />
+        <a-divider direction="vertical" />
+        <a-statistic title="无目标值" :value="statsData.no_target_count || 0" :value-style="{ color: '#86909c' }" />
+        <a-divider direction="vertical" />
+        <a-statistic title="有目标值" :value="statsData.with_target || 0" />
+        <a-divider direction="vertical" />
+        <a-statistic title="有比对值" :value="statsData.with_baseline || 0" />
+        <a-divider direction="vertical" />
+        <a-statistic title="改善" :value="statsData.improved_count || 0" :value-style="{ color: '#00b42a' }" />
+        <a-divider direction="vertical" />
+        <a-statistic title="正常" :value="statsData.normal_count || 0" :value-style="{ color: '#165dff' }" />
+        <a-divider direction="vertical" />
+        <a-statistic title="腐化" :value="statsData.degraded_count || 0" :value-style="{ color: '#f53f3f' }" />
+        <a-divider direction="vertical" />
+        <a-statistic title="首次" :value="statsData.initial_count || 0" :value-style="{ color: '#ff7d00' }" />
+        <a-divider direction="vertical" />
+        <a-statistic title="失败数" :value="statsData.fail_count || 0" :value-style="{ color: '#f53f3f' }" />
+      </div>
     </a-card>
 
     <!-- 列表 -->
@@ -290,6 +447,11 @@ function saveColumnConfig() {
           <a-button type="primary" status="warning" :loading="rebuilding" @click="handleRebuild">
             补偿重建
           </a-button>
+          <a-button type="primary" :loading="importingHistory" @click="handleImportHistoryClick">
+            导入历史数据
+          </a-button>
+          <a-button @click="downloadHistoryTemplate">下载导入模板</a-button>
+          <input ref="importHistoryRef" type="file" accept=".xlsx" style="display: none" @change="handleImportHistoryFile" />
           <a-popover v-model:popup-visible="columnSettingVisible" trigger="click" position="bottom">
             <a-button>列设置</a-button>
             <template #content>
@@ -321,15 +483,18 @@ function saveColumnConfig() {
           current: queryParams.page_num,
           pageSize: queryParams.page_size,
           showTotal: true,
+          showPageSize: true,
+          pageSizeOptions: [10, 20, 50, 100],
         }"
         row-key="txn_code"
         :scroll="{ x: 2000 }"
         @page-change="handlePageChange"
+        @page-size-change="handlePageSizeChange"
       >
         <template #target_value="{ record }">{{ fmtSec(record.target_value_ms) }}</template>
         <template #baseline_value="{ record }">{{ fmtSec(record.baseline_value_ms) }}</template>
         <template #avg_value="{ record }">{{ fmtSec(record.average_ms) }}</template>
-        <template #error_pct="{ record }">{{ fmtPct(record.error_pct) }}</template>
+        <template #error_pct="{ record }"><span style="white-space: nowrap">{{ fmtSuccessRate(record.error_pct) }}</span></template>
         <template #txn_type="{ record }">
           {{ txnTypeMap[record.txn_type] || '-' }}
         </template>
@@ -371,3 +536,30 @@ function saveColumnConfig() {
     />
   </div>
 </template>
+
+<style scoped>
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.filter-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.filter-label {
+  font-size: 13px;
+  color: var(--color-text-2);
+  white-space: nowrap;
+}
+.stats-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border-2);
+}
+</style>
