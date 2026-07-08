@@ -279,10 +279,10 @@ async function handleRebuild() {
 }
 
 const allColumns = [
-  { key: 'cloud', title: '云', dataIndex: 'cloud', width: 100, ellipsis: true, tooltip: true, fixed: 'left' as const },
-  { key: 'app', title: '应用', dataIndex: 'app', width: 100, ellipsis: true, tooltip: true },
-  { key: 'domain', title: '领域', dataIndex: 'domain', width: 80, ellipsis: true, tooltip: true },
-  { key: 'menu', title: '菜单', dataIndex: 'menu', width: 100, ellipsis: true, tooltip: true },
+  { key: 'cloud', title: '云', dataIndex: 'cloud', width: 120, ellipsis: true, tooltip: true, fixed: 'left' as const },
+  { key: 'app', title: '应用', dataIndex: 'app', width: 120, ellipsis: true, tooltip: true },
+  { key: 'domain', title: '领域', dataIndex: 'domain', width: 100, ellipsis: true, tooltip: true },
+  { key: 'menu', title: '菜单', dataIndex: 'menu', width: 120, ellipsis: true, tooltip: true },
   { key: 'txn_code', title: '事务编码', dataIndex: 'txn_code', width: 140, ellipsis: true, tooltip: true },
   { key: 'txn_type', title: '事务类型', dataIndex: 'txn_type', width: 100, align: 'center' as const, slotName: 'txn_type' },
   { key: 'txn_name', title: '事务名称', dataIndex: 'txn_name', width: 200, ellipsis: true, tooltip: true },
@@ -478,6 +478,7 @@ function saveColumnConfig() {
         :columns="visibleColumns"
         :data="dataList"
         :loading="isLoading"
+        column-resizable
         :pagination="{
           total,
           current: queryParams.page_num,
