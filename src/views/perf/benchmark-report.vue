@@ -82,7 +82,7 @@ const dataList = computed(() => rawListData.value?.list || [])
 const total = computed(() => rawListData.value?.total || 0)
 
 // ── 基准报告统计 ──────────────────────────────────
-const { data: statsData, execute: fetchStats } = useGet<any>(ApiPerfBenchmark.reportStats, queryParams, { immediate: true })
+const { data: statsData, isFetching: statsLoading, execute: fetchStats } = useGet<any>(ApiPerfBenchmark.reportStats, queryParams, { immediate: true })
 
 // 产品线变化时同步到 queryParams 并重新查询
 watch(productLine, (val) => {
@@ -415,7 +415,9 @@ function saveColumnConfig() {
       </div>
 
       <!-- 统计数字 -->
-      <div class="stats-row" v-if="statsData">
+      <div class="stats-row" :class="{ 'stats-loading': statsLoading }">
+        <a-spin v-if="statsLoading" class="stats-spin" />
+        <template v-if="statsData && !statsLoading">
         <a-statistic title="事务总数" :value="statsData.total || 0" />
         <a-divider direction="vertical" />
         <a-statistic title="达标" :value="statsData.pass_count || 0" :value-style="{ color: '#00b42a' }" />
@@ -437,6 +439,7 @@ function saveColumnConfig() {
         <a-statistic title="首次" :value="statsData.initial_count || 0" :value-style="{ color: '#ff7d00' }" />
         <a-divider direction="vertical" />
         <a-statistic title="失败" :value="statsData.failed_count || 0" :value-style="{ color: '#f53f3f' }" />
+        </template>
       </div>
     </a-card>
 
@@ -562,5 +565,13 @@ function saveColumnConfig() {
   gap: 4px;
   padding-top: 10px;
   border-top: 1px solid var(--color-border-2);
+  position: relative;
+  min-height: 48px;
+}
+.stats-loading {
+  justify-content: center;
+}
+.stats-spin {
+  /* Arco spin centered in stats row */
 }
 </style>

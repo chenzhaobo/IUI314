@@ -131,7 +131,7 @@ async function handleToggleScope(record: any) {
 }
 
 // ── 统计面板 ──────────────────────────────────
-const { data: statsData, execute: fetchStats } = useGet<any>(ApiPerfMenu.stats, computed(() => ({ product_line: productLine.value, domain_code: menuQuery.value.domain_code || undefined, project_group_name: menuQuery.value.project_group_name || undefined })), { immediate: false })
+const { data: statsData, isFetching: statsLoading, execute: fetchStats } = useGet<any>(ApiPerfMenu.stats, computed(() => ({ product_line: productLine.value, domain_code: menuQuery.value.domain_code || undefined, project_group_name: menuQuery.value.project_group_name || undefined })), { immediate: false })
 
 // ── 左侧树 ──────────────────────────────────
 const treeData = ref<any[]>([])
@@ -487,7 +487,9 @@ watch([sourceEnvId, currentFormNumber], () => {
       </div>
 
       <!-- 统计数字 -->
-      <div class="stats-row" v-if="statsData">
+      <div class="stats-row" :class="{ 'stats-loading': statsLoading }">
+        <a-spin v-if="statsLoading" class="stats-spin" />
+        <template v-if="statsData && !statsLoading">
         <a-statistic title="云" :value="statsData.cloud_count || 0" />
         <a-divider direction="vertical" />
         <a-statistic title="应用" :value="statsData.app_count || 0" />
@@ -499,6 +501,7 @@ watch([sourceEnvId, currentFormNumber], () => {
         <a-statistic title="关键按钮" :value="statsData.important_button_count || 0" :value-style="{ color: '#ff7d00' }" />
         <a-divider direction="vertical" />
         <a-statistic title="测试范围内" :value="statsData.in_scope_menus || 0" :value-style="{ color: '#00b42a' }" />
+        </template>
       </div>
     </a-card>
 
@@ -691,6 +694,14 @@ watch([sourceEnvId, currentFormNumber], () => {
   gap: 4px;
   padding-top: 10px;
   border-top: 1px solid var(--color-border-2);
+  position: relative;
+  min-height: 48px;
+}
+.stats-loading {
+  justify-content: center;
+}
+.stats-spin {
+  /* Arco spin centered in stats row */
 }
 .catalog-layout {
   display: flex;

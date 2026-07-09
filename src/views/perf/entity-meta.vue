@@ -35,7 +35,7 @@ const activeTab = ref<'stats' | 'entity' | 'dbsizes'>('stats')
 
 // ── 统计汇总（全局统计，从预检查API获取）──────────────────────────
 const statsSummary = ref<any>(null)
-const { data: statsSummaryData, execute: fetchStatsSummary } = useGet<any>(ApiPerfTableStats.syncPreview, computed(() => ({
+const { data: statsSummaryData, isFetching: statsSummaryLoading, execute: fetchStatsSummary } = useGet<any>(ApiPerfTableStats.syncPreview, computed(() => ({
   env_id: sourceEnvId.value,
   product_line: productLine.value,
 })), { immediate: false })
@@ -392,7 +392,9 @@ onUnmounted(() => {
       </div>
 
      <!-- 统计数字 -->
-      <div class="stats-row" v-if="sourceEnvId && activeTab === 'stats' && statsSummary">
+      <div class="stats-row" :class="{ 'stats-loading': statsSummaryLoading }" v-if="sourceEnvId && activeTab === 'stats'">
+        <a-spin v-if="statsSummaryLoading" class="stats-spin" />
+        <template v-if="statsSummary && !statsSummaryLoading">
         <a-statistic title="表总数" :value="statsSummary.stats_existing ?? 0" show-group-separator />
         <a-divider direction="vertical" />
         <a-statistic title="估算行数" :value="statsSummary.estimated_row_sum ?? 0" :value-style="{ color: '#00b42a' }" show-group-separator />
@@ -403,6 +405,7 @@ onUnmounted(() => {
           <div class="stat-title">总空间大小</div>
           <div class="stat-value">{{ statsSummary.total_size_human ?? '-' }}</div>
         </div>
+        </template>
       </div>
 
       <!-- 表统计同步进度条 -->
@@ -625,6 +628,14 @@ onUnmounted(() => {
   gap: 4px;
   padding-top: 10px;
   border-top: 1px solid var(--color-border-2);
+  position: relative;
+  min-height: 48px;
+}
+.stats-loading {
+  justify-content: center;
+}
+.stats-spin {
+  /* Arco spin centered in stats row */
 }
 .stat-item {
   display: flex;

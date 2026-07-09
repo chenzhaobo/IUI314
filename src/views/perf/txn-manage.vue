@@ -87,7 +87,7 @@ const dataList = computed(() => rawListData.value?.list || [])
 const total = computed(() => rawListData.value?.total || 0)
 
 // ── 统计数据 ──────────────────────────────────
-const { data: statsData, execute: fetchStats } = useGet<any>(ApiPerfBenchmark.txnStats, queryParams, { immediate: false })
+const { data: statsData, isFetching: statsLoading, execute: fetchStats } = useGet<any>(ApiPerfBenchmark.txnStats, queryParams, { immediate: false })
 
 // ── 左侧菜单树 ──────────────────────────────────
 const treeData = ref<any[]>([])
@@ -628,7 +628,9 @@ const scriptColumns = [
       </div>
 
       <!-- 统计数字 -->
-      <div class="stats-row" v-if="statsData">
+      <div class="stats-row" :class="{ 'stats-loading': statsLoading }">
+        <a-spin v-if="statsLoading" class="stats-spin" />
+        <template v-if="statsData && !statsLoading">
         <a-statistic title="事务总数" :value="statsData.total_txns || 0" />
         <a-divider direction="vertical" />
         <a-statistic title="启用事务" :value="statsData.active_txns || 0" :value-style="{ color: '#00b42a' }" />
@@ -648,6 +650,7 @@ const scriptColumns = [
         <a-statistic title="无执行记录" :value="statsData.no_history || 0" :value-style="{ color: '#86909c' }" />
         <a-divider direction="vertical" />
         <a-statistic title="达标率" :value="statsData.pass_rate || 0" suffix="%" :value-style="{ color: (statsData.pass_rate || 0) >= 80 ? '#00b42a' : '#ff7d00' }" />
+        </template>
       </div>
     </a-card>
 
@@ -789,6 +792,14 @@ const scriptColumns = [
   gap: 4px;
   padding-top: 10px;
   border-top: 1px solid var(--color-border-2);
+  position: relative;
+  min-height: 48px;
+}
+.stats-loading {
+  justify-content: center;
+}
+.stats-spin {
+  /* Arco spin centered in stats row */
 }
 .txn-layout {
   display: flex;
