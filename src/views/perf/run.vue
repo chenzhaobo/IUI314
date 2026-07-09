@@ -199,7 +199,7 @@ async function handleRetry(record: any) {
 
 async function handleDownloadJmx(record: any) {
   try {
-    const resp = await fetch(`${baseUrl}${ApiPerfRun.downloadJmx}?run_id=${encodeURIComponent(record.id)}`, {
+    const resp = await fetch(`${baseUrl}${ApiPerfRun.downloadJmx}?id=${encodeURIComponent(record.id)}&source=run`, {
       headers: { Authorization: token.value },
     })
     const contentType = resp.headers.get('content-type') || ''

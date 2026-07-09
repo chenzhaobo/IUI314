@@ -160,7 +160,7 @@ async function handleDownloadJmx(record: any) {
   const { token } = useToken()
   const base = import.meta.env.VITE_API_BASE_URL || ''
   try {
-    const resp = await fetch(`${base}${ApiPerfRun.downloadJmx}?run_id=${encodeURIComponent(record.id)}`, {
+    const resp = await fetch(`${base}${ApiPerfRun.downloadJmx}?id=${encodeURIComponent(record.id)}&source=run`, {
       headers: { Authorization: token },
     })
     const contentType = resp.headers.get('content-type') || ''

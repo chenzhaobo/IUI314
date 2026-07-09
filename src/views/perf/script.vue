@@ -468,8 +468,8 @@ async function handleDownloadVersionJmx(record: any) {
   const base = import.meta.env.VITE_API_BASE_URL || ''
   try {
     const apiUrl = record.is_current
-      ? `${base}${ApiPerfScript.downloadJmx}?id=${encodeURIComponent(record.id)}`
-      : `${base}${ApiPerfScript.downloadVersionJmx}?id=${encodeURIComponent(record.id)}`
+      ? `${base}${ApiPerfScript.downloadJmx}?id=${encodeURIComponent(record.id)}&source=script`
+      : `${base}${ApiPerfScript.downloadJmx}?id=${encodeURIComponent(record.id)}&source=version`
     const resp = await fetch(apiUrl, {
       headers: { Authorization: token },
     })
@@ -498,7 +498,7 @@ async function handleDownloadScriptJmx(record: any) {
   const { token } = useToken()
   const base = import.meta.env.VITE_API_BASE_URL || ''
   try {
-    const resp = await fetch(`${base}${ApiPerfScript.downloadJmx}?id=${encodeURIComponent(record.id)}`, {
+    const resp = await fetch(`${base}${ApiPerfScript.downloadJmx}?id=${encodeURIComponent(record.id)}&source=script`, {
       headers: { Authorization: token },
     })
     const contentType = resp.headers.get('content-type') || ''
@@ -586,7 +586,7 @@ async function handleUpdateJmxSubmit() {
     if (updateJmxChangeLog.value) {
       formData.append('change_log', updateJmxChangeLog.value)
     }
-    const resp = await fetch(import.meta.env.VITE_API_BASE_URL + ApiPerfScript.updateJmx, {
+    const resp = await fetch(import.meta.env.VITE_API_BASE_URL + ApiPerfScript.upload, {
       method: 'POST',
       body: formData,
       headers: { Authorization: token },
@@ -691,7 +691,7 @@ async function handleReparseAll() {
 
 async function doReparseAll(mode: string) {
   reparsingAll.value = true
-  const { execute, error, data } = usePost(ApiPerfScript.reparseAll + '?mode=' + mode, {})
+  const { execute, error, data } = usePut(ApiPerfScript.reparse + '?mode=' + mode, {})
   await execute()
   reparsingAll.value = false
   if (error.value) { Message.error('批量解析失败'); return }
@@ -720,7 +720,7 @@ async function handleAutoBind(record: any) {
 
 async function handleAutoBindAll() {
   autoBindingAll.value = true
-  const { execute, error, data } = usePost(ApiPerfScript.autoBindAll, {})
+  const { execute, error, data } = usePost(ApiPerfScript.autoBind, {})
   await execute()
   autoBindingAll.value = false
   if (error.value) { Message.error('批量自动关联失败'); return }
