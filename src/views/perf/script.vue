@@ -86,15 +86,15 @@ const columns = [
   { title: '绑定数', dataIndex: 'bind_count', width: 70 },
   { title: '关联状态', dataIndex: 'bind_status', width: 90, slotName: 'bindStatus' },
   { title: '事务', dataIndex: 'txn_summary', width: 100, slotName: 'txnSummary' },
-  { title: '版本', dataIndex: 'version', width: 60 },
+  { title: '版本', dataIndex: 'version', width: 60, slotName: 'version' },
   { title: '文件名', dataIndex: 'jmx_file_name', width: 180, ellipsis: true, tooltip: true },
   { title: '运行次数', dataIndex: 'run_count', width: 80 },
-  { title: '最近耗时', dataIndex: 'last_duration_ms', width: 100, slotName: 'lastDuration' },
-  { title: '创建时间', dataIndex: 'created_at', width: 160, slotName: 'created_at' },
-  { title: '更新时间', dataIndex: 'updated_at', width: 160, slotName: 'updated_at' },
+  { title: '最近耗时', dataIndex: 'last_duration_ms', width: 110, slotName: 'lastDuration' },
+  { title: '创建时间', dataIndex: 'created_at', width: 170, slotName: 'created_at', ellipsis: true, tooltip: true },
+  { title: '更新时间', dataIndex: 'updated_at', width: 170, slotName: 'updated_at', ellipsis: true, tooltip: true },
   { title: '更新人', dataIndex: 'update_by', width: 100, ellipsis: true, tooltip: true },
   { title: '状态', dataIndex: 'status', width: 60, slotName: 'status' },
-  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 280, fixed: 'right' as const },
+  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 140, fixed: 'right' as const },
 ]
 
 // ── 上传弹窗 ──────────────────────────────────
@@ -110,11 +110,42 @@ const uploadForm = ref({
 })
 const uploadFile = ref<File | null>(null)
 const uploading = ref(false)
+const uploadTab = ref<'single' | 'batch'>('single')
+const dupScript = ref<{ exists: boolean; id: string; name: string } | null>(null)
+let codeCheckTimer: ReturnType<typeof setTimeout> | null = null
 
 function handleUploadClick() {
   uploadForm.value = { name: '', code: '', project_group_id: '', description: '', tags: '', remark: '', test_type: '' }
   uploadFile.value = null
+  uploadTab.value = 'single'
+  dupScript.value = null
   uploadVisible.value = true
+}
+
+// 编码查重
+watch(() => uploadForm.value.code, (newCode) => {
+  if (codeCheckTimer) clearTimeout(codeCheckTimer)
+  dupScript.value = null
+  if (!newCode) return
+  codeCheckTimer = setTimeout(async () => {
+    try {
+      const { token } = useToken()
+      const base = import.meta.env.VITE_API_BASE_URL || ''
+      const resp = await fetch(`${base}${ApiPerfScript.checkCode}?code=${encodeURIComponent(newCode)}`, {
+        headers: { Authorization: token },
+      })
+      const data = await resp.json()
+      if (data.code === 200 && data.data?.exists) {
+        dupScript.value = data.data
+      }
+    } catch { /* ignore */ }
+  }, 500)
+})
+
+function handleSwitchToUpdateJmx() {
+  if (!dupScript.value) return
+  uploadVisible.value = false
+  handleUpdateJmx({ id: dupScript.value.id, name: dupScript.value.name })
 }
 
 function handleFileChange(fileList: any[]) {
@@ -134,6 +165,20 @@ async function handleUploadSubmit() {
   if (!uploadForm.value.code) { Message.warning('请输入脚本编码'); return }
   if (!uploadFile.value) { Message.warning('请选择 .jmx 文件'); return }
 
+  if (dupScript.value) {
+    Modal.confirm({
+      title: '编码重复',
+      content: `编码「${uploadForm.value.code}」已存在脚本「${dupScript.value.name}」。建议使用「更新JMX」功能更新已有脚本。是否仍要继续上传？`,
+      okText: '继续上传',
+      cancelText: '取消',
+      onOk: () => doUpload(),
+    })
+    return
+  }
+  await doUpload()
+}
+
+async function doUpload() {
   const formData = new FormData()
   formData.append('file', uploadFile.value)
   formData.append('name', uploadForm.value.name)
@@ -164,6 +209,14 @@ async function handleUploadSubmit() {
     Message.error('上传失败')
   } finally {
     uploading.value = false
+  }
+}
+
+function handleUploadOk() {
+  if (uploadTab.value === 'single') {
+    handleUploadSubmit()
+  } else {
+    handleBatchUploadSubmit()
   }
 }
 
@@ -310,17 +363,15 @@ async function loadAttachments() {
   attachmentLoading.value = false
 }
 
-function handleAttFileChange(fileList: any[]) {
-  if (fileList.length > 0) {
-    const item = fileList[0]
-    attUploadFile.value = item.file || item
-    const name = item.name || item.file?.name || ''
-    // 自动推断文件类型
-    if (name.endsWith('.jar')) attFileType.value = 'jar'
-    else if (name.endsWith('.csv')) attFileType.value = 'csv'
-    else if (name.endsWith('.properties')) attFileType.value = 'props'
-    else attFileType.value = 'data'
-  }
+function handleAttBeforeUpload(file: File) {
+  attUploadFile.value = file
+  const name = file.name
+  if (name.endsWith('.jar')) attFileType.value = 'jar'
+  else if (name.endsWith('.csv')) attFileType.value = 'csv'
+  else if (name.endsWith('.xlsx') || name.endsWith('.xls')) attFileType.value = 'xlsx'
+  else if (name.endsWith('.properties')) attFileType.value = 'props'
+  else attFileType.value = 'data'
+  return true
 }
 
 async function handleAttUpload() {
@@ -361,11 +412,198 @@ async function handleAttDelete(record: any) {
   loadAttachments()
 }
 
+async function handleAttDownload(record: any) {
+  const { token } = useToken()
+  const base = import.meta.env.VITE_API_BASE_URL || ''
+  try {
+    const resp = await fetch(`${base}${ApiPerfAttachment.download}?attachment_id=${encodeURIComponent(record.id)}`, {
+      headers: { Authorization: token },
+    })
+    if (!resp.ok) { Message.error('下载失败'); return }
+    const blob = await resp.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = record.file_name || 'attachment'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  } catch {
+    Message.error('下载失败')
+  }
+}
+
 function formatFileSize(bytes: number) {
   if (!bytes) return '-'
   if (bytes < 1024) return bytes + ' B'
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
   return (bytes / (1024 * 1024)).toFixed(2) + ' MB'
+}
+
+// ── 版本历史抽屉 ──────────────────────────────────
+const versionVisible = ref(false)
+const versionScriptId = ref('')
+const versionScriptName = ref('')
+const versionList = ref<any[]>([])
+const versionLoading = ref(false)
+
+function handleVersions(record: any) {
+  versionScriptId.value = record.id
+  versionScriptName.value = record.name
+  versionVisible.value = true
+  loadVersions()
+}
+
+async function loadVersions() {
+  versionLoading.value = true
+  const { data, execute } = useGet<any>(ApiPerfScript.versionHistory, { id: versionScriptId.value }, { immediate: false })
+  await execute()
+  versionList.value = data.value || []
+  versionLoading.value = false
+}
+
+async function handleDownloadVersionJmx(record: any) {
+  const { token } = useToken()
+  const base = import.meta.env.VITE_API_BASE_URL || ''
+  try {
+    const apiUrl = record.is_current
+      ? `${base}${ApiPerfScript.downloadJmx}?id=${encodeURIComponent(record.id)}`
+      : `${base}${ApiPerfScript.downloadVersionJmx}?id=${encodeURIComponent(record.id)}`
+    const resp = await fetch(apiUrl, {
+      headers: { Authorization: token },
+    })
+    const contentType = resp.headers.get('content-type') || ''
+    if (contentType.includes('application/json')) {
+      const data = await resp.json()
+      Message.error(data.msg || '下载失败')
+      return
+    }
+    if (!resp.ok) { Message.error('下载失败'); return }
+    const blob = await resp.blob()
+    const blobUrl = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.download = `${record.version || 'script'}_${record.jmx_file_name || 'script.jmx'}`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(blobUrl)
+  } catch {
+    Message.error('下载失败')
+  }
+}
+
+async function handleDownloadScriptJmx(record: any) {
+  const { token } = useToken()
+  const base = import.meta.env.VITE_API_BASE_URL || ''
+  try {
+    const resp = await fetch(`${base}${ApiPerfScript.downloadJmx}?id=${encodeURIComponent(record.id)}`, {
+      headers: { Authorization: token },
+    })
+    const contentType = resp.headers.get('content-type') || ''
+    if (contentType.includes('application/json')) {
+      const data = await resp.json()
+      Message.error(data.msg || '下载失败')
+      return
+    }
+    if (!resp.ok) { Message.error('下载失败'); return }
+    const blob = await resp.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = record.jmx_file_name || 'script.jmx'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  } catch {
+    Message.error('下载失败')
+  }
+}
+
+function handleAction(val: string, record: any) {
+  switch (val) {
+    case 'txn': handleViewTxn(record); break
+    case 'reparse': handleReparse(record); break
+    case 'autoBind': handleAutoBind(record); break
+    case 'updateJmx': handleUpdateJmx(record); break
+    case 'versions': handleVersions(record); break
+    case 'attachments': handleAttachments(record); break
+    case 'params': handleParams(record); break
+    case 'downloadJmx': handleDownloadScriptJmx(record); break
+    case 'delete':
+      Modal.confirm({
+        title: '确认删除',
+        content: `确定要删除脚本「${record.name}」吗？`,
+        okText: '删除',
+        cancelText: '取消',
+        onOk: () => handleDelete(record),
+      })
+      break
+  }
+}
+
+const versionColumns = [
+  { title: '版本', dataIndex: 'version', width: 60, slotName: 'v_version' },
+  { title: '变更说明', dataIndex: 'change_log', width: 200, ellipsis: true, tooltip: true },
+  { title: 'MD5', dataIndex: 'jmx_md5', width: 120, ellipsis: true, tooltip: true },
+  { title: '文件大小', dataIndex: 'jmx_file_size', width: 100, slotName: 'v_size' },
+  { title: '创建时间', dataIndex: 'created_at', width: 160, slotName: 'v_created' },
+  { title: '创建人', dataIndex: 'created_by', width: 100 },
+  { title: '操作', dataIndex: 'operations', slotName: 'v_ops', width: 100 },
+]
+
+// ── 更新JMX弹窗 ──────────────────────────────────
+const updateJmxVisible = ref(false)
+const updateJmxScriptId = ref('')
+const updateJmxScriptName = ref('')
+const updateJmxFile = ref<File | null>(null)
+const updateJmxChangeLog = ref('')
+const updateJmxLoading = ref(false)
+
+function handleUpdateJmx(record: any) {
+  updateJmxScriptId.value = record.id
+  updateJmxScriptName.value = record.name
+  updateJmxFile.value = null
+  updateJmxChangeLog.value = ''
+  updateJmxVisible.value = true
+}
+
+function handleUpdateJmxBeforeUpload(file: File) {
+  updateJmxFile.value = file
+  return true
+}
+
+async function handleUpdateJmxSubmit() {
+  if (!updateJmxFile.value) { Message.warning('请选择 .jmx 文件'); return }
+  updateJmxLoading.value = true
+  try {
+    const { token } = useToken()
+    const formData = new FormData()
+    formData.append('script_id', updateJmxScriptId.value)
+    formData.append('file', updateJmxFile.value)
+    if (updateJmxChangeLog.value) {
+      formData.append('change_log', updateJmxChangeLog.value)
+    }
+    const resp = await fetch(import.meta.env.VITE_API_BASE_URL + ApiPerfScript.updateJmx, {
+      method: 'POST',
+      body: formData,
+      headers: { Authorization: token },
+    })
+    const data = await resp.json()
+    if (data.code === 200) {
+      Message.success(`更新成功，新版本: ${data.data}`)
+      updateJmxVisible.value = false
+      getList()
+    } else {
+      Message.error(data.msg || '更新失败')
+    }
+  } catch (e) {
+    Message.error('更新失败')
+  } finally {
+    updateJmxLoading.value = false
+  }
 }
 
 const attachmentColumns = [
@@ -374,7 +612,7 @@ const attachmentColumns = [
   { title: '大小', dataIndex: 'file_size', width: 100, slotName: 'att_size' },
   { title: 'MD5', dataIndex: 'md5', width: 120, ellipsis: true, tooltip: true },
   { title: '目标目录', dataIndex: 'target_dir', width: 120 },
-  { title: '操作', dataIndex: 'operations', slotName: 'att_ops', width: 80 },
+  { title: '操作', dataIndex: 'operations', slotName: 'att_ops', width: 120 },
 ]
 
 const txnDetailColumns = [
@@ -502,9 +740,8 @@ const batchUploading = ref(false)
 const batchProjectGroupId = ref('')
 
 function handleBatchUploadClick() {
-  batchFiles.value = []
-  batchProjectGroupId.value = ''
-  batchUploadVisible.value = true
+  handleUploadClick()
+  uploadTab.value = 'batch'
 }
 
 function handleBatchFileChange(fileList: any[]) {
@@ -533,7 +770,7 @@ async function handleBatchUploadSubmit() {
     const data = await resp.json()
     if (data.code === 200) {
       Message.success(data.msg || '批量上传完成')
-      batchUploadVisible.value = false
+      uploadVisible.value = false
       getList()
     } else {
       Message.error(data.msg || '批量上传失败')
@@ -611,10 +848,6 @@ function handleSelectionChange(keys: string[]) {
               <template #icon><icon-upload /></template>
               上传脚本
             </a-button>
-            <a-button type="primary" status="warning" @click="handleBatchUploadClick">
-              <template #icon><icon-storage /></template>
-              批量上传
-            </a-button>
             <a-button :loading="reparsingAll" @click="handleReparseAll">
               <template #icon><icon-refresh /></template>
               重新解析
@@ -658,57 +891,92 @@ function handleSelectionChange(keys: string[]) {
             {{ getTxnSummary(record) }}
           </a-button>
         </template>
+        <template #version="{ record }">
+          <a-button type="text" size="small" @click="handleVersions(record)">{{ record.version }}</a-button>
+        </template>
         <template #operations="{ record }">
           <a-space>
-            <a-button type="text" size="small" @click="handleViewTxn(record)">事务详情</a-button>
-            <a-button type="text" size="small" :loading="reparsingIds.has(record.id) || reparsingAll" @click="handleReparse(record)">解析</a-button>
-            <a-button type="text" size="small" :loading="autoBindingIds.has(record.id) || autoBindingAll" @click="handleAutoBind(record)">自动关联</a-button>
             <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
-            <a-button type="text" size="small" @click="handleAttachments(record)">附件</a-button>
-                        <a-button type="text" size="small" status="success" @click="handleParams(record)">参数</a-button>
-            <a-popconfirm content="确认删除？" @ok="handleDelete(record)">
-              <a-button type="text" size="small" status="danger">删除</a-button>
-            </a-popconfirm>
+            <a-dropdown @select="(val: string) => handleAction(val, record)">
+              <a-button type="text" size="small">更多<icon-down /></a-button>
+              <template #content>
+                <a-doption value="txn">事务详情 ({{ getTxnSummary(record) }})</a-doption>
+                <a-doption value="reparse">重新解析</a-doption>
+                <a-doption value="autoBind">自动关联</a-doption>
+                <a-doption value="updateJmx">更新JMX</a-doption>
+                <a-doption value="versions">版本历史</a-doption>
+                <a-doption value="attachments">附件管理</a-doption>
+                <a-doption value="params">执行参数</a-doption>
+                <a-doption value="downloadJmx">下载JMX</a-doption>
+                <a-doption value="delete" style="color: #f53f3f">删除</a-doption>
+              </template>
+            </a-dropdown>
           </a-space>
         </template>
       </a-table>
     </a-card>
 
-    <!-- 上传弹窗 -->
-    <a-modal v-model:visible="uploadVisible" title="上传JMX脚本" :width="560" :ok-loading="uploading" @ok="handleUploadSubmit">
-      <a-form :model="uploadForm" layout="vertical">
-        <a-form-item label="脚本名称" required>
-          <a-input v-model="uploadForm.name" placeholder="请输入脚本名称" />
-        </a-form-item>
-        <a-form-item label="脚本编码" required>
-          <a-input v-model="uploadForm.code" placeholder="如：login_test" />
-        </a-form-item>
-        <a-form-item label="测试类型">
-          <a-select v-model="uploadForm.test_type" placeholder="请选择测试类型" allow-clear>
-            <a-option v-for="d in testTypeOptions" :key="d.dict_value" :value="d.dict_value" :label="d.dict_label" />
-          </a-select>
-        </a-form-item>
-        <a-form-item label="项目组ID">
-          <a-input v-model="uploadForm.project_group_id" placeholder="可选" />
-        </a-form-item>
-        <a-form-item label="JMX文件" required>
-          <a-upload :auto-upload="false" :limit="1" accept=".jmx" @change="handleFileChange" />
-        </a-form-item>
-        <a-form-item label="标签">
-          <a-input v-model="uploadForm.tags" placeholder="逗号分隔" />
-        </a-form-item>
-        <a-form-item label="描述">
-          <a-textarea v-model="uploadForm.description" :auto-size="{ minRows: 2, maxRows: 4 }" />
-        </a-form-item>
-      </a-form>
+    <!-- 上传弹窗（单文件/批量） -->
+    <a-modal v-model:visible="uploadVisible" title="上传JMX脚本" :width="580" :ok-loading="uploadTab === 'single' ? uploading : batchUploading" @ok="handleUploadOk">
+      <a-tabs v-model:active-key="uploadTab">
+        <a-tab-pane key="single" title="单文件上传">
+          <a-form :model="uploadForm" layout="vertical">
+            <a-form-item label="脚本名称" required>
+              <a-input v-model="uploadForm.name" placeholder="请输入脚本名称" />
+            </a-form-item>
+            <a-form-item label="脚本编码" required>
+              <a-input v-model="uploadForm.code" placeholder="如：login_test" />
+              <a-alert v-if="dupScript" type="warning" :style="{ marginTop: '8px' }" show-icon>
+                编码「{{ uploadForm.code }}」已存在脚本「{{ dupScript.name }}」，建议使用「更新JMX」功能。
+                <a-button type="text" size="small" status="warning" @click="handleSwitchToUpdateJmx">去更新</a-button>
+              </a-alert>
+            </a-form-item>
+            <a-form-item label="测试类型">
+              <a-select v-model="uploadForm.test_type" placeholder="请选择测试类型" allow-clear>
+                <a-option v-for="d in testTypeOptions" :key="d.dict_value" :value="d.dict_value" :label="d.dict_label" />
+              </a-select>
+            </a-form-item>
+            <a-form-item label="项目组ID">
+              <a-input v-model="uploadForm.project_group_id" placeholder="可选" />
+            </a-form-item>
+            <a-form-item label="JMX文件" required>
+              <a-upload :auto-upload="false" :limit="1" accept=".jmx" @change="handleFileChange" />
+            </a-form-item>
+            <a-form-item label="标签">
+              <a-input v-model="uploadForm.tags" placeholder="逗号分隔" />
+            </a-form-item>
+            <a-form-item label="描述">
+              <a-textarea v-model="uploadForm.description" :auto-size="{ minRows: 2, maxRows: 4 }" />
+            </a-form-item>
+          </a-form>
+        </a-tab-pane>
+        <a-tab-pane key="batch" title="批量上传">
+          <a-alert type="info" :style="{ marginBottom: '12px' }">
+            文件名需符合规范: code-基准-云-领域-模块-功能-测试类型.jmx
+            系统将从文件名自动解析编码和测试类型，并按MD5查重跳过已存在脚本。
+          </a-alert>
+          <a-form layout="vertical">
+            <a-form-item label="项目组ID（可选）">
+              <a-input v-model="batchProjectGroupId" placeholder="所有脚本共享此项目组" />
+            </a-form-item>
+            <a-form-item label="选择JMX文件（可多选）" required>
+              <a-upload :auto-upload="false" multiple accept=".jmx" @change="handleBatchFileChange" />
+            </a-form-item>
+          </a-form>
+        </a-tab-pane>
+      </a-tabs>
     </a-modal>
 
     <!-- 编辑弹窗 -->
-    <a-modal v-model:visible="editVisible" title="编辑脚本" :width="560" @ok="handleEditSubmit">
+    <a-modal v-model:visible="editVisible" title="编辑脚本" :width="680" @ok="handleEditSubmit">
       <a-form :model="editForm" layout="vertical">
-        <a-form-item v-for="f in editFields" :key="f.field" :label="f.label" :required="f.required">
-          <a-input v-model="editForm[f.field]" :placeholder="`请输入${f.label}`" />
-        </a-form-item>
+        <a-row :gutter="16">
+          <a-col v-for="f in editFields" :key="f.field" :span="12">
+            <a-form-item :label="f.label" :required="f.required">
+              <a-input v-model="editForm[f.field]" :placeholder="`请输入${f.label}`" />
+            </a-form-item>
+          </a-col>
+        </a-row>
       </a-form>
     </a-modal>
 
@@ -773,8 +1041,7 @@ function handleSelectionChange(keys: string[]) {
           row-key="name"
           size="small"
           column-resizable
-          :scroll="{ x: 1130 }"
-          style="height: calc(100vh - 220px)"
+          :scroll="{ x: 1130, y: 'calc(100vh - 300px)' }"
         >
           <template #matchStatus="{ record }">
             <a-tag v-if="record.txn_code && txnMatchMap[record.txn_code]" :color="txnMatchMap[record.txn_code].match_status === 'matched' ? 'green' : txnMatchMap[record.txn_code].match_status === 'unmatched' ? 'orange' : 'gray'" size="small">
@@ -802,22 +1069,6 @@ function handleSelectionChange(keys: string[]) {
       </template>
     </a-drawer>
 
-    <!-- 批量上传弹窗 -->
-    <a-modal v-model:visible="batchUploadVisible" title="批量上传JMX脚本" :width="560" :ok-loading="batchUploading" @ok="handleBatchUploadSubmit">
-      <a-alert type="info" :style="{ marginBottom: '12px' }">
-        文件名需符合规范: code-基准-云-领域-模块-功能-测试类型.jmx
-        系统将从文件名自动解析编码和测试类型，并按MD5查重跳过已存在脚本。
-      </a-alert>
-      <a-form layout="vertical">
-        <a-form-item label="项目组ID（可选）">
-          <a-input v-model="batchProjectGroupId" placeholder="所有脚本共享此项目组" />
-        </a-form-item>
-        <a-form-item label="选择JMX文件（可多选）" required>
-          <a-upload :auto-upload="false" multiple accept=".jmx" @change="handleBatchFileChange" />
-        </a-form-item>
-      </a-form>
-    </a-modal>
-
     <!-- 批量设置责任人弹窗 -->
     <a-modal v-model:visible="setOwnerVisible" title="批量设置责任人" :width="420" :ok-loading="setOwnerLoading" @ok="handleSetOwnerSubmit">
       <a-alert type="info" :style="{ marginBottom: '12px' }">
@@ -837,7 +1088,7 @@ function handleSelectionChange(keys: string[]) {
           <a-row :gutter="12">
             <a-col :span="10">
               <a-form-item label="选择文件">
-                <a-upload :auto-upload="false" :limit="1" accept=".jar,.csv,.properties,.props" @change="handleAttFileChange" />
+                <a-upload :auto-upload="false" :limit="1" accept=".jar,.csv,.properties,.props,.xlsx,.xls" @before-upload="handleAttBeforeUpload" />
               </a-form-item>
             </a-col>
             <a-col :span="6">
@@ -846,6 +1097,7 @@ function handleSelectionChange(keys: string[]) {
                   <a-option value="jar">jar (插件)</a-option>
                   <a-option value="csv">csv (数据)</a-option>
                   <a-option value="props">props (配置)</a-option>
+                  <a-option value="xlsx">xlsx (Excel数据)</a-option>
                   <a-option value="data">data (其他)</a-option>
                 </a-select>
               </a-form-item>
@@ -880,12 +1132,53 @@ function handleSelectionChange(keys: string[]) {
         </template>
         <template #att_size="{ record }">{{ formatFileSize(record.file_size) }}</template>
         <template #att_ops="{ record }">
-          <a-popconfirm content="确认删除此附件？" @ok="handleAttDelete(record)">
-            <a-button type="text" size="small" status="danger">删除</a-button>
-          </a-popconfirm>
+          <a-space>
+            <a-button type="text" size="small" @click="handleAttDownload(record)">下载</a-button>
+            <a-popconfirm content="确认删除此附件？" @ok="handleAttDelete(record)">
+              <a-button type="text" size="small" status="danger">删除</a-button>
+            </a-popconfirm>
+          </a-space>
         </template>
       </a-table>
     </a-drawer>
+
+    <!-- 版本历史抽屉 -->
+    <a-drawer :visible="versionVisible" :width="760" :title="`版本历史 - ${versionScriptName}`" @cancel="versionVisible = false" @ok="versionVisible = false">
+      <a-table
+        column-resizable
+        :loading="versionLoading"
+        :data="versionList"
+        :columns="versionColumns"
+        :pagination="false"
+        row-key="id"
+        size="small"
+        :scroll="{ x: 800 }"
+      >
+        <template #v_version="{ record }">
+          <a-tag :color="record.is_current ? 'green' : 'blue'" size="small">{{ record.version }}{{ record.is_current ? ' (当前)' : '' }}</a-tag>
+        </template>
+        <template #v_size="{ record }">{{ formatFileSize(record.jmx_file_size) }}</template>
+        <template #v_created="{ record }">{{ formatTime(record.created_at) }}</template>
+        <template #v_ops="{ record }">
+          <a-button type="text" size="small" @click="handleDownloadVersionJmx(record)">下载JMX</a-button>
+        </template>
+      </a-table>
+    </a-drawer>
+
+    <!-- 更新JMX弹窗 -->
+    <a-modal v-model:visible="updateJmxVisible" :title="`更新JMX - ${updateJmxScriptName}`" :width="520" :ok-loading="updateJmxLoading" @ok="handleUpdateJmxSubmit">
+      <a-alert type="info" :style="{ marginBottom: '12px' }">
+        上传新JMX文件将自动保存当前版本到历史记录，并更新脚本文件和版本号。
+      </a-alert>
+      <a-form layout="vertical">
+        <a-form-item label="选择JMX文件" required>
+          <a-upload :auto-upload="false" :limit="1" accept=".jmx" @before-upload="handleUpdateJmxBeforeUpload" />
+        </a-form-item>
+        <a-form-item label="变更说明">
+          <a-textarea v-model="updateJmxChangeLog" placeholder="如：适配3月迭代功能变更" :auto-size="{ minRows: 2, maxRows: 4 }" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
   </div>
 </template>
 

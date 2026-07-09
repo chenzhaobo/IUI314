@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { useGet, useToken } from '@/hooks'
-import { ApiPerfReport, ApiPerfScript, ApiPerfIteration } from '@/api/apis'
+import { ApiPerfReport, ApiPerfScript, ApiPerfIteration, ApiPerfRun } from '@/api/apis'
 
 defineOptions({ name: 'report' })
 const route = useRoute()
@@ -47,7 +47,7 @@ const columns = [
   { title: '开始时间', dataIndex: 'started_at', width: 160, slotName: 'started_at' },
   { title: '结束时间', dataIndex: 'finished_at', width: 160, slotName: 'finished_at' },
   { title: '耗时(秒)', dataIndex: 'duration_ms', width: 90, slotName: 'duration' },
-  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 220, fixed: 'right' as const },
+  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 280, fixed: 'right' as const },
 ]
 
 // ── 聚合报告明细（页签展示） ──────────────────────────────────
@@ -155,6 +155,34 @@ function fmt(n: number | undefined | null, digits = 2): string {
   if (n === undefined || n === null) return '-'
   return Number(n).toFixed(digits)
 }
+
+async function handleDownloadJmx(record: any) {
+  const { token } = useToken()
+  const base = import.meta.env.VITE_API_BASE_URL || ''
+  try {
+    const resp = await fetch(`${base}${ApiPerfRun.downloadJmx}?run_id=${encodeURIComponent(record.id)}`, {
+      headers: { Authorization: token },
+    })
+    const contentType = resp.headers.get('content-type') || ''
+    if (contentType.includes('application/json')) {
+      const data = await resp.json()
+      Message.error(data.msg || '下载失败')
+      return
+    }
+    if (!resp.ok) { Message.error('下载失败'); return }
+    const blob = await resp.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${record.script_name || record.id.substring(0, 8)}.jmx`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  } catch {
+    Message.error('下载失败')
+  }
+}
 </script>
 
 <template>
@@ -224,6 +252,7 @@ function fmt(n: number | undefined | null, digits = 2): string {
                 <a-button type="text" size="small" @click="handleViewDetail(record)">查看明细</a-button>
                 <a-button type="text" size="small" @click="handlePreview(record)">HTML预览</a-button>
                 <a-button type="text" size="small" @click="handleExport(record)">导出CSV</a-button>
+                <a-button type="text" size="small" @click="handleDownloadJmx(record)">下载JMX</a-button>
               </a-space>
             </template>
           </a-table>

@@ -47,7 +47,7 @@ const columns = [
   { title: '开始时间', dataIndex: 'started_at', width: 160, slotName: 'started_at' },
   { title: '结束时间', dataIndex: 'finished_at', width: 160, slotName: 'finished_at' },
   { title: '耗时(秒)', dataIndex: 'duration_ms', width: 90, slotName: 'duration' },
-  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 220, fixed: 'right' as const },
+  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 280, fixed: 'right' as const },
 ]
 
 // ── 触发执行弹窗 ──────────────────────────────────
@@ -195,6 +195,32 @@ async function handleRetry(record: any) {
   Message.success('已触发重试，新记录将出现在列表中')
   getList()
   resetPollTimer()
+}
+
+async function handleDownloadJmx(record: any) {
+  try {
+    const resp = await fetch(`${baseUrl}${ApiPerfRun.downloadJmx}?run_id=${encodeURIComponent(record.id)}`, {
+      headers: { Authorization: token.value },
+    })
+    const contentType = resp.headers.get('content-type') || ''
+    if (contentType.includes('application/json')) {
+      const data = await resp.json()
+      Message.error(data.msg || '下载失败')
+      return
+    }
+    if (!resp.ok) { Message.error('下载失败'); return }
+    const blob = await resp.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${record.script_name || record.id.substring(0, 8)}.jmx`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  } catch {
+    Message.error('下载失败')
+  }
 }
 
 // ── 查看历史记录（跳转报告管理列表，按 script_id 过滤） ──────────────────────────────────
@@ -354,6 +380,7 @@ async function handleBatchSubmit() {
             <a-button v-if="record.run_status === 'pending' || record.run_status === 'running'" type="text" size="small" status="success" @click="handleSSELog(record)">实时日志</a-button>
             <a-button type="text" size="small" @click="handleViewLog(record)">日志</a-button>
             <a-button type="text" size="small" @click="handleViewHistory(record)">历史</a-button>
+            <a-button type="text" size="small" @click="handleDownloadJmx(record)">下载JMX</a-button>
             <a-button v-if="record.run_status === 'pending' || record.run_status === 'running'" type="text" size="small" status="warning" @click="handleCancel(record)">取消</a-button>
             <a-button v-if="record.run_status === 'failed' || record.run_status === 'timeout' || record.run_status === 'cancelled'" type="text" size="small" status="warning" :loading="retryingRunIds.has(record.id)" @click="handleRetry(record)">重试</a-button>
           </a-space>

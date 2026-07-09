@@ -79,6 +79,11 @@ export enum ApiPerfScript {
   saveVersion = '/perf/script/save_version',
   batchSetOwner = '/perf/script/batch_set_owner',
   domainList = '/perf/script/domain_list',
+  updateJmx = '/perf/script/update_jmx',
+  downloadVersionJmx = '/perf/script/download_version_jmx',
+  downloadRunJmx = '/perf/script/download_run_jmx',
+  downloadJmx = '/perf/script/download_jmx',
+  checkCode = '/perf/script/check_code',
 }
 
 // ── 测试执行 ──────────────────────────────────
@@ -90,6 +95,7 @@ export enum ApiPerfRun {
   log = '/perf/run/log',
   sseLog = '/perf/run/sse_log',
   retry = '/perf/run/retry',
+  downloadJmx = '/perf/run/download_jmx',
 }
 
 // ── 聚合报告 ──────────────────────────────────
@@ -232,4 +238,5 @@ export enum ApiPerfAttachment {
   upload = '/perf/script/attachment_upload',
   list = '/perf/script/attachment_list',
   delete = '/perf/script/attachment_delete',
+  download = '/perf/script/attachment_download',
 }
