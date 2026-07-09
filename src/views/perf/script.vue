@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed, watch } from 'vue'
 import { Message, Modal } from '@arco-design/web-vue'
-import { useGet, usePost, usePut, useDelete } from '@/hooks'
+import { useGet, usePost, usePut, useDelete, useToken } from '@/hooks'
 import { ApiPerfScript, ApiSecProjectGroup, ApiSysDictData, ApiPerfAttachment } from '@/api/apis'
 
 defineOptions({ name: 'script' })
@@ -79,11 +79,11 @@ function formatDuration(ms?: number | null) {
 const columns = [
   { title: '脚本名称', dataIndex: 'name', width: 160, ellipsis: true, tooltip: true },
   { title: '编码', dataIndex: 'code', width: 120 },
-  { title: '应用编码', dataIndex: 'app_code', width: 90 },
   { title: '项目组', dataIndex: 'project_group_name', width: 120, ellipsis: true, tooltip: true },
   { title: '测试类型', dataIndex: 'test_type', width: 80, ellipsis: true, tooltip: true },
   { title: '责任人', dataIndex: 'owner', width: 80, ellipsis: true, tooltip: true },
   { title: '绑定数', dataIndex: 'bind_count', width: 70 },
+  { title: '附件数', dataIndex: 'attachment_count', width: 70 },
   { title: '关联状态', dataIndex: 'bind_status', width: 90, slotName: 'bindStatus' },
   { title: '事务', dataIndex: 'txn_summary', width: 100, slotName: 'txnSummary' },
   { title: '版本', dataIndex: 'version', width: 60, slotName: 'version' },
@@ -252,7 +252,6 @@ async function handleDelete(record: any) {
 const editFields = [
   { label: '脚本名称', field: 'name', required: true },
   { label: '脚本编码', field: 'code', required: true },
-  { label: '应用编码', field: 'app_code' },
   { label: '测试类型', field: 'test_type' },
   { label: '责任人', field: 'owner' },
   { label: '状态', field: 'status' },
@@ -394,6 +393,7 @@ async function handleAttUpload() {
       Message.success('上传成功')
       attUploadFile.value = null
       loadAttachments()
+      getList()
     } else {
       Message.error(data.msg || '上传失败')
     }
@@ -410,6 +410,7 @@ async function handleAttDelete(record: any) {
   if (error.value) { Message.error('删除失败'); return }
   Message.success('删除成功')
   loadAttachments()
+  getList()
 }
 
 async function handleAttDownload(record: any) {
