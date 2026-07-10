@@ -3,6 +3,7 @@ import { ref, watch, computed } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { useGet, usePost } from '@/hooks'
 import { ApiPerfEnv, ApiPerfMenu } from '@/api/apis'
+import TaskProgress from '@/components/common/TaskProgress.vue'
 
 const props = defineProps<{
   visible: boolean
@@ -27,6 +28,8 @@ const syncPreviewLoading = ref(false)
 const syncPreviewData = ref<any>(null)
 const syncResultVisible = ref(false)
 const syncResult = ref<any>(null)
+const syncTaskId = ref('')
+const syncProgressVisible = ref(false)
 
 const { data: syncMenuEnvData, execute: fetchSyncMenuEnvList } = useGet<any>(
   ApiPerfEnv.getList,
@@ -89,13 +92,25 @@ async function confirmSyncMenu() {
     })
     await execute()
     if (error.value) { Message.error('同步失败，请查看环境同步状态'); return }
-    syncResult.value = data.value
-    emit('visible', false)
-    syncResultVisible.value = true
-    emit('success', data.value)
+    // 后端返回 task_id，异步执行同步
+    syncTaskId.value = data.value
+    emit('update:visible', false)
+    syncProgressVisible.value = true
   } finally {
     syncMenuLoading.value = false
   }
+}
+
+function onProgressComplete(result: any) {
+  syncProgressVisible.value = false
+  syncResult.value = result
+  syncResultVisible.value = true
+  emit('success', result)
+}
+
+function onProgressFail(error: string) {
+  syncProgressVisible.value = false
+  Message.error(`同步失败: ${error}`)
 }
 </script>
 
@@ -170,6 +185,16 @@ async function confirmSyncMenu() {
         <span style="color: var(--color-text-3); font-size: 12px; margin-left: 4px">（硬删除）</span>
       </a-checkbox>
     </a-space>
+  </a-modal>
+
+  <!-- 同步进度弹窗 -->
+  <a-modal v-model:visible="syncProgressVisible" title="同步进度" :footer="false" :width="520" :mask-closable="false" :closable="false">
+    <TaskProgress
+      v-if="syncProgressVisible && syncTaskId"
+      :task-id="syncTaskId"
+      @complete="onProgressComplete"
+      @fail="onProgressFail"
+    />
   </a-modal>
 
   <!-- 同步菜单结果弹窗 -->

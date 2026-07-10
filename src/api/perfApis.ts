@@ -126,6 +126,7 @@ export enum ApiPerfTask {
   updatePriority = '/perf/task/update_priority',
   queueList = '/perf/task/queue_list',
   estimateTime = '/perf/task/estimate_time',
+  progress = '/perf/task/progress',
 }
 
 // ── 模块管理 ──────────────────────────────────
