@@ -286,7 +286,8 @@ function getProgress(record: any): number {
   const total = record.total_count || 0
   if (total === 0) return 0
   const done = (record.success_count || 0) + (record.failed_count || 0)
-  return Math.min(Math.round((done / total) * 100), 100)
+  // a-progress 的 percent 是 0-1 小数，不是 0-100
+  return Math.min(done / total, 1)
 }
 </script>
 
