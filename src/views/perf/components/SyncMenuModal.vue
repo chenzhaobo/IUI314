@@ -30,6 +30,19 @@ const syncResultVisible = ref(false)
 const syncResult = ref<any>(null)
 const syncTaskId = ref('')
 const syncProgressVisible = ref(false)
+const syncProgressFloating = ref(false)
+const currentProgress = ref<any>(null)
+
+const progressPercent = computed(() => {
+  if (!currentProgress.value || !currentProgress.value.total) return 0
+  return Math.min(currentProgress.value.done / currentProgress.value.total, 1)
+})
+const progressStatus = computed(() => {
+  if (!currentProgress.value) return 'normal'
+  if (currentProgress.value.status === 'failed') return 'danger'
+  if (currentProgress.value.status === 'completed') return 'success'
+  return 'normal'
+})
 
 const { data: syncMenuEnvData, execute: fetchSyncMenuEnvList } = useGet<any>(
   ApiPerfEnv.getList,
@@ -93,6 +106,7 @@ async function confirmSyncMenu() {
     await execute()
     if (error.value) { Message.error('同步失败，请查看环境同步状态'); return }
     // 后端返回 task_id，异步执行同步
+    currentProgress.value = null
     syncTaskId.value = data.value
     emit('update:visible', false)
     syncProgressVisible.value = true
@@ -101,8 +115,14 @@ async function confirmSyncMenu() {
   }
 }
 
+function onProgressUpdate(p: any) {
+  currentProgress.value = p
+}
+
 function onProgressComplete(result: any) {
   syncProgressVisible.value = false
+  syncProgressFloating.value = false
+  syncTaskId.value = ''
   syncResult.value = result
   syncResultVisible.value = true
   emit('success', result)
@@ -110,7 +130,19 @@ function onProgressComplete(result: any) {
 
 function onProgressFail(error: string) {
   syncProgressVisible.value = false
+  syncProgressFloating.value = false
+  syncTaskId.value = ''
   Message.error(`同步失败: ${error}`)
+}
+
+function hideProgress() {
+  syncProgressVisible.value = false
+  syncProgressFloating.value = true
+}
+
+function restoreProgress() {
+  syncProgressFloating.value = false
+  syncProgressVisible.value = true
 }
 </script>
 
@@ -187,15 +219,56 @@ function onProgressFail(error: string) {
     </a-space>
   </a-modal>
 
+  <!-- Headless 轮询组件（不在 DOM 中渲染，仅负责轮询和事件通知） -->
+  <TaskProgress
+    v-if="syncTaskId"
+    :task-id="syncTaskId"
+    :render="false"
+    @update="onProgressUpdate"
+    @complete="onProgressComplete"
+    @fail="onProgressFail"
+  />
+
   <!-- 同步进度弹窗 -->
   <a-modal v-model:visible="syncProgressVisible" title="同步进度" :footer="false" :width="520" :mask-closable="false" :closable="false">
-    <TaskProgress
-      v-if="syncProgressVisible && syncTaskId"
-      :task-id="syncTaskId"
-      @complete="onProgressComplete"
-      @fail="onProgressFail"
+    <a-progress
+      :percent="progressPercent"
+      :status="progressStatus"
+      :show-text="true"
+      :animation="currentProgress?.status === 'running'"
+      :format="(p: number) => `${Math.round(p * 100)}%`"
     />
+    <div style="margin-top: 8px; font-size: 13px; color: var(--color-text-2)">
+      <span v-if="currentProgress">
+        {{ currentProgress.message }}
+        <span style="color: var(--color-text-3); margin-left: 4px">
+          ({{ currentProgress.done }}/{{ currentProgress.total }}
+          <template v-if="currentProgress.skipped > 0">, 跳过{{ currentProgress.skipped }}</template>)
+        </span>
+      </span>
+      <span v-else>等待任务启动...</span>
+    </div>
+    <div style="text-align: right; margin-top: 12px">
+      <a-button size="small" @click="hideProgress">隐藏到浮窗</a-button>
+    </div>
   </a-modal>
+
+  <!-- 浮窗 -->
+  <div v-if="syncProgressFloating && syncTaskId" class="sync-progress-float" @click="restoreProgress">
+    <div style="display: flex; align-items: center; gap: 8px">
+      <a-progress
+        :percent="progressPercent"
+        :status="progressStatus"
+        :show-text="true"
+        :format="(p: number) => `${Math.round(p * 100)}%`"
+        size="small"
+        style="flex: 1"
+      />
+    </div>
+    <div class="sync-float-msg">
+      {{ currentProgress?.message || '同步中...' }}
+    </div>
+  </div>
 
   <!-- 同步菜单结果弹窗 -->
   <a-modal v-model:visible="syncResultVisible" title="同步菜单结果" :footer="false" :width="480">
@@ -221,3 +294,31 @@ function onProgressFail(error: string) {
     </a-result>
   </a-modal>
 </template>
+
+<style scoped>
+.sync-progress-float {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 1000;
+  width: 240px;
+  padding: 12px 16px;
+  background: var(--color-bg-1);
+  border: 1px solid var(--color-border-2);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  transition: box-shadow 0.3s;
+}
+.sync-progress-float:hover {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+.sync-float-msg {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+</style>

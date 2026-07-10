@@ -5,12 +5,15 @@ import { useToken } from '@/hooks'
 const props = withDefaults(defineProps<{
   taskId: string
   interval?: number
+  render?: boolean
 }>(), {
-  interval: 500,
+  interval: 1000,
+  render: true,
 })
 const emit = defineEmits<{
   complete: [result: any]
   fail: [error: string]
+  update: [progress: any]
 }>()
 
 const baseUrl = import.meta.env.VITE_API_BASE_URL
@@ -40,6 +43,7 @@ async function fetchProgress() {
     const json = await resp.json()
     if (json.code === 200 && json.data) {
       progress.value = json.data
+      emit('update', json.data)
       if (json.data.status === 'completed') {
         stopPolling()
         emit('complete', json.data.result)
@@ -89,12 +93,13 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="task-progress">
+  <div v-if="render" class="task-progress">
     <a-progress
       :percent="percent"
       :status="progressStatus"
       :show-text="true"
       :animation="isRunning"
+      :format="(p: number) => `${Math.round(p * 100)}%`"
     />
     <div class="task-progress-info">
       <span v-if="progress" class="task-progress-msg">

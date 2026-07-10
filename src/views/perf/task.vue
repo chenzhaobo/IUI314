@@ -343,7 +343,7 @@ function getProgress(record: any): number {
           </a-tag>
         </template>
         <template #progress="{ record }">
-          <a-progress :percent="getProgress(record)" :status="record.task_status === 'running' ? 'normal' : (record.task_status === 'completed' ? 'success' : (record.task_status === 'failed' ? 'danger' : 'normal'))" />
+          <a-progress :percent="getProgress(record)" :status="record.task_status === 'running' ? 'normal' : (record.task_status === 'completed' ? 'success' : (record.task_status === 'failed' ? 'danger' : 'normal'))" :format="(p: number) => `${Math.round(p * 100)}%`" />
         </template>
         <template #counts="{ record }">
           <span style="color: #00b42a">{{ record.success_count || 0 }}</span>
