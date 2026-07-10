@@ -19,7 +19,8 @@ let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const percent = computed(() => {
   if (!progress.value || !progress.value.total) return 0
-  return Math.round((progress.value.done / progress.value.total) * 100)
+  // Arco Design a-progress 的 percent 是 0-1 小数，不是 0-100
+  return Math.min(progress.value.done / progress.value.total, 1)
 })
 const progressStatus = computed(() => {
   if (!progress.value) return 'normal'
