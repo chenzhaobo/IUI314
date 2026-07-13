@@ -1,11 +1,26 @@
 <script setup lang="ts">
+import type { Component } from 'vue'
 import type { FormInstance } from '@arco-design/web-vue'
 import { computed, ref, unref } from 'vue'
-import type { iuModalPropsType } from '@/components/iui/iui-props'
 import { useFormUtil, useMobile, useOrientation } from '@/hooks'
 import { FormItemType, type IuFormField } from '@/types/base/iu-form'
 
 defineOptions({ name: 'IuModal' })
+
+// 注意: prop 类型需在 SFC 内本地声明 (Vite 8 rolldown 构建限制)。
+// 对外复用的 iuModalPropsType 仍保留在 @/components/iui/iui-props。
+interface iuModalPropsType {
+  formItems: IuFormField[]
+  icon?: string | Component
+  title?: string
+  okText?: string
+  cancelText?: string
+  titleAlign?: 'center' | 'start'
+  labelWidth?: number
+  itemWidth?: number
+  defaultCol?: number
+  fullScreenCol?: number
+}
 
 const props = withDefaults(defineProps<iuModalPropsType>(), {
   title: '',

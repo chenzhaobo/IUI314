@@ -4,12 +4,22 @@ import { parseTime, usePost } from '@/hooks'
 import { Day, Hour, Minute, Month, Second, Week, Year } from '@/components/v-cron/pages'
 
 import { cronArrayX, vCronItem, vCronTableColumn, vCronTableWidth } from '@/components/v-cron/v-cron-const'
-import type { vCronData, vCronPropsType, vCronTableData } from '@/components/v-cron/v-cron-type'
+import type { vCronData, vCronTableData } from '@/components/v-cron/v-cron-type'
 import type { validateRes } from '@/types/system/scheduled-tasks'
 import { ApiSysScheduledTasks } from '@/api/sysApis'
 import { ErrorFlag } from '@/api/apis'
 
 defineOptions({ name: 'VCron' })
+
+// 注意: prop 类型需在 SFC 内本地声明 (Vite 8 rolldown 构建限制)。
+interface vCronPropsType {
+  title?: string
+  okText?: string
+  cancelText?: string
+  titleAlign?: 'center' | 'start'
+  labelWidth?: number
+  itemWidth?: number
+}
 withDefaults(defineProps<vCronPropsType>(), {
   title: 'cron表达式生成器',
   okText: '确定',

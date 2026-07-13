@@ -1,8 +1,17 @@
 <script lang="ts" setup>
 import { computed, defineOptions } from 'vue'
-import type { IuiIconProps } from '@/components/svg-icon/iui-icon-props'
 
 defineOptions({ name: 'IuiIcon' })
+
+// 注意: prop 类型需在 SFC 内本地声明。
+// Vite 8 (rolldown) 构建时无法从外部文件解析 defineProps 的导入类型 (No fs 错误)。
+interface IuiIconProps {
+  name: string
+  size?: string | number
+  color?: string
+  rotate?: string | number
+  spin?: boolean
+}
 
 const props = withDefaults(defineProps<IuiIconProps>(), {
   size: 16,

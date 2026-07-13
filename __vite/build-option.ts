@@ -18,11 +18,16 @@ export function getBuild(): BuildOptions {
                           : assetInfo.name
           return `assets/${name}-[hash].js`
         },
-        manualChunks: {
-          'echarts': ['echarts'],
-          'vue-i18n': ['vue-i18n'],
-          'vue-router': ['vue-router'],
-          'svg-icon': ['virtual:svg-icons-register'],
+        // Vite 8 (rolldown) 仅支持 manualChunks 的函数形式，不再支持对象形式
+        manualChunks: (id: string) => {
+          if (id.includes('node_modules/echarts') || id.includes('node_modules/zrender'))
+            return 'echarts'
+          if (id.includes('node_modules/vue-i18n') || id.includes('node_modules/@intlify'))
+            return 'vue-i18n'
+          if (id.includes('node_modules/vue-router'))
+            return 'vue-router'
+          if (id.includes('virtual:svg-icons-register'))
+            return 'svg-icon'
         },
       },
     },

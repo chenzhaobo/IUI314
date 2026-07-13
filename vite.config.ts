@@ -68,10 +68,8 @@ export default ({ mode }: ConfigEnv) =>
       },
     },
     build: getBuild(),
-    esbuild: {
-      drop: ['console', 'debugger'],
-      sourcemap: false,
-    },
+    // Vite 8 使用 oxc 作为转译器 (不再是 esbuild)。
+    // 生产环境的 console/debugger 移除由 build-option.ts 中的 terserOptions 处理。
   })
 
 function getViteEnv(mode: string, target: string) {
