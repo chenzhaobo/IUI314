@@ -53,12 +53,8 @@ import type {
   ApiInfraEnvMapping,
 } from './infraApis'
 import type {
-  ApiMockProject,
-  ApiMockRule,
-  ApiMockVersion,
-  ApiMockRequestLog,
-} from './mockApis'
-import type { ApiDmp } from './dmpApis'
+  ApiDmp
+} from './dmpApis'
 import type { ApiAiAgent, ApiAiSkill, ApiAiExecution, ApiAiInvoke } from './aiApis'
 
 export type APIS =
@@ -108,10 +104,6 @@ export type APIS =
   | ApiInfraVm
   | ApiInfraService
   | ApiInfraEnvMapping
-  | ApiMockProject
-  | ApiMockRule
-  | ApiMockVersion
-  | ApiMockRequestLog
   | ApiDmp
   | ApiAiAgent
   | ApiAiSkill
@@ -124,6 +116,5 @@ export * from './tests'
 export * from './sechubApis'
 export * from './perfApis'
 export * from './infraApis'
-export * from './mockApis'
 export * from './dmpApis'
 export * from './aiApis'
