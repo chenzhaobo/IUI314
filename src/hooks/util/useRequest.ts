@@ -115,17 +115,40 @@ export function getQueryUrl(url: MaybeRef<string>, query?: MaybeRef<unknown>) {
 }
 
 /**
+ * 扩展 UseFetchOptions，支持 onSuccess 回调
+ * 注意: @vueuse/core v14 的 useFetch 原生不支持 onSuccess，
+ * 这里通过 onFetchResponse 在请求成功后读取 data 来实现
+ */
+export type UseFetchOptionsWithSuccess<T> = UseFetchOptions & {
+  onSuccess?: (data: T) => void
+}
+
+/**
+ * 为 useFetch 返回值挂载 onSuccess 回调
+ * onFetchResponse 在 afterFetch 处理完、data 已赋值后触发
+ */
+function withOnSuccess<T>(result: UseFetchReturn<T>, onSuccess?: (data: T) => void): UseFetchReturn<T> {
+  if (onSuccess) {
+    result.onFetchResponse(() => {
+      onSuccess(result.data.value as T)
+    })
+  }
+  return result
+}
+
+/**
  * 封装 get 请求
  * @param url 请求地址
  * @param query 请求参数
- * @param options 请求选项
+ * @param options 请求选项（支持 onSuccess 回调）
  */
 export function useGet<T = unknown>(
   url: MaybeRef<string>,
   query?: MaybeRef<unknown>,
-  options?: UseFetchOptions,
+  options?: UseFetchOptionsWithSuccess<T>,
 ): UseFetchReturn<T> {
-  return useRequest<T>(getQueryUrl(url, query), { ...options }).json()
+  const { onSuccess, ...restOptions } = options || {}
+  return withOnSuccess(useRequest<T>(getQueryUrl(url, query), { ...restOptions }).json(), onSuccess)
 }
 
 /**

@@ -32,9 +32,12 @@ const isDark = useTheme().get_is_dark()
 const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
 
 // 验证码获取
+// 接口返回 { captcha_on_off: boolean, uuid: string, img: string(base64图片) }
+// uuid = md5(验证码明文)，登录时将用户输入的 code(明文) + uuid 一并提交，后端校验 md5(code)==uuid
+// 当前环境验证码已关闭(captcha_on_off=false)，关闭时 code/uuid 传空字符串即可
 const { data: captchaData, execute: getCaptcha } = useGet<codeData>(ApiSysLogin.getCaptcha, null, { immediate: true })
 
-// 验证码开关
+// 验证码开关（由后端配置 config.toml [system] captcha_on_off 决定）
 const captchaOnOff = computed(() => captchaData.value?.captcha_on_off ?? true)
 
 //  验证规则

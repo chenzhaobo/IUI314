@@ -44,13 +44,13 @@ function handlePageChange(page: number) {
   getList()
 }
 
-const envTypeOptions = [
-  { label: '全部', value: '' },
-  { label: 'SIT', value: 'sit' },
-  { label: 'UAT', value: 'uat' },
-  { label: '性能', value: 'perf' },
-  { label: '生产', value: 'prod' },
-]
+// ── 环境类型字典 ──────────────────────────────
+const { data: envTypeDictRaw } = useGet<any>(ApiSysDictData.getByType, { dict_type: 'perf_env_type' }, { immediate: true })
+const envTypeOptions = computed(() => {
+  const items = (Array.isArray(envTypeDictRaw.value) ? envTypeDictRaw.value : []).map((d: any) => ({ label: d.dict_label, value: d.dict_value }))
+  return [{ label: '全部', value: '' }, ...items]
+})
+const envTypeFormOptions = computed(() => (Array.isArray(envTypeDictRaw.value) ? envTypeDictRaw.value : []).map((d: any) => ({ label: d.dict_label, value: d.dict_value })))
 
 const columns = [
   { title: '环境名称', dataIndex: 'env_name', width: 160, ellipsis: true, tooltip: true },
@@ -241,12 +241,7 @@ async function handleHealthCheck(record: any) {
         <a-row :gutter="16">
           <a-col :span="8">
             <a-form-item label="环境类型">
-              <a-select v-model="form.env_type">
-                <a-option value="sit">SIT</a-option>
-                <a-option value="uat">UAT</a-option>
-                <a-option value="perf">性能</a-option>
-                <a-option value="prod">生产</a-option>
-              </a-select>
+              <a-select v-model="form.env_type" :options="envTypeFormOptions" />
             </a-form-item>
           </a-col>
           <a-col :span="8">

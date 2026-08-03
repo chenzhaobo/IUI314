@@ -7,7 +7,7 @@ import SideBar from './side-bar/index.vue'
 import TabBar from './tab-bar/tab-bar.vue'
 import { useAppStore } from '@/stores'
 import { parseTime, useMobile } from '@/hooks'
-import AppLockScreen from '@/components/lock-screen/app-lock-screen.vue'
+import ChatBubble from '@/components/chat/ChatBubble.vue'
 
 defineOptions({ name: 'Layout' })
 
@@ -24,7 +24,7 @@ watch(
 <template>
   <div>
     <a-watermark :content="['iui314', parseTime(new Date())]">
-      <a-layout v-if="!appStore.app.isLocked">
+      <a-layout>
         <a-layout-sider :width="appStore.sideBar.isCollapse ? 48 : 200">
           <SideBar />
         </a-layout-sider>
@@ -40,8 +40,8 @@ watch(
           </a-layout-content>
         </a-layout>
       </a-layout>
-      <AppLockScreen v-if="appStore.app.isLocked" />
     </a-watermark>
+    <ChatBubble />
   </div>
 </template>
 

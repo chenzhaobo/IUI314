@@ -1,0 +1,692 @@
+<script setup lang="ts">
+import type { IssueRuleStatRow, IssueVerifyResult, ModuleWithRepository, ScanIssueEventRow, ScanIssuePage, ScanIssueRow } from '@/types/static-scan'
+import { computed, onMounted, ref } from 'vue'
+import { MdPreview } from 'md-editor-v3'
+import 'md-editor-v3/lib/style.css'
+import { Message } from '@arco-design/web-vue'
+import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
+import { ErrorFlag } from '@/api/apis'
+import { useGet, usePost } from '@/hooks'
+
+defineOptions({ name: 'StaticScanDefects' })
+
+// ===== 项目组选项 =====
+const { data: pgData } = useGet<any>(ApiSecProjectGroup.getAll, {}, { immediate: true })
+const pgOptions = computed(() => (Array.isArray(pgData.value) ? pgData.value : []).map((g: any) => ({ label: g.name, value: g.id })))
+
+// ===== 应用列表（筛选用）=====
+const { data: repoList } = useGet<ModuleWithRepository[]>(ApiSecModuleRepository.listWithModule, {}, { immediate: true })
+const repositories = computed(() => repoList.value ?? [])
+
+// ===== 问题列表 =====
+const queryParams = ref({ page_num: 1, page_size: 20, project_group_id: '', repository_id: '', domain: '', status: '', rule_version_id: '', scan_point_id: '' })
+const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<ScanIssuePage>(ApiSecPrescan.issues, queryParams, { immediate: true })
+const dataList = computed(() => rawListData.value?.list ?? [])
+const total = computed(() => rawListData.value?.total ?? 0)
+
+// ===== 左树：缺陷规则维度统计 =====
+const issueRuleStats = ref<IssueRuleStatRow[]>([])
+const ruleStatsLoading = ref(false)
+const selectedRuleId = ref('all')
+const expandedKeys = ref<string[]>([])
+
+// ===== 左树宽度拖拽 =====
+const leftPanelWidth = ref(230)
+const isDragging = ref(false)
+const PANEL_MIN = 160
+const PANEL_MAX = 480
+
+function onDragStart(e: MouseEvent) {
+  isDragging.value = true
+  const startX = e.clientX
+  const startW = leftPanelWidth.value
+  const onMove = (ev: MouseEvent) => {
+    leftPanelWidth.value = Math.min(PANEL_MAX, Math.max(PANEL_MIN, startW + ev.clientX - startX))
+  }
+  const onUp = () => {
+    isDragging.value = false
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+  }
+  document.addEventListener('mousemove', onMove)
+  document.addEventListener('mouseup', onUp)
+}
+
+async function fetchJson<T>(url: string): Promise<T | null> {
+  const { data, execute } = useGet<T>(url, {}, { immediate: false })
+  await execute()
+  return data.value ?? null
+}
+
+async function loadRuleStats() {
+  ruleStatsLoading.value = true
+  try {
+    const params = new URLSearchParams()
+    if (queryParams.value.project_group_id)
+      params.set('project_group_id', queryParams.value.project_group_id)
+    if (queryParams.value.repository_id)
+      params.set('repository_id', queryParams.value.repository_id)
+    issueRuleStats.value = await fetchJson<IssueRuleStatRow[]>(`${ApiSecPrescan.issueRuleStats}?${params.toString()}`) ?? []
+    // 默认展开：全部 + 领域 + 扫描点层
+    expandedKeys.value = ['all', ...ruleTree.value.flatMap(n => [n.key, ...(n.children ?? []).map(c => c.key)])]
+  }
+  finally {
+    ruleStatsLoading.value = false
+  }
+}
+
+// 左树数据：全部（根）→ domain 分组 → 扫描点 → 规则版本节点
+const ruleTree = computed(() => {
+  const groups = new Map<string, IssueRuleStatRow[]>()
+  for (const r of issueRuleStats.value) {
+    const d = r.domain || '未分类'
+    if (!groups.has(d))
+      groups.set(d, [])
+    groups.get(d)!.push(r)
+  }
+  const domainNodes = Array.from(groups.entries()).map(([domain, rules]) => {
+    const spGroups = new Map<string, IssueRuleStatRow[]>()
+    for (const r of rules) {
+      const spId = r.scan_point_id || 'unknown'
+      if (!spGroups.has(spId))
+        spGroups.set(spId, [])
+      spGroups.get(spId)!.push(r)
+    }
+    return {
+      key: `domain:${domain}`,
+      title: domainLabel(domain),
+      children: Array.from(spGroups.entries()).map(([spId, spRules]) => ({
+        key: `sp:${spId}`,
+        title: spRules[0].scan_point_name || spId,
+        spStats: {
+          open: spRules.reduce((s, r) => s + r.open, 0),
+          fixing: spRules.reduce((s, r) => s + r.fixing, 0),
+          fixed: spRules.reduce((s, r) => s + r.fixed, 0),
+          total: spRules.reduce((s, r) => s + r.total, 0),
+        },
+        children: spRules.map(r => ({
+          key: r.rule_version_id,
+          title: r.rule_name,
+          rule: r,
+        })),
+      })),
+    }
+  })
+  return [{
+    key: 'all',
+    title: '全部',
+    children: domainNodes,
+  }]
+})
+
+function domainLabel(d: string): string {
+  const map: Record<string, string> = { security: '安全', performance: '性能' }
+  return map[d] ?? d
+}
+
+function onTreeSelect(keys: (string | number)[]) {
+  const key = keys.length ? String(keys[0]) : 'all'
+  selectedRuleId.value = key
+  queryParams.value.page_num = 1
+  if (key === 'all') {
+    queryParams.value.domain = ''
+    queryParams.value.rule_version_id = ''
+    queryParams.value.scan_point_id = ''
+  }
+  else if (key.startsWith('domain:')) {
+    queryParams.value.domain = key.slice(7)
+    queryParams.value.rule_version_id = ''
+    queryParams.value.scan_point_id = ''
+  }
+  else if (key.startsWith('sp:')) {
+    queryParams.value.domain = ''
+    queryParams.value.rule_version_id = ''
+    queryParams.value.scan_point_id = key.slice(3)
+  }
+  else {
+    queryParams.value.domain = ''
+    queryParams.value.rule_version_id = key
+    queryParams.value.scan_point_id = ''
+  }
+  void getList()
+}
+
+function refresh() {
+  queryParams.value.page_num = 1
+  // 项目组/应用变更后重新加载左树；树选择重置为全部
+  selectedRuleId.value = 'all'
+  queryParams.value.rule_version_id = ''
+  queryParams.value.scan_point_id = ''
+  void getList()
+  void loadRuleStats()
+}
+
+// 领域下拉变更：仅重载列表（不重载左树），同步树选中到对应领域节点
+function onDomainSelectChange() {
+  queryParams.value.page_num = 1
+  queryParams.value.rule_version_id = ''
+  queryParams.value.scan_point_id = ''
+  selectedRuleId.value = queryParams.value.domain ? `domain:${queryParams.value.domain}` : 'all'
+  void getList()
+}
+
+// 状态下拉变更：仅重载列表
+function onStatusChange() {
+  queryParams.value.page_num = 1
+  void getList()
+}
+
+function onPageChange(page: number) {
+  queryParams.value.page_num = page
+  void getList()
+}
+
+function onPageSizeChange(size: number) {
+  queryParams.value.page_size = size
+  queryParams.value.page_num = 1
+  void getList()
+}
+
+// ===== POST 通用封装（业务错误时 hook 已弹 Message，这里返回 null 表示失败）=====
+async function postAction<T = unknown>(url: string, payload: Record<string, any>): Promise<T | null> {
+  const request = usePost<T>(url, payload, { immediate: false })
+  await request.execute()
+  if (request.error.value || request.data.value === ErrorFlag)
+    return null
+  return request.data.value
+}
+
+// ===== 行选择（批量操作基础）=====
+const selectedIds = ref<string[]>([])
+const selectedRows = computed(() => dataList.value.filter(r => selectedIds.value.includes(r.id)))
+function handleSelectionChange(keys: (string | number)[]) {
+  selectedIds.value = keys as string[]
+}
+function clearSelection() {
+  selectedIds.value = []
+}
+
+// ===== 状态能力判断 =====
+function canClaim(status: string): boolean {
+  return status === 'open' || status === 'reopened'
+}
+function canWontFix(status: string): boolean {
+  return status === 'open' || status === 'reopened'
+}
+function canVerify(status: string): boolean {
+  return status === 'fixed' || status === 'verified' || status === 'verification_failed' || status === 'wont_fix'
+}
+
+// ===== 缺陷处理：批量认领（open/reopened → fixing）=====
+const batchClaimLoading = ref(false)
+async function batchClaim() {
+  const eligible = selectedRows.value.filter(r => canClaim(r.status))
+  if (!eligible.length) {
+    Message.warning('所选缺陷中没有可认领的（仅「打开/重新打开」状态可认领）')
+    return
+  }
+  batchClaimLoading.value = true
+  try {
+    let ok = 0
+    for (const row of eligible) {
+      if (await postAction(ApiSecPrescan.issueClaim, { issue_id: row.id }) !== null)
+        ok++
+    }
+    Message.success(`认领成功 ${ok}/${eligible.length} 条`)
+    clearSelection()
+    void getList()
+  }
+  finally {
+    batchClaimLoading.value = false
+  }
+}
+
+// ===== 缺陷处理：批量标记已修复（fixing → fixed）=====
+const fixedVisible = ref(false)
+const fixedTargets = ref<ScanIssueRow[]>([])
+const fixedNote = ref('')
+const fixedLoading = ref(false)
+
+function openFixedModal() {
+  const eligible = selectedRows.value.filter(r => r.status === 'fixing')
+  if (!eligible.length) {
+    Message.warning('所选缺陷中没有「修复中」的，无法标记已修复')
+    return
+  }
+  fixedTargets.value = eligible
+  fixedNote.value = ''
+  fixedVisible.value = true
+}
+
+async function submitFixed() {
+  fixedLoading.value = true
+  try {
+    let ok = 0
+    for (const row of fixedTargets.value) {
+      if (await postAction(ApiSecPrescan.issueFixed, { issue_id: row.id, note: fixedNote.value }) !== null)
+        ok++
+    }
+    Message.success(`已标记修复 ${ok}/${fixedTargets.value.length} 条`)
+    fixedVisible.value = false
+    clearSelection()
+    void getList()
+  }
+  finally {
+    fixedLoading.value = false
+  }
+}
+
+// ===== 缺陷处理：批量标记不处理（open/reopened → wont_fix，可同步白名单）=====
+const wontFixVisible = ref(false)
+const wontFixTargets = ref<ScanIssueRow[]>([])
+const wontFixForm = ref({ reason: '', impact_note: '', sync_whitelist: false, expires_at: '' })
+const wontFixLoading = ref(false)
+
+function openWontFixModal() {
+  const eligible = selectedRows.value.filter(r => canWontFix(r.status))
+  if (!eligible.length) {
+    Message.warning('所选缺陷中没有可标记不处理的（仅「打开/重新打开」状态可操作）')
+    return
+  }
+  wontFixTargets.value = eligible
+  wontFixForm.value = { reason: '', impact_note: '', sync_whitelist: false, expires_at: '' }
+  wontFixVisible.value = true
+}
+
+async function submitWontFix() {
+  if (!wontFixForm.value.reason.trim()) {
+    Message.warning('请填写不处理原因')
+    return
+  }
+  wontFixLoading.value = true
+  try {
+    let ok = 0
+    for (const row of wontFixTargets.value) {
+      if (await postAction(ApiSecPrescan.issueWontFix, {
+        issue_id: row.id,
+        reason: wontFixForm.value.reason,
+        impact_note: wontFixForm.value.impact_note,
+        sync_whitelist: wontFixForm.value.sync_whitelist,
+        expires_at: wontFixForm.value.expires_at || null,
+      }) !== null)
+        ok++
+    }
+    Message.success(`已标记不处理 ${ok}/${wontFixTargets.value.length} 条`)
+    wontFixVisible.value = false
+    clearSelection()
+    void getList()
+  }
+  finally {
+    wontFixLoading.value = false
+  }
+}
+
+// ===== 缺陷处理：批量重新验证（基于当前代码 HEAD 定向重扫）=====
+const batchVerifyLoading = ref(false)
+async function batchVerify() {
+  const eligible = selectedRows.value.filter(r => canVerify(r.status))
+  if (!eligible.length) {
+    Message.warning('所选缺陷中没有可重新验证的（仅「已修复/已验证/验证失败/不处理」状态可验证）')
+    return
+  }
+  batchVerifyLoading.value = true
+  try {
+    let fixed = 0
+    let stillHit = 0
+    for (const row of eligible) {
+      const result = await postAction<IssueVerifyResult>(ApiSecPrescan.issueVerify, { issue_id: row.id })
+      if (result !== null) {
+        if (result.still_hit)
+          stillHit++
+        else
+          fixed++
+      }
+    }
+    Message.success(`重新验证完成：已修复 ${fixed} 条，仍存在 ${stillHit} 条`)
+    clearSelection()
+    void getList()
+  }
+  finally {
+    batchVerifyLoading.value = false
+  }
+}
+
+// ===== 流转记录（状态变更历史）=====
+const eventsVisible = ref(false)
+const eventsRow = ref<ScanIssueRow | null>(null)
+const eventsList = ref<ScanIssueEventRow[]>([])
+const eventsLoading = ref(false)
+
+async function viewEvents(row: ScanIssueRow) {
+  eventsRow.value = row
+  eventsVisible.value = true
+  eventsLoading.value = true
+  eventsList.value = []
+  try {
+    const { data, execute } = useGet<ScanIssueEventRow[]>(ApiSecPrescan.issueEvents, { issue_id: row.id }, { immediate: false })
+    await execute()
+    eventsList.value = data.value ?? []
+  }
+  finally {
+    eventsLoading.value = false
+  }
+}
+
+const eventTypeLabels: Record<string, { label: string, color: string }> = {
+  create: { label: '创建', color: 'blue' },
+  claim: { label: '认领', color: 'blue' },
+  fixed: { label: '标记修复', color: 'green' },
+  verified: { label: '重新验证', color: 'purple' },
+  wont_fix: { label: '不处理', color: 'gray' },
+}
+
+// ===== 查看报告（MdPreview 抽屉）=====
+const reportVisible = ref(false)
+const reportRow = ref<ScanIssueRow | null>(null)
+function viewReport(row: ScanIssueRow) {
+  reportRow.value = row
+  reportVisible.value = true
+}
+
+// ===== 标签映射 =====
+const domainLabels: Record<string, { label: string, color: string }> = {
+  security: { label: '安全', color: 'red' },
+  performance: { label: '性能', color: 'blue' },
+}
+const riskLabels: Record<string, { label: string, color: string }> = {
+  high: { label: '高', color: 'red' },
+  medium: { label: '中', color: 'orange' },
+  low: { label: '低', color: 'blue' },
+  info: { label: '提示', color: 'gray' },
+}
+const statusLabels: Record<string, { label: string, color: string }> = {
+  open: { label: '打开', color: 'red' },
+  reopened: { label: '重新打开', color: 'orangered' },
+  fixing: { label: '修复中', color: 'blue' },
+  fixed: { label: '已修复', color: 'green' },
+  verified: { label: '已验证', color: 'green' },
+  wont_fix: { label: '不处理', color: 'gray' },
+  verification_failed: { label: '验证失败', color: 'orange' },
+}
+
+const columns = [
+  { title: '缺陷标题', dataIndex: 'title', width: 300, ellipsis: true, tooltip: true },
+  { title: '领域', dataIndex: 'domain', slotName: 'domain', width: 80 },
+  { title: '分类', dataIndex: 'category', width: 120, ellipsis: true, tooltip: true },
+  { title: '风险', dataIndex: 'risk_level', slotName: 'risk', width: 70 },
+  { title: '状态', dataIndex: 'status', slotName: 'status', width: 95 },
+  { title: '负责人', dataIndex: 'assignee', width: 90, ellipsis: true, tooltip: true },
+  { title: '文件', dataIndex: 'file_path', width: 220, ellipsis: true, tooltip: true },
+  { title: '命中', dataIndex: 'hit_count', width: 60 },
+  { title: '更新时间', dataIndex: 'updated_at', width: 150 },
+  { title: '操作', slotName: 'ops', width: 110, fixed: 'right' as const },
+]
+
+onMounted(() => {
+  void loadRuleStats()
+})
+</script>
+
+<template>
+  <div class="static-scan-defects">
+    <!-- 筛选 -->
+    <a-card :bordered="false" class="m-b-12px">
+      <a-space wrap>
+        <a-select v-model="queryParams.project_group_id" allow-search allow-clear placeholder="项目组" style="width: 200px" @change="refresh">
+          <a-option v-for="pg in pgOptions" :key="pg.value" :value="pg.value">
+            {{ pg.label }}
+          </a-option>
+        </a-select>
+        <a-select v-model="queryParams.repository_id" allow-search allow-clear placeholder="应用" style="width: 280px" @change="refresh">
+          <a-option v-for="repo in repositories" :key="repo.repository_id" :value="repo.repository_id">
+            {{ repo.module_name }}（{{ repo.repository_name }}）
+          </a-option>
+        </a-select>
+        <a-select v-model="queryParams.domain" allow-clear placeholder="领域" style="width: 120px" @change="onDomainSelectChange">
+          <a-option value="security">安全</a-option>
+          <a-option value="performance">性能</a-option>
+        </a-select>
+        <a-select v-model="queryParams.status" allow-clear placeholder="状态" style="width: 130px" @change="onStatusChange">
+          <a-option value="open">打开</a-option>
+          <a-option value="reopened">重新打开</a-option>
+          <a-option value="fixing">修复中</a-option>
+          <a-option value="fixed">已修复</a-option>
+          <a-option value="verified">已验证</a-option>
+          <a-option value="wont_fix">不处理</a-option>
+          <a-option value="verification_failed">验证失败</a-option>
+        </a-select>
+        <a-button @click="refresh">
+          刷新
+        </a-button>
+      </a-space>
+    </a-card>
+
+    <!-- 左树右表（可拖拽分栏） -->
+    <div class="split-layout" :class="{ dragging: isDragging }">
+      <!-- 左树：规则分布 -->
+      <div class="split-left" :style="{ width: `${leftPanelWidth}px` }">
+        <a-card :bordered="false" size="small" class="split-card">
+          <template #title>
+            规则分布
+            <small class="card-sub">打开/修复中/已修复/总数</small>
+          </template>
+          <a-spin :loading="ruleStatsLoading" style="width: 100%">
+            <a-tree
+              v-if="ruleTree.length"
+              :data="ruleTree"
+              v-model:expanded-keys="expandedKeys"
+              :selected-keys="[selectedRuleId]"
+              @select="onTreeSelect"
+            >
+              <template #title="node">
+                <div class="rule-node">
+                  <span class="rule-name" :title="node.title">{{ node.title }}</span>
+                  <span v-if="node.rule" class="rule-stats">
+                    <span class="s-open">{{ node.rule.open }}</span>/<span class="s-fixing">{{ node.rule.fixing }}</span>/<span class="s-fixed">{{ node.rule.fixed }}</span>/<span class="s-total">{{ node.rule.total }}</span>
+                  </span>
+                  <span v-else-if="node.spStats" class="rule-stats">
+                    <span class="s-open">{{ node.spStats.open }}</span>/<span class="s-fixing">{{ node.spStats.fixing }}</span>/<span class="s-fixed">{{ node.spStats.fixed }}</span>/<span class="s-total">{{ node.spStats.total }}</span>
+                  </span>
+                </div>
+              </template>
+            </a-tree>
+            <a-empty v-else description="暂无缺陷" />
+          </a-spin>
+        </a-card>
+      </div>
+
+      <!-- 拖拽手柄 -->
+      <div class="split-handle" @mousedown="onDragStart" />
+
+      <!-- 右表：缺陷列表 -->
+      <div class="split-right">
+        <a-card :bordered="false" class="split-card">
+          <template #title>
+            缺陷列表
+        <small class="card-sub">勾选缺陷后通过上方工具栏批量处理：认领 → 标记修复 → 重新验证，或标记不处理（可同步白名单）</small>
+      </template>
+      <!-- 批量操作工具栏 -->
+      <a-row class="m-b-8px">
+        <a-space>
+          <a-button type="primary" :disabled="!selectedIds.length" :loading="batchClaimLoading" @click="batchClaim">
+            认领
+          </a-button>
+          <a-button status="success" :disabled="!selectedIds.length" @click="openFixedModal">
+            标记已修复
+          </a-button>
+          <a-button status="warning" :disabled="!selectedIds.length" @click="openWontFixModal">
+            标记不处理
+          </a-button>
+          <a-button :disabled="!selectedIds.length" :loading="batchVerifyLoading" @click="batchVerify">
+            重新验证
+          </a-button>
+          <span v-if="selectedIds.length" class="selected-hint">已选 {{ selectedIds.length }} 条</span>
+        </a-space>
+      </a-row>
+      <a-table
+        :loading="isLoading"
+        :data="dataList"
+        :columns="columns"
+        :pagination="{
+          total,
+          current: queryParams.page_num,
+          pageSize: queryParams.page_size,
+          showTotal: true,
+          showPageSize: true,
+        }"
+        row-key="id"
+        size="small"
+        :row-selection="{ type: 'checkbox', showCheckedAll: true }"
+        :scroll="{ x: 1350, y: 'calc(100vh - 420px)' }"
+        @page-change="onPageChange"
+        @page-size-change="onPageSizeChange"
+        @selection-change="handleSelectionChange"
+      >
+        <template #domain="{ record }">
+          <a-tag :color="domainLabels[record.domain]?.color ?? 'gray'" size="small">
+            {{ domainLabels[record.domain]?.label ?? record.domain }}
+          </a-tag>
+        </template>
+        <template #risk="{ record }">
+          <a-tag v-if="record.risk_level" :color="riskLabels[record.risk_level]?.color ?? 'gray'" size="small">
+            {{ riskLabels[record.risk_level]?.label ?? record.risk_level }}
+          </a-tag>
+          <span v-else class="text-muted">-</span>
+        </template>
+        <template #status="{ record }">
+          <a-tag :color="statusLabels[record.status]?.color ?? 'gray'" size="small">
+            {{ statusLabels[record.status]?.label ?? record.status }}
+          </a-tag>
+        </template>
+        <template #ops="{ record }">
+          <a-space>
+            <a-button type="text" size="small" :disabled="!record.ai_detail_report" @click="viewReport(record)">
+              报告
+            </a-button>
+            <a-button type="text" size="small" @click="viewEvents(record)">
+              流转
+            </a-button>
+          </a-space>
+        </template>
+        </a-table>
+        </a-card>
+      </div>
+    </div>
+
+    <!-- 标记已修复弹窗（批量）-->
+    <a-modal v-model:visible="fixedVisible" :title="`标记已修复（${fixedTargets.length} 条）`" :ok-loading="fixedLoading" @ok="submitFixed" @cancel="fixedVisible = false">
+      <a-form layout="vertical">
+        <a-alert type="info" class="m-b-12px">
+          将对 {{ fixedTargets.length }} 条「修复中」的缺陷统一标记为已修复
+        </a-alert>
+        <a-form-item label="修复说明（可选）">
+          <a-textarea v-model="fixedNote" placeholder="如：已在 commit abc123 中移除硬编码密钥" :max-length="200" show-word-limit />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <!-- 标记不处理弹窗（批量）-->
+    <a-modal v-model:visible="wontFixVisible" :title="`标记不处理（${wontFixTargets.length} 条）`" width="560px" :ok-loading="wontFixLoading" @ok="submitWontFix" @cancel="wontFixVisible = false">
+      <a-form layout="vertical">
+        <a-alert type="warning" class="m-b-12px">
+          将对 {{ wontFixTargets.length }} 条「打开/重新打开」的缺陷统一标记为不处理
+        </a-alert>
+        <a-form-item label="不处理原因" required>
+          <a-textarea v-model="wontFixForm.reason" placeholder="如：测试环境专用配置，生产不启用" :max-length="200" show-word-limit />
+        </a-form-item>
+        <a-form-item label="影响说明">
+          <a-textarea v-model="wontFixForm.impact_note" placeholder="说明该问题不处理的影响范围" :max-length="200" show-word-limit />
+        </a-form-item>
+        <a-form-item label="同步白名单">
+          <a-checkbox v-model="wontFixForm.sync_whitelist">
+            同时创建白名单条目（后续扫描该 fingerprint 不再计入）
+          </a-checkbox>
+        </a-form-item>
+        <a-form-item v-if="wontFixForm.sync_whitelist" label="白名单过期时间（空=永久）">
+          <a-date-picker v-model="wontFixForm.expires_at" style="width: 100%" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <!-- 流转记录抽屉 -->
+    <a-drawer
+      :visible="eventsVisible"
+      :width="520"
+      :title="`流转记录 · ${eventsRow?.title ?? ''}`"
+      :footer="false"
+      @cancel="eventsVisible = false"
+    >
+      <a-spin :loading="eventsLoading" style="width: 100%">
+        <a-timeline v-if="eventsList.length">
+          <a-timeline-item v-for="ev in eventsList" :key="ev.id" :label="(ev.created_at ?? '').replace('T', ' ')">
+            <div class="event-item">
+              <a-tag :color="eventTypeLabels[ev.event_type]?.color ?? 'gray'" size="small">
+                {{ eventTypeLabels[ev.event_type]?.label ?? ev.event_type }}
+              </a-tag>
+              <span v-if="ev.from_status || ev.to_status" class="event-transition">
+                {{ statusLabels[ev.from_status ?? '']?.label ?? ev.from_status ?? '—' }}
+                →
+                {{ statusLabels[ev.to_status ?? '']?.label ?? ev.to_status ?? '—' }}
+              </span>
+            </div>
+            <div v-if="ev.reason" class="event-reason">
+              {{ ev.reason }}
+            </div>
+            <div v-if="ev.commit_sha" class="event-commit">
+              commit: {{ ev.commit_sha }}
+            </div>
+          </a-timeline-item>
+        </a-timeline>
+        <a-empty v-else description="暂无流转记录" />
+      </a-spin>
+    </a-drawer>
+
+    <!-- 查看报告弹窗（富文本渲染 Markdown，宽幅+可滚动，避免抽屉显示不全）-->
+    <a-modal
+      :visible="reportVisible"
+      width="85%"
+      :title="reportRow?.title ?? 'AI 详细报告'"
+      :footer="false"
+      :body-style="{ maxHeight: '78vh', overflowY: 'auto' }"
+      unmount-on-close
+      @cancel="reportVisible = false"
+    >
+      <a-descriptions :column="3" bordered size="small" class="m-b-12px">
+        <a-descriptions-item label="领域">{{ domainLabels[reportRow?.domain ?? '']?.label ?? reportRow?.domain }}</a-descriptions-item>
+        <a-descriptions-item label="风险">{{ reportRow?.risk_level ?? '-' }}</a-descriptions-item>
+        <a-descriptions-item label="状态">{{ statusLabels[reportRow?.status ?? '']?.label ?? reportRow?.status }}</a-descriptions-item>
+        <a-descriptions-item label="文件" :span="3">{{ reportRow?.file_path }}{{ reportRow?.start_line ? `:${reportRow.start_line}` : '' }}</a-descriptions-item>
+      </a-descriptions>
+      <MdPreview v-if="reportRow?.ai_detail_report" :model-value="reportRow.ai_detail_report" />
+      <a-empty v-else description="暂无详细报告" />
+    </a-modal>
+  </div>
+</template>
+
+<style scoped>
+.static-scan-defects { padding: 0; }
+.card-sub { margin-left: 12px; color: var(--color-text-3); font-weight: normal; font-size: 12px; }
+.selected-hint { color: var(--color-text-2); font-size: 13px; }
+.text-muted { color: var(--color-text-4); }
+.split-layout { display: flex; gap: 0; align-items: stretch; }
+.split-layout.dragging { user-select: none; cursor: col-resize; }
+.split-left { flex-shrink: 0; overflow: hidden; }
+.split-card { height: 100%; overflow-y: auto; }
+.split-handle {
+  width: 6px; flex-shrink: 0; cursor: col-resize; border-radius: 3px; margin: 0 3px;
+  background: transparent; transition: background 0.2s;
+}
+.split-handle:hover, .split-layout.dragging .split-handle { background: rgb(var(--primary-6)); }
+.split-right { flex: 1; min-width: 0; }
+.rule-node { display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; }
+.rule-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rule-stats { flex-shrink: 0; font-size: 12px; color: var(--color-text-3); }
+.s-open { color: rgb(var(--red-6)); font-weight: 500; }
+.s-fixing { color: rgb(var(--blue-6)); }
+.s-fixed { color: rgb(var(--green-6)); }
+.s-total { color: var(--color-text-2); }
+.event-item { display: flex; align-items: center; gap: 8px; }
+.event-transition { font-size: 13px; color: var(--color-text-2); }
+.event-reason { margin-top: 4px; font-size: 12px; color: var(--color-text-3); }
+.event-commit { margin-top: 2px; font-size: 12px; color: var(--color-text-4); font-family: monospace; }
+</style>

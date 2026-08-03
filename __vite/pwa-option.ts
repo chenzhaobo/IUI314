@@ -3,7 +3,7 @@ import type { VitePWAOptions } from 'vite-plugin-pwa'
 export const getPwaOptions: Partial<VitePWAOptions> = {
   registerType: 'autoUpdate',
   devOptions: {
-    enabled: true,
+    enabled: false,
     type: 'module',
   },
   includeAssets: ['favicon.svg', 'safari-pinned-tab.svg'],

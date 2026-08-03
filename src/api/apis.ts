@@ -52,6 +52,14 @@ import type {
   ApiInfraService,
   ApiInfraEnvMapping,
 } from './infraApis'
+import type {
+  ApiMockProject,
+  ApiMockRule,
+  ApiMockVersion,
+  ApiMockRequestLog,
+} from './mockApis'
+import type { ApiDmp } from './dmpApis'
+import type { ApiAiAgent, ApiAiSkill, ApiAiExecution, ApiAiInvoke } from './aiApis'
 
 export type APIS =
   | ApiSysLogin
@@ -100,6 +108,15 @@ export type APIS =
   | ApiInfraVm
   | ApiInfraService
   | ApiInfraEnvMapping
+  | ApiMockProject
+  | ApiMockRule
+  | ApiMockVersion
+  | ApiMockRequestLog
+  | ApiDmp
+  | ApiAiAgent
+  | ApiAiSkill
+  | ApiAiExecution
+  | ApiAiInvoke
 
 export const ErrorFlag = '__________' // 错误标志
 export * from './sysApis'
@@ -107,3 +124,6 @@ export * from './tests'
 export * from './sechubApis'
 export * from './perfApis'
 export * from './infraApis'
+export * from './mockApis'
+export * from './dmpApis'
+export * from './aiApis'

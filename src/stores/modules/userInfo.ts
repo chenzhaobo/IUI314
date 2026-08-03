@@ -36,7 +36,25 @@ export const useUserStore = defineStore('userInfo', {
     paths: ['token', 'localUserInfo', 'rememberMe'],
   },
   actions: {
-    // 登录
+    /**
+     * 登录
+     *
+     * 【调试必读 - 登录流程说明】
+     * 1. 验证码：
+     *    - GET /api/comm/get_captcha 返回 { captcha_on_off, uuid, img }
+     *    - uuid = md5(验证码明文)，后端校验时对比 md5(code) == uuid
+     *    - 当前环境 config.toml 中 captcha_on_off = false（验证码关闭），
+     *      关闭时 code/uuid 字段仍需传（可为空字符串），后端跳过校验
+     * 2. 密码格式：
+     *    - 前端必须将用户输入的明文密码做一次 MD5 后再传输（见下方 md5(userInfo.user_password)）
+     *    - 后端存储的密码 = md5(md5(明文) + 用户盐值)，即后端会再做一次 md5(收到的密码 + salt)
+     *    - 因此直接用 curl/脚本调试时，user_password 应传 md5(明文密码) 的值
+     * 3. 默认账号：admin，密码可为 admin123 或 1234567
+     * 4. 登录请求体（POST /api/comm/login）：
+     *    { "user_name": "admin", "user_password": "<md5后的密码>", "code": "<验证码明文>", "uuid": "<get_captcha返回的uuid>" }
+     * 5. 登录成功响应：{ code: 200, data: { token, token_type, exp, exp_in } }
+     *    后续请求需在 Header 中携带 Authorization: Bearer <token>
+     */
     async login(userInfo: LoginFormLocal) {
       const { encrypt } = useEncrypt()
       this.rememberMe = userInfo.rememberMe
@@ -44,6 +62,7 @@ export const useUserStore = defineStore('userInfo', {
         this.localUserInfo.username = encrypt(userInfo.user_name) as string
         this.localUserInfo.password = encrypt(userInfo.user_password) as string
       }
+      // 注意：user_password 在此处做了 MD5 加密，后端收到的不是明文密码
       const user_data: LoginForm = {
         user_name: userInfo.user_name,
         user_password: md5(userInfo.user_password),

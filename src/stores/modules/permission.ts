@@ -45,10 +45,11 @@ export const usePermissionStore = defineStore('permission', {
       const routes = unref(data) as AppRouteRecordRaw[]
       // routers 生成正常的路由数据，用于菜单生成等
       // AccessRouters  将正常路由转换为二级扁平路由，用于keep-live和生成路由表
-      const [routers, AccessRouters] = await Promise.all([
-        filterAsyncRouter(routes),
-        filterAsyncRouter(generateFlatRoutes(routes)),
-      ])
+      // 注意：generateFlatRoutes 必须在 filterAsyncRouter 之前执行，
+      // 因为 filterAsyncRouter 会原地修改路由对象（component 字符串→函数），
+      // 若先执行会导致扁平路由的 component 已是函数，loadView 无法匹配→NotFound。
+      const AccessRouters = filterAsyncRouter(generateFlatRoutes(routes))
+      const routers = filterAsyncRouter(routes, false)
       //  设置菜单路由
       this.setRoutes(routers)
       // 返回扁平路由
@@ -67,13 +68,13 @@ export const usePermissionStore = defineStore('permission', {
   },
 })
 
-async function filterAsyncRouter(
+function filterAsyncRouter(
   asyncRouterMap: AppRouteRecordRaw[],
   type = true,
 ) {
-  return asyncRouterMap.filter(async (route) => {
+  return asyncRouterMap.filter((route) => {
     if (type && route.children)
-      route.children = await filterChildren(route.children)
+      route.children = filterChildren(route.children)
 
     if (route.menu_type === MenuType.M && route.pid === '0')
       route.component = 'Layout'
@@ -87,7 +88,7 @@ async function filterAsyncRouter(
         route.component = loadView(route.component)
     }
     if (route.children && route.children.length > 0) {
-      route.children = await filterAsyncRouter(route.children, type)
+      route.children = filterAsyncRouter(route.children, type)
     }
     else {
       delete route.children
@@ -98,6 +99,9 @@ async function filterAsyncRouter(
 }
 
 function loadView(view: string) {
+  // 幂等保护：若 component 已被加载为函数（非字符串），直接返回
+  if (typeof view !== 'string')
+    return view as unknown as Component
   let res = NotFound
   for (const path in views) {
     const dir = path.split('views/')[1].split('.vue')[0]
@@ -107,15 +111,16 @@ function loadView(view: string) {
   return res
 }
 
-async function filterChildren(childrenMap: AppRouteRecordRaw[]) {
+function filterChildren(childrenMap: AppRouteRecordRaw[]) {
   let children = new Array<AppRouteRecordRaw>()
   childrenMap.forEach((el) => {
     if (el.children && el.children.length) {
-      if (el.component === 'ParentView') {
-        el.children.forEach(async (c) => {
+      // ParentView 或嵌套目录型菜单(M 且非顶级)：将其子级提升并拼接路径前缀
+      if (el.component === 'ParentView' || (el.menu_type === MenuType.M && el.pid !== '0')) {
+        el.children.forEach((c) => {
           c.path = c.path ? `${el.path}/${c.path}` : c.path
           if (c.children && c.children.length) {
-            children = children.concat(await filterChildren(c.children))
+            children = children.concat(filterChildren(c.children))
             return
           }
           children.push(c)

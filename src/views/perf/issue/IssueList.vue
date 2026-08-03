@@ -1,0 +1,299 @@
+<template>
+  <div class="container">
+    <a-card :bordered="false">
+      <!-- 搜索栏 -->
+      <a-row :gutter="16" style="margin-bottom: 16px">
+        <a-col :span="5">
+          <a-input v-model="searchForm.keyword" placeholder="标题/编号/表单" allow-clear @press-enter="handleSearch" />
+        </a-col>
+        <a-col :span="3">
+          <a-select v-model="searchForm.status" placeholder="状态" allow-clear>
+            <a-option value="pending">待确认</a-option>
+            <a-option value="confirmed">已确认</a-option>
+            <a-option value="fixing">处理中</a-option>
+            <a-option value="fixed">已修复</a-option>
+            <a-option value="verified">已验证</a-option>
+            <a-option value="closed">已关闭</a-option>
+            <a-option value="wontfix">不修复</a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="3">
+          <a-select v-model="searchForm.severity" placeholder="严重度" allow-clear>
+            <a-option value="critical">严重</a-option>
+            <a-option value="major">重要</a-option>
+            <a-option value="minor">一般</a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="3">
+          <a-select v-model="searchForm.category" placeholder="分类" allow-clear>
+            <a-option value="standard">标品</a-option>
+            <a-option value="custom">二开</a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="3">
+          <a-select v-model="searchForm.source" placeholder="来源" allow-clear>
+            <a-option value="manual">手动</a-option>
+            <a-option value="diagnosis">诊断</a-option>
+            <a-option value="trace_ai">AI分析</a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="3">
+          <a-input v-model="searchForm.app_number" placeholder="应用编码" allow-clear />
+        </a-col>
+        <a-col :span="4">
+          <a-space>
+            <a-button type="primary" @click="handleSearch">查询</a-button>
+            <a-button @click="handleReset">重置</a-button>
+            <a-button type="primary" status="success" @click="handleAdd">新增</a-button>
+          </a-space>
+        </a-col>
+      </a-row>
+
+      <!-- 表格 -->
+      <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange" row-key="id">
+        <template #columns>
+          <a-table-column title="编号" data-index="issue_no" :width="130" />
+          <a-table-column title="标题" data-index="title" :width="250" ellipsis />
+          <a-table-column title="严重度" data-index="severity" :width="80">
+            <template #cell="{ record }">
+              <a-tag :color="severityColor(record.severity)">{{ severityText(record.severity) }}</a-tag>
+            </template>
+          </a-table-column>
+          <a-table-column title="类型" data-index="issue_type" :width="100">
+            <template #cell="{ record }">{{ issueTypeText(record.issue_type) }}</template>
+          </a-table-column>
+          <a-table-column title="应用" data-index="app_number" :width="80" />
+          <a-table-column title="表单" data-index="form_name" :width="150" ellipsis />
+          <a-table-column title="客户" data-index="customer_name" :width="120" ellipsis />
+          <a-table-column title="状态" data-index="status" :width="90">
+            <template #cell="{ record }">
+              <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
+            </template>
+          </a-table-column>
+          <a-table-column title="来源" data-index="source" :width="80">
+            <template #cell="{ record }">
+              <a-tag :color="sourceColor(record.source)" size="small">{{ sourceText(record.source) }}</a-tag>
+            </template>
+          </a-table-column>
+          <a-table-column title="发现日期" data-index="found_date" :width="100" />
+          <a-table-column title="操作" :width="180" fixed="right">
+            <template #cell="{ record }">
+              <a-space>
+                <a-link @click="handleDetail(record)">详情</a-link>
+                <a-dropdown>
+                  <a-link>状态</a-link>
+                  <template #content>
+                    <a-doption v-for="s in getNextStatuses(record.status)" :key="s" @click="handleChangeStatus(record, s)">
+                      {{ statusText(s) }}
+                    </a-doption>
+                  </template>
+                </a-dropdown>
+                <a-popconfirm content="确定删除？" @ok="handleDelete(record)">
+                  <a-link status="danger">删除</a-link>
+                </a-popconfirm>
+              </a-space>
+            </template>
+          </a-table-column>
+        </template>
+      </a-table>
+    </a-card>
+
+    <!-- 详情抽屉 -->
+    <a-drawer v-model:visible="drawerVisible" :width="600" title="问题详情">
+      <a-descriptions :column="2" bordered size="small">
+        <a-descriptions-item label="编号">{{ currentRecord?.issue_no }}</a-descriptions-item>
+        <a-descriptions-item label="状态">
+          <a-tag :color="statusColor(currentRecord?.status)">{{ statusText(currentRecord?.status) }}</a-tag>
+        </a-descriptions-item>
+        <a-descriptions-item label="标题" :span="2">{{ currentRecord?.title }}</a-descriptions-item>
+        <a-descriptions-item label="严重度">{{ severityText(currentRecord?.severity) }}</a-descriptions-item>
+        <a-descriptions-item label="类型">{{ issueTypeText(currentRecord?.issue_type) }}</a-descriptions-item>
+        <a-descriptions-item label="应用">{{ currentRecord?.app_number }} - {{ currentRecord?.app_name }}</a-descriptions-item>
+        <a-descriptions-item label="表单">{{ currentRecord?.form_name }}</a-descriptions-item>
+        <a-descriptions-item label="按钮">{{ currentRecord?.control_name }}</a-descriptions-item>
+        <a-descriptions-item label="客户">{{ currentRecord?.customer_name }}</a-descriptions-item>
+        <a-descriptions-item label="项目组">{{ currentRecord?.project_group_name }}</a-descriptions-item>
+        <a-descriptions-item label="负责人">{{ currentRecord?.assignee }}</a-descriptions-item>
+        <a-descriptions-item label="发现日期">{{ currentRecord?.found_date }}</a-descriptions-item>
+        <a-descriptions-item label="修复日期">{{ currentRecord?.fixed_date }}</a-descriptions-item>
+        <a-descriptions-item label="来源">{{ sourceText(currentRecord?.source) }}</a-descriptions-item>
+        <a-descriptions-item label="出现次数">{{ currentRecord?.recurrence_count || 1 }}</a-descriptions-item>
+        <a-descriptions-item v-if="currentRecord?.related_issue_id" label="关联问题" :span="2">
+          <a-link @click="openRelatedIssue(currentRecord.related_issue_id)">{{ currentRecord.related_issue_id }}</a-link>
+        </a-descriptions-item>
+      </a-descriptions>
+      <a-divider>根因分析</a-divider>
+      <div class="markdown-content">{{ currentRecord?.root_cause || '暂无' }}</div>
+      <a-divider>修复建议</a-divider>
+      <div class="markdown-content">{{ currentRecord?.fix_suggestion || '暂无' }}</div>
+    </a-drawer>
+
+    <!-- 新增弹窗 -->
+    <a-modal v-model:visible="modalVisible" title="新增问题" :width="700" @ok="handleSubmit">
+      <a-form :model="formData" layout="vertical">
+        <a-row :gutter="16">
+          <a-col :span="24">
+            <a-form-item label="标题" required>
+              <a-input v-model="formData.title" placeholder="问题标题" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="8">
+            <a-form-item label="严重度">
+              <a-select v-model="formData.severity">
+                <a-option value="critical">严重</a-option>
+                <a-option value="major">重要</a-option>
+                <a-option value="minor">一般</a-option>
+              </a-select>
+            </a-form-item>
+          </a-col>
+          <a-col :span="8">
+            <a-form-item label="问题类型">
+              <a-select v-model="formData.issue_type">
+                <a-option value="slow_sql">慢SQL</a-option>
+                <a-option value="index_loop">索引循环</a-option>
+                <a-option value="rpc_slow">RPC慢调用</a-option>
+                <a-option value="accumulated">累积耗时</a-option>
+                <a-option value="other">其他</a-option>
+              </a-select>
+            </a-form-item>
+          </a-col>
+          <a-col :span="8">
+            <a-form-item label="分类">
+              <a-select v-model="formData.category">
+                <a-option value="standard">标品</a-option>
+                <a-option value="custom">二开</a-option>
+              </a-select>
+            </a-form-item>
+          </a-col>
+          <a-col :span="8">
+            <a-form-item label="应用编码">
+              <a-input v-model="formData.app_number" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="8">
+            <a-form-item label="表单ID">
+              <a-input v-model="formData.form_id" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="8">
+            <a-form-item label="表单名称">
+              <a-input v-model="formData.form_name" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-item label="客户编码">
+              <a-input v-model="formData.tenant_code" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-item label="客户名称">
+              <a-input v-model="formData.customer_name" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="24">
+            <a-form-item label="问题描述">
+              <a-textarea v-model="formData.description" :auto-size="{ minRows: 3 }" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+      </a-form>
+    </a-modal>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, reactive, computed } from 'vue'
+import { Message } from '@arco-design/web-vue'
+import { ApiPerfIssue } from '@/api/perfApis'
+import { useGet, usePost, usePut, useDelete } from '@/hooks'
+
+defineOptions({ name: 'issue-list' })
+
+const pageNum = ref(1)
+const pageSize = ref(20)
+const searchForm = reactive({ keyword: '', status: '', severity: '', category: '', app_number: '', source: '' })
+
+const drawerVisible = ref(false)
+const currentRecord = ref<any>(null)
+const modalVisible = ref(false)
+const formData = reactive<any>({
+  title: '', severity: 'major', issue_type: 'slow_sql', category: 'standard',
+  app_number: '', form_id: '', form_name: '', tenant_code: '', customer_name: '', description: '',
+})
+
+const statusMap: Record<string, string> = { pending: '待确认', confirmed: '已确认', fixing: '处理中', fixed: '已修复', verified: '已验证', closed: '已关闭', wontfix: '不修复' }
+const severityMap: Record<string, string> = { critical: '严重', major: '重要', minor: '一般' }
+const issueTypeMap: Record<string, string> = { slow_sql: '慢SQL', index_loop: '索引循环', rpc_slow: 'RPC慢调用', accumulated: '累积耗时', other: '其他' }
+
+const statusText = (s: string) => statusMap[s] || s
+const severityText = (s: string) => severityMap[s] || s
+const issueTypeText = (s: string) => issueTypeMap[s] || s
+const statusColor = (s: string) => ({ pending: 'orange', confirmed: 'blue', fixing: 'purple', fixed: 'cyan', verified: 'green', closed: 'gray', wontfix: 'red' }[s] || 'gray')
+const severityColor = (s: string) => ({ critical: 'red', major: 'orange', minor: 'blue' }[s] || 'gray')
+const sourceText = (s: string) => ({ manual: '手动', diagnosis: '诊断', trace_ai: 'AI分析' }[s] || s || '手动')
+const sourceColor = (s: string) => ({ manual: 'gray', diagnosis: 'blue', trace_ai: 'purple' }[s] || 'gray')
+
+const getNextStatuses = (current: string) => {
+  const transitions: Record<string, string[]> = {
+    pending: ['confirmed', 'wontfix'], confirmed: ['fixing', 'wontfix'], fixing: ['fixed'],
+    fixed: ['verified', 'fixing'], verified: ['closed'], wontfix: ['pending'],
+  }
+  return transitions[current] || []
+}
+
+const queryParams = computed(() => ({ ...searchForm, page_num: pageNum.value, page_size: pageSize.value }))
+const { isFetching: loading, data: rawData, execute: fetchData } = useGet<any>(ApiPerfIssue.getList, queryParams, { immediate: true })
+const tableData = computed(() => rawData.value?.list || [])
+const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0 }))
+
+const handleSearch = () => { pageNum.value = 1; fetchData() }
+const handleReset = () => { Object.assign(searchForm, { keyword: '', status: '', severity: '', category: '', app_number: '', source: '' }); handleSearch() }
+const handlePageChange = (page: number) => { pageNum.value = page; fetchData() }
+const handleDetail = (record: any) => { currentRecord.value = record; drawerVisible.value = true }
+const handleAdd = () => { modalVisible.value = true }
+
+// 关联问题跳转（通过 ID 获取完整记录）
+const openRelatedIssue = async (id: string) => {
+  const { data, execute } = useGet<any>(ApiPerfIssue.getById, { id }, { immediate: false })
+  await execute()
+  if (data.value) {
+    currentRecord.value = data.value
+  }
+}
+
+// 状态变更
+const statusPayload = ref<any>({})
+const { execute: doChangeStatus } = usePut<any>(ApiPerfIssue.changeStatus, statusPayload, { immediate: false })
+const handleChangeStatus = async (record: any, newStatus: string) => {
+  statusPayload.value = { id: record.id, status: newStatus }
+  await doChangeStatus()
+  Message.success('状态更新成功')
+  fetchData()
+}
+
+// 新增
+const addPayload = ref<any>({})
+const { execute: doAdd } = usePost<any>(ApiPerfIssue.add, addPayload, { immediate: false })
+const handleSubmit = async () => {
+  if (!formData.title) { Message.warning('请填写标题'); return }
+  addPayload.value = { ...formData }
+  await doAdd()
+  Message.success('新增成功')
+  modalVisible.value = false
+  fetchData()
+}
+
+// 删除
+const deletePayload = ref<any>({})
+const { execute: doDelete } = useDelete<any>(ApiPerfIssue.delete, deletePayload, { immediate: false })
+const handleDelete = async (record: any) => {
+  deletePayload.value = { ids: [record.id] }
+  await doDelete()
+  Message.success('删除成功')
+  fetchData()
+}
+</script>
+
+<style scoped>
+.markdown-content { white-space: pre-wrap; background: var(--color-fill-1); padding: 12px; border-radius: 4px; }
+</style>

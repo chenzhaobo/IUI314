@@ -131,6 +131,7 @@ export enum ApiPerfTask {
 
 // ── 模块管理 ──────────────────────────────────
 export enum ApiPerfModule {
+  // 字段语义: product_group=产品领域(domain_name), parent_cloud=所属云名称(cloud_name)
   getList = '/perf/module/list',
   getById = '/perf/module/get_by_id',
   add = '/perf/module/add',
@@ -235,4 +236,145 @@ export enum ApiPerfAttachment {
   list = '/perf/script/attachment_list',
   delete = '/perf/script/attachment_delete',
   download = '/perf/script/attachment_download',
+}
+
+// ── 客户管理 ──────────────────────────────────────
+export enum ApiPerfCustomer {
+  getList = '/perf/customer/list',
+  getById = '/perf/customer/get_by_id',
+  add = '/perf/customer/add',
+  edit = '/perf/customer/edit',
+  delete = '/perf/customer/delete',
+}
+
+// ── 达标率管理 ──────────────────────────────────────
+export enum ApiPerfCompliance {
+  overview = '/perf/compliance/overview',
+  drill = '/perf/compliance/drill',
+  trend = '/perf/compliance/trend',
+  batches = '/perf/compliance/batches',
+  batchesInfo = '/perf/compliance/batches-info',
+  tree = '/perf/compliance/tree',
+  dimensionOptions = '/perf/compliance/dimension-options',
+  periodOptions = '/perf/compliance/period-options',
+  sync = '/perf/compliance/sync',
+  syncStatus = '/perf/compliance/sync/status',
+  // M6 增强
+  traces = '/perf/compliance/traces',
+  export = '/perf/compliance/export',
+  trendExport = '/perf/compliance/trend/export',
+  // 二开表单白名单
+  syncStandardForms = '/perf/compliance/sync-standard-forms',
+  standardForms = '/perf/compliance/standard-forms',
+}
+
+// ── 同步任务管理 ──────────────────────────────────────
+export enum ApiPerfSyncTask {
+  list = '/perf/sync-task/list',
+  getById = '/perf/sync-task/get_by_id',
+  add = '/perf/sync-task/add',
+  edit = '/perf/sync-task/edit',
+  delete = '/perf/sync-task/delete',
+  trigger = '/perf/sync-task/trigger',
+  retry = '/perf/sync-task/retry',
+  records = '/perf/sync-task/records',
+}
+
+// ── 数据源元数据留存 ──────────────────────────────────────
+export enum ApiPerfDatasource {
+  list = '/perf/datasource/list',
+  getById = '/perf/datasource/get_by_id',
+}
+
+// ── 周期报告任务配置（T2.1） ──────────────────────────────────────
+export enum ApiPerfReportTask {
+  list = '/perf/periodic-report/task/list',
+  save = '/perf/periodic-report/task/save',
+  delete = '/perf/periodic-report/task/delete',
+  trigger = '/perf/periodic-report/task/trigger',
+  runs = '/perf/periodic-report/task/runs',
+}
+
+// ── 性能诊断分析 ──────────────────────────────────────
+export enum ApiPerfDiagnosis {
+  domain = '/perf/diagnosis/domain',
+  app = '/perf/diagnosis/app',
+  report = '/perf/diagnosis/report',
+  guide = '/perf/diagnosis/guide',
+}
+
+// ── 性能问题追踪 ──────────────────────────────────────
+export enum ApiPerfIssue {
+  getList = '/perf/issue/list',
+  getById = '/perf/issue/get_by_id',
+  add = '/perf/issue/add',
+  edit = '/perf/issue/edit',
+  changeStatus = '/perf/issue/change_status',
+  delete = '/perf/issue/delete',
+  stats = '/perf/issue/stats',
+  batchImport = '/perf/issue/batch_import',
+  // 问题智能同步
+  syncFromDiagnosis = '/perf/issue/sync-from-diagnosis',
+  related = '/perf/issue/related',
+  backfillFingerprint = '/perf/issue/backfill-fingerprint',
+}
+
+// ── 分析报告 ──────────────────────────────────────
+export enum ApiPerfReportV2 {
+  getList = '/perf/report-v2/list',
+  getById = '/perf/report-v2/get_by_id',
+  add = '/perf/report-v2/add',
+  edit = '/perf/report-v2/edit',
+  publish = '/perf/report-v2/publish',
+  delete = '/perf/report-v2/delete',
+}
+
+// ── 分析任务 ──────────────────────────────────────
+export enum ApiPerfAnalysisTask {
+  getList = '/perf/analysis-task/list',
+  getById = '/perf/analysis-task/get_by_id',
+  trigger = '/perf/analysis-task/trigger',
+  cancel = '/perf/analysis-task/cancel',
+}
+
+// ── Ops分析 ──────────────────────────────────────
+export enum ApiPerfOps {
+  analyze = '/perf/ops/analyze',
+  download = '/perf/ops/download',
+  result = '/perf/ops/result',
+  list = '/perf/ops/list',
+  collectTraces = '/perf/ops/collect-traces',
+  collectedTraces = '/perf/ops/collected-traces',
+  triggerAnalysis = '/perf/ops/trigger-analysis',
+}
+
+// ── 性能覆盖率 ──────────────────────────────────────
+export enum ApiPerfCoverage {
+  overview = '/perf/coverage/overview',
+  detail = '/perf/coverage/detail',
+  export = '/perf/coverage/export',
+  sync = '/perf/coverage/sync',
+  tree = '/perf/coverage/tree',
+}
+
+// ── 测试场景 ──────────────────────────────────────
+export enum ApiPerfScenario {
+  getList = '/perf/scenario/list',
+  getById = '/perf/scenario/get_by_id',
+  add = '/perf/scenario/add',
+  edit = '/perf/scenario/edit',
+  confirm = '/perf/scenario/confirm',
+  delete = '/perf/scenario/delete',
+  recommend = '/perf/scenario/recommend',
+}
+
+// ── Agent 自主诊断 ──────────────────────────────────────
+export enum ApiPerfDiagnosisAgent {
+  tasks = '/perf/diagnosis-agent/task',
+  remaining = '/perf/diagnosis-agent/remaining',
+  markBatch = '/perf/diagnosis-agent/mark-batch',
+  issueFile = '/perf/diagnosis-agent/issue-file',
+  reportSave = '/perf/diagnosis-agent/report-save',
+  progress = '/perf/diagnosis-agent/progress',
+  complete = '/perf/diagnosis-agent/complete',
 }

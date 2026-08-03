@@ -22,8 +22,14 @@ const groupedConfigs = computed(() => {
 })
 
 const groupLabels: Record<string, string> = {
+  deploy: '部署管理目录',
+  platform: '平台核心目录',
   jmeter: 'JMeter 配置',
   report: '报告路径配置',
+  scan: '静态扫描目录',
+  static_scan: '静态扫描配置',
+  dmp: 'DMP 数据爬取',
+  agent: '压测 Agent',
 }
 
 // 判断是否为布尔类型配置（值为 true/false）
