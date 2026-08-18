@@ -23,6 +23,17 @@ export enum ApiAiSkill {
   fileUpload = '/ai/skill/file/upload',
   fileList = '/ai/skill/file/list',
   fileDelete = '/ai/skill/file/delete',
+  deploy = '/ai/skill/deploy',
+  deployStatus = '/ai/skill/deploy-status',
+}
+
+// ── Skill 部署状态 ──────────────────────────────────────
+export interface AiSkillDeployStatus {
+  skill_id: string
+  skill_code: string
+  state: 'deployed' | 'not_deployed' | 'stale'
+  deployed_dir: string | null
+  stale_files: string[]
 }
 
 // ── 执行记录 ──────────────────────────────────────
