@@ -592,6 +592,12 @@ export interface PrescanTriggerRequest {
   snapshot_id?: string | null
   rule_set_id?: string | null
   domains?: string | null
+  branch?: string | null
+  commit_sha?: string | null
+  scan_mode?: string // 'full' | 'diff'
+  base_commit?: string | null
+  diff_granularity?: string | null // 'file' | 'hunk'
+  force?: boolean
 }
 
 export interface PrescanTriggerResponse {

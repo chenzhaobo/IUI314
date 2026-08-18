@@ -6,6 +6,7 @@ import { Message } from '@arco-design/web-vue'
 import { ApiSecModuleRepository, ApiSecPrescan } from '@/api/sechubApis'
 import { ErrorFlag } from '@/api/apis'
 import { useGet, usePost } from '@/hooks'
+import { pendingSubLabel, pendingTooltip, runStatusLabels } from './labels'
 
 defineOptions({ name: 'StaticScanRuns' })
 
@@ -86,6 +87,20 @@ function viewDetail(row: CrossRunAggRow) {
   })
 }
 
+// ===== 查看错误 → 跳转扫描结果详情并预置 ai_status=error 筛选 =====
+function viewErrors(row: CrossRunAggRow) {
+  router.push({
+    path: '/static-scan/scan/results',
+    query: {
+      run_id: row.run_id,
+      repository_id: row.repository_id,
+      ai_model: row.ai_model ?? '',
+      ai_mode: row.ai_mode ?? '',
+      ai_status: 'error',
+    },
+  })
+}
+
 function modelLabel(row: CrossRunAggRow): string {
   if (row.ai_model?.trim())
     return row.ai_model.trim()
@@ -151,14 +166,14 @@ const crossColumns = [
   { title: '确认问题', dataIndex: 'confirmed', width: 85 },
   { title: '已排除', dataIndex: 'rejected', width: 80 },
   { title: '错误', dataIndex: 'error', width: 70 },
-  { title: '待确认', dataIndex: 'pending', width: 80 },
+  { title: '待确认', dataIndex: 'pending', slotName: 'crPending', width: 120 },
   { title: '高风险', dataIndex: 'risk_high', width: 75 },
   { title: '中风险', dataIndex: 'risk_medium', width: 75 },
   { title: '低风险', dataIndex: 'risk_low', width: 75 },
   { title: '确认率', dataIndex: 'confirm_rate', slotName: 'crRate', width: 85 },
   { title: '平均置信度', dataIndex: 'avg_confidence', slotName: 'crConf', width: 95 },
   { title: '时间', dataIndex: 'created_at', width: 130 },
-  { title: '操作', slotName: 'crOps', width: 170, fixed: 'right' as const },
+  { title: '操作', slotName: 'crOps', width: 250, fixed: 'right' as const },
 ]
 </script>
 
@@ -217,9 +232,25 @@ const crossColumns = [
         <template #crConf="{ record }">
           {{ record.avg_confidence != null ? Number(record.avg_confidence).toFixed(2) : '-' }}
         </template>
+        <template #crPending="{ record }">
+          <a-tooltip :content="pendingTooltip">
+            <a-tag :color="runStatusLabels[record.status]?.color ?? 'gray'" size="small">
+              {{ pendingSubLabel(record.status, record.pending) }}
+            </a-tag>
+          </a-tooltip>
+        </template>
         <template #crOps="{ record }">
           <a-button type="text" size="small" @click="viewDetail(record)">
             查看明细
+          </a-button>
+          <a-button
+            type="text"
+            size="small"
+            status="danger"
+            :disabled="!record.error"
+            @click="viewErrors(record)"
+          >
+            查看错误{{ record.error ? `(${record.error})` : '' }}
           </a-button>
           <a-button
             type="text"

@@ -368,6 +368,11 @@ export enum ApiPerfScenario {
   recommend = '/perf/scenario/recommend',
 }
 
+// ── 问题模式台账（§11.2） ──────────────────────────────────────
+export enum ApiPerfPatternLedger {
+  list = '/perf/periodic-report/pattern/list',
+}
+
 // ── Agent 自主诊断 ──────────────────────────────────────
 export enum ApiPerfDiagnosisAgent {
   tasks = '/perf/diagnosis-agent/task',

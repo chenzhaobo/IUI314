@@ -362,6 +362,11 @@ const prescanBranches = ref<RepositoryBranch[]>([])
 const prescanBranch = ref('')
 const prescanCommit = ref('')
 const loadingBranches = ref(false)
+// 扫描范围
+const scanScope = ref<'full' | 'diff_last' | 'diff_commit'>('full')
+const baseCommitInput = ref('')
+const diffGranularity = ref<'file' | 'hunk'>('file')
+const hunkEnabled = ref(false)
 
 async function openPrescanModal() {
   if (!selectedRepoId.value) {
@@ -371,6 +376,10 @@ async function openPrescanModal() {
   prescanBranch.value = ''
   prescanCommit.value = ''
   prescanBranches.value = []
+  scanScope.value = 'full'
+  baseCommitInput.value = ''
+  diffGranularity.value = 'file'
+  hunkEnabled.value = false
   prescanModalVisible.value = true
   // 加载分支列表
   const repo = selectedRepo.value
@@ -407,6 +416,18 @@ function onPrescanBranchChange(branchName: string) {
 }
 
 function doPrescanConfirm() {
+  // 校验：指定基准 commit 时必须为 7~40 位 hex
+  if (scanScope.value === 'diff_commit') {
+    const v = baseCommitInput.value.trim()
+    if (!v || !/^[0-9a-f]{7,40}$/i.test(v)) {
+      Message.warning('基准 Commit SHA 须为 7~40 位十六进制字符')
+      return
+    }
+  }
+  // 全量模式下重置 hunk 勾选
+  if (scanScope.value === 'full') {
+    hunkEnabled.value = false
+  }
   prescanModalVisible.value = false
   triggerPrescan(false, prescanBranch.value || undefined, prescanCommit.value || undefined)
 }
@@ -422,6 +443,17 @@ async function triggerPrescan(force = false, branch?: string, commitSha?: string
     const body: Record<string, unknown> = { repository_id: selectedRepoId.value, force }
     if (branch) body.branch = branch
     if (commitSha) body.commit_sha = commitSha
+    // 扫描范围组装
+    if (scanScope.value === 'full') {
+      body.scan_mode = 'full'
+    }
+    else {
+      body.scan_mode = 'diff'
+      if (scanScope.value === 'diff_commit' && baseCommitInput.value.trim()) {
+        body.base_commit = baseCommitInput.value.trim()
+      }
+      body.diff_granularity = hunkEnabled.value ? 'hunk' : 'file'
+    }
     const { data, execute, error } = usePost<PrescanTriggerResponse>(
       ApiSecPrescan.trigger,
       body,
@@ -1252,6 +1284,32 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
         </a-form-item>
         <a-form-item label="Commit SHA（可选，留空则使用分支最新提交）">
           <a-input v-model="prescanCommit" placeholder="如 a1b2c3d4..." allow-clear />
+        </a-form-item>
+        <a-form-item label="扫描范围">
+          <a-radio-group v-model="scanScope" type="button">
+            <a-radio value="full">全量</a-radio>
+            <a-radio value="diff_last">自上次扫描（增量）</a-radio>
+            <a-radio value="diff_commit">指定基准 commit</a-radio>
+          </a-radio-group>
+        </a-form-item>
+        <a-form-item v-if="scanScope === 'diff_commit'" label="基准 Commit SHA">
+          <a-input
+            v-model="baseCommitInput"
+            placeholder="输入 7~40 位 hex commit SHA"
+            allow-clear
+            :max-length="40"
+          />
+        </a-form-item>
+        <a-form-item>
+          <a-checkbox
+            v-model="hunkEnabled"
+            :disabled="scanScope === 'full'"
+          >
+            按 hunk 粒度过滤（行级差量）
+          </a-checkbox>
+          <a-tooltip v-if="scanScope === 'full'" content="仅增量扫描可用">
+            <icon-info-circle style="margin-left: 4px; color: var(--color-text-3)" />
+          </a-tooltip>
         </a-form-item>
         <a-alert v-if="runList.length > 0" type="info" style="margin-top: 4px">
           该应用已有 {{ runList.length }} 条扫描记录，相同代码和规则不会重复扫描（幂等保护）。
