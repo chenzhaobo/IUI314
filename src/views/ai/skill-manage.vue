@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { useGet, usePost, usePut, useDelete, useToken } from '@/hooks'
-import { ApiAiSkill, ApiAiAgent, type AiSkill, type AiAgent, type AiSkillFile, type AiListResult } from '@/api/aiApis'
+import { ApiAiSkill, ApiAiAgent, type AiSkill, type AiAgent, type AiSkillFile, type AiListResult, type AiSkillDeployStatus } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
 
 defineOptions({ name: 'ai-skill-manage' })
@@ -28,6 +28,41 @@ function getAgentName(agentId: string | null) {
   if (!agentId) return '-'
   const agent = agentListRaw.value?.list?.find((a: AiAgent) => a.id === agentId)
   return agent?.agent_name || agentId
+}
+
+// ── 技能部署（P6-01/P6-02） ──────────────────────────────────
+const deployStatusMap = ref<Record<string, AiSkillDeployStatus>>({})
+const deployLoadingId = ref<string | null>(null)
+
+// 列表变化后刷新部署状态
+watch(list, async (rows) => {
+  for (const row of rows) {
+    if (deployStatusMap.value[row.id]) continue
+    const { data, execute, error } = useGet<AiSkillDeployStatus>(ApiAiSkill.deployStatus, { id: row.id }, { immediate: false })
+    await execute()
+    if (!error.value && data.value) deployStatusMap.value[row.id] = data.value
+  }
+})
+
+function deployStateTag(state?: string) {
+  if (state === 'deployed') return { color: 'green', label: '已部署' }
+  if (state === 'stale') return { color: 'orange', label: '过期' }
+  return { color: 'gray', label: '未部署' }
+}
+
+async function handleDeploy(record: AiSkill) {
+  deployLoadingId.value = record.id
+  try {
+    const { data, execute, error } = usePost(ApiAiSkill.deploy, { skill_id: record.id, deploy_dir: null })
+    await execute()
+    if (error.value || data.value === ErrorFlag) return
+    Message.success('部署成功')
+    const { data: status, execute: execStatus, error: statusErr } = useGet<AiSkillDeployStatus>(ApiAiSkill.deployStatus, { id: record.id }, { immediate: false })
+    await execStatus()
+    if (!statusErr.value && status.value) deployStatusMap.value[record.id] = status.value
+  } finally {
+    deployLoadingId.value = null
+  }
 }
 
 // ── 新增/编辑弹窗 ──────────────────────────────────
@@ -154,7 +189,8 @@ const columns = [
   { title: '工作目录类型', dataIndex: 'work_dir_type', width: 110 },
   { title: '版本', dataIndex: 'version', width: 60 },
   { title: '状态', dataIndex: 'status', width: 80, slotName: 'status' },
-  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 150, fixed: 'right' as const },
+  { title: '部署状态', dataIndex: 'deploy', width: 100, slotName: 'deploy' },
+  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 190, fixed: 'right' as const },
 ]
 </script>
 
@@ -207,9 +243,17 @@ const columns = [
             {{ record.status === 'active' ? '启用' : record.status === 'draft' ? '草稿' : '禁用' }}
           </a-tag>
         </template>
+        <template #deploy="{ record }">
+          <a-tooltip :content="deployStatusMap[record.id]?.deployed_dir || ''" position="top">
+            <a-tag :color="deployStateTag(deployStatusMap[record.id]?.state).color">
+              {{ deployStateTag(deployStatusMap[record.id]?.state).label }}
+            </a-tag>
+          </a-tooltip>
+        </template>
         <template #operations="{ record }">
           <a-space>
             <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
+            <a-button type="text" size="small" :loading="deployLoadingId === record.id" @click="handleDeploy(record)">部署</a-button>
             <a-popconfirm content="确认删除该 Skill？" @ok="handleDelete(record)">
               <a-button type="text" size="small" status="danger">删除</a-button>
             </a-popconfirm>
