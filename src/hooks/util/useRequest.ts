@@ -40,11 +40,13 @@ export const useRequest = createFetch({
       if (status === 200) {
         data = data.data || {}
       } else if (status === 401) {
-        // JWT未授权，跳转登录页
+        // JWT未授权（token 缺失/失效/过期），跳转登录页
         await log_out()
       } else if (status === 403) {
-        // API未授权，跳转到403页面
-        await go_to_403()
+        // 接口无权限：仅提示，不跳转、不登出。
+        // 页面里的次要请求（如导航栏拉角色列表）没权限时不应影响整个会话
+        no_permission(response?.url)
+        data = ErrorFlag
       } else {
         // 400/500/其他错误码：显示后端错误信息
         Message.error(data?.msg || `请求失败 (${status})`)
@@ -67,7 +69,7 @@ export const useRequest = createFetch({
       if (response?.status === 401) {
         await log_out()
       } else if (response?.status === 403) {
-        await go_to_403()
+        no_permission(response?.url)
       } else if (data?.msg) {
         // 后端返回了 JSON 格式的错误信息
         Message.error(data.msg)
@@ -92,10 +94,23 @@ async function log_out() {
   }, 500)
 }
 
-async function go_to_403() {
-  setTimeout(() => {
-    router.push({ name: '403' })
-  }, 500)
+/**
+ * 接口无权限（HTTP 403）处理：只提示，不登出、不跳转。
+ *
+ * 之前后端把"无权限"也返回 401，前端 401 分支会清 token 并跳登录页，
+ * 结果任意一个次要请求（例如导航栏拉角色列表）缺权限就把用户踢下线。
+ * 现在后端区分 401（登录态失效）与 403（无权限），这里只弹一次提示。
+ * 同一路径 3 秒内不重复提示，避免页面并发多个无权限请求时刷屏。
+ */
+const noPermissionTips = new Map<string, number>()
+function no_permission(url?: string) {
+  const key = (url || '').split('?')[0]
+  const now = Date.now()
+  const last = noPermissionTips.get(key) || 0
+  if (now - last < 3000)
+    return
+  noPermissionTips.set(key, now)
+  Message.error(key ? `无权访问该功能（${key.replace(/^.*\/api\//, '')}）` : '无权访问该功能')
 }
 
 /**

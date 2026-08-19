@@ -10,7 +10,8 @@ defineOptions({ name: 'Dashboard' })
 const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
 const userStore = useUserStore()
 
-const nickName = computed(() => userStore.user.name || '')
+// 展示名优先用昵称（扫码登录用户的账号是 kd_<金蝶uid>，不适合直接展示）
+const nickName = computed(() => userStore.user.nickname || userStore.user.name || '')
 </script>
 
 <template>

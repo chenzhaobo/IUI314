@@ -9,7 +9,8 @@ import { useUserStore } from '@/stores'
 defineOptions({ name: 'defect' })
 
 const userStore = useUserStore()
-const currentUser = computed(() => userStore.user.name || userStore.user.uid || 'admin')
+// 负责人写入的是展示名，优先用昵称（扫码登录用户的账号是 kd_<金蝶uid>）
+const currentUser = computed(() => userStore.user.nickname || userStore.user.name || userStore.user.uid || 'admin')
 
 const queryParams = ref({ page_num: 1, page_size: 10, keyword: '', project_group_id: '' })
 const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<any>(ApiSecDefect.getList, queryParams, { immediate: true })

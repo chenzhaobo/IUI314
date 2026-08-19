@@ -36,6 +36,46 @@ export interface LoginFormLocal extends LoginForm {
 }
 
 /**
+ * @description: 金蝶通行证登录配置（GET /comm/kd_config）
+ */
+export interface KdLoginConfig {
+  enabled: boolean
+  client_id: string
+  auth_url: string
+  checklogin_url: string
+  /** 服务端配置的回调地址，空串表示由前端用当前 origin 拼接 */
+  redirect_uri: string
+  /** true: 后端用 code 换 token 校验，前端只需回传 code */
+  server_side_verify: boolean
+}
+
+/**
+ * @description: 金蝶通行证 checklogin 返回的用户信息
+ */
+export interface KdPassportUser {
+  uid: number
+  nickname?: string
+  email?: string
+  phone?: string
+  avatar?: string
+  login: number
+  login_type?: number
+}
+
+/**
+ * @description: 金蝶通行证登录请求体（POST /comm/kd_login）
+ */
+export interface KdLoginReq {
+  code?: string
+  redirect_uri?: string
+  uid?: number
+  nickname?: string
+  email?: string
+  phone?: string
+  avatar?: string
+}
+
+/**
  * token info
  */
 export interface TokenInfo {

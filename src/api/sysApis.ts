@@ -4,6 +4,8 @@
 export enum ApiSysLogin {
   getCaptcha = '/comm/get_captcha',
   login = '/comm/login',
+  kdConfig = '/comm/kd_config',
+  kdLogin = '/comm/kd_login',
   getUserInfo = '/system/user/get_info',
   getRouters = '/system/menu/get_routers',
   logOut = '/comm/log_out',

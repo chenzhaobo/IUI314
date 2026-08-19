@@ -6,7 +6,7 @@ import { usePermissionStore } from './permission'
 import { ApiSysLogin, ApiSysUser, ErrorFlag } from '@/api/apis'
 import defaultAvatar from '@/assets/av.webp'
 import { useEncrypt, useGet, usePost, usePut } from '@/hooks'
-import type { FullUserInfo, LoginForm, LoginFormLocal, TokenInfo } from '@/types/base/login'
+import type { FullUserInfo, KdLoginReq, LoginForm, LoginFormLocal, TokenInfo } from '@/types/base/login'
 
 export const useUserStore = defineStore('userInfo', {
   state: () => ({
@@ -23,6 +23,7 @@ export const useUserStore = defineStore('userInfo', {
     rememberMe: false,
     user: {
       name: '',
+      nickname: '',
       avatar: '',
       roles: Array<string>(),
       role: '',
@@ -82,6 +83,31 @@ export const useUserStore = defineStore('userInfo', {
       usePermissionStore().setIsReloading(true)
       usePermissionStore().setServerError(false)
     },
+    /**
+     * 金蝶通行证登录（云之家扫码 / 金蝶账号密码）
+     *
+     * 【流程】
+     * 1. 用户点击"金蝶通行证登录" → 跳转 passport 授权页（可选云之家扫码）
+     * 2. 授权成功后回调 /#/login?code=xxx
+     * 3. server_side_verify=true：直接把 code 交给后端，后端换 token 拉用户信息
+     *    server_side_verify=false：前端先调 checklogin（带 Cookie）拿到 uid 等信息再回传
+     * 4. 后端按 kd_uid 查/建本地用户（首次建号分配固定角色），签发与密码登录一致的 JWT
+     */
+    async kdLogin(req: KdLoginReq) {
+      const { data, execute } = usePost<TokenInfo>(ApiSysLogin.kdLogin, req)
+      await execute()
+      const token = unref(data) as TokenInfo
+      if (!token || !token.token)
+        throw new Error('金蝶通行证登录失败')
+      this.token = {
+        value: token.token,
+        expires: token.exp,
+        exp_in: token.exp_in,
+        type: token.token_type,
+      }
+      usePermissionStore().setIsReloading(true)
+      usePermissionStore().setServerError(false)
+    },
     // 获取用户信息
     async getUserInfo(): Promise<boolean> {
       const { data, error, execute } = useGet<FullUserInfo>(ApiSysLogin.getUserInfo, null, { refetch: false })
@@ -98,7 +124,10 @@ export const useUserStore = defineStore('userInfo', {
       const user = data.value
       if (user && user.user) {
         this.user = {
+          // name = 登录账号（唯一标识，扫码用户形如 kd_<金蝶uid>）
           name: user.user.user_name,
+          // nickname = 展示名（扫码用户取金蝶昵称，如"陈钊波"）；缺失时回落到账号
+          nickname: user.user.user_nickname || user.user.user_name,
           avatar:
             user.user.avatar === '' || user.user.avatar == null
               ? defaultAvatar
