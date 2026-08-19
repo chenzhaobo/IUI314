@@ -292,6 +292,7 @@ export enum ApiPerfReportTask {
   save = '/perf/periodic-report/task/save',
   delete = '/perf/periodic-report/task/delete',
   trigger = '/perf/periodic-report/task/trigger',
+  cancel = '/perf/periodic-report/task/cancel',
   runs = '/perf/periodic-report/task/runs',
 }
 
@@ -312,6 +313,7 @@ export enum ApiPerfIssue {
   changeStatus = '/perf/issue/change_status',
   delete = '/perf/issue/delete',
   stats = '/perf/issue/stats',
+  export = '/perf/issue/export',
   batchImport = '/perf/issue/batch_import',
   // 问题智能同步
   syncFromDiagnosis = '/perf/issue/sync-from-diagnosis',
@@ -327,6 +329,7 @@ export enum ApiPerfReportV2 {
   edit = '/perf/report-v2/edit',
   publish = '/perf/report-v2/publish',
   delete = '/perf/report-v2/delete',
+  dailyExport = '/perf/periodic-report/daily/export',
 }
 
 // ── 分析任务 ──────────────────────────────────────
@@ -371,6 +374,9 @@ export enum ApiPerfScenario {
 // ── 问题模式台账（§11.2） ──────────────────────────────────────
 export enum ApiPerfPatternLedger {
   list = '/perf/periodic-report/pattern/list',
+  export = '/perf/periodic-report/pattern/export',
+  save = '/perf/periodic-report/pattern/save',
+  createIssue = '/perf/periodic-report/pattern/create-issue',
 }
 
 // ── Agent 自主诊断 ──────────────────────────────────────

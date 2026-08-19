@@ -72,6 +72,7 @@
               <a-space>
                 <a-link @click="handleDetail(record)">详情</a-link>
                 <a-link @click="handleHtmlPreview(record)">HTML预览</a-link>
+                <a-link v-if="record.analysis_type === 'daily_report'" status="success" @click="handleDailyExport(record)">导出 Excel</a-link>
                 <a-link v-if="record.status === 'draft'" @click="handleEdit(record)">编辑</a-link>
                 <a-popconfirm v-if="record.status === 'draft'" content="确定发布？" @ok="handlePublish(record)">
                   <a-link status="success">发布</a-link>
@@ -244,6 +245,24 @@ const handleDelete = async (record: any) => {
   await doDelete()
   Message.success('删除成功')
   fetchData()
+}
+
+async function handleDailyExport(record: any) {
+  const base = import.meta.env.VITE_API_BASE_URL || '/api'
+  const token = localStorage.getItem('token') || ''
+  try {
+    const response = await fetch(`${base}${ApiPerfReportV2.dailyExport}?report_id=${encodeURIComponent(record.id)}`, { headers: { Authorization: `Bearer ${token}` } })
+    if (!response.ok || (response.headers.get('content-type') || '').includes('application/json')) throw new Error('export failed')
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${record.title || '性能日报'}.xlsx`
+    link.click()
+    URL.revokeObjectURL(url)
+  } catch {
+    Message.error('日报导出失败')
+  }
 }
 </script>
 

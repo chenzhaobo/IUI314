@@ -44,6 +44,7 @@
           <a-space>
             <a-button type="primary" @click="handleSearch">查询</a-button>
             <a-button @click="handleReset">重置</a-button>
+            <a-button status="success" @click="handleExport">导出 Excel</a-button>
             <a-button type="primary" status="success" @click="handleAdd">新增</a-button>
           </a-space>
         </a-col>
@@ -203,15 +204,19 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { ApiPerfIssue } from '@/api/perfApis'
 import { useGet, usePost, usePut, useDelete } from '@/hooks'
 
 defineOptions({ name: 'issue-list' })
 
+const route = useRoute()
+const initialKeyword = typeof route.query.keyword === 'string' ? route.query.keyword : ''
+
 const pageNum = ref(1)
 const pageSize = ref(20)
-const searchForm = reactive({ keyword: '', status: '', severity: '', category: '', app_number: '', source: '' })
+const searchForm = reactive({ keyword: initialKeyword, status: '', severity: '', category: '', app_number: '', source: '' })
 
 const drawerVisible = ref(false)
 const currentRecord = ref<any>(null)
@@ -246,6 +251,27 @@ const { isFetching: loading, data: rawData, execute: fetchData } = useGet<any>(A
 const tableData = computed(() => rawData.value?.list || [])
 const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0 }))
 
+
+
+const handleExport = async () => {
+  const params = new URLSearchParams()
+  Object.entries(searchForm).forEach(([key, value]) => { if (value) params.set(key, String(value)) })
+  const base = import.meta.env.VITE_API_BASE_URL || '/api'
+  const token = localStorage.getItem('token') || ''
+  try {
+    const response = await fetch(`${base}${ApiPerfIssue.export}?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } })
+    if (!response.ok || (response.headers.get('content-type') || '').includes('application/json')) throw new Error('export failed')
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = '问题跟踪.xlsx'
+    link.click()
+    URL.revokeObjectURL(url)
+  } catch {
+    Message.error('问题跟踪导出失败')
+  }
+}
 const handleSearch = () => { pageNum.value = 1; fetchData() }
 const handleReset = () => { Object.assign(searchForm, { keyword: '', status: '', severity: '', category: '', app_number: '', source: '' }); handleSearch() }
 const handlePageChange = (page: number) => { pageNum.value = page; fetchData() }

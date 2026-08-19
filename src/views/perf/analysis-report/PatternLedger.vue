@@ -43,6 +43,7 @@
           <a-space>
             <a-button type="primary" @click="handleSearch">查询</a-button>
             <a-button @click="handleReset">重置</a-button>
+            <a-button status="success" @click="handleExport">导出 Excel</a-button>
           </a-space>
         </a-col>
       </a-row>
@@ -100,9 +101,18 @@
               <span v-else>--</span>
             </template>
           </a-table-column>
-          <a-table-column title="操作" :width="100" fixed="right">
+          <a-table-column title="操作" :width="220" fixed="right">
             <template #cell="{ record }">
-              <a-link @click="handleDetail(record)">详情</a-link>
+              <a-space>
+                <a-link @click="handleDetail(record)">详情</a-link>
+                <a-link v-if="record.issue_id" @click="gotoIssue(record.issue_id)">查看问题</a-link>
+                <template v-else>
+                  <a-tooltip :content="getDefectReport(record) ? '从完整缺陷报告生成问题跟踪' : '旧台账没有完整缺陷报告，不能自动提单'">
+                    <a-link :disabled="!getDefectReport(record)" status="success" @click="handleCreateIssue(record)">生成问题</a-link>
+                  </a-tooltip>
+                  <a-link @click="openLinkIssue(record)">关联已有</a-link>
+                </template>
+              </a-space>
             </template>
           </a-table-column>
         </template>
@@ -133,6 +143,43 @@
           <a-link @click="gotoIssue(currentRecord.issue_id)">{{ currentRecord.issue_id }}</a-link>
         </a-descriptions-item>
       </a-descriptions>
+
+      <template v-if="getDefectReport(currentRecord)">
+        <a-divider>完整缺陷报告</a-divider>
+        <a-descriptions :column="2" bordered size="small">
+          <a-descriptions-item label="问题 Hash" :span="2"><a-typography-text copyable>{{ getDefectReport(currentRecord).problem_hash }}</a-typography-text></a-descriptions-item>
+          <a-descriptions-item label="报告状态">{{ defectStatusText(getDefectReport(currentRecord).report_status) }}</a-descriptions-item>
+          <a-descriptions-item label="可生成问题">{{ getDefectReport(currentRecord).issue_ready ? '是' : '否（证据不足，需确认）' }}</a-descriptions-item>
+          <a-descriptions-item label="表单/操作" :span="2">{{ getDefectReport(currentRecord).scope?.form_id }} / {{ getDefectReport(currentRecord).scope?.operation }}</a-descriptions-item>
+          <a-descriptions-item label="影响客户" :span="2">{{ (getDefectReport(currentRecord).scope?.customers || []).join('、') }}</a-descriptions-item>
+          <a-descriptions-item label="样本/请求">{{ getDefectReport(currentRecord).metrics?.selected_sample_count }} / {{ getDefectReport(currentRecord).metrics?.affected_request_count }}</a-descriptions-item>
+          <a-descriptions-item label="最大耗时">{{ getDefectReport(currentRecord).metrics?.max_cost_ms }} ms</a-descriptions-item>
+          <a-descriptions-item label="数据规模" :span="2">{{ getDefectReport(currentRecord).metrics?.data_volume }}</a-descriptions-item>
+        </a-descriptions>
+
+        <a-divider>精确位置</a-divider>
+        <div class="content-block">
+          <div v-for="(location, idx) in getDefectReport(currentRecord).locations || []" :key="idx" style="margin-bottom: 6px">
+            <a-tag size="small">{{ location.kind }}</a-tag>
+            <code>{{ location.method || location.sql_skeleton || location.endpoint || '未定位' }}</code>
+          </div>
+        </div>
+
+        <a-divider>复现步骤</a-divider>
+        <ol class="content-block">
+          <li v-for="(step, idx) in getDefectReport(currentRecord).reproduction_steps || []" :key="idx">{{ step }}</li>
+        </ol>
+        <a-divider>期望 / 实际</a-divider>
+        <div class="content-block"><strong>期望：</strong>{{ getDefectReport(currentRecord).expected_result }}<br><strong>实际：</strong>{{ getDefectReport(currentRecord).actual_result }}</div>
+        <a-divider>根因</a-divider>
+        <div class="content-block">{{ getDefectReport(currentRecord).root_cause }}</div>
+        <a-divider>修复建议</a-divider>
+        <ul class="content-block"><li v-for="(item, idx) in getDefectReport(currentRecord).fix_suggestions || []" :key="idx">{{ item }}</li></ul>
+        <a-divider>验证建议</a-divider>
+        <ul class="content-block"><li v-for="(item, idx) in getDefectReport(currentRecord).verification_suggestions || []" :key="idx">{{ item }}</li></ul>
+        <a-divider v-if="(getDefectReport(currentRecord).missing_evidence || []).length">缺失证据</a-divider>
+        <ul v-if="(getDefectReport(currentRecord).missing_evidence || []).length" class="content-block"><li v-for="(item, idx) in getDefectReport(currentRecord).missing_evidence" :key="idx">{{ item }}</li></ul>
+      </template>
 
       <a-divider>AI 摘要</a-divider>
       <div class="content-block">{{ currentRecord?.ai_summary || '暂无' }}</div>
@@ -174,14 +221,20 @@
       </div>
       <div v-else class="content-block">暂无</div>
     </a-drawer>
+
+    <a-modal v-model:visible="linkIssueVisible" title="关联已有问题跟踪" :width="520" @ok="handleLinkIssue">
+      <a-alert type="warning" style="margin-bottom: 12px">请输入问题跟踪的内部 ID（不是标题）。后端会校验问题真实存在且未删除。</a-alert>
+      <a-input v-model="linkIssueId" placeholder="perf_issue.id" allow-clear />
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { Message, Modal } from '@arco-design/web-vue'
 import { ApiPerfPatternLedger } from '@/api/perfApis'
-import { useGet } from '@/hooks'
+import { useGet, usePost } from '@/hooks'
 
 defineOptions({ name: 'pattern-ledger' })
 
@@ -200,6 +253,13 @@ const drawerVisible = ref(false)
 const currentRecord = ref<any>(null)
 
 // ── 映射 ──────────────────────────────────────
+
+const linkIssueVisible = ref(false)
+const linkIssueId = ref('')
+const linkPattern = ref<any>(null)
+
+const getDefectReport = (record: any) => record?.evidence?.defect_report || null
+const defectStatusText = (status: string) => ({ complete: '完整', evidence_insufficient: '证据不足', pending_retry: '待重试' }[status] || status || '--')
 const statusMap: Record<string, string> = {
   new: '新发现', issued: '已提单', scheduled: '已排期', fixing: '修复中',
   fixed: '已修复', verified: '已验证', recurrent: '复发', closed: '已关闭', exempted: '已豁免',
@@ -232,6 +292,30 @@ const queryParams = computed(() => ({ ...searchForm, page_num: pageNum.value, pa
 const { isFetching: loading, data: rawData, execute: fetchData } = useGet<any>(ApiPerfPatternLedger.list, queryParams, { immediate: true })
 const tableData = computed(() => rawData.value?.list || [])
 const statsData = computed(() => rawData.value?.stats || null)
+
+const downloadExcel = async (url: string, filename: string) => {
+  const base = import.meta.env.VITE_API_BASE_URL || '/api'
+  const token = localStorage.getItem('token') || ''
+  const response = await fetch(`${base}${url}`, { headers: { Authorization: `Bearer ${token}` } })
+  if (!response.ok || (response.headers.get('content-type') || '').includes('application/json')) throw new Error('导出失败')
+  const blob = await response.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(objectUrl)
+}
+
+const handleExport = async () => {
+  const params = new URLSearchParams()
+  Object.entries(searchForm).forEach(([key, value]) => { if (value) params.set(key, String(value)) })
+  try {
+    await downloadExcel(`${ApiPerfPatternLedger.export}?${params.toString()}`, '问题台账.xlsx')
+  } catch {
+    Message.error('问题台账导出失败')
+  }
+}
 const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0 }))
 
 // ── 操作 ──────────────────────────────────────
@@ -244,6 +328,49 @@ const handlePageChange = (page: number) => { pageNum.value = page; fetchData() }
 const handleDetail = (record: any) => { currentRecord.value = record; drawerVisible.value = true }
 const gotoIssue = (issueId: string) => {
   router.push({ path: '/perf/issue', query: { keyword: issueId } })
+}
+
+const createIssuePayload = ref<any>({})
+const { data: createIssueResult, execute: doCreateIssue } = usePost<any>(ApiPerfPatternLedger.createIssue, createIssuePayload, { immediate: false })
+const savePatternPayload = ref<any>({})
+const { execute: doSavePattern } = usePost<any>(ApiPerfPatternLedger.save, savePatternPayload, { immediate: false })
+
+const performCreateIssue = async (record: any, confirmEvidenceInsufficient: boolean) => {
+  createIssuePayload.value = { id: record.id, confirm_evidence_insufficient: confirmEvidenceInsufficient }
+  await doCreateIssue()
+  const result = createIssueResult.value
+  Message.success(result?.created === false ? `已关联问题 ${result?.issue_no || ''}` : `问题 ${result?.issue_no || ''} 创建成功`)
+  await fetchData()
+}
+
+const handleCreateIssue = (record: any) => {
+  const report = getDefectReport(record)
+  if (!report) { Message.warning('该台账没有完整缺陷报告，不能自动生成问题'); return }
+  const insufficient = !report.issue_ready
+  Modal.confirm({
+    title: insufficient ? '以待补证问题提单？' : '生成问题跟踪？',
+    content: insufficient
+      ? '当前缺陷报告明确标记为证据不足。继续后将创建真实问题单，并保留缺失证据与待补证说明。'
+      : `将从问题 ${report.problem_hash} 的完整缺陷报告创建真实问题跟踪，并原子回填台账关联。`,
+    okText: insufficient ? '确认待补证提单' : '确认生成',
+    onOk: () => performCreateIssue(record, insufficient),
+  })
+}
+
+const openLinkIssue = (record: any) => {
+  linkPattern.value = record
+  linkIssueId.value = ''
+  linkIssueVisible.value = true
+}
+
+const handleLinkIssue = async () => {
+  if (!linkIssueId.value.trim()) { Message.warning('请输入问题 ID'); return false }
+  savePatternPayload.value = { id: linkPattern.value.id, issue_id: linkIssueId.value.trim(), status: 'issued' }
+  await doSavePattern()
+  Message.success('关联成功')
+  linkIssueVisible.value = false
+  await fetchData()
+  return true
 }
 </script>
 

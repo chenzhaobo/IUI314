@@ -163,10 +163,14 @@
           <a-date-picker v-model="triggerDate" style="width: 100%" />
         </a-form-item>
         <a-form-item label="只跑指定阶段（空=全流程）">
-          <a-select v-model="triggerStage" allow-clear placeholder="全流程：下载→分析→报告→推送">
+          <a-select v-model="triggerStage" allow-clear placeholder="全流程：下载→提取→分类→缺陷归因→报告→推送">
+            <a-option value="preflight">preflight（预检，不调用 Ops）</a-option>
             <a-option value="download">download（下载）</a-option>
-            <a-option value="analyze">analyze（分析）</a-option>
-            <a-option value="report">report（报告）</a-option>
+            <a-option value="extract">extract（结构化提取）</a-option>
+            <a-option value="classify_hash">classify_hash（确定性分类）</a-option>
+            <a-option value="defect_attribution">defect_attribution（逐问题缺陷报告）</a-option>
+            <a-option value="analyze">analyze（兼容入口：提取+分类+归因）</a-option>
+            <a-option value="report">report（日报与台账）</a-option>
             <a-option value="push">push（推送）</a-option>
           </a-select>
         </a-form-item>
@@ -174,19 +178,32 @@
     </a-modal>
 
     <!-- 运行记录抽屉 -->
-    <a-drawer v-model:visible="drawerVisible" :title="`运行记录: ${currentTask?.task_name || ''}`" :width="760" :footer="false">
+    <a-drawer v-model:visible="drawerVisible" :title="`运行记录: ${currentTask?.task_name || ''}`" :width="1080" :footer="false">
       <a-table :data="runList" :loading="runLoading" :pagination="false" size="small" row-key="id">
         <template #columns>
           <a-table-column title="数据日期" data-index="run_date" :width="100" />
-          <a-table-column title="阶段" :width="90">
+          <a-table-column title="阶段" :width="120">
             <template #cell="{ record }">
               <a-tag size="small">{{ stageText(record.stage) }}</a-tag>
             </template>
           </a-table-column>
-          <a-table-column title="状态" :width="80">
+          <a-table-column title="状态" :width="82">
             <template #cell="{ record }">
               <a-tag :color="runStatusColor(record.status)" size="small">{{ runStatusText(record.status) }}</a-tag>
             </template>
+          </a-table-column>
+          <a-table-column title="进度 / ETA" :width="190">
+            <template #cell="{ record }">
+              <a-progress :percent="Math.max(0, Math.min(1, (record.progress || 0) / 100))" size="small" />
+              <div class="run-progress-detail">
+                {{ record.done_items || 0 }}/{{ record.total_items || 0 }}
+                <span v-if="record.failed_items"> · 失败 {{ record.failed_items }}</span>
+                <span v-if="record.eta_seconds != null"> · ETA {{ fmtDuration(record.eta_seconds) }}</span>
+              </div>
+            </template>
+          </a-table-column>
+          <a-table-column title="心跳" :width="145">
+            <template #cell="{ record }">{{ fmtTime(record.heartbeat_at) }}</template>
           </a-table-column>
           <a-table-column title="产物/错误" ellipsis>
             <template #cell="{ record }">
@@ -200,6 +217,14 @@
           </a-table-column>
           <a-table-column title="结束" :width="140">
             <template #cell="{ record }">{{ fmtTime(record.finished_at) }}</template>
+          </a-table-column>
+          <a-table-column title="操作" :width="70" fixed="right">
+            <template #cell="{ record }">
+              <a-popconfirm v-if="record.status === 'running'" content="在当前安全边界取消该阶段？已完成原子产物会保留。" @ok="cancelRun(record)">
+                <a-link status="danger">取消</a-link>
+              </a-popconfirm>
+              <span v-else>-</span>
+            </template>
           </a-table-column>
         </template>
       </a-table>
@@ -347,6 +372,15 @@ const openRuns = (record: any) => {
 }
 
 // 抽屉打开且存在 running 记录时每 5 秒自动刷新
+
+const cancelPayload = ref<any>({})
+const { execute: doCancelRun } = usePost<any>(ApiPerfReportTask.cancel, cancelPayload, { immediate: false })
+const cancelRun = async (record: any) => {
+  cancelPayload.value = { task_id: record.task_id, run_date: record.run_date, stage: record.stage }
+  await doCancelRun()
+  Message.success('已提交取消请求，将在当前网络请求或处理项完成后停止')
+  fetchRuns()
+}
 let runTimer: ReturnType<typeof setInterval> | null = null
 const stopRunTimer = () => { if (runTimer) { clearInterval(runTimer); runTimer = null } }
 watch([drawerVisible, runList], ([visible, list]) => {
@@ -360,14 +394,26 @@ onUnmounted(stopRunTimer)
 // ── 格式化辅助 ──────────────────────────────────
 const dimTypeText = (t: string) => ({ product_domain: '产品领域', business_area: '业务领域', project_group: '项目组' }[t] || t)
 const dimTypeColor = (t: string) => ({ product_domain: 'arcoblue', business_area: 'green', project_group: 'orange' }[t] || 'gray')
-const stageText = (s: string) => ({ download: '下载', analyze: '分析', report: '报告', push: '推送' }[s] || s)
-const runStatusText = (s: string) => ({ running: '运行中', success: '成功', failed: '失败', skipped: '跳过' }[s] || s || '-')
-const runStatusColor = (s: string) => ({ running: 'blue', success: 'green', failed: 'red', skipped: 'gray' }[s] || 'gray')
+const stageText = (s: string) => ({ preflight: '预检', download: '下载', extract: '结构提取', classify_hash: '问题分类', defect_attribution: '缺陷归因', analyze: '兼容分析', report: '日报台账', push: '推送' }[s] || s)
+const runStatusText = (s: string) => ({ running: '运行中', success: '成功', failed: '失败', skipped: '跳过', cancelled: '已取消', interrupted: '待恢复' }[s] || s || '-')
+const runStatusColor = (s: string) => ({ running: 'blue', success: 'green', failed: 'red', skipped: 'gray', cancelled: 'orange', interrupted: 'orangered' }[s] || 'gray')
 const fmtTime = (t?: string) => (t ? t.replace('T', ' ').slice(0, 19) : '-')
+const fmtDuration = (seconds?: number) => {
+  const value = Math.max(0, Number(seconds || 0))
+  if (value < 60) return `${value}s`
+  if (value < 3600) return `${Math.ceil(value / 60)}m`
+  return `${Math.floor(value / 3600)}h${Math.ceil((value % 3600) / 60)}m`
+}
 </script>
 
 <style scoped>
 .container {
   padding: 16px;
+}
+.run-progress-detail {
+  margin-top: 2px;
+  color: #86909c;
+  font-size: 11px;
+  white-space: nowrap;
 }
 </style>
