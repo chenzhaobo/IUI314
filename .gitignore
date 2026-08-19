@@ -36,3 +36,6 @@ yarn.lock
 
 # Vite temp files
 *.timestamp-*.mjs
+
+# Local dev process state
+.run/
