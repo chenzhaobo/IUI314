@@ -15,7 +15,6 @@ import type {
   ApiSysServiceMonitor,
   ApiSysUser,
 } from './sysApis'
-import type { ApiDataScopeTest } from './tests'
 import type {
   ApiSecDefect,
   ApiSecFinding,
@@ -73,7 +72,6 @@ export type APIS =
   | ApiSysServiceMonitor
   | ApiSysScheduledTasks
   | ApiSysScheduledTasksLog
-  | ApiDataScopeTest
   | ApiSecScanTool
   | ApiSecScanRun
   | ApiSecFinding
@@ -112,7 +110,6 @@ export type APIS =
 
 export const ErrorFlag = '__________' // 错误标志
 export * from './sysApis'
-export * from './tests'
 export * from './sechubApis'
 export * from './perfApis'
 export * from './infraApis'
