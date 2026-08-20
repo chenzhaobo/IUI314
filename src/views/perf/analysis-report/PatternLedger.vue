@@ -120,7 +120,12 @@
     </a-card>
 
     <!-- 详情抽屉 -->
-    <a-drawer v-model:visible="drawerVisible" :width="700" :title="currentRecord?.title || '模式详情'">
+    <a-drawer
+      v-model:visible="drawerVisible"
+      :width="'82vw'"
+      :title="currentRecord?.title || '问题详情'"
+      :body-style="{ maxHeight: 'calc(100vh - 120px)', overflow: 'auto' }"
+    >
       <a-descriptions :column="2" bordered size="small" style="margin-bottom: 16px">
         <a-descriptions-item label="编号">{{ currentRecord?.pattern_no }}</a-descriptions-item>
         <a-descriptions-item label="状态">
@@ -220,6 +225,13 @@
         </div>
       </div>
       <div v-else class="content-block">暂无</div>
+
+      <template #footer>
+        <a-space>
+          <a-button @click="drawerVisible = false">关闭</a-button>
+          <a-button type="primary" status="success" :loading="detailExporting" @click="handleDetailExport">下载关联 Excel</a-button>
+        </a-space>
+      </template>
     </a-drawer>
 
     <a-modal v-model:visible="linkIssueVisible" title="关联已有问题跟踪" :width="520" @ok="handleLinkIssue">
@@ -251,6 +263,7 @@ const searchForm = reactive({
 })
 const drawerVisible = ref(false)
 const currentRecord = ref<any>(null)
+const detailExporting = ref(false)
 
 // ── 映射 ──────────────────────────────────────
 
@@ -314,6 +327,21 @@ const handleExport = async () => {
     await downloadExcel(`${ApiPerfPatternLedger.export}?${params.toString()}`, '问题台账.xlsx')
   } catch {
     Message.error('问题台账导出失败')
+  }
+}
+
+const handleDetailExport = async () => {
+  const record = currentRecord.value
+  if (!record) return
+  const exactKey = record.pattern_fingerprint || record.pattern_no
+  const params = new URLSearchParams({ keyword: exactKey })
+  detailExporting.value = true
+  try {
+    await downloadExcel(`${ApiPerfPatternLedger.export}?${params.toString()}`, `${record.pattern_no || '问题台账'}-详情.xlsx`)
+  } catch {
+    Message.error('关联 Excel 下载失败')
+  } finally {
+    detailExporting.value = false
   }
 }
 const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0 }))

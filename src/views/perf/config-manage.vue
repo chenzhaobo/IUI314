@@ -6,6 +6,38 @@ import { ApiPerfConfig } from '@/api/apis'
 
 defineOptions({ name: 'config-manage' })
 
+// ── 路径校验 ──────────────────────────────────
+const PATH_CONFIG_KEYS = ['jmeter_work_dir', 'jmeter_script_dir', 'jmeter_home_dir', 'report_base_dir']
+const WINDOWS_DRIVE_RE = /^[a-zA-Z]:[/\\]/
+
+/** 检测是否为 Windows 盘符路径 */
+function isWindowsDrivePath(value: string): boolean {
+  return WINDOWS_DRIVE_RE.test(value)
+}
+
+/** 是否为路径类配置 */
+function isPathConfig(c: any): boolean {
+  return PATH_CONFIG_KEYS.includes(c.config_key)
+}
+
+/** 路径配置校验状态 */
+function getPathValidateStatus(c: any): 'error' | undefined {
+  if (!isPathConfig(c)) return undefined
+  const val = c.config_value || ''
+  if (val && isWindowsDrivePath(val)) return 'error'
+  return undefined
+}
+
+/** 路径配置校验提示 */
+function getPathValidateHelp(c: any): string {
+  if (!isPathConfig(c)) return ''
+  const val = c.config_value || ''
+  if (val && isWindowsDrivePath(val)) {
+    return 'Windows 盘符路径不适用于 Linux 容器环境，请改为相对路径（如 data/_jmeter）'
+  }
+  return ''
+}
+
 // ── 加载配置列表 ──────────────────────────────────
 const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<any>(ApiPerfConfig.list, {}, { immediate: true })
 const configList = computed(() => rawListData.value || [])
@@ -45,6 +77,16 @@ function handleBoolChange(c: any, val: boolean | string | number) {
 const saving = ref(false)
 
 async function handleSave() {
+  // 前端拦截：检查是否有 Windows 盘符路径
+  const invalidPaths = configList.value.filter(
+    (c: any) => isPathConfig(c) && c.config_value && isWindowsDrivePath(c.config_value)
+  )
+  if (invalidPaths.length > 0) {
+    const keys = invalidPaths.map((c: any) => c.label || c.config_key).join('、')
+    Message.error(`以下配置使用了 Windows 盘符路径，无法在 Linux 容器中使用：${keys}`)
+    return
+  }
+
   saving.value = true
   try {
     const { execute, error } = usePut(ApiPerfConfig.save, { configs: configList.value })
@@ -88,7 +130,11 @@ function getGroupLabel(key: string) {
           <a-form :model="{}" layout="vertical">
             <a-row :gutter="24">
               <a-col v-for="c in configs" :key="c.id" :span="12">
-                <a-form-item :label="c.label || c.config_key">
+                <a-form-item
+                  :label="c.label || c.config_key"
+                  :validate-status="getPathValidateStatus(c)"
+                  :help="getPathValidateHelp(c)"
+                >
                   <a-switch
                     v-if="isBoolConfig(c)"
                     :model-value="c.config_value === 'true'"
@@ -99,6 +145,7 @@ function getGroupLabel(key: string) {
                     v-model="c.config_value"
                     :placeholder="`请输入${c.label || c.config_key}`"
                     allow-clear
+                    :status="getPathValidateStatus(c)"
                   />
                   <template #extra>
                     <span class="config-remark">{{ c.remark || '' }}</span>

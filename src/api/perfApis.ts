@@ -332,7 +332,16 @@ export enum ApiPerfReportV2 {
   dailyExport = '/perf/periodic-report/daily/export',
 }
 
-// ── 分析任务 ──────────────────────────────────────
+// ── 分析任务定义 ────────────────────────────────────
+export enum ApiPerfAnalysisJob {
+  getList = '/perf/analysis-job/list',
+  getById = '/perf/analysis-job/get_by_id',
+  save = '/perf/analysis-job/save',
+  delete = '/perf/analysis-job/delete',
+  run = '/perf/analysis-job/run',
+}
+
+// ── 分析任务运行 ──────────────────────────────────────
 export enum ApiPerfAnalysisTask {
   getList = '/perf/analysis-task/list',
   getById = '/perf/analysis-task/get_by_id',

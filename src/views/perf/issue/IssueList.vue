@@ -100,7 +100,12 @@
     </a-card>
 
     <!-- 详情抽屉 -->
-    <a-drawer v-model:visible="drawerVisible" :width="600" title="问题详情">
+    <a-drawer
+      v-model:visible="drawerVisible"
+      :width="'82vw'"
+      title="问题详情"
+      :body-style="{ maxHeight: 'calc(100vh - 120px)', overflow: 'auto' }"
+    >
       <a-descriptions :column="2" bordered size="small">
         <a-descriptions-item label="编号">{{ currentRecord?.issue_no }}</a-descriptions-item>
         <a-descriptions-item label="状态">
@@ -119,14 +124,32 @@
         <a-descriptions-item label="修复日期">{{ currentRecord?.fixed_date }}</a-descriptions-item>
         <a-descriptions-item label="来源">{{ sourceText(currentRecord?.source) }}</a-descriptions-item>
         <a-descriptions-item label="出现次数">{{ currentRecord?.recurrence_count || 1 }}</a-descriptions-item>
+        <a-descriptions-item label="归因标签">{{ currentRecord?.attribution_tag || '--' }}</a-descriptions-item>
+        <a-descriptions-item label="产品线">{{ currentRecord?.product_line || '--' }}</a-descriptions-item>
         <a-descriptions-item v-if="currentRecord?.related_issue_id" label="关联问题" :span="2">
           <a-link @click="openRelatedIssue(currentRecord.related_issue_id)">{{ currentRecord.related_issue_id }}</a-link>
         </a-descriptions-item>
       </a-descriptions>
+      <a-divider>问题描述</a-divider>
+      <div class="markdown-content">{{ currentRecord?.description || '暂无' }}</div>
       <a-divider>根因分析</a-divider>
       <div class="markdown-content">{{ currentRecord?.root_cause || '暂无' }}</div>
       <a-divider>修复建议</a-divider>
       <div class="markdown-content">{{ currentRecord?.fix_suggestion || '暂无' }}</div>
+      <a-divider>样本 Trace IDs</a-divider>
+      <div v-if="traceIdList(currentRecord?.trace_ids).length" class="markdown-content">
+        <a-typography-paragraph v-for="traceId in traceIdList(currentRecord?.trace_ids)" :key="traceId" copyable style="margin: 0 0 4px">{{ traceId }}</a-typography-paragraph>
+      </div>
+      <div v-else class="markdown-content">暂无</div>
+      <a-divider>技术签名</a-divider>
+      <pre class="json-content">{{ prettyJson(currentRecord?.tech_signature) }}</pre>
+
+      <template #footer>
+        <a-space>
+          <a-button @click="drawerVisible = false">关闭</a-button>
+          <a-button type="primary" status="success" :loading="detailExporting" @click="handleDetailExport">下载关联 Excel</a-button>
+        </a-space>
+      </template>
     </a-drawer>
 
     <!-- 新增弹窗 -->
@@ -220,6 +243,7 @@ const searchForm = reactive({ keyword: initialKeyword, status: '', severity: '',
 
 const drawerVisible = ref(false)
 const currentRecord = ref<any>(null)
+const detailExporting = ref(false)
 const modalVisible = ref(false)
 const formData = reactive<any>({
   title: '', severity: 'major', issue_type: 'slow_sql', category: 'standard',
@@ -251,25 +275,46 @@ const { isFetching: loading, data: rawData, execute: fetchData } = useGet<any>(A
 const tableData = computed(() => rawData.value?.list || [])
 const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0 }))
 
+const traceIdList = (raw?: string): string[] => (raw || '').split(/[,;\s]+/).filter(Boolean)
+const prettyJson = (value: any): string => {
+  if (!value) return '暂无'
+  try { return JSON.stringify(typeof value === 'string' ? JSON.parse(value) : value, null, 2) } catch { return String(value) }
+}
 
+const downloadIssueExcel = async (params: URLSearchParams, filename: string) => {
+  const base = import.meta.env.VITE_API_BASE_URL || '/api'
+  const token = localStorage.getItem('token') || ''
+  const response = await fetch(`${base}${ApiPerfIssue.export}?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } })
+  if (!response.ok || (response.headers.get('content-type') || '').includes('application/json')) throw new Error('export failed')
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
 
 const handleExport = async () => {
   const params = new URLSearchParams()
   Object.entries(searchForm).forEach(([key, value]) => { if (value) params.set(key, String(value)) })
-  const base = import.meta.env.VITE_API_BASE_URL || '/api'
-  const token = localStorage.getItem('token') || ''
   try {
-    const response = await fetch(`${base}${ApiPerfIssue.export}?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } })
-    if (!response.ok || (response.headers.get('content-type') || '').includes('application/json')) throw new Error('export failed')
-    const blob = await response.blob()
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = '问题跟踪.xlsx'
-    link.click()
-    URL.revokeObjectURL(url)
+    await downloadIssueExcel(params, '问题跟踪.xlsx')
   } catch {
     Message.error('问题跟踪导出失败')
+  }
+}
+
+const handleDetailExport = async () => {
+  const record = currentRecord.value
+  if (!record) return
+  detailExporting.value = true
+  try {
+    await downloadIssueExcel(new URLSearchParams({ keyword: record.id }), `${record.issue_no || '问题'}-详情.xlsx`)
+  } catch {
+    Message.error('关联 Excel 下载失败')
+  } finally {
+    detailExporting.value = false
   }
 }
 const handleSearch = () => { pageNum.value = 1; fetchData() }
@@ -322,4 +367,5 @@ const handleDelete = async (record: any) => {
 
 <style scoped>
 .markdown-content { white-space: pre-wrap; background: var(--color-fill-1); padding: 12px; border-radius: 4px; }
+.json-content { margin: 0; max-height: 360px; overflow: auto; white-space: pre-wrap; word-break: break-all; background: var(--color-fill-1); padding: 12px; border-radius: 4px; }
 </style>

@@ -1,268 +1,206 @@
 <template>
   <div class="container">
-    <a-card :bordered="false" title="分析中心">
-      <!-- 筛选栏 -->
-      <a-row :gutter="16" style="margin-bottom: 12px" align="center">
-        <a-col :span="5">
-          <a-select v-model="filters.app_number" placeholder="应用（可细分）" allow-search allow-clear>
-            <a-option v-for="a in appOptions" :key="a.code" :value="a.code">{{ a.name }}（{{ a.code }}）</a-option>
-          </a-select>
-        </a-col>
-        <a-col :span="4">
-          <a-input v-model="filters.form_id" placeholder="表单（可选）" allow-clear />
-        </a-col>
-        <a-col :span="4">
-          <a-input v-model="filters.control_name" placeholder="控件（可选）" allow-clear />
-        </a-col>
-        <a-col :span="6">
-          <a-range-picker v-model="dateRange" style="width: 100%" />
-        </a-col>
-        <a-col :span="3">
-          <a-input-number v-model="filters.cost_threshold" placeholder="阈值(ms)" :min="0" :step="500" style="width: 100%" />
-        </a-col>
-        <a-col :span="2">
-          <a-button type="primary" :loading="collecting" @click="handleCollect">收集慢请求</a-button>
-        </a-col>
-      </a-row>
-      <a-row style="margin-bottom: 16px">
+    <a-card :bordered="false" title="分析任务">
+      <template #extra>
         <a-space>
-          <a-button type="outline" status="success" @click="openTriggerModal">触发 AI 分析</a-button>
-          <a-button @click="refreshAll">刷新</a-button>
-          <span style="font-size: 12px; color: #86909c">收集最近 7 天慢请求 TraceID，触发后异步调用 AI 根因分析并自动产出问题与报告</span>
+          <a-input-search v-model="query.keyword" placeholder="任务名 / 应用 / 表单" allow-clear style="width: 260px" @search="fetchJobs()" />
+          <a-button @click="fetchJobs()">刷新</a-button>
+          <a-button type="primary" @click="openCreate">新增分析任务</a-button>
         </a-space>
-      </a-row>
+      </template>
 
-      <a-tabs v-model:active-key="activeTab">
-        <!-- 慢请求列表 -->
-        <a-tab-pane key="traces" title="慢请求列表">
-          <a-table :data="traces" :loading="tracesLoading" :pagination="{ pageSize: 15, showTotal: true }" size="small" row-key="id">
-            <template #columns>
-              <a-table-column title="TraceID" data-index="trace_id" ellipsis />
-              <a-table-column title="耗时(ms)" data-index="cost" :width="90" />
-              <a-table-column title="应用" data-index="app_number" :width="120" ellipsis />
-              <a-table-column title="表单" data-index="form_id" :width="140" ellipsis />
-              <a-table-column title="租户" data-index="tenant_code" :width="120" ellipsis />
-              <a-table-column title="客户" data-index="customer_name" :width="140" ellipsis />
-              <a-table-column title="状态" data-index="status" :width="100">
-                <template #cell="{ record }">
-                  <a-tag :color="traceStatusColor(record.status)">{{ record.status }}</a-tag>
-                </template>
-              </a-table-column>
-              <a-table-column title="分析模式" data-index="ai_mode" :width="90">
-                <template #cell="{ record }">
-                  <a-tag v-if="record.ai_mode === 'agent'" color="purple">Agent</a-tag>
-                  <a-tag v-else-if="record.ai_mode === 'batch'" color="blue">批量</a-tag>
-                  <span v-else style="color: #c9cdd4">—</span>
-                </template>
-              </a-table-column>
-            </template>
-          </a-table>
-        </a-tab-pane>
+      <a-alert style="margin-bottom: 16px">
+        每次执行按“收集慢请求 → 下载 Ops 日志 → AI 分析 → 生成报告”顺序运行；结果与阶段进度请进入任务运行页查看。
+      </a-alert>
 
-        <!-- 分析任务 -->
-        <a-tab-pane key="tasks" title="分析任务">
-          <a-table :data="tasks" :loading="tasksLoading" :pagination="{ pageSize: 15, showTotal: true }" size="small" row-key="id">
-            <template #columns>
-              <a-table-column title="任务ID" data-index="id" :width="170" ellipsis />
-              <a-table-column title="状态" data-index="status" :width="90">
-                <template #cell="{ record }">
-                  <a-tag :color="taskStatusColor(record.status)">{{ record.status }}</a-tag>
-                </template>
-              </a-table-column>
-              <a-table-column title="模式" data-index="ai_mode" :width="80">
-                <template #cell="{ record }">
-                  <a-tag v-if="record.ai_mode === 'agent'" color="purple">Agent</a-tag>
-                  <a-tag v-else-if="record.ai_mode === 'batch'" color="blue">批量</a-tag>
-                  <span v-else>—</span>
-                </template>
-              </a-table-column>
-              <a-table-column title="进度" :width="90">
-                <template #cell="{ record }">{{ record.progress }}%</template>
-              </a-table-column>
-              <a-table-column title="结果摘要" data-index="result_summary" ellipsis />
-              <a-table-column title="错误信息" data-index="error_msg" ellipsis />
-              <a-table-column title="创建时间" data-index="created_at" :width="170" />
-              <a-table-column title="操作" :width="90">
-                <template #cell="{ record }">
-                  <a-link v-if="record.report_id" @click="viewReport(record)">查看报告</a-link>
-                </template>
-              </a-table-column>
+      <a-table :data="jobs" :loading="loading" :pagination="pagination" row-key="id" @page-change="changePage">
+        <template #columns>
+          <a-table-column title="任务名称" data-index="task_name" :width="190" ellipsis />
+          <a-table-column title="分析范围" :width="230">
+            <template #cell="{ record }">
+              <div>{{ record.product_line }} / {{ record.app_number || '全部应用' }}</div>
+              <div class="muted">{{ record.form_id || '全部表单' }}{{ record.control_name ? ` / ${record.control_name}` : '' }}</div>
             </template>
-          </a-table>
-        </a-tab-pane>
-      </a-tabs>
+          </a-table-column>
+          <a-table-column title="时间范围" :width="150">
+            <template #cell="{ record }">
+              <span v-if="record.period_type === 'fixed'">{{ record.period_start }} ~ {{ record.period_end }}</span>
+              <span v-else>最近 {{ record.recent_days }} 天</span>
+            </template>
+          </a-table-column>
+          <a-table-column title="阈值 / 条数" :width="130">
+            <template #cell="{ record }">{{ record.cost_threshold }}ms / {{ record.max_traces }}条</template>
+          </a-table-column>
+          <a-table-column title="Agent" :width="150">
+            <template #cell="{ record }">{{ agentDisplayName(record.agent_code) }}</template>
+          </a-table-column>
+          <a-table-column title="模型" data-index="model" :width="160" />
+          <a-table-column title="流程" :width="210">
+            <template #cell>
+              <a-space size="mini">
+                <a-tag color="blue">下载日志</a-tag><span>→</span><a-tag color="purple">AI分析</a-tag><span>→</span><a-tag color="green">报告</a-tag>
+              </a-space>
+            </template>
+          </a-table-column>
+          <a-table-column title="状态" :width="80">
+            <template #cell="{ record }"><a-tag :color="record.enabled ? 'green' : 'gray'">{{ record.enabled ? '启用' : '停用' }}</a-tag></template>
+          </a-table-column>
+          <a-table-column title="更新时间" data-index="updated_at" :width="170" />
+          <a-table-column title="操作" :width="250" fixed="right">
+            <template #cell="{ record }">
+              <a-space>
+                <a-link :disabled="!record.enabled" @click="runJob(record)">执行</a-link>
+                <a-link @click="viewRuns(record)">运行记录</a-link>
+                <a-link @click="openEdit(record)">编辑</a-link>
+                <a-link status="danger" @click="removeJob(record)">删除</a-link>
+              </a-space>
+            </template>
+          </a-table-column>
+        </template>
+      </a-table>
     </a-card>
 
-    <!-- 触发分析弹框 -->
-    <a-modal v-model:visible="triggerVisible" title="触发 AI 分析" :ok-loading="triggering" @ok="handleTrigger">
-      <a-form :model="triggerForm" layout="vertical">
-        <a-form-item label="分析模式">
-          <a-radio-group v-model="triggerForm.mode" type="button">
-            <a-radio value="batch">平台编排（批量）</a-radio>
-            <a-radio value="agent">Agent 自主</a-radio>
-          </a-radio-group>
-        </a-form-item>
-        <a-form-item label="AI 模型">
-          <a-select v-model="triggerForm.model_override" placeholder="默认模型(auto)" allow-clear>
-            <a-option value="Qwen3.8-Max-Preview">Qwen3.8-Max-Preview</a-option>
-            <a-option value="GLM-5.2">GLM-5.2</a-option>
-            <a-option value="Kimi-K3">Kimi-K3</a-option>
-          </a-select>
-        </a-form-item>
-        <!-- batch 模式参数 -->
-        <template v-if="triggerForm.mode === 'batch'">
-          <a-form-item label="分析条数上限">
-            <a-input-number v-model="triggerForm.max_traces" :min="1" :max="100" style="width: 100%" />
-          </a-form-item>
-          <a-form-item label="是否生成测试场景">
-            <a-switch v-model="triggerForm.analyze_scenario" />
-          </a-form-item>
-          <a-form-item label="是否进行源码分析">
-            <a-switch v-model="triggerForm.source_code_analysis" />
-          </a-form-item>
-        </template>
-        <!-- agent 模式参数 -->
-        <template v-else>
-          <a-form-item label="分片数（按 app×form 拆分并行）">
-            <a-input-number v-model="triggerForm.shard_count" :min="1" :max="5" style="width: 100%" />
-          </a-form-item>
-          <a-form-item label="超时(秒)">
-            <a-input-number v-model="triggerForm.timeout_secs" :min="600" :max="7200" :step="600" style="width: 100%" />
-          </a-form-item>
-        </template>
+    <a-modal v-model:visible="editorVisible" :title="form.id ? '编辑分析任务' : '新增分析任务'" :ok-loading="saving" width="720px" @ok="saveJob">
+      <a-form :model="form" layout="vertical">
+        <a-row :gutter="16">
+          <a-col :span="12"><a-form-item label="任务名称" required><a-input v-model="form.task_name" placeholder="例如：集团财务近7天慢请求分析" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item label="产品线"><a-select v-model="form.product_line"><a-option value="星瀚">星瀚</a-option><a-option value="星空">星空</a-option></a-select></a-form-item></a-col>
+          <a-col :span="12">
+            <a-form-item label="应用（可选）">
+              <a-select v-model="form.app_number" allow-search allow-clear placeholder="全部应用">
+                <a-option v-for="item in appOptions" :key="item.code" :value="item.code">{{ item.name }}（{{ item.code }}）</a-option>
+              </a-select>
+            </a-form-item>
+          </a-col>
+          <a-col :span="6"><a-form-item label="表单（可选）"><a-input v-model="form.form_id" allow-clear /></a-form-item></a-col>
+          <a-col :span="6"><a-form-item label="控件（可选）"><a-input v-model="form.control_name" allow-clear /></a-form-item></a-col>
+          <a-col :span="8"><a-form-item label="时间模式"><a-radio-group v-model="form.period_type"><a-radio value="recent_days">最近天数</a-radio><a-radio value="fixed">固定日期</a-radio></a-radio-group></a-form-item></a-col>
+          <a-col v-if="form.period_type === 'recent_days'" :span="8"><a-form-item label="最近天数"><a-input-number v-model="form.recent_days" :min="1" :max="90" style="width: 100%" /></a-form-item></a-col>
+          <a-col v-else :span="16"><a-form-item label="固定日期"><a-range-picker v-model="fixedRange" style="width: 100%" /></a-form-item></a-col>
+          <a-col :span="8"><a-form-item label="慢请求阈值(ms)"><a-input-number v-model="form.cost_threshold" :min="0" :step="500" style="width: 100%" /></a-form-item></a-col>
+          <a-col :span="8"><a-form-item label="分析条数"><a-input-number v-model="form.max_traces" :min="1" :max="100" style="width: 100%" /></a-form-item></a-col>
+          <a-col :span="8">
+            <a-form-item label="执行 Agent" required>
+              <a-select v-model="form.agent_code" :loading="agentLoading" placeholder="请选择 AI 中心 Agent">
+                <a-option v-for="agent in agents" :key="agent.id" :value="agent.agent_code">
+                  {{ agent.agent_name }}（{{ agent.agent_code }}）
+                </a-option>
+              </a-select>
+            </a-form-item>
+          </a-col>
+          <a-col :span="8">
+            <a-form-item label="AI 模型" required>
+              <a-select v-model="form.model">
+                <a-option value="gpt-5.6-luna">GPT 5.6 Luna</a-option>
+                <a-option value="gpt-5.6-terra">GPT 5.6 Terra</a-option>
+                <a-option value="gpt-5.6-sol">GPT 5.6 Sol</a-option>
+                <a-option value="claude-sonnet-4.6">Claude Sonnet 4.6</a-option>
+              </a-select>
+            </a-form-item>
+          </a-col>
+          <a-col :span="8"><a-form-item label="源码分析"><a-switch v-model="form.source_code_analysis" /></a-form-item></a-col>
+          <a-col :span="8"><a-form-item label="生成测试场景"><a-switch v-model="form.analyze_scenario" /></a-form-item></a-col>
+          <a-col :span="8"><a-form-item label="启用"><a-switch v-model="form.enabled" /></a-form-item></a-col>
+        </a-row>
       </a-form>
     </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Message } from '@arco-design/web-vue'
-import { ApiPerfOps, ApiPerfAnalysisTask, ApiPerfCompliance } from '@/api/perfApis'
+import { Message, Modal } from '@arco-design/web-vue'
+import { ApiAiAgent, type AiAgent, type AiListResult } from '@/api/aiApis'
+import { ApiPerfAnalysisJob, ApiPerfCompliance } from '@/api/perfApis'
 import { useGet, usePost } from '@/hooks'
 
 defineOptions({ name: 'analysis-center' })
 
 const router = useRouter()
-const activeTab = ref('traces')
+const query = ref<any>({ keyword: '', page_num: 1, page_size: 20 })
+const { data, isFetching: loading, execute: fetchJobs } = useGet<any>(ApiPerfAnalysisJob.getList, query, { immediate: true })
+const jobs = computed(() => data.value?.list || [])
+const pagination = computed(() => ({ current: data.value?.page_num || 1, total: data.value?.total || 0, pageSize: 20, showTotal: true }))
+const changePage = (page: number) => { query.value = { ...query.value, page_num: page }; fetchJobs() }
 
-// ── 筛选条件 ──────────────────────────────────
-const filters = ref<any>({ app_number: undefined, form_id: '', control_name: '', cost_threshold: 3000 })
-
-const fmtDate = (d: Date) => {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-const today = new Date()
-const weekAgo = new Date(today.getTime() - 6 * 24 * 3600 * 1000)
-const dateRange = ref<string[]>([fmtDate(weekAgo), fmtDate(today)])
-
-const buildParams = () => ({
-  product_line: '星瀚',
-  app_number: filters.value.app_number || undefined,
-  form_id: filters.value.form_id || undefined,
-  control_name: filters.value.control_name || undefined,
-  period_start: dateRange.value?.[0],
-  period_end: dateRange.value?.[1],
-  cost_threshold: filters.value.cost_threshold,
-})
-
-// ── 应用选项（dimension-options）──────────────────────────
 const appOptions = ref<any[]>([])
-const appOptPayload = ref<any>({ level: 'app', product_line: '星瀚' })
-useGet<any>(ApiPerfCompliance.dimensionOptions, appOptPayload, {
-  immediate: true,
-  onSuccess(data: any) {
-    appOptions.value = Array.isArray(data) ? data : []
-  },
+const appPayload = ref<any>({ level: 'app', product_line: '星瀚' })
+useGet<any>(ApiPerfCompliance.dimensionOptions, appPayload, { immediate: true, onSuccess(value: any) { appOptions.value = Array.isArray(value) ? value : [] } })
+
+const { data: agentData, isFetching: agentLoading } = useGet<AiListResult<AiAgent>>(
+  ApiAiAgent.getList,
+  { status: 'active', page_num: 1, page_size: 100 },
+  { immediate: true },
+)
+const agents = computed(() => agentData.value?.list || [])
+const defaultAgentCode = () => agents.value.find(agent => agent.agent_code === 'kiro-cli')?.agent_code || agents.value[0]?.agent_code || 'kiro-cli'
+const agentDisplayName = (agentCode?: string) => {
+  if (!agentCode) return '-'
+  const agent = agents.value.find(item => item.agent_code === agentCode)
+  return agent ? `${agent.agent_name}（${agent.agent_code}）` : agentCode
+}
+
+const defaultForm = () => ({
+  id: undefined as string | undefined,
+  task_name: '', product_line: '星瀚', app_number: undefined as string | undefined,
+  form_id: '', control_name: '', period_type: 'recent_days', recent_days: 7,
+  cost_threshold: 3000, max_traces: 20, source_code_analysis: false,
+  analyze_scenario: false, mode: 'batch', agent_code: defaultAgentCode(), model: 'gpt-5.6-terra', enabled: true,
 })
+const editorVisible = ref(false)
+const form = ref<any>(defaultForm())
+const fixedRange = ref<string[]>([])
+const openCreate = () => { form.value = defaultForm(); fixedRange.value = []; editorVisible.value = true }
+const openEdit = (record: any) => {
+  form.value = { ...defaultForm(), ...record }
+  fixedRange.value = record.period_start && record.period_end ? [record.period_start, record.period_end] : []
+  editorVisible.value = true
+}
 
-// ── 慢请求列表（collected-traces）──────────────────────────
-const tracesPayload = ref<any>({ limit: 200 })
-const { isFetching: tracesLoading, data: tracesData, execute: fetchTraces } = useGet<any>(ApiPerfOps.collectedTraces, tracesPayload, { immediate: true })
-const traces = computed(() => (Array.isArray(tracesData.value) ? tracesData.value : []))
+const savePayload = ref<any>({})
+const { execute: doSave, isFetching: saving } = usePost<any>(ApiPerfAnalysisJob.save, savePayload, { immediate: false })
+const saveJob = async () => {
+  if (!form.value.task_name?.trim()) { Message.warning('请输入任务名称'); return }
+  if (!form.value.agent_code?.trim()) { Message.warning('请选择执行 Agent'); return }
+  if (form.value.period_type === 'fixed' && fixedRange.value.length !== 2) { Message.warning('请选择固定日期范围'); return }
+  savePayload.value = {
+    ...form.value,
+    period_start: form.value.period_type === 'fixed' ? fixedRange.value[0] : undefined,
+    period_end: form.value.period_type === 'fixed' ? fixedRange.value[1] : undefined,
+  }
+  const result = await doSave()
+  if (result.data.value) { Message.success('分析任务已保存'); editorVisible.value = false; fetchJobs() }
+}
 
-// 收集慢请求
-const collectPayload = ref<any>({})
-const { execute: doCollect, isFetching: collecting } = usePost<any>(ApiPerfOps.collectTraces, collectPayload, { immediate: false })
-const handleCollect = async () => {
-  collectPayload.value = buildParams()
-  const res = await doCollect()
-  if (res.data.value !== undefined && res.data.value !== null) {
-    Message.success(`已收集 ${res.data.value} 条慢请求`)
-    tracesPayload.value = { ...buildParams(), limit: 200 }
-    fetchTraces()
+const runPayload = ref<any>({})
+const { execute: doRun } = usePost<any>(ApiPerfAnalysisJob.run, runPayload, { immediate: false })
+const runJob = async (record: any) => {
+  runPayload.value = { id: record.id }
+  const result = await doRun()
+  if (result.data.value) {
+    Message.success('任务已开始：正在收集并下载日志')
+    router.push({ path: '/cloud-perf/analysis/analysis-runs', query: { job_id: record.id, run_id: result.data.value } })
   }
 }
+const viewRuns = (record: any) => router.push({ path: '/cloud-perf/analysis/analysis-runs', query: { job_id: record.id } })
 
-// ── 分析任务列表 ──────────────────────────────────
-const tasksPayload = ref<any>({ task_type: 'ai_analysis', page_num: 1, page_size: 50 })
-const { isFetching: tasksLoading, data: tasksData, execute: fetchTasks } = useGet<any>(ApiPerfAnalysisTask.getList, tasksPayload, { immediate: true })
-const tasks = computed(() => tasksData.value?.list || [])
-
-// 触发分析弹框
-const triggerVisible = ref(false)
-const triggerForm = ref({ mode: 'batch', model_override: undefined as string | undefined, max_traces: 20, analyze_scenario: false, source_code_analysis: false, shard_count: 3, timeout_secs: 3600 })
-const openTriggerModal = () => {
-  triggerForm.value = { mode: 'batch', model_override: undefined, max_traces: 20, analyze_scenario: false, source_code_analysis: false, shard_count: 3, timeout_secs: 3600 }
-  triggerVisible.value = true
+const deletePayload = ref<any>({})
+const { execute: doDelete } = usePost<any>(ApiPerfAnalysisJob.delete, deletePayload, { immediate: false })
+const removeJob = (record: any) => {
+  Modal.warning({
+    title: '删除分析任务',
+    content: `确认删除“${record.task_name}”？历史运行记录不会删除。`,
+    hideCancel: false,
+    onOk: async () => {
+      deletePayload.value = { id: record.id }
+      const result = await doDelete()
+      if (result.data.value) { Message.success('已删除'); fetchJobs() }
+    },
+  })
 }
-
-const triggerPayload = ref<any>({})
-const { execute: doTrigger, isFetching: triggering } = usePost<any>(ApiPerfOps.triggerAnalysis, triggerPayload, { immediate: false })
-const handleTrigger = async () => {
-  triggerPayload.value = { ...buildParams(), ...triggerForm.value }
-  const res = await doTrigger()
-  if (res.data.value) {
-    Message.success('分析任务已创建，后台执行中')
-    triggerVisible.value = false
-    activeTab.value = 'tasks'
-    await fetchTasks()
-    startPolling()
-  }
-}
-
-// 任务轮询：存在 running/pending 时每 5 秒刷新
-let pollTimer: any = null
-const startPolling = () => {
-  if (pollTimer) return
-  pollTimer = setInterval(async () => {
-    await fetchTasks()
-    const hasRunning = tasks.value.some((t: any) => t.status === 'running' || t.status === 'pending')
-    if (!hasRunning) {
-      clearInterval(pollTimer)
-      pollTimer = null
-    }
-  }, 5000)
-}
-
-const refreshAll = () => {
-  tracesPayload.value = { ...buildParams(), limit: 200 }
-  fetchTraces()
-  fetchTasks()
-}
-
-const viewReport = (record: any) => {
-  router.push({ path: '/cloud-perf/analysis/report-list', query: { id: record.report_id } })
-}
-
-// ── 状态颜色 ──────────────────────────────────
-const traceStatusColor = (status: string) => {
-  const map: Record<string, string> = { collected: 'blue', analyzing: 'orangered', succeeded: 'green', pending: 'gray', failed: 'red' }
-  return map[status] || 'gray'
-}
-const taskStatusColor = (status: string) => {
-  const map: Record<string, string> = { pending: 'gray', running: 'orangered', success: 'green', failed: 'red' }
-  return map[status] || 'gray'
-}
-
-onMounted(() => {
-  if (tasks.value.some((t: any) => t.status === 'running' || t.status === 'pending')) startPolling()
-})
-onUnmounted(() => {
-  if (pollTimer) clearInterval(pollTimer)
-})
 </script>
+
+<style scoped>
+.muted { color: var(--color-text-3); font-size: 12px; margin-top: 3px; }
+</style>

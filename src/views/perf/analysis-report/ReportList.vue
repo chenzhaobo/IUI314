@@ -88,7 +88,12 @@
     </a-card>
 
     <!-- 详情抽屉 -->
-    <a-drawer v-model:visible="drawerVisible" :width="700" :title="currentRecord?.title">
+    <a-drawer
+      v-model:visible="drawerVisible"
+      :width="'88vw'"
+      :title="currentRecord?.title"
+      :body-style="{ maxHeight: 'calc(100vh - 120px)', overflow: 'auto' }"
+    >
       <a-descriptions :column="2" bordered size="small" style="margin-bottom: 16px">
         <a-descriptions-item label="类型">{{ typeText(currentRecord?.analysis_type) }}</a-descriptions-item>
         <a-descriptions-item label="状态">{{ statusText(currentRecord?.status) }}</a-descriptions-item>
@@ -101,12 +106,23 @@
       <div class="content markdown">{{ currentRecord?.content || '暂无' }}</div>
       <a-divider>结论</a-divider>
       <div class="content">{{ currentRecord?.conclusion || '暂无' }}</div>
+      <template #footer>
+        <a-space>
+          <a-button @click="drawerVisible = false">关闭</a-button>
+          <a-button
+            v-if="currentRecord?.analysis_type === 'daily_report'"
+            type="primary"
+            status="success"
+            @click="handleDailyExport(currentRecord)"
+          >下载关联 Excel</a-button>
+        </a-space>
+      </template>
     </a-drawer>
 
     <!-- 报告预览弹窗（富文本渲染） -->
-    <a-modal v-model:visible="previewVisible" :title="`报告预览 — ${previewTitle}`" :width="1000" :footer="false" :body-style="{ padding: '0', height: '75vh', overflow: 'auto' }">
+    <a-modal v-model:visible="previewVisible" :title="`报告预览 — ${previewTitle}`" :width="'92vw'" :footer="false" :body-style="{ padding: '0', height: '82vh', overflow: 'auto' }">
       <a-spin v-if="previewLoading" style="display: block; text-align: center; padding-top: 200px" />
-      <MdPreview v-else-if="previewContent" :modelValue="previewContent" style="height: 75vh" />
+      <MdPreview v-else-if="previewContent" :modelValue="previewContent" style="min-height: 82vh" />
       <a-empty v-else description="暂无内容" style="padding-top: 200px" />
     </a-modal>
 
