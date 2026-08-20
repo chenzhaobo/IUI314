@@ -246,7 +246,7 @@ import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message, Modal } from '@arco-design/web-vue'
 import { ApiPerfPatternLedger } from '@/api/perfApis'
-import { useGet, usePost } from '@/hooks'
+import { useDownload, useGet, usePost } from '@/hooks'
 
 defineOptions({ name: 'pattern-ledger' })
 
@@ -306,28 +306,12 @@ const { isFetching: loading, data: rawData, execute: fetchData } = useGet<any>(A
 const tableData = computed(() => rawData.value?.list || [])
 const statsData = computed(() => rawData.value?.stats || null)
 
-const downloadExcel = async (url: string, filename: string) => {
-  const base = import.meta.env.VITE_API_BASE_URL || '/api'
-  const token = localStorage.getItem('token') || ''
-  const response = await fetch(`${base}${url}`, { headers: { Authorization: `Bearer ${token}` } })
-  if (!response.ok || (response.headers.get('content-type') || '').includes('application/json')) throw new Error('导出失败')
-  const blob = await response.blob()
-  const objectUrl = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = objectUrl
-  link.download = filename
-  link.click()
-  URL.revokeObjectURL(objectUrl)
-}
+const { downloadWithTip } = useDownload()
 
 const handleExport = async () => {
   const params = new URLSearchParams()
   Object.entries(searchForm).forEach(([key, value]) => { if (value) params.set(key, String(value)) })
-  try {
-    await downloadExcel(`${ApiPerfPatternLedger.export}?${params.toString()}`, '问题台账.xlsx')
-  } catch {
-    Message.error('问题台账导出失败')
-  }
+  await downloadWithTip(`${ApiPerfPatternLedger.export}?${params.toString()}`, '问题台账.xlsx', '问题台账导出失败')
 }
 
 const handleDetailExport = async () => {
@@ -337,9 +321,7 @@ const handleDetailExport = async () => {
   const params = new URLSearchParams({ keyword: exactKey })
   detailExporting.value = true
   try {
-    await downloadExcel(`${ApiPerfPatternLedger.export}?${params.toString()}`, `${record.pattern_no || '问题台账'}-详情.xlsx`)
-  } catch {
-    Message.error('关联 Excel 下载失败')
+    await downloadWithTip(`${ApiPerfPatternLedger.export}?${params.toString()}`, `${record.pattern_no || '问题台账'}-详情.xlsx`, '关联 Excel 下载失败')
   } finally {
     detailExporting.value = false
   }

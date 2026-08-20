@@ -6,6 +6,9 @@ RUN_DIR="$SCRIPT_DIR/.run"
 PID_FILE="$RUN_DIR/vite.pid"
 LOG_FILE="$RUN_DIR/vite.log"
 PORT="${FRONTEND_PORT:-9876}"
+# 开发机需要局域网访问（例如 http://192.168.232.38:9876），默认监听全部网卡；
+# 需要仅本机访问时设置 FRONTEND_HOST=127.0.0.1
+HOST="${FRONTEND_HOST:-0.0.0.0}"
 VITE_BIN="$SCRIPT_DIR/node_modules/.bin/vite"
 
 mkdir -p "$RUN_DIR"
@@ -40,7 +43,7 @@ fi
 
 cd "$SCRIPT_DIR"
 : > "$LOG_FILE"
-nohup setsid "$VITE_BIN" --host 127.0.0.1 --port "$PORT" --strictPort >"$LOG_FILE" 2>&1 &
+nohup setsid "$VITE_BIN" --host "$HOST" --port "$PORT" --strictPort >"$LOG_FILE" 2>&1 &
 pid=$!
 echo "$pid" > "$PID_FILE"
 

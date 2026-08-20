@@ -4,7 +4,7 @@ import { computed, reactive, ref } from 'vue'
 import { Message, Modal } from '@arco-design/web-vue'
 import { ApiSecRuleVersion, ApiSecScanPoint } from '@/api/sechubApis'
 import StatusBadge from '@/components/static-scan/StatusBadge.vue'
-import { useGet, usePost } from '@/hooks'
+import { useDownload, useGet, usePost, useToken } from '@/hooks'
 import { domainLabels, securityCategoryLabels } from './labels'
 
 defineOptions({ name: 'StaticScanRules' })
@@ -431,10 +431,10 @@ async function handleImportUpload(fileList: any[]) {
   try {
     const formData = new FormData()
     formData.append('file', file)
-    const token = localStorage.getItem('token') || ''
+    const { token } = useToken()
     const resp = await fetch(`/api${ApiSecRuleVersion.importRules}`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: token },
       body: formData,
     })
     const res = await resp.json()
@@ -456,18 +456,10 @@ async function handleImportUpload(fileList: any[]) {
 }
 
 // ===== 导出 / 下载模板 =====
+const { downloadWithTip } = useDownload()
+
 function downloadWithAuth(url: string, filename: string) {
-  const token = localStorage.getItem('token') || ''
-  fetch(`/api${url}`, { headers: { Authorization: `Bearer ${token}` } })
-    .then(r => r.blob())
-    .then((blob) => {
-      const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob)
-      a.download = filename
-      a.click()
-      URL.revokeObjectURL(a.href)
-    })
-    .catch(() => Message.error('下载失败'))
+  void downloadWithTip(url, filename, '下载失败')
 }
 
 function exportRules() {

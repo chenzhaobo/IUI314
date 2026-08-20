@@ -171,7 +171,7 @@ import { Message } from '@arco-design/web-vue'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { ApiPerfReportV2 } from '@/api/perfApis'
-import { useGet, usePost, usePut, useDelete } from '@/hooks'
+import { useDelete, useDownload, useGet, usePost, usePut } from '@/hooks'
 
 defineOptions({ name: 'report-list' })
 
@@ -264,21 +264,12 @@ const handleDelete = async (record: any) => {
 }
 
 async function handleDailyExport(record: any) {
-  const base = import.meta.env.VITE_API_BASE_URL || '/api'
-  const token = localStorage.getItem('token') || ''
-  try {
-    const response = await fetch(`${base}${ApiPerfReportV2.dailyExport}?report_id=${encodeURIComponent(record.id)}`, { headers: { Authorization: `Bearer ${token}` } })
-    if (!response.ok || (response.headers.get('content-type') || '').includes('application/json')) throw new Error('export failed')
-    const blob = await response.blob()
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `${record.title || '性能日报'}.xlsx`
-    link.click()
-    URL.revokeObjectURL(url)
-  } catch {
-    Message.error('日报导出失败')
-  }
+  const { downloadWithTip } = useDownload()
+  await downloadWithTip(
+    `${ApiPerfReportV2.dailyExport}?report_id=${encodeURIComponent(record.id)}`,
+    `${record.title || '性能日报'}.xlsx`,
+    '日报导出失败',
+  )
 }
 </script>
 
