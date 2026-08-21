@@ -307,6 +307,7 @@ export enum ApiPerfDiagnosis {
 // ── 性能问题追踪 ──────────────────────────────────────
 export enum ApiPerfIssue {
   getList = '/perf/issue/list',
+  scopeCounts = '/perf/issue/scope-counts',
   getById = '/perf/issue/get_by_id',
   add = '/perf/issue/add',
   edit = '/perf/issue/edit',
@@ -386,6 +387,7 @@ export enum ApiPerfScenario {
 // ── 问题模式台账（§11.2） ──────────────────────────────────────
 export enum ApiPerfPatternLedger {
   list = '/perf/periodic-report/pattern/list',
+  scopeCounts = '/perf/periodic-report/pattern/scope-counts',
   export = '/perf/periodic-report/pattern/export',
   logs = '/perf/periodic-report/pattern/logs',
   save = '/perf/periodic-report/pattern/save',

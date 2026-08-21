@@ -50,7 +50,7 @@
 
       <div class="scope-layout">
         <aside class="scope-panel">
-          <IssueScopeTree :key="scopeTreeKey" @change="handleScopeChange" />
+          <IssueScopeTree :key="scopeTreeKey" :filters="scopeCountFilters" source="pattern" @change="handleScopeChange" />
         </aside>
         <div class="scope-content">
           <!-- 状态统计 -->
@@ -277,9 +277,18 @@ const searchForm = reactive({
   status: '',
   project_group_code: '',
   cloud_number: '',
+  business_area: '',
+  product_domain: '',
   app_number: '',
   form_id: '',
 })
+const scopeCountFilters = computed(() => ({
+  keyword: searchForm.keyword,
+  dimension_type: searchForm.dimension_type,
+  dimension_value: searchForm.dimension_value,
+  attribution_tag: searchForm.attribution_tag,
+  status: searchForm.status,
+}))
 const drawerVisible = ref(false)
 const currentRecord = ref<any>(null)
 const detailExporting = ref(false)
@@ -392,9 +401,23 @@ const handleMoreAction = (key: string, record: any) => {
 const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0 }))
 
 // ── 操作 ──────────────────────────────────────
-const handleScopeChange = (scope: Record<string, string>) => {
+const handleScopeChange = (scope: {
+  product_line: string
+  project_group_code?: string
+  cloud_number?: string
+  business_area?: string
+  product_domain?: string
+  app_number?: string
+  form_id?: string
+}) => {
   Object.assign(searchForm, {
-    project_group_code: '', cloud_number: '', app_number: '', form_id: '', ...scope,
+    project_group_code: '',
+    cloud_number: '',
+    business_area: '',
+    product_domain: '',
+    app_number: '',
+    form_id: '',
+    ...scope,
   })
   pageNum.value = 1
   fetchData()
@@ -403,7 +426,12 @@ const handleSearch = () => { pageNum.value = 1; fetchData() }
 const handleReset = () => {
   Object.assign(searchForm, {
     keyword: '', product_line: '', dimension_type: '', dimension_value: '', attribution_tag: '', status: '',
-    project_group_code: '', cloud_number: '', app_number: '', form_id: '',
+    project_group_code: '',
+    cloud_number: '',
+    business_area: '',
+    product_domain: '',
+    app_number: '',
+    form_id: '',
   })
   scopeTreeKey.value += 1
   handleSearch()
