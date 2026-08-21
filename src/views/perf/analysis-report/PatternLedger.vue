@@ -18,6 +18,7 @@
             <a-option value="product_domain">产品领域</a-option>
             <a-option value="business_area">业务领域</a-option>
             <a-option value="project_group">项目组</a-option>
+            <a-option value="application">应用</a-option>
           </a-select>
         </a-col>
         <a-col :span="3">
@@ -311,7 +312,15 @@ const statusColor = (s: string | undefined) => ({
   new: 'orange', issued: 'blue', scheduled: 'purple', fixing: 'purple',
   fixed: 'cyan', verified: 'green', recurrent: 'red', closed: 'gray', exempted: 'gray',
 }[s || ''] || 'gray')
-const dimensionTypeText = (t: string | undefined) => ({ product_domain: '产品领域', business_area: '业务领域', project_group: '项目组' }[t || ''] || t || '--')
+function dimensionTypeText(t: string | undefined) {
+  const labels: Record<string, string> = {
+    product_domain: '产品领域',
+    business_area: '业务领域',
+    project_group: '项目组',
+    application: '应用',
+  }
+  return labels[t || ''] || t || '--'
+}
 
 // 归因标签拆分（一级-二级）
 const splitTag = (tag: string): string[] => tag.includes('-') ? tag.split('-', 2) : [tag]
