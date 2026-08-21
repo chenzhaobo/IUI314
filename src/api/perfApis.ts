@@ -343,6 +343,7 @@ export enum ApiPerfAnalysisJob {
   save = '/perf/analysis-job/save',
   delete = '/perf/analysis-job/delete',
   run = '/perf/analysis-job/run',
+  reanalyze = '/perf/analysis-job/reanalyze',
 }
 
 // ── 分析任务运行 ──────────────────────────────────────
