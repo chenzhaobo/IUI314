@@ -48,75 +48,82 @@
         </a-col>
       </a-row>
 
-      <!-- 状态统计 -->
-      <a-row v-if="statsData" :gutter="8" style="margin-bottom: 12px">
-        <a-col v-for="(val, key) in statsData" :key="key">
-          <a-tag :color="statusColor(String(key))">{{ statusText(String(key)) }}: {{ val }}</a-tag>
-        </a-col>
-      </a-row>
+      <div class="scope-layout">
+        <aside class="scope-panel">
+          <IssueScopeTree :key="scopeTreeKey" @change="handleScopeChange" />
+        </aside>
+        <div class="scope-content">
+          <!-- 状态统计 -->
+          <a-row v-if="statsData" :gutter="8" style="margin-bottom: 12px">
+            <a-col v-for="(val, key) in statsData" :key="key">
+              <a-tag :color="statusColor(String(key))">{{ statusText(String(key)) }}: {{ val }}</a-tag>
+            </a-col>
+          </a-row>
 
-      <!-- 表格 -->
-      <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange" row-key="id" :scroll="{ x: 1600 }">
-        <template #columns>
-          <a-table-column title="编号" data-index="pattern_no" :width="100" />
-          <a-table-column title="标题" data-index="title" :width="250" ellipsis />
-          <a-table-column title="归因标签" data-index="attribution_tag" :width="150">
-            <template #cell="{ record }">
-              <template v-if="record.attribution_tag">
-                <a-tag v-for="(tag, idx) in splitTag(record.attribution_tag)" :key="idx" :color="idx === 0 ? 'arcoblue' : 'cyan'" size="small" style="margin-right: 4px">{{ tag }}</a-tag>
-              </template>
-              <span v-else>--</span>
-            </template>
-          </a-table-column>
-          <a-table-column title="维度" :width="150">
-            <template #cell="{ record }">
-              <span>{{ dimensionTypeText(record.dimension_type) }} / {{ record.dimension_value }}</span>
-            </template>
-          </a-table-column>
-          <a-table-column title="产品线" data-index="product_line" :width="80" />
-          <a-table-column title="首次出现" data-index="first_found_week" :width="100" />
-          <a-table-column title="最近出现" data-index="last_found_week" :width="100" />
-          <a-table-column title="周趋势" :width="160">
-            <template #cell="{ record }">
-              <span v-if="record.weekly_stats" class="weekly-bar">
-                <span v-for="(cnt, week) in recentWeeks(record.weekly_stats)" :key="week" :title="`${week}: ${cnt}次`" class="bar-item" :style="{ height: barHeight(cnt as number) + 'px' }" />
-              </span>
-              <span v-else>--</span>
-            </template>
-          </a-table-column>
-          <a-table-column title="状态" data-index="status" :width="90">
-            <template #cell="{ record }">
-              <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
-            </template>
-          </a-table-column>
-          <a-table-column title="二开" data-index="is_custom" :width="60">
-            <template #cell="{ record }">
-              <a-tag v-if="record.is_custom" color="orange" size="small">是</a-tag>
-              <span v-else>--</span>
-            </template>
-          </a-table-column>
-          <a-table-column title="豁免" data-index="is_exempted" :width="60">
-            <template #cell="{ record }">
-              <a-tag v-if="record.is_exempted" color="red" size="small">是</a-tag>
-              <span v-else>--</span>
-            </template>
-          </a-table-column>
-          <a-table-column title="操作" :width="220" fixed="right">
-            <template #cell="{ record }">
-              <a-space>
-                <a-link @click="handleDetail(record)">详情</a-link>
-                <a-link v-if="record.issue_id" @click="gotoIssue(record.issue_id)">查看问题</a-link>
-                <template v-else>
-                  <a-tooltip :content="getDefectReport(record) ? '从完整缺陷报告生成问题跟踪' : '旧台账没有完整缺陷报告，不能自动提单'">
-                    <a-link :disabled="!getDefectReport(record)" status="success" @click="handleCreateIssue(record)">生成问题</a-link>
-                  </a-tooltip>
-                  <a-link @click="openLinkIssue(record)">关联已有</a-link>
+          <!-- 表格 -->
+          <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange" row-key="id" :scroll="{ x: 1600 }">
+            <template #columns>
+              <a-table-column title="编号" data-index="pattern_no" :width="100" />
+              <a-table-column title="标题" data-index="title" :width="250" ellipsis />
+              <a-table-column title="归因标签" data-index="attribution_tag" :width="150">
+                <template #cell="{ record }">
+                  <template v-if="record.attribution_tag">
+                    <a-tag v-for="(tag, idx) in splitTag(record.attribution_tag)" :key="idx" :color="idx === 0 ? 'arcoblue' : 'cyan'" size="small" style="margin-right: 4px">{{ tag }}</a-tag>
+                  </template>
+                  <span v-else>--</span>
                 </template>
-              </a-space>
+              </a-table-column>
+              <a-table-column title="维度" :width="150">
+                <template #cell="{ record }">
+                  <span>{{ dimensionTypeText(record.dimension_type) }} / {{ record.dimension_value }}</span>
+                </template>
+              </a-table-column>
+              <a-table-column title="产品线" data-index="product_line" :width="80" />
+              <a-table-column title="首次出现" data-index="first_found_week" :width="100" />
+              <a-table-column title="最近出现" data-index="last_found_week" :width="100" />
+              <a-table-column title="周趋势" :width="160">
+                <template #cell="{ record }">
+                  <span v-if="record.weekly_stats" class="weekly-bar">
+                    <span v-for="(cnt, week) in recentWeeks(record.weekly_stats)" :key="week" :title="`${week}: ${cnt}次`" class="bar-item" :style="{ height: barHeight(cnt as number) + 'px' }" />
+                  </span>
+                  <span v-else>--</span>
+                </template>
+              </a-table-column>
+              <a-table-column title="状态" data-index="status" :width="90">
+                <template #cell="{ record }">
+                  <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
+                </template>
+              </a-table-column>
+              <a-table-column title="二开" data-index="is_custom" :width="60">
+                <template #cell="{ record }">
+                  <a-tag v-if="record.is_custom" color="orange" size="small">是</a-tag>
+                  <span v-else>--</span>
+                </template>
+              </a-table-column>
+              <a-table-column title="豁免" data-index="is_exempted" :width="60">
+                <template #cell="{ record }">
+                  <a-tag v-if="record.is_exempted" color="red" size="small">是</a-tag>
+                  <span v-else>--</span>
+                </template>
+              </a-table-column>
+              <a-table-column title="操作" :width="220" fixed="right">
+                <template #cell="{ record }">
+                  <a-space>
+                    <a-link @click="handleDetail(record)">详情</a-link>
+                    <a-link v-if="record.issue_id" @click="gotoIssue(record.issue_id)">查看问题</a-link>
+                    <template v-else>
+                      <a-tooltip :content="getDefectReport(record) ? '从完整缺陷报告生成问题跟踪' : '旧台账没有完整缺陷报告，不能自动提单'">
+                        <a-link :disabled="!getDefectReport(record)" status="success" @click="handleCreateIssue(record)">生成问题</a-link>
+                      </a-tooltip>
+                      <a-link @click="openLinkIssue(record)">关联已有</a-link>
+                    </template>
+                  </a-space>
+                </template>
+              </a-table-column>
             </template>
-          </a-table-column>
-        </template>
-      </a-table>
+          </a-table>
+        </div>
+      </div>
     </a-card>
 
     <!-- 详情抽屉 -->
@@ -248,12 +255,14 @@ import { useRouter } from 'vue-router'
 import { Message, Modal } from '@arco-design/web-vue'
 import { ApiPerfPatternLedger } from '@/api/perfApis'
 import { useDownload, useGet, usePost } from '@/hooks'
+import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
 
 defineOptions({ name: 'pattern-ledger' })
 
 const router = useRouter()
 const pageNum = ref(1)
 const pageSize = ref(20)
+const scopeTreeKey = ref(0)
 const searchForm = reactive({
   keyword: '',
   product_line: '',
@@ -261,6 +270,10 @@ const searchForm = reactive({
   dimension_value: '',
   attribution_tag: '',
   status: '',
+  project_group_code: '',
+  cloud_number: '',
+  app_number: '',
+  form_id: '',
 })
 const drawerVisible = ref(false)
 const currentRecord = ref<any>(null)
@@ -347,9 +360,20 @@ const handleLogsDownload = async () => {
 const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0 }))
 
 // ── 操作 ──────────────────────────────────────
+const handleScopeChange = (scope: Record<string, string>) => {
+  Object.assign(searchForm, {
+    project_group_code: '', cloud_number: '', app_number: '', form_id: '', ...scope,
+  })
+  pageNum.value = 1
+  fetchData()
+}
 const handleSearch = () => { pageNum.value = 1; fetchData() }
 const handleReset = () => {
-  Object.assign(searchForm, { keyword: '', product_line: '', dimension_type: '', dimension_value: '', attribution_tag: '', status: '' })
+  Object.assign(searchForm, {
+    keyword: '', product_line: '', dimension_type: '', dimension_value: '', attribution_tag: '', status: '',
+    project_group_code: '', cloud_number: '', app_number: '', form_id: '',
+  })
+  scopeTreeKey.value += 1
   handleSearch()
 }
 const handlePageChange = (page: number) => { pageNum.value = page; fetchData() }
@@ -420,4 +444,7 @@ const handleLinkIssue = async () => {
   background: rgb(var(--arcoblue-5));
   border-radius: 1px;
 }
+.scope-layout { display: flex; gap: 16px; min-height: 520px; }
+.scope-panel { width: 280px; flex-shrink: 0; padding-right: 12px; border-right: 1px solid var(--color-border-2); }
+.scope-content { flex: 1; min-width: 0; }
 </style>

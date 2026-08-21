@@ -72,6 +72,7 @@
               <a-space>
                 <a-link @click="handleDetail(record)">详情</a-link>
                 <a-link @click="handleHtmlPreview(record)">HTML预览</a-link>
+                <a-link v-if="record.analysis_type === 'daily_report'" @click="handleArtifacts(record)">过程文件</a-link>
                 <a-link v-if="record.analysis_type === 'daily_report'" status="success" @click="handleDailyExport(record)">导出 Excel</a-link>
                 <a-link v-if="record.status === 'draft'" @click="handleEdit(record)">编辑</a-link>
                 <a-popconfirm v-if="record.status === 'draft'" content="确定发布？" @ok="handlePublish(record)">
@@ -126,6 +127,47 @@
       <a-spin v-if="previewLoading" style="display: block; text-align: center; padding-top: 200px" />
       <MdPreview v-else-if="previewContent" :modelValue="previewContent" style="min-height: 82vh" />
       <a-empty v-else description="暂无内容" style="padding-top: 200px" />
+    </a-modal>
+
+    <!-- 后台周期任务过程文件：原始 Markdown 与关键 JSON 均按需加载 -->
+    <a-modal
+      v-model:visible="artifactsVisible"
+      :title="`过程文件 — ${artifactsReport?.title || ''}`"
+      width="94vw"
+      :footer="false"
+      :body-style="{ padding: '16px', height: '82vh', overflow: 'hidden' }"
+    >
+      <a-spin :loading="artifactsLoading" style="display: block; height: 100%">
+        <a-alert type="info" style="margin-bottom: 12px">
+          本次任务实际生成 {{ defectReportCount }} 份缺陷报告；Markdown 以原文返回并在浏览器中渲染。
+        </a-alert>
+        <div class="artifact-layout">
+          <div class="artifact-list">
+            <a-list :data="artifactItems" :bordered="false">
+              <template #item="{ item }">
+                <a-list-item :class="{ active: selectedArtifact?.path === item.path }" @click="selectArtifact(item)">
+                  <a-list-item-meta :title="item.name" :description="artifactDescription(item)" />
+                  <template #actions>
+                    <a-link @click.stop="downloadArtifact(item)">
+                      下载
+                    </a-link>
+                  </template>
+                </a-list-item>
+              </template>
+            </a-list>
+          </div>
+          <div class="artifact-preview">
+            <a-spin v-if="artifactPreviewLoading" style="display: block; text-align: center; padding-top: 200px" />
+            <MdPreview
+              v-else-if="selectedArtifact?.render_type === 'markdown' && artifactContent"
+              :model-value="artifactContent"
+              style="min-height: 100%"
+            />
+            <pre v-else-if="selectedArtifact?.render_type === 'json' && artifactContent" class="json-preview">{{ prettyArtifactJson }}</pre>
+            <a-empty v-else description="请选择过程文件" style="padding-top: 200px" />
+          </div>
+        </div>
+      </a-spin>
     </a-modal>
 
     <!-- 新增弹窗 -->
@@ -262,6 +304,95 @@ async function handleHtmlPreview(record: any) {
   previewContent.value = detail?.content || ''
 }
 
+// 周期报告过程制品。列表先返回实际文件数量，正文仅在用户选择时按需获取。
+const artifactsVisible = ref(false)
+const artifactsLoading = ref(false)
+const artifactsReport = ref<any>(null)
+const artifactItems = ref<any[]>([])
+const defectReportCount = ref(0)
+const selectedArtifact = ref<any>(null)
+const artifactContent = ref('')
+const artifactPreviewLoading = ref(false)
+const prettyArtifactJson = computed(() => {
+  if (!artifactContent.value)
+    return ''
+  try {
+    return JSON.stringify(JSON.parse(artifactContent.value), null, 2)
+  }
+  catch {
+    return artifactContent.value
+  }
+})
+
+const artifactCategoryText: Record<string, string> = {
+  report: '报告',
+  defect: '缺陷',
+  process: '过程',
+}
+const artifactSourceText: Record<string, string> = {
+  disk: '磁盘',
+  database: '数据库回退',
+  generated: '由历史JSON生成',
+}
+
+function artifactDescription(item: any) {
+  const category = artifactCategoryText[item.category] || item.category
+  const source = artifactSourceText[item.source] || item.source
+  const size = item.size ? `${(item.size / 1024).toFixed(1)} KB` : '动态生成'
+  return `${category} · ${source} · ${size}`
+}
+
+async function selectArtifact(item: any) {
+  selectedArtifact.value = item
+  artifactContent.value = ''
+  artifactPreviewLoading.value = true
+  try {
+    const { data, execute } = useGet<any>(ApiPerfReportV2.artifact, {
+      id: artifactsReport.value.id,
+      path: item.path,
+    }, { immediate: false })
+    await execute()
+    artifactContent.value = data.value?.content || ''
+  }
+  finally {
+    artifactPreviewLoading.value = false
+  }
+}
+
+async function handleArtifacts(record: any) {
+  artifactsVisible.value = true
+  artifactsLoading.value = true
+  artifactsReport.value = record
+  artifactItems.value = []
+  defectReportCount.value = 0
+  selectedArtifact.value = null
+  artifactContent.value = ''
+  try {
+    const { data, execute } = useGet<any>(ApiPerfReportV2.artifacts, { id: record.id }, { immediate: false })
+    await execute()
+    artifactItems.value = data.value?.items || []
+    defectReportCount.value = data.value?.defect_report_count || 0
+    const preferred = artifactItems.value.find(item => item.path === 'daily_report.md') || artifactItems.value[0]
+    if (preferred)
+      await selectArtifact(preferred)
+  }
+  finally {
+    artifactsLoading.value = false
+  }
+}
+
+async function downloadArtifact(item: any) {
+  if (!artifactsReport.value?.id)
+    return
+  const { downloadWithTip } = useDownload()
+  const params = new URLSearchParams({ id: artifactsReport.value.id, path: item.path })
+  await downloadWithTip(
+    `${ApiPerfReportV2.artifactDownload}?${params.toString()}`,
+    item.name,
+    '过程文件下载失败',
+  )
+}
+
 // 支持 ?id= 直达报告预览（云之家日报推送卡片链接，T2.5）
 const route = useRoute()
 onMounted(async () => {
@@ -293,4 +424,10 @@ async function handleDailyExport(record: any) {
 <style scoped>
 .content { white-space: pre-wrap; background: var(--color-fill-1); padding: 12px; border-radius: 4px; }
 .markdown { font-family: monospace; }
+.artifact-layout { display: flex; gap: 16px; height: calc(82vh - 62px); min-height: 0; }
+.artifact-list { width: 340px; flex-shrink: 0; overflow: auto; border-right: 1px solid var(--color-border-2); padding-right: 12px; }
+.artifact-list :deep(.arco-list-item) { cursor: pointer; }
+.artifact-list :deep(.arco-list-item.active) { background: var(--color-fill-2); }
+.artifact-preview { flex: 1; min-width: 0; overflow: auto; background: var(--color-bg-1); }
+.json-preview { margin: 0; padding: 16px; min-height: 100%; box-sizing: border-box; white-space: pre-wrap; word-break: break-word; background: var(--color-fill-1); }
 </style>

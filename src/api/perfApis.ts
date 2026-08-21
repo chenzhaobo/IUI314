@@ -330,6 +330,9 @@ export enum ApiPerfReportV2 {
   publish = '/perf/report-v2/publish',
   delete = '/perf/report-v2/delete',
   dailyExport = '/perf/periodic-report/daily/export',
+  artifacts = '/perf/report-v2/artifacts',
+  artifact = '/perf/report-v2/artifact',
+  artifactDownload = '/perf/report-v2/artifact/download',
 }
 
 // ── 分析任务定义 ────────────────────────────────────

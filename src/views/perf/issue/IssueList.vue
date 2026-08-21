@@ -50,53 +50,60 @@
         </a-col>
       </a-row>
 
-      <!-- 表格 -->
-      <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange" row-key="id">
-        <template #columns>
-          <a-table-column title="编号" data-index="issue_no" :width="130" />
-          <a-table-column title="标题" data-index="title" :width="250" ellipsis />
-          <a-table-column title="严重度" data-index="severity" :width="80">
-            <template #cell="{ record }">
-              <a-tag :color="severityColor(record.severity)">{{ severityText(record.severity) }}</a-tag>
+      <div class="scope-layout">
+        <aside class="scope-panel">
+          <IssueScopeTree :key="scopeTreeKey" @change="handleScopeChange" />
+        </aside>
+        <div class="scope-content">
+          <!-- 表格 -->
+          <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange" row-key="id">
+            <template #columns>
+              <a-table-column title="编号" data-index="issue_no" :width="130" />
+              <a-table-column title="标题" data-index="title" :width="250" ellipsis />
+              <a-table-column title="严重度" data-index="severity" :width="80">
+                <template #cell="{ record }">
+                  <a-tag :color="severityColor(record.severity)">{{ severityText(record.severity) }}</a-tag>
+                </template>
+              </a-table-column>
+              <a-table-column title="类型" data-index="issue_type" :width="100">
+                <template #cell="{ record }">{{ issueTypeText(record.issue_type) }}</template>
+              </a-table-column>
+              <a-table-column title="应用" data-index="app_number" :width="80" />
+              <a-table-column title="表单" data-index="form_name" :width="150" ellipsis />
+              <a-table-column title="客户" data-index="customer_name" :width="120" ellipsis />
+              <a-table-column title="状态" data-index="status" :width="90">
+                <template #cell="{ record }">
+                  <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
+                </template>
+              </a-table-column>
+              <a-table-column title="来源" data-index="source" :width="80">
+                <template #cell="{ record }">
+                  <a-tag :color="sourceColor(record.source)" size="small">{{ sourceText(record.source) }}</a-tag>
+                </template>
+              </a-table-column>
+              <a-table-column title="发现日期" data-index="found_date" :width="100" />
+              <a-table-column title="操作" :width="180" fixed="right">
+                <template #cell="{ record }">
+                  <a-space>
+                    <a-link @click="handleDetail(record)">详情</a-link>
+                    <a-dropdown>
+                      <a-link>状态</a-link>
+                      <template #content>
+                        <a-doption v-for="s in getNextStatuses(record.status)" :key="s" @click="handleChangeStatus(record, s)">
+                          {{ statusText(s) }}
+                        </a-doption>
+                      </template>
+                    </a-dropdown>
+                    <a-popconfirm content="确定删除？" @ok="handleDelete(record)">
+                      <a-link status="danger">删除</a-link>
+                    </a-popconfirm>
+                  </a-space>
+                </template>
+              </a-table-column>
             </template>
-          </a-table-column>
-          <a-table-column title="类型" data-index="issue_type" :width="100">
-            <template #cell="{ record }">{{ issueTypeText(record.issue_type) }}</template>
-          </a-table-column>
-          <a-table-column title="应用" data-index="app_number" :width="80" />
-          <a-table-column title="表单" data-index="form_name" :width="150" ellipsis />
-          <a-table-column title="客户" data-index="customer_name" :width="120" ellipsis />
-          <a-table-column title="状态" data-index="status" :width="90">
-            <template #cell="{ record }">
-              <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
-            </template>
-          </a-table-column>
-          <a-table-column title="来源" data-index="source" :width="80">
-            <template #cell="{ record }">
-              <a-tag :color="sourceColor(record.source)" size="small">{{ sourceText(record.source) }}</a-tag>
-            </template>
-          </a-table-column>
-          <a-table-column title="发现日期" data-index="found_date" :width="100" />
-          <a-table-column title="操作" :width="180" fixed="right">
-            <template #cell="{ record }">
-              <a-space>
-                <a-link @click="handleDetail(record)">详情</a-link>
-                <a-dropdown>
-                  <a-link>状态</a-link>
-                  <template #content>
-                    <a-doption v-for="s in getNextStatuses(record.status)" :key="s" @click="handleChangeStatus(record, s)">
-                      {{ statusText(s) }}
-                    </a-doption>
-                  </template>
-                </a-dropdown>
-                <a-popconfirm content="确定删除？" @ok="handleDelete(record)">
-                  <a-link status="danger">删除</a-link>
-                </a-popconfirm>
-              </a-space>
-            </template>
-          </a-table-column>
-        </template>
-      </a-table>
+          </a-table>
+        </div>
+      </div>
     </a-card>
 
     <!-- 详情抽屉 -->
@@ -231,6 +238,7 @@ import { useRoute } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { ApiPerfIssue } from '@/api/perfApis'
 import { useDelete, useDownload, useGet, usePost, usePut } from '@/hooks'
+import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
 
 defineOptions({ name: 'issue-list' })
 
@@ -239,7 +247,19 @@ const initialKeyword = typeof route.query.keyword === 'string' ? route.query.key
 
 const pageNum = ref(1)
 const pageSize = ref(20)
-const searchForm = reactive({ keyword: initialKeyword, status: '', severity: '', category: '', app_number: '', source: '' })
+const scopeTreeKey = ref(0)
+const searchForm = reactive({
+  keyword: initialKeyword,
+  status: '',
+  severity: '',
+  category: '',
+  source: '',
+  product_line: '',
+  project_group_code: '',
+  cloud_number: '',
+  app_number: '',
+  form_id: '',
+})
 
 const drawerVisible = ref(false)
 const currentRecord = ref<any>(null)
@@ -300,8 +320,26 @@ const handleDetailExport = async () => {
     detailExporting.value = false
   }
 }
+const handleScopeChange = (scope: Record<string, string>) => {
+  Object.assign(searchForm, {
+    project_group_code: '',
+    cloud_number: '',
+    app_number: '',
+    form_id: '',
+    ...scope,
+  })
+  pageNum.value = 1
+  fetchData()
+}
 const handleSearch = () => { pageNum.value = 1; fetchData() }
-const handleReset = () => { Object.assign(searchForm, { keyword: '', status: '', severity: '', category: '', app_number: '', source: '' }); handleSearch() }
+const handleReset = () => {
+  Object.assign(searchForm, {
+    keyword: '', status: '', severity: '', category: '', source: '', product_line: '',
+    project_group_code: '', cloud_number: '', app_number: '', form_id: '',
+  })
+  scopeTreeKey.value += 1
+  handleSearch()
+}
 const handlePageChange = (page: number) => { pageNum.value = page; fetchData() }
 const handleDetail = (record: any) => { currentRecord.value = record; drawerVisible.value = true }
 const handleAdd = () => { modalVisible.value = true }
@@ -349,6 +387,9 @@ const handleDelete = async (record: any) => {
 </script>
 
 <style scoped>
+.scope-layout { display: flex; gap: 16px; min-height: 520px; }
+.scope-panel { width: 280px; flex-shrink: 0; padding-right: 12px; border-right: 1px solid var(--color-border-2); }
+.scope-content { flex: 1; min-width: 0; }
 .markdown-content { white-space: pre-wrap; background: var(--color-fill-1); padding: 12px; border-radius: 4px; }
 .json-content { margin: 0; max-height: 360px; overflow: auto; white-space: pre-wrap; word-break: break-all; background: var(--color-fill-1); padding: 12px; border-radius: 4px; }
 </style>
