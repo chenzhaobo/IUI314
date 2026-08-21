@@ -67,20 +67,21 @@
             </template>
           </a-table-column>
           <a-table-column title="创建时间" data-index="created_at" :width="180" />
-          <a-table-column title="操作" :width="250" fixed="right">
+          <a-table-column title="操作" :width="180" fixed="right">
             <template #cell="{ record }">
               <a-space>
                 <a-link @click="handleDetail(record)">详情</a-link>
-                <a-link @click="handleHtmlPreview(record)">HTML预览</a-link>
-                <a-link v-if="record.analysis_type === 'daily_report'" @click="handleArtifacts(record)">过程文件</a-link>
-                <a-link v-if="record.analysis_type === 'daily_report'" status="success" @click="handleDailyExport(record)">导出 Excel</a-link>
-                <a-link v-if="record.status === 'draft'" @click="handleEdit(record)">编辑</a-link>
-                <a-popconfirm v-if="record.status === 'draft'" content="确定发布？" @ok="handlePublish(record)">
-                  <a-link status="success">发布</a-link>
-                </a-popconfirm>
-                <a-popconfirm content="确定删除？" @ok="handleDelete(record)">
-                  <a-link status="danger">删除</a-link>
-                </a-popconfirm>
+                <a-link :disabled="record.status !== 'draft'" @click="handleEdit(record)">编辑</a-link>
+                <a-dropdown @select="(key: any) => handleMoreAction(String(key), record)">
+                  <a-link>更多<icon-down /></a-link>
+                  <template #content>
+                    <a-doption value="preview">HTML预览</a-doption>
+                    <a-doption v-if="record.analysis_type === 'daily_report'" value="artifacts">过程文件</a-doption>
+                    <a-doption v-if="record.analysis_type === 'daily_report'" value="export">导出 Excel</a-doption>
+                    <a-doption v-if="record.status === 'draft'" value="publish">发布</a-doption>
+                    <a-doption value="delete" class="danger-option">删除</a-doption>
+                  </template>
+                </a-dropdown>
               </a-space>
             </template>
           </a-table-column>
@@ -211,7 +212,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { Message } from '@arco-design/web-vue'
+import { Message, Modal } from '@arco-design/web-vue'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { ApiPerfReportV2 } from '@/api/perfApis'
@@ -409,6 +410,43 @@ const handleDelete = async (record: any) => {
   await doDelete()
   Message.success('删除成功')
   fetchData()
+}
+
+// 操作列只保留 详情/编辑/更多，其余动作收进下拉。
+// 原来的发布/删除挂在 a-popconfirm 上，改成下拉后由 Modal.confirm 承接二次确认。
+const handleMoreAction = (key: string, record: any) => {
+  switch (key) {
+    case 'preview':
+      void handleHtmlPreview(record)
+      break
+    case 'artifacts':
+      void handleArtifacts(record)
+      break
+    case 'export':
+      void handleDailyExport(record)
+      break
+    case 'publish':
+      Modal.confirm({
+        title: '发布报告',
+        content: `确定发布《${record.title || record.id}》？发布后不可再编辑。`,
+        okText: '确认发布',
+        cancelText: '取消',
+        onOk: () => handlePublish(record),
+      })
+      break
+    case 'delete':
+      Modal.confirm({
+        title: '删除报告',
+        content: `确定删除《${record.title || record.id}》？`,
+        okText: '确认删除',
+        cancelText: '取消',
+        okButtonProps: { status: 'danger' },
+        onOk: () => handleDelete(record),
+      })
+      break
+    default:
+      break
+  }
 }
 
 async function handleDailyExport(record: any) {

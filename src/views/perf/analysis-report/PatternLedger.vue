@@ -106,17 +106,22 @@
                   <span v-else>--</span>
                 </template>
               </a-table-column>
-              <a-table-column title="操作" :width="220" fixed="right">
+              <a-table-column title="操作" :width="200" fixed="right">
                 <template #cell="{ record }">
                   <a-space>
                     <a-link @click="handleDetail(record)">详情</a-link>
-                    <a-link v-if="record.issue_id" @click="gotoIssue(record.issue_id)">查看问题</a-link>
-                    <template v-else>
-                      <a-tooltip :content="getDefectReport(record) ? '从完整缺陷报告生成问题跟踪' : '旧台账没有完整缺陷报告，不能自动提单'">
-                        <a-link :disabled="!getDefectReport(record)" status="success" @click="handleCreateIssue(record)">生成问题</a-link>
-                      </a-tooltip>
-                      <a-link @click="openLinkIssue(record)">关联已有</a-link>
-                    </template>
+                    <a-tooltip :content="createIssueTip(record)">
+                      <a-link :disabled="!!record.issue_id || !getDefectReport(record)" status="success" @click="handleCreateIssue(record)">生成问题</a-link>
+                    </a-tooltip>
+                    <a-dropdown @select="(key: any) => handleMoreAction(String(key), record)">
+                      <a-link>更多<icon-down /></a-link>
+                      <template #content>
+                        <a-doption v-if="record.issue_id" value="viewIssue">查看问题</a-doption>
+                        <a-doption v-else value="linkIssue">关联已有问题</a-doption>
+                        <a-doption value="logs">下载关联日志</a-doption>
+                        <a-doption value="exportDetail">导出台账详情</a-doption>
+                      </template>
+                    </a-dropdown>
                   </a-space>
                 </template>
               </a-table-column>
@@ -329,8 +334,8 @@ const handleExport = async () => {
   await downloadWithTip(`${ApiPerfPatternLedger.export}?${params.toString()}`, '问题台账.xlsx', '问题台账导出失败')
 }
 
-const handleDetailExport = async () => {
-  const record = currentRecord.value
+const handleDetailExport = async (target?: any) => {
+  const record = target || currentRecord.value
   if (!record) return
   const exactKey = record.pattern_fingerprint || record.pattern_no
   const params = new URLSearchParams({ keyword: exactKey })
@@ -343,8 +348,8 @@ const handleDetailExport = async () => {
 }
 
 // 下载该问题命中的原始天梯（Ops）日志压缩包，供开发自查完整时间线。
-const handleLogsDownload = async () => {
-  const record = currentRecord.value
+const handleLogsDownload = async (target?: any) => {
+  const record = target || currentRecord.value
   if (!record?.id) return
   logsDownloading.value = true
   try {
@@ -355,6 +360,33 @@ const handleLogsDownload = async () => {
     )
   } finally {
     logsDownloading.value = false
+  }
+}
+
+// 生成问题按钮的禁用原因，直接写在 tooltip 里避免用户猜。
+const createIssueTip = (record: any): string => {
+  if (record?.issue_id) return `已生成问题 ${record.issue_id}，可从"更多"查看`
+  if (!getDefectReport(record)) return '旧台账没有完整缺陷报告，不能自动提单'
+  return '从完整缺陷报告生成问题跟踪'
+}
+
+// 操作列只保留 详情/生成问题/更多，其余动作收进下拉。
+const handleMoreAction = (key: string, record: any) => {
+  switch (key) {
+    case 'viewIssue':
+      if (record.issue_id) gotoIssue(record.issue_id)
+      break
+    case 'linkIssue':
+      openLinkIssue(record)
+      break
+    case 'logs':
+      void handleLogsDownload(record)
+      break
+    case 'exportDetail':
+      void handleDetailExport(record)
+      break
+    default:
+      break
   }
 }
 const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0 }))

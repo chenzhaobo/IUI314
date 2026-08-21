@@ -271,3 +271,19 @@ export enum ApiSecPrescan {
   issueFixed = '/sechub/prescan/issue-fixed',
   scanRunsUnified = '/sechub/scan-runs/unified',
 }
+
+// ── 反编译源码库（外网标品包源码，供性能分析与 local-test 扫描） ──
+export enum ApiSecDecompile {
+  sourceList = '/sechub/decompile/source/list',
+  sourceSave = '/sechub/decompile/source/save',
+  sourceDelete = '/sechub/decompile/source/delete',
+  sync = '/sechub/decompile/sync',
+  runList = '/sechub/decompile/run/list',
+  runGet = '/sechub/decompile/run/get',
+  runCancel = '/sechub/decompile/run/cancel',
+  packageList = '/sechub/decompile/package/list',
+  lookup = '/sechub/decompile/lookup',
+  registerRepositories = '/sechub/decompile/register-repositories',
+  reassociate = '/sechub/decompile/reassociate',
+  importExisting = '/sechub/decompile/import-existing',
+}
