@@ -51,6 +51,9 @@ const reanalyzePayload = ref<any>({})
 const reanalyzingId = ref('')
 const { execute: doReanalyze } = usePost<string>(ApiPerfAnalysisJob.reanalyze, reanalyzePayload, { immediate: false })
 const canReanalyze = (record: any) => ['download_logs', 'ai_analysis', 'report', 'completed', 'failed'].includes(record.workflow_stage)
+function reanalysisSourceRunId(record: any) {
+  return parseParams(record.params).reanalyze_source_run_id || record.id
+}
 function reanalyze(record: any) {
   Modal.confirm({
     title: '重新分析已下载日志？',
@@ -59,7 +62,7 @@ function reanalyze(record: any) {
     onOk: async () => {
       reanalyzingId.value = record.id
       try {
-        reanalyzePayload.value = { run_id: record.id, generate_issues: false }
+        reanalyzePayload.value = { run_id: reanalysisSourceRunId(record), generate_issues: false }
         await doReanalyze()
         Message.success('重分析任务已创建')
         await fetchRuns()
