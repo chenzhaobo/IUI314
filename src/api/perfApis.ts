@@ -384,6 +384,7 @@ export enum ApiPerfScenario {
 export enum ApiPerfPatternLedger {
   list = '/perf/periodic-report/pattern/list',
   export = '/perf/periodic-report/pattern/export',
+  logs = '/perf/periodic-report/pattern/logs',
   save = '/perf/periodic-report/pattern/save',
   createIssue = '/perf/periodic-report/pattern/create-issue',
 }

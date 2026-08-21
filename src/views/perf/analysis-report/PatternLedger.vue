@@ -229,7 +229,8 @@
       <template #footer>
         <a-space>
           <a-button @click="drawerVisible = false">关闭</a-button>
-          <a-button type="primary" status="success" :loading="detailExporting" @click="handleDetailExport">下载关联 Excel</a-button>
+          <a-button :loading="detailExporting" @click="handleDetailExport">导出台账详情</a-button>
+          <a-button type="primary" status="success" :loading="logsDownloading" @click="handleLogsDownload">下载关联日志</a-button>
         </a-space>
       </template>
     </a-drawer>
@@ -264,6 +265,7 @@ const searchForm = reactive({
 const drawerVisible = ref(false)
 const currentRecord = ref<any>(null)
 const detailExporting = ref(false)
+const logsDownloading = ref(false)
 
 // ── 映射 ──────────────────────────────────────
 
@@ -321,9 +323,25 @@ const handleDetailExport = async () => {
   const params = new URLSearchParams({ keyword: exactKey })
   detailExporting.value = true
   try {
-    await downloadWithTip(`${ApiPerfPatternLedger.export}?${params.toString()}`, `${record.pattern_no || '问题台账'}-详情.xlsx`, '关联 Excel 下载失败')
+    await downloadWithTip(`${ApiPerfPatternLedger.export}?${params.toString()}`, `${record.pattern_no || '问题台账'}-详情.xlsx`, '台账详情导出失败')
   } finally {
     detailExporting.value = false
+  }
+}
+
+// 下载该问题命中的原始天梯（Ops）日志压缩包，供开发自查完整时间线。
+const handleLogsDownload = async () => {
+  const record = currentRecord.value
+  if (!record?.id) return
+  logsDownloading.value = true
+  try {
+    await downloadWithTip(
+      `${ApiPerfPatternLedger.logs}?id=${encodeURIComponent(record.id)}`,
+      `${record.pattern_no || '问题台账'}-原始天梯日志.zip`,
+      '原始日志打包失败：日志可能已过留存期被清理，或任务工作目录已变更',
+    )
+  } finally {
+    logsDownloading.value = false
   }
 }
 const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0 }))
