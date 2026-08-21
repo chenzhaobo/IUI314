@@ -286,4 +286,5 @@ export enum ApiSecDecompile {
   registerRepositories = '/sechub/decompile/register-repositories',
   reassociate = '/sechub/decompile/reassociate',
   importExisting = '/sechub/decompile/import-existing',
+  rebuildIndex = '/sechub/decompile/rebuild-index',
 }

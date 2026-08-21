@@ -57,6 +57,7 @@
             <a-button :disabled="!!runningRun(item)" @click="startSync(item, true)">强制重做</a-button>
             <a-button :disabled="!!runningRun(item)" @click="importExisting(item)">导入已有产物</a-button>
             <a-button @click="reassociate(item)">重新关联应用</a-button>
+            <a-button @click="rebuildIndex(item)">重建索引文件</a-button>
             <a-button @click="openRegister(item)">登记扫描仓库</a-button>
             <a-button @click="openSourceEdit(item.source)">编辑</a-button>
             <a-button status="danger" @click="removeSource(item.source)">删除</a-button>
@@ -301,6 +302,17 @@ const reassociate = async (item: any) => {
   Message.success('已重新关联应用与项目组')
   fetchSources()
   fetchPackages()
+}
+
+// 重建 index.json / package_index.tsv / class_prefix_index.tsv。
+// 这三个文件是 rg/AI 直接 grep 的入口，sync 与 import 会自动重写；
+// 手工改动过目录、或索引被单包运行覆盖过时用这个修复。
+const rebuildPayload = ref<any>({})
+const { execute: doRebuildIndex } = usePost<any>(ApiSecDecompile.rebuildIndex, rebuildPayload, { immediate: false })
+const rebuildIndex = async (item: any) => {
+  rebuildPayload.value = { id: String(item.source.id).trim() }
+  await doRebuildIndex()
+  Message.success('索引文件已重建')
 }
 
 // ── 源编辑 ──────────────────────────────────────
