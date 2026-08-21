@@ -116,6 +116,8 @@ async function loadRecordCounts(nodes: any[]) {
   const generation = ++countGeneration
   countPayload.value = {
     filters: { ...props.filters },
+    period_type: 'monthly',
+    period: selectedPeriod.value,
     scopes: nodes.map(node => ({ key: node.key, ...node.scope })),
   }
   await countRequest.execute()
