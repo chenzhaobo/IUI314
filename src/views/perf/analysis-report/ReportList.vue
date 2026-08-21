@@ -94,18 +94,20 @@
       :title="currentRecord?.title"
       :body-style="{ maxHeight: 'calc(100vh - 120px)', overflow: 'auto' }"
     >
-      <a-descriptions :column="2" bordered size="small" style="margin-bottom: 16px">
-        <a-descriptions-item label="类型">{{ typeText(currentRecord?.analysis_type) }}</a-descriptions-item>
-        <a-descriptions-item label="状态">{{ statusText(currentRecord?.status) }}</a-descriptions-item>
-        <a-descriptions-item label="周期">{{ currentRecord?.period_start }} ~ {{ currentRecord?.period_end }}</a-descriptions-item>
-        <a-descriptions-item label="问题数">{{ currentRecord?.issue_count }}</a-descriptions-item>
-      </a-descriptions>
-      <a-divider>摘要</a-divider>
-      <div class="content">{{ currentRecord?.summary || '暂无' }}</div>
-      <a-divider>报告内容</a-divider>
-      <div class="content markdown">{{ currentRecord?.content || '暂无' }}</div>
-      <a-divider>结论</a-divider>
-      <div class="content">{{ currentRecord?.conclusion || '暂无' }}</div>
+      <a-spin :loading="detailLoading" style="display: block">
+        <a-descriptions :column="2" bordered size="small" style="margin-bottom: 16px">
+          <a-descriptions-item label="类型">{{ typeText(currentRecord?.analysis_type) }}</a-descriptions-item>
+          <a-descriptions-item label="状态">{{ statusText(currentRecord?.status) }}</a-descriptions-item>
+          <a-descriptions-item label="周期">{{ currentRecord?.period_start }} ~ {{ currentRecord?.period_end }}</a-descriptions-item>
+          <a-descriptions-item label="问题数">{{ currentRecord?.issue_count }}</a-descriptions-item>
+        </a-descriptions>
+        <a-divider>摘要</a-divider>
+        <div class="content">{{ currentRecord?.summary || '暂无' }}</div>
+        <a-divider>报告内容</a-divider>
+        <div class="content markdown">{{ currentRecord?.content || '暂无' }}</div>
+        <a-divider>结论</a-divider>
+        <div class="content">{{ currentRecord?.conclusion || '暂无' }}</div>
+      </a-spin>
       <template #footer>
         <a-space>
           <a-button @click="drawerVisible = false">关闭</a-button>
@@ -179,6 +181,7 @@ const pageNum = ref(1)
 const pageSize = ref(20)
 const searchForm = reactive({ keyword: '', analysis_type: '', status: '', dimension_type: '', dimension_value: '' })
 const drawerVisible = ref(false)
+const detailLoading = ref(false)
 const modalVisible = ref(false)
 const currentRecord = ref<any>(null)
 const formData = reactive<any>({ title: '', analysis_type: 'monthly', period_start: '', period_end: '', summary: '', content: '' })
@@ -196,8 +199,29 @@ const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.
 const handleSearch = () => { pageNum.value = 1; fetchData() }
 const handleReset = () => { Object.assign(searchForm, { keyword: '', analysis_type: '', status: '', dimension_type: '', dimension_value: '' }); handleSearch() }
 const handlePageChange = (page: number) => { pageNum.value = page; fetchData() }
-const handleDetail = (record: any) => { currentRecord.value = record; drawerVisible.value = true }
-const handleEdit = (record: any) => { Object.assign(formData, record); modalVisible.value = true }
+
+async function fetchReportDetail(id: string) {
+  const { data, execute } = useGet<any>(ApiPerfReportV2.getById, { id }, { immediate: false })
+  await execute()
+  return data.value || null
+}
+
+async function handleDetail(record: any) {
+  currentRecord.value = record
+  drawerVisible.value = true
+  detailLoading.value = true
+  try {
+    currentRecord.value = await fetchReportDetail(record.id) || record
+  }
+  finally {
+    detailLoading.value = false
+  }
+}
+async function handleEdit(record: any) {
+  const detail = await fetchReportDetail(record.id) || record
+  Object.assign(formData, detail)
+  modalVisible.value = true
+}
 const handleAdd = () => { Object.assign(formData, { title: '', analysis_type: 'monthly', period_start: '', period_end: '', summary: '', content: '' }); modalVisible.value = true }
 
 // 新增
@@ -233,16 +257,9 @@ async function handleHtmlPreview(record: any) {
   previewVisible.value = true
   previewLoading.value = true
   previewContent.value = ''
-  // 如果列表记录已含内容则直接渲染，否则按ID加载
-  if (record.content) {
-    previewContent.value = record.content
-    previewLoading.value = false
-    return
-  }
-  const { data, execute } = useGet<any>(ApiPerfReportV2.getById, { id: record.id }, { immediate: false })
-  await execute()
+  const detail = await fetchReportDetail(record.id)
   previewLoading.value = false
-  previewContent.value = data.value?.content || ''
+  previewContent.value = detail?.content || ''
 }
 
 // 支持 ?id= 直达报告预览（云之家日报推送卡片链接，T2.5）
