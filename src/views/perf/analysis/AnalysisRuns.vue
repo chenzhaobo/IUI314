@@ -23,7 +23,11 @@ function showDetail(record: any) {
   selected.value = record
   detailVisible.value = true
 }
-const viewReport = (record: any) => router.push({ path: '/cloud-perf/analysis/report-list', query: { id: record.report_id } })
+// 用路由名而不是硬编码全路径跳转：菜单树由后端 sys_menu 下发，
+// 父级 path 改过就会让写死的全路径 404（'智能分析' 在迁移里是 analysis-report，
+// 开发库被手改成 analysis，同一份代码在生产就 404 了）。叶子 path 全局唯一，
+// 后端下发的 name 即叶子 path，按名跳转不受父级影响。
+const viewReport = (record: any) => router.push({ name: 'report-list', query: { id: record.report_id } })
 
 function parseParams(value: string) {
   try {

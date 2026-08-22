@@ -448,7 +448,9 @@ const handleReset = () => {
 const handlePageChange = (page: number) => { pageNum.value = page; fetchData() }
 const handleDetail = (record: any) => { currentRecord.value = record; drawerVisible.value = true }
 const gotoIssue = (issueId: string) => {
-  router.push({ path: '/perf/issue', query: { keyword: issueId } })
+  // '/perf/issue' 在生产菜单里不存在（问题追踪目录是 /cloud-perf/issue，且它是
+  // 目录节点不能直接访问），真正的页面是 issue-list。按路由名跳转，不受菜单层级变动影响。
+  router.push({ name: 'issue-list', query: { keyword: issueId } })
 }
 
 const createIssuePayload = ref<any>({})

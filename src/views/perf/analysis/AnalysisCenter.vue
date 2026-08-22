@@ -180,10 +180,14 @@ const runJob = async (record: any) => {
   const result = await doRun()
   if (result.data.value) {
     Message.success('任务已开始：正在收集并下载日志')
-    router.push({ path: '/cloud-perf/analysis/analysis-runs', query: { job_id: record.id, run_id: result.data.value } })
+    router.push({ name: 'analysis-runs', query: { job_id: record.id, run_id: result.data.value } })
   }
 }
-const viewRuns = (record: any) => router.push({ path: '/cloud-perf/analysis/analysis-runs', query: { job_id: record.id } })
+// 用路由名而不是硬编码全路径跳转：菜单树由后端 sys_menu 下发，
+// 父级 path 改过就会让写死的全路径 404（'智能分析' 在迁移里是 analysis-report，
+// 开发库被手改成 analysis，同一份代码在生产就 404 了）。叶子 path 全局唯一，
+// 后端下发的 name 即叶子 path，按名跳转不受父级影响。
+const viewRuns = (record: any) => router.push({ name: 'analysis-runs', query: { job_id: record.id } })
 
 const deletePayload = ref<any>({})
 const { execute: doDelete } = usePost<any>(ApiPerfAnalysisJob.delete, deletePayload, { immediate: false })
