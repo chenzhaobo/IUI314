@@ -8,7 +8,6 @@ import { ApiSysScheduledTasks } from '@/api/sysApis'
 import IuModal from '@/components/iui/iu-modal.vue'
 import VCron from '@/components/v-cron/index.vue'
 import { useGet, usePost, usePut } from '@/hooks'
-import type { MessageSchema } from '@/i18n'
 import { FormItemType, type IuFormField } from '@/types/base/iu-form'
 import { dictKey, type dictUse } from '@/types/system/dict'
 import type { scheduledTasks } from '@/types/system/scheduled-tasks'
@@ -28,7 +27,7 @@ const props = defineProps({
 
 const emits = defineEmits(['getList'])
 
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 
 const iuModalRef = ref<InstanceType<typeof IuModal>>()
 
@@ -245,7 +244,9 @@ defineExpose({ handleAdd, handleUpdate })
   </IuModal>
   <VCron
     v-if="openCron"
-    v-model:cron-value="form.cron_expression"
-    v-model:visible="openCron"
+    :cron-value="form.cron_expression ?? ''"
+    :visible="openCron"
+    @update:cron-value="(value: string) => { form.cron_expression = value }"
+    @update:visible="(value: boolean) => { openCron = value }"
   />
 </template>

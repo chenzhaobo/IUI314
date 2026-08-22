@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { ref, computed, watch } from 'vue'
-import { Message } from '@arco-design/web-vue'
+import { Message, type TreeNodeData } from '@arco-design/web-vue'
 import { useGet, usePost, useDelete } from '@/hooks'
 import { ApiPerfScript, ApiPerfScriptMenu, ApiPerfMenu, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
 
@@ -145,10 +145,11 @@ function collectMenuIds(node: any): string[] {
   return ids
 }
 
-function handleTreeSelect(keys: string[], data: { node: any }) {
-  selectedKeys.value = keys
+function handleTreeSelect(keys: (string | number)[], data: { node?: TreeNodeData }) {
+  const stringKeys = keys.map(String)
+  selectedKeys.value = stringKeys
   bindListQuery.value.page_num = 1
-  if (keys.length === 0) {
+  if (stringKeys.length === 0) {
     // 取消选中 → 显示全部
     selectedMenuId.value = ''
     selectedMenuName.value = ''
@@ -157,7 +158,7 @@ function handleTreeSelect(keys: string[], data: { node: any }) {
     return
   }
   // 从 treeData 中查找完整节点（含 children），不依赖事件传递的 node
-  const fullNode = findNodeByKey(treeData.value, keys[0]) || data?.node
+  const fullNode = findNodeByKey(treeData.value, stringKeys[0]) || data.node
   const extra = fullNode?.extra
   selectedMenuName.value = fullNode?.title || ''
   if (extra?.type === 'menu') {
@@ -277,8 +278,8 @@ const addColumns = [
   { title: '绑定状态', dataIndex: 'bound', width: 90, slotName: 'bound' },
 ]
 
-function handleSelectionChange(keys: string[]) {
-  selectedScriptIds.value = keys
+function handleSelectionChange(keys: (string | number)[]) {
+  selectedScriptIds.value = keys.map(String)
 }
 
 async function handleAddSubmit() {

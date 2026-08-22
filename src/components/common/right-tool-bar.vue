@@ -2,12 +2,11 @@
 import { useI18n } from 'vue-i18n'
 
 import { ref } from 'vue'
-import type { MessageSchema } from '@/i18n'
 
 defineOptions({ name: 'RightToolBar' })
 
 const emits = defineEmits(['queryTable'])
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 // 搜索
 
 const showSearch = defineModel('showSearch', { type: Boolean, default: true })

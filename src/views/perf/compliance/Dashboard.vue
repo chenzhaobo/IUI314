@@ -161,7 +161,7 @@
                 <template #cell="{ record }">
                   <a-space>
                     <a-link @click="handleCreateIssue(record)">提问题</a-link>
-                    <a-link @click="handleExport(record)">导出</a-link>
+                    <a-link @click="handleExport">导出</a-link>
                   </a-space>
                 </template>
               </a-table-column>
@@ -203,7 +203,11 @@ const { execute: fetchPeriodOptions } = useGet<any>(ApiPerfCompliance.periodOpti
   },
 })
 
-const onPeriodTypeChange = (pt: string) => {
+type ArcoSelectValue = string | number | boolean | Record<string, unknown> | (string | number | boolean | Record<string, unknown>)[]
+
+const onPeriodTypeChange = (value: ArcoSelectValue) => {
+  if (typeof value !== 'string') return
+  const pt = value
   selectedPeriod.value = ''
   periodOptions.value = []
   treeData.value = []
@@ -223,7 +227,9 @@ const onProductLineChange = () => {
   fetchPeriodOptions()
 }
 
-const onPeriodChange = (period: string) => {
+const onPeriodChange = (value: ArcoSelectValue) => {
+  if (typeof value !== 'string') return
+  const period = value
   selectedKeys.value = []
   if (period) {
     reloadTree()
@@ -417,8 +423,8 @@ const onLoadMore = async (node: any) => {
   }
 }
 
-const onTreeSelect = (keys: string[]) => {
-  selectedKeys.value = keys
+const onTreeSelect = (keys: (string | number)[]) => {
+  selectedKeys.value = keys.map(String)
   // watch(selectedKeys) 会自动联动更新 drill 明细与总览
 }
 

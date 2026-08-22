@@ -41,7 +41,7 @@
           <a-table-column title="联系人" data-index="contact" :width="100" />
           <a-table-column title="状态" data-index="status" :width="80">
             <template #cell="{ record }">
-              <a-badge :status="record.status === '1' ? 'success' : 'default'" :text="record.status === '1' ? '启用' : '禁用'" />
+              <a-badge :status="record.status === '1' ? 'success' : 'normal'" :text="record.status === '1' ? '启用' : '禁用'" />
             </template>
           </a-table-column>
           <a-table-column title="操作" :width="150" fixed="right">

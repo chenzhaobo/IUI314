@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { ref, computed, watch, onUnmounted } from 'vue'
-import { Message } from '@arco-design/web-vue'
+import { Message, type TableColumnData } from '@arco-design/web-vue'
 import { useGet, usePost } from '@/hooks'
 import { ApiPerfEnv, ApiPerfTableStats, ApiSysDictData } from '@/api/apis'
 
@@ -99,14 +99,14 @@ function handleStatsPageSizeChange(size: number) {
   fetchTableStatsList()
 }
 
-const statsColumns = [
+const statsColumns: TableColumnData[] = [
   { title: '数据库', dataIndex: 'db_route_key', width: 100, ellipsis: true, tooltip: true },
   { title: 'Schema', dataIndex: 'schema_name', width: 90, ellipsis: true, tooltip: true },
   { title: '表名', dataIndex: 'table_name', width: 220, ellipsis: true, tooltip: true },
   { title: '行数', dataIndex: 'row_count', width: 120, align: 'right' as const, sortable: { sortDirections: ['descend', 'ascend'] }, render: ({ record }: any) => formatNumber(record.row_count) },
   { title: '字段数', dataIndex: 'column_count', width: 80, align: 'right' as const, sortable: { sortDirections: ['descend', 'ascend'] }, render: ({ record }: any) => formatNumber(record.column_count) },
   { title: '类型', dataIndex: 'row_count_type', width: 80, slotName: 'row_count_type' },
-  { title: '空间大小', dataIndex: 'total_size_human', width: 100, ellipsis: true, tooltip: true, sortable: { sortDirections: ['descend', 'ascend'] }, sorter: (a: any, b: any) => (a.total_size_bytes || 0) - (b.total_size_bytes || 0) },
+  { title: '空间大小', dataIndex: 'total_size_human', width: 100, ellipsis: true, tooltip: true, sortable: { sortDirections: ['descend', 'ascend'], sorter: (a: any, b: any) => (a.total_size_bytes || 0) - (b.total_size_bytes || 0) }},
   { title: '同步时间', dataIndex: 'synced_at', width: 160, slotName: 'synced_at' },
 ]
 
@@ -149,7 +149,7 @@ function handleEntityPageSizeChange(size: number) {
   getEntityList()
 }
 
-const entityColumns = [
+const entityColumns: TableColumnData[] = [
   { title: '元数据编码', dataIndex: 'form_number', width: 160, ellipsis: true, tooltip: true },
   { title: '名称', dataIndex: 'entity_name', width: 150, ellipsis: true, tooltip: true },
   { title: '类型', dataIndex: 'entity_type', width: 100, slotName: 'entity_type' },
@@ -183,11 +183,11 @@ const dbSizesTotalBytes = computed(() => dbSizesList.value.reduce((sum: number, 
 const dbSizesTotalHuman = computed(() => formatBytes(dbSizesTotalBytes.value))
 const dbSizesTableTotal = computed(() => dbSizesList.value.reduce((sum: number, d: any) => sum + (d.table_count || 0), 0))
 
-const dbSizesColumns = [
+const dbSizesColumns: TableColumnData[] = [
   { title: '数据库名', dataIndex: 'db_name', width: 250, ellipsis: true, tooltip: true },
   { title: '路由键', dataIndex: 'db_route_key', width: 120, ellipsis: true, tooltip: true },
-  { title: '空间大小', dataIndex: 'size_human', width: 120, align: 'right' as const, sortable: { sortDirections: ['descend', 'ascend'] }, sorter: (a: any, b: any) => (a.size_bytes || 0) - (b.size_bytes || 0) },
-  { title: '表数量', dataIndex: 'table_count', width: 100, align: 'right' as const, sortable: { sortDirections: ['descend', 'ascend'] }, sorter: (a: any, b: any) => (a.table_count || 0) - (b.table_count || 0), render: ({ record }: any) => formatNumber(record.table_count) },
+  { title: '空间大小', dataIndex: 'size_human', width: 120, align: 'right' as const, sortable: { sortDirections: ['descend', 'ascend'], sorter: (a: any, b: any) => (a.size_bytes || 0) - (b.size_bytes || 0) }},
+  { title: '表数量', dataIndex: 'table_count', width: 100, align: 'right' as const, sortable: { sortDirections: ['descend', 'ascend'], sorter: (a: any, b: any) => (a.table_count || 0) - (b.table_count || 0) }, render: ({ record }: any) => formatNumber(record.table_count) },
 ]
 
 watch(sourceEnvId, () => {
@@ -568,7 +568,7 @@ onUnmounted(() => {
       <a-spin :loading="syncPreviewLoading" style="width: 100%">
         <div v-if="syncPreviewData" style="margin-bottom: 12px">
           <a-divider orientation="left" :style="{ fontSize: '13px', margin: '8px 0' }">数据概览</a-divider>
-          <a-descriptions :column="2" layout="inline" bordered size="small">
+          <a-descriptions :column="2" layout="inline-horizontal" bordered size="small">
             <a-descriptions-item label="数据库数量">{{ formatNumber(syncPreviewData.db_count) }}</a-descriptions-item>
             <a-descriptions-item label="表总数">{{ formatNumber(syncPreviewData.stats_existing) }}</a-descriptions-item>
             <a-descriptions-item label="估算行数表数">

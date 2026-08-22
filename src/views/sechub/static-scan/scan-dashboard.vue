@@ -30,6 +30,8 @@ import { ErrorFlag } from '@/api/apis'
 import { useGet, usePost } from '@/hooks'
 import { domainLabels, securityCategoryLabels } from './labels'
 
+type SelectChangeValue = string | number | boolean | Record<string, unknown> | (string | number | boolean | Record<string, unknown>)[]
+
 use([BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
 // 组件名必须与路由名（= 菜单 path 'scan-dashboard'）一致，keep-alive :include 才能缓存本页，
@@ -281,7 +283,10 @@ async function loadRunList(repoName: string) {
   }
 }
 
-function onRunChange(runId: string) {
+function onRunChange(value: SelectChangeValue) {
+  if (typeof value !== 'string' && typeof value !== 'number')
+    return
+  const runId = String(value)
   currentRunId.value = runId
   const run = runList.value.find(r => r.id === runId)
   if (run) {
@@ -410,7 +415,10 @@ async function openPrescanModal() {
   }
 }
 
-function onPrescanBranchChange(branchName: string) {
+function onPrescanBranchChange(value: SelectChangeValue) {
+  if (typeof value !== 'string' && typeof value !== 'number')
+    return
+  const branchName = String(value)
   const br = prescanBranches.value.find(b => b.name === branchName)
   prescanCommit.value = br?.commit_sha ?? ''
 }
@@ -844,6 +852,10 @@ const crossCompareColumns = [
   { title: '平均置信度', dataIndex: 'avg_confidence', slotName: 'crConf', width: 100 },
   { title: '时间', dataIndex: 'created_at', width: 130 },
 ]
+const crossCompareRows = computed(() => crossCompareData.value.map(row => ({
+  ...row,
+  comparison_key: `${row.run_id}_${row.ai_model}_${row.ai_mode}`,
+})))
 
 async function openCrossCompare() {
   if (!selectedRepoId.value) {
@@ -853,7 +865,7 @@ async function openCrossCompare() {
   crossCompareVisible.value = true
   crossCompareLoading.value = true
   try {
-    crossCompareData.value = await fetchJson<CrossRunAggRow[]>(`${ApiSecPrescan.crossRunCompare}?repository_id=${selectedRepoId.value}`)
+    crossCompareData.value = (await fetchJson<CrossRunAggRow[]>(`${ApiSecPrescan.crossRunCompare}?repository_id=${selectedRepoId.value}`)) ?? []
   }
   catch {
     crossCompareData.value = []
@@ -1268,7 +1280,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
       :cancel-text="'取消'"
       @ok="doPrescanConfirm"
     >
-      <a-form layout="vertical">
+      <a-form :model="{}" layout="vertical">
         <a-form-item label="目标分支">
           <a-select
             v-model="prescanBranch"
@@ -1325,7 +1337,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
       :cancel-text="'取消'"
       @ok="doAiConfirm"
     >
-      <a-form layout="vertical">
+      <a-form :model="{}" layout="vertical">
         <a-form-item label="目标批次（扫描运行）">
           <a-select v-model="aiConfirmRunId" placeholder="选择要确认的扫描批次">
             <a-option v-for="run in runList" :key="run.id" :value="run.id">
@@ -1373,10 +1385,10 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
       <a-spin :loading="crossCompareLoading" style="width: 100%">
         <a-table
           v-if="crossCompareData.length"
-          :data="crossCompareData"
+          :data="crossCompareRows"
           :columns="crossCompareColumns"
           :pagination="false"
-          :row-key="(r: CrossRunAggRow) => `${r.run_id}_${r.ai_model}_${r.ai_mode}`"
+          row-key="comparison_key"
           size="small"
           :scroll="{ x: 1100 }"
         >

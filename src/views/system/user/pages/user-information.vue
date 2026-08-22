@@ -8,7 +8,6 @@ import { ErrorFlag } from '@/api/apis'
 import { ApiSysUser } from '@/api/sysApis'
 import { TabAction } from '@/components/layout/tab-bar/useTabBar'
 import { useFormUtil, usePut } from '@/hooks'
-import type { MessageSchema } from '@/i18n'
 import { router } from '@/router'
 import { useTabBarStore } from '@/stores'
 import type { userInformation } from '@/types/system/userInformation'
@@ -25,7 +24,7 @@ const tabBarStore = useTabBarStore()
 const userIf = computed(() => props.user)
 const { formValidate } = useFormUtil()
 const userRef = ref<FormInstance>()
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 
 const rules = ref<{ [key: string]: FieldRule[] }>({
   user_nickname: [

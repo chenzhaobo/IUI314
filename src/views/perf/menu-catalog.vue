@@ -1,6 +1,14 @@
 <script lang="ts" setup>
 import { ref, computed, watch } from 'vue'
-import { Message } from '@arco-design/web-vue'
+import { Message, type TreeNodeData } from '@arco-design/web-vue'
+
+// 本页构造树时往节点上额外挂了 extra（区分菜单/按钮并带业务 id）和 is_leaf，
+// arco 的 TreeNodeData 没有这两个字段（它自己的是 isLeaf），所以在这里补上真实结构。
+interface CatalogTreeNode extends TreeNodeData {
+  extra?: { type?: string, id?: string, form_id?: string, [k: string]: unknown }
+  is_leaf?: boolean
+  children?: CatalogTreeNode[]
+}
 import { useGet, usePost, usePut } from '@/hooks'
 import { ApiPerfEnv, ApiPerfApp, ApiPerfMenu, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
 import SyncMenuModal from './components/SyncMenuModal.vue'
@@ -104,8 +112,8 @@ const menuColumns = [
 // ── 批量选择 ──────────────────────────────────
 const selectedMenuIds = ref<string[]>([])
 
-function handleSelectionChange(keys: string[]) {
-  selectedMenuIds.value = keys
+function handleSelectionChange(keys: (string | number)[]) {
+  selectedMenuIds.value = keys.map(String)
 }
 
 // ── 测试范围 ──────────────────────────────────
@@ -158,7 +166,7 @@ function findTreeNode(nodes: any[], key: string): any | null {
   return null
 }
 
-async function handleTreeExpand(_keys: (string | number)[], data: { expanded: boolean; node: any }) {
+async function handleTreeExpand(_keys: (string | number)[], data: { expanded?: boolean; expandedNodes: CatalogTreeNode[]; node?: CatalogTreeNode; e?: Event }) {
   if (!data.expanded) return
   const node = data.node
   if (!node) return
@@ -206,8 +214,8 @@ async function handleTreeExpand(_keys: (string | number)[], data: { expanded: bo
   }
 }
 
-function handleTreeSelect(keys: string[], data: { node: any }) {
-  selectedKeys.value = keys as string[]
+function handleTreeSelect(keys: (string | number)[], data: { selected?: boolean; selectedNodes: CatalogTreeNode[]; node?: CatalogTreeNode; e?: Event }) {
+  selectedKeys.value = keys.map(String)
   selectedNode.value = data?.node || null
   const extra = data?.node?.extra
   const node = data?.node
@@ -233,7 +241,7 @@ function handleTreeSelect(keys: string[], data: { node: any }) {
     }
     // 有子菜单 — 走菜单列表逻辑
     menuQuery.value.app_id = ''
-    menuQuery.value.parent_id = extra.id
+    menuQuery.value.parent_id = extra.id ?? ''
     menuQuery.value.page_num = 1
     getMenuList()
   } else if (extra?.type === 'button') {
@@ -241,9 +249,9 @@ function handleTreeSelect(keys: string[], data: { node: any }) {
   } else {
     if (extra?.type === 'menu') {
       menuQuery.value.app_id = ''
-      menuQuery.value.parent_id = extra.id
+      menuQuery.value.parent_id = extra.id ?? ''
     } else if (extra?.type === 'app') {
-      menuQuery.value.app_id = extra.id
+      menuQuery.value.app_id = extra.id ?? ''
       menuQuery.value.parent_id = ''
     } else {
       menuQuery.value.app_id = ''
@@ -404,8 +412,8 @@ const buttonColumns = [
 
 function handleButtonSearch() { getButtonList() }
 
-function handleButtonSelectionChange(keys: string[]) {
-  selectedButtonIds.value = keys
+function handleButtonSelectionChange(keys: (string | number)[]) {
+  selectedButtonIds.value = keys.map(String)
 }
 
 async function handleMarkButtons(isImportant: string) {
@@ -532,7 +540,7 @@ watch([sourceEnvId, currentFormNumber], () => {
         <!-- 按钮面板（叶子菜单选中时）-->
         <template v-if="selectedNodeType === 'leaf-menu' || selectedNodeType === 'button'">
           <!-- 表信息条 -->
-          <a-descriptions :column="4" layout="inline" bordered size="small" class="m-b-8px" v-if="tableInfo">
+          <a-descriptions :column="4" layout="inline-horizontal" bordered size="small" class="m-b-8px" v-if="tableInfo">
             <a-descriptions-item label="表单">{{ tableInfo.form_number }}</a-descriptions-item>
             <a-descriptions-item label="数据库路由">{{ tableInfo.db_route_key }}</a-descriptions-item>
             <a-descriptions-item label="主表">{{ tableInfo.main_table }}</a-descriptions-item>

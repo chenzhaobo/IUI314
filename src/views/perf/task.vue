@@ -115,7 +115,21 @@ const triggerForm = ref({
 })
 
 // ── 预估执行时间 ──────────────────────────────────
-const estimateResult = ref<any>(null)
+interface EstimateTimeData {
+  estimated_human: string
+  serial_total_human: string
+  total_scripts: number
+  scripts_with_data: number
+  scripts_no_data: number
+  avg_per_script_human: string
+  max_script_human: string
+}
+
+interface EstimateTimeResponse {
+  data?: EstimateTimeData
+}
+
+const estimateResult = ref<EstimateTimeData | null>(null)
 const estimateLoading = ref(false)
 let estimateTimer: any = null
 
@@ -128,7 +142,7 @@ function fetchEstimate() {
   }
   estimateTimer = setTimeout(async () => {
     estimateLoading.value = true
-    const { execute, data } = usePost(ApiPerfTask.estimateTime, {
+    const { execute, data } = usePost<EstimateTimeResponse>(ApiPerfTask.estimateTime, {
       script_ids: ids,
       max_concurrency: triggerForm.value.task_type === 'parallel' ? triggerForm.value.max_concurrency : 1,
     })
@@ -161,8 +175,10 @@ function handleTriggerClick() {
 }
 
 // 按领域筛选脚本（仅筛选，不覆盖已选脚本）
-function handleDomainChange(domain: string) {
-  if (!domain) return
+function handleDomainChange(value: string | number | boolean | Record<string, unknown> | (string | number | boolean | Record<string, unknown>)[]) {
+  if (typeof value !== 'string' || !value)
+    return
+  const domain = value
   // 将该领域下尚未选中的脚本追加到已选列表
   const scriptsInDomain = (scriptData.value?.list || [])
     .filter((s: any) => s.domain === domain)

@@ -42,7 +42,7 @@ async function sendMessage() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: token.value || '',
+        Authorization: token,
       },
       body: JSON.stringify({
         message: text,

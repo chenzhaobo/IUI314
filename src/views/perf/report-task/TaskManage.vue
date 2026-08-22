@@ -3,8 +3,8 @@
     <a-card title="周期报告任务" :bordered="false">
       <template #extra>
         <a-space>
-          <a-input v-model="keyword" placeholder="任务名称" allow-clear style="width: 180px" @change="fetchTasks" />
-          <a-select v-model="filterDimType" placeholder="维度类型" allow-clear style="width: 140px" @change="fetchTasks">
+          <a-input v-model="keyword" placeholder="任务名称" allow-clear style="width: 180px" @change="() => fetchTasks()" />
+          <a-select v-model="filterDimType" placeholder="维度类型" allow-clear style="width: 140px" @change="() => fetchTasks()">
             <a-option value="product_domain">产品领域</a-option>
             <a-option value="business_area">业务领域</a-option>
             <a-option value="project_group">项目组</a-option>
@@ -158,7 +158,7 @@
 
     <!-- 手动触发弹框 -->
     <a-modal v-model:visible="triggerVisible" title="手动触发（全部启用任务）" :width="440" @ok="handleTrigger" :ok-loading="triggering">
-      <a-form layout="vertical">
+      <a-form layout="vertical" :model="layoutOnlyModel">
         <a-form-item label="数据日期（默认昨天）">
           <a-date-picker v-model="triggerDate" style="width: 100%" />
         </a-form-item>
@@ -342,15 +342,15 @@ const triggering = ref(false)
 const triggerDate = ref('')
 const triggerStage = ref<string>()
 const triggerPayload = ref<any>({})
-const { execute: doTrigger } = usePost<any>(ApiPerfReportTask.trigger, triggerPayload, {
+const { data: triggerResult, error: triggerError, execute: doTrigger } = usePost<any>(ApiPerfReportTask.trigger, triggerPayload, {
   immediate: false,
-  onSuccess(data: any) { Message.success(String(data || '已触发')) },
 })
 const handleTrigger = async () => {
   triggering.value = true
   try {
     triggerPayload.value = { run_date: triggerDate.value || undefined, stage: triggerStage.value || undefined }
     await doTrigger()
+    if (!triggerError.value) Message.success(String(triggerResult.value || '已触发'))
     triggerVisible.value = false
   } finally { triggering.value = false }
 }
@@ -404,6 +404,11 @@ const fmtDuration = (seconds?: number) => {
   if (value < 3600) return `${Math.ceil(value / 60)}m`
   return `${Math.floor(value / 3600)}h${Math.ceil((value % 3600) / 60)}m`
 }
+
+// 这些 a-form 只用来做纵向布局，不做校验，但 arco 的 model 是必填 prop。
+// 用一个模块级常量而不是在模板里写 :model="{}"，避免每次渲染都新建对象。
+const layoutOnlyModel = {}
+
 </script>
 
 <style scoped>

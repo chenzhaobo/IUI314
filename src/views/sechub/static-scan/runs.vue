@@ -34,6 +34,10 @@ async function postAction<T = unknown>(url: string, payload: Record<string, any>
 
 // ===== 模型结果总览（跨 Run 横评：每行 = 一个 模型×模式 轮次）=====
 const crossRows = ref<CrossRunAggRow[]>([])
+const crossTableRows = computed(() => crossRows.value.map(row => ({
+  ...row,
+  key: `${row.run_id}_${row.ai_model}_${row.ai_mode}`,
+})))
 const crossLoading = ref(false)
 
 async function loadCrossRows(silent = false) {
@@ -208,10 +212,10 @@ const crossColumns = [
       </template>
       <a-table
         :loading="crossLoading"
-        :data="crossRows"
+        :data="crossTableRows"
         :columns="crossColumns"
         :pagination="false"
-        :row-key="(r: CrossRunAggRow) => `${r.run_id}_${r.ai_model}_${r.ai_mode}`"
+        row-key="key"
         size="small"
         :scroll="{ x: 1340 }"
       >

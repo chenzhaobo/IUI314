@@ -19,6 +19,29 @@ function requestFailed(data: { value: unknown }, error: { value: unknown }) {
   return Boolean(error.value) || data.value === ErrorFlag
 }
 
+interface DmpTaskEditForm {
+  id: string
+  schedule_enabled: string
+  schedule_type: string
+  target_table: string
+  upsert_key: string
+  field_mapping: string
+  filter_config: string
+}
+
+interface DmpTaskAddForm {
+  target_key: string
+  name: string
+  cloud: string
+  app: string
+  menu1: string
+  menu2: string
+  sync_mode: string
+  target_table: string
+  upsert_key: string
+  field_mapping: string
+}
+
 // ═══════════════════════════════════════════════════════════
 //  Token 状态
 // ═══════════════════════════════════════════════════════════
@@ -104,8 +127,17 @@ async function handleTrigger(task: DmpCrawlTask) {
 
 // ── 编辑调度 ──────────────────────────────────
 const editModalVisible = ref(false)
-const editPayload = ref<Record<string, unknown>>({ id: '', schedule_enabled: '0', schedule_type: 'daily' })
-const { isFetching: editSaving, execute: editExec, data: editData, error: editError } = usePut(ApiDmp.taskEdit, editPayload)
+const editPayload = ref<DmpTaskEditForm>({
+  id: '',
+  schedule_enabled: '0',
+  schedule_type: 'daily',
+  target_table: '',
+  upsert_key: '',
+  field_mapping: '',
+  filter_config: '',
+})
+const editRequestPayload = ref<Record<string, unknown>>({})
+const { isFetching: editSaving, execute: editExec, data: editData, error: editError } = usePut(ApiDmp.taskEdit, editRequestPayload)
 const editingTask = ref<DmpCrawlTask | null>(null)
 
 function openEditModal(task: DmpCrawlTask) {
@@ -125,14 +157,14 @@ function openEditModal(task: DmpCrawlTask) {
 async function handleEditSave() {
   const payload: Record<string, unknown> = { ...editPayload.value }
   if (typeof payload.field_mapping === 'string' && payload.field_mapping) {
-    try { payload.field_mapping = JSON.parse(payload.field_mapping as string) } catch { Message.error('field_mapping JSON 格式错误'); return }
+    try { payload.field_mapping = JSON.parse(payload.field_mapping) } catch { Message.error('field_mapping JSON 格式错误'); return }
   } else { delete payload.field_mapping }
   if (typeof payload.filter_config === 'string' && payload.filter_config) {
-    try { payload.filter_config = JSON.parse(payload.filter_config as string) } catch { Message.error('filter_config JSON 格式错误'); return }
+    try { payload.filter_config = JSON.parse(payload.filter_config) } catch { Message.error('filter_config JSON 格式错误'); return }
   } else { delete payload.filter_config }
   if (!payload.target_table) delete payload.target_table
   if (!payload.upsert_key) delete payload.upsert_key
-  editPayload.value = payload
+  editRequestPayload.value = payload
   await editExec()
   if (requestFailed(editData, editError)) return
   Message.success('任务配置已更新')
@@ -142,11 +174,20 @@ async function handleEditSave() {
 
 // ── 新增任务 ──────────────────────────────────
 const addModalVisible = ref(false)
-const addPayload = ref<Record<string, unknown>>({
-  target_key: '', name: '', cloud: '', app: '', menu1: '', menu2: '',
-  sync_mode: 'full', target_table: '', upsert_key: '', field_mapping: '',
+const addPayload = ref<DmpTaskAddForm>({
+  target_key: '',
+  name: '',
+  cloud: '',
+  app: '',
+  menu1: '',
+  menu2: '',
+  sync_mode: 'full',
+  target_table: '',
+  upsert_key: '',
+  field_mapping: '',
 })
-const { isFetching: addSaving, execute: addExec, data: addData, error: addError } = usePost(ApiDmp.taskAdd, addPayload)
+const addRequestPayload = ref<Record<string, unknown>>({})
+const { isFetching: addSaving, execute: addExec, data: addData, error: addError } = usePost(ApiDmp.taskAdd, addRequestPayload)
 
 function openAddModal() {
   addPayload.value = {
@@ -164,13 +205,13 @@ async function handleAddSave() {
   }
   const payload: Record<string, unknown> = { ...p }
   if (typeof payload.field_mapping === 'string' && payload.field_mapping) {
-    try { payload.field_mapping = JSON.parse(payload.field_mapping as string) } catch { Message.error('field_mapping JSON 格式错误'); return }
+    try { payload.field_mapping = JSON.parse(payload.field_mapping) } catch { Message.error('field_mapping JSON 格式错误'); return }
   } else { delete payload.field_mapping }
   if (!payload.target_table) delete payload.target_table
   if (!payload.upsert_key) delete payload.upsert_key
   if (!payload.menu1) delete payload.menu1
   if (!payload.menu2) delete payload.menu2
-  addPayload.value = payload
+  addRequestPayload.value = payload
   await addExec()
   if (requestFailed(addData, addError)) return
   Message.success('任务创建成功')
@@ -444,7 +485,7 @@ function formatCell(val: unknown): string {
 
     <!-- 任务配置弹框 -->
     <a-modal v-model:visible="editModalVisible" title="任务配置" :ok-loading="editSaving" :width="600" @ok="handleEditSave">
-      <a-form layout="vertical">
+      <a-form :model="editPayload" layout="vertical">
         <a-form-item label="任务">
           <a-input :model-value="editingTask?.name" disabled />
         </a-form-item>
@@ -453,7 +494,7 @@ function formatCell(val: unknown): string {
             <a-form-item label="启用定时">
               <a-switch
                 :model-value="editPayload.schedule_enabled === '1'"
-                @change="(v: boolean | (string | number)[]) => editPayload.schedule_enabled = v ? '1' : '0'"
+                @change="(v: string | number | boolean) => editPayload.schedule_enabled = v ? '1' : '0'"
               />
             </a-form-item>
           </a-col>
@@ -490,7 +531,7 @@ function formatCell(val: unknown): string {
 
     <!-- 新增任务弹框 -->
     <a-modal v-model:visible="addModalVisible" title="新增爬取任务" :ok-loading="addSaving" :width="600" @ok="handleAddSave">
-      <a-form layout="vertical">
+      <a-form :model="addPayload" layout="vertical">
         <a-row :gutter="16">
           <a-col :span="12">
             <a-form-item label="目标标识 *">

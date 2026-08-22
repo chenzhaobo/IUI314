@@ -5,7 +5,6 @@ import { useI18n } from 'vue-i18n'
 import AppLink from './app-link.vue'
 import IuiIcon from '@/components/svg-icon/iui-icon.vue'
 import { getNormalPath, getQueryUrl, isExternal } from '@/hooks'
-import type { MessageSchema } from '@/i18n'
 import type { AppRouteRecordRaw } from '@/types/base/router'
 
 defineOptions({ name: 'SideBarMenuItem' })
@@ -20,7 +19,7 @@ const props = defineProps({
     default: '',
   },
 })
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 const onlyOneChild = ref<AppRouteRecordRaw>()
 
 function hasOneShowingChild(

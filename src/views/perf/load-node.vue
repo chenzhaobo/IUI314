@@ -184,7 +184,7 @@ const statusOptions = [
           <a-tag>{{ record.os_type || '-' }}</a-tag>
         </template>
         <template #status="{ record }">
-          <a-badge :status="record.status === 'online' ? 'success' : record.status === 'disabled' ? 'danger' : 'default'" :text="statusTextMap[record.status] || record.status" />
+          <a-badge :status="record.status === 'online' ? 'success' : record.status === 'disabled' ? 'danger' : 'normal'" :text="statusTextMap[record.status] || record.status" />
         </template>
         <template #load="{ record }">
           <span :style="{ color: record.current_load >= record.max_concurrency ? 'rgb(var(--danger-6))' : '' }">
@@ -275,7 +275,7 @@ const statusOptions = [
             :title="testResult.status === 'online' ? '连接成功' : '连接失败'"
           >
             <template #extra>
-              <a-descriptions :column="1" layout="inline" bordered size="small" style="text-align: left">
+              <a-descriptions :column="1" layout="inline-horizontal" bordered size="small" style="text-align: left">
                 <a-descriptions-item label="节点状态">{{ testResult.status || '-' }}</a-descriptions-item>
                 <a-descriptions-item label="操作系统">{{ testResult.os_type || '-' }}</a-descriptions-item>
                 <a-descriptions-item label="当前负载">{{ testResult.current_load || 0 }} / {{ testResult.max_concurrency || 1 }}</a-descriptions-item>

@@ -43,7 +43,8 @@ const modelOptions = computed(() => {
 })
 
 // ── 选择 Skill 时自动填充 ──────────────────────────────────
-function handleSkillChange(code: string) {
+function handleSkillChange(value: string | number | boolean | Record<string, any> | (string | number | boolean | Record<string, any>)[]) {
+  const code = typeof value === 'string' ? value : ''
   if (!code) return
   const skill = skills.value.find((s: AiSkill) => s.skill_code === code)
   if (skill) {
@@ -95,16 +96,16 @@ async function handleInvoke() {
     timeout_secs: timeoutSecs.value || null,
   }
 
-  const { data, execute, error } = usePost<AiInvokeResponse>(ApiAiInvoke.invoke, payload)
+  const { data, execute, error } = usePost<AiInvokeResponse | typeof ErrorFlag>(ApiAiInvoke.invoke, payload)
   await execute()
   executing.value = false
 
-  if (error.value || data.value === ErrorFlag) {
+  if (error.value || data.value === ErrorFlag || !data.value) {
     errorMsg.value = '调用失败，请查看后端日志'
     return
   }
 
-  result.value = data.value as AiInvokeResponse
+  result.value = data.value
   // 自动记录 session_id 供继续对话
   if (result.value?.session_id) {
     sessionId.value = result.value.session_id
@@ -122,6 +123,11 @@ function formatOutput(output: unknown): string {
   if (typeof output === 'string') return output
   return JSON.stringify(output, null, 2)
 }
+
+// 这些 a-form 只用来做纵向布局，不做校验，但 arco 的 model 是必填 prop。
+// 用一个模块级常量而不是在模板里写 :model="{}"，避免每次渲染都新建对象。
+const layoutOnlyModel = {}
+
 </script>
 
 <template>
@@ -130,7 +136,7 @@ function formatOutput(output: unknown): string {
       <!-- 左侧：输入区 -->
       <a-col :span="10">
         <a-card title="调用配置" :bordered="false">
-          <a-form layout="vertical">
+          <a-form layout="vertical" :model="layoutOnlyModel">
             <!-- 模式切换 -->
             <a-form-item label="调用模式">
               <a-radio-group v-model="mode" type="button">

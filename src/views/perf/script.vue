@@ -179,6 +179,8 @@ async function handleUploadSubmit() {
 }
 
 async function doUpload() {
+  if (!uploadFile.value) return
+
   const formData = new FormData()
   formData.append('file', uploadFile.value)
   formData.append('name', uploadForm.value.name)
@@ -523,7 +525,7 @@ async function handleDownloadScriptJmx(record: any) {
   }
 }
 
-function handleAction(val: string, record: any) {
+function handleAction(val: string | number | Record<string, any> | undefined, record: any) {
   switch (val) {
     case 'txn': handleViewTxn(record); break
     case 'reparse': handleReparse(record); break
@@ -704,9 +706,22 @@ async function doReparseAll(mode: string) {
 const autoBindingAll = ref(false)
 const autoBindingIds = ref<Set<string>>(new Set())
 
+interface AutoBindResult {
+  menu_count: number
+  bind_count: number
+  txn_matched: number
+  txn_total: number
+}
+
+interface AutoBindAllResult {
+  message?: string
+  total: number
+  matched: number
+}
+
 async function handleAutoBind(record: any) {
   autoBindingIds.value.add(record.id)
-  const { execute, error, data } = usePost(ApiPerfScript.autoBind + '?id=' + record.id)
+  const { execute, error, data } = usePost<AutoBindResult>(ApiPerfScript.autoBind + '?id=' + record.id)
   await execute()
   autoBindingIds.value.delete(record.id)
   if (error.value) { Message.error('自动关联失败'); return }
@@ -721,7 +736,7 @@ async function handleAutoBind(record: any) {
 
 async function handleAutoBindAll() {
   autoBindingAll.value = true
-  const { execute, error, data } = usePost(ApiPerfScript.autoBind, {})
+  const { execute, error, data } = usePost<AutoBindAllResult>(ApiPerfScript.autoBind, {})
   await execute()
   autoBindingAll.value = false
   if (error.value) { Message.error('批量自动关联失败'); return }
@@ -817,6 +832,11 @@ async function handleSetOwnerSubmit() {
 function handleSelectionChange(keys: string[]) {
   selectedIds.value = keys
 }
+
+// 这些 a-form 只用来做纵向布局，不做校验，但 arco 的 model 是必填 prop。
+// 用一个模块级常量而不是在模板里写 :model="{}"，避免每次渲染都新建对象。
+const layoutOnlyModel = {}
+
 </script>
 
 <template>
@@ -898,7 +918,7 @@ function handleSelectionChange(keys: string[]) {
         <template #operations="{ record }">
           <a-space>
             <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
-            <a-dropdown @select="(val: string) => handleAction(val, record)">
+            <a-dropdown @select="(val: string | number | Record<string, any> | undefined) => handleAction(val, record)">
               <a-button type="text" size="small">更多<icon-down /></a-button>
               <template #content>
                 <a-doption value="txn">事务详情 ({{ getTxnSummary(record) }})</a-doption>
@@ -956,7 +976,7 @@ function handleSelectionChange(keys: string[]) {
             文件名需符合规范: code-基准-云-领域-模块-功能-测试类型.jmx
             系统将从文件名自动解析编码和测试类型，并按MD5查重跳过已存在脚本。
           </a-alert>
-          <a-form layout="vertical">
+          <a-form layout="vertical" :model="layoutOnlyModel">
             <a-form-item label="项目组ID（可选）">
               <a-input v-model="batchProjectGroupId" placeholder="所有脚本共享此项目组" />
             </a-form-item>
@@ -1075,7 +1095,7 @@ function handleSelectionChange(keys: string[]) {
       <a-alert type="info" :style="{ marginBottom: '12px' }">
         已选择 {{ selectedIds.length }} 个脚本，将统一设置责任人。
       </a-alert>
-      <a-form layout="vertical">
+      <a-form layout="vertical" :model="layoutOnlyModel">
         <a-form-item label="责任人" required>
           <a-input v-model="setOwnerValue" placeholder="请输入责任人姓名" />
         </a-form-item>
@@ -1085,7 +1105,7 @@ function handleSelectionChange(keys: string[]) {
     <!-- 附件管理抽屉 -->
     <a-drawer :visible="attachmentVisible" :width="680" :title="`附件管理 - ${attachmentScriptName}`" @cancel="attachmentVisible = false" @ok="attachmentVisible = false">
       <a-card :bordered="false" style="margin-bottom: 16px">
-        <a-form layout="vertical">
+        <a-form layout="vertical" :model="layoutOnlyModel">
           <a-row :gutter="12">
             <a-col :span="10">
               <a-form-item label="选择文件">
@@ -1171,7 +1191,7 @@ function handleSelectionChange(keys: string[]) {
       <a-alert type="info" :style="{ marginBottom: '12px' }">
         上传新JMX文件将自动保存当前版本到历史记录，并更新脚本文件和版本号。
       </a-alert>
-      <a-form layout="vertical">
+      <a-form layout="vertical" :model="layoutOnlyModel">
         <a-form-item label="选择JMX文件" required>
           <a-upload :auto-upload="false" :limit="1" accept=".jmx" @before-upload="handleUpdateJmxBeforeUpload" />
         </a-form-item>

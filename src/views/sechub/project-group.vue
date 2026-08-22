@@ -173,7 +173,7 @@ async function handleImportSubmit() {
       <template #extra>
         <a-button type="primary" @click="importResultVisible = false">关闭</a-button>
       </template>
-      <a-descriptions :column="2" layout="inline" bordered size="small">
+      <a-descriptions :column="2" layout="inline-horizontal" bordered size="small">
         <a-descriptions-item label="总计">{{ importResult.total ?? 0 }}</a-descriptions-item>
         <a-descriptions-item label="新增">{{ importResult.added ?? 0 }}</a-descriptions-item>
         <a-descriptions-item label="更新">{{ importResult.updated ?? 0 }}</a-descriptions-item>

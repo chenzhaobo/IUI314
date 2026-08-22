@@ -6,7 +6,6 @@ import MonitorTableVue from './pages/monitor-table.vue'
 import { ApiSysServiceMonitor } from '@/api/sysApis'
 import GaugeEcharts from '@/components/echarts/gauge-echarts.vue'
 import { useSSE } from '@/hooks'
-import type { MessageSchema } from '@/i18n'
 import { systemMenus } from '@/router'
 import type { MonitorTable, ServerMonitor } from '@/types/system/server-monitor'
 
@@ -15,7 +14,7 @@ defineOptions({
   name: systemMenus.serverMonitor.path,
 })
 
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 
 const cpuData = ref<MonitorTable[]>([])
 const memoryData = ref<MonitorTable[]>([])

@@ -161,7 +161,7 @@ function restoreProgress() {
     <a-spin :loading="syncPreviewLoading" style="width: 100%">
       <div v-if="syncPreviewData" style="margin-bottom: 12px">
         <a-divider orientation="left" :style="{ fontSize: '13px', margin: '8px 0' }">数据对比</a-divider>
-        <a-descriptions :column="3" layout="inline" bordered size="small">
+        <a-descriptions :column="3" layout="inline-horizontal" bordered size="small">
           <a-descriptions-item label="">
             <span style="font-weight: 600; color: var(--color-text-1)">数据类型</span>
           </a-descriptions-item>
@@ -281,7 +281,7 @@ function restoreProgress() {
       <template #extra>
         <a-button type="primary" @click="syncResultVisible = false">关闭</a-button>
       </template>
-      <a-descriptions :column="2" layout="inline" bordered size="small">
+      <a-descriptions :column="2" layout="inline-horizontal" bordered size="small">
         <a-descriptions-item label="云">{{ syncResult.cloud_count ?? 0 }}</a-descriptions-item>
         <a-descriptions-item label="应用">{{ syncResult.app_count ?? 0 }}</a-descriptions-item>
         <a-descriptions-item label="菜单总数">{{ syncResult.menu_count ?? 0 }}</a-descriptions-item>

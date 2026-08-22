@@ -10,12 +10,11 @@ import type { IconRotateLeft, IconUpload } from '@arco-design/web-vue/es/icon'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSysUser } from '@/api/sysApis'
 import { usePost } from '@/hooks'
-import type { MessageSchema } from '@/i18n'
 import { useUserStore } from '@/stores'
 
 defineOptions({ name: 'UserAvatar' })
 
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 
 const userStore = useUserStore()
 const openCropper = ref(false)

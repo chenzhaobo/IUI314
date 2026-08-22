@@ -62,11 +62,13 @@ function handleCompareClick() {
 const detailVisible = ref(false)
 const detailData = ref<any>(null)
 const txnRows = computed(() => detailData.value?.txn_comparison_json || [])
-
-const { execute: fetchDetail } = useGet<any>(ApiPerfComparison.getById, { id: '' })
+const detailQuery = ref({ id: '' })
+const { data: detailRaw, execute: fetchDetail } = useGet<any>(ApiPerfComparison.getById, detailQuery, { immediate: false })
 
 async function handleDetail(id: string) {
-  detailData.value = await fetchDetail({ id })
+  detailQuery.value.id = id
+  await fetchDetail()
+  detailData.value = detailRaw.value ?? null
   detailVisible.value = true
 }
 

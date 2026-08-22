@@ -79,7 +79,7 @@ const columns = [
         <a-col :span="4"><a-statistic title="成功" :value="stats.succeeded" /></a-col>
         <a-col :span="4"><a-statistic title="失败" :value="stats.failed" /></a-col>
         <a-col :span="4"><a-statistic title="运行中" :value="stats.running" /></a-col>
-        <a-col :span="4"><a-statistic title="成功率" :value="stats.success_rate.toFixed(1)" suffix="%" /></a-col>
+        <a-col :span="4"><a-statistic title="成功率" :value="stats.success_rate" :precision="1" suffix="%" /></a-col>
         <a-col :span="4"><a-statistic title="平均耗时" :value="Math.round(stats.avg_duration_ms)" suffix="ms" /></a-col>
       </a-row>
     </a-card>
@@ -101,7 +101,7 @@ const columns = [
           </a-select>
         </a-col>
         <a-col :span="6">
-          <a-range-picker v-model="dateRange" show-time format="YYYY-MM-DD HH:mm:ss" @change="handleSearch" />
+          <a-range-picker v-model="dateRange" show-time format="YYYY-MM-DD HH:mm:ss" value-format="YYYY-MM-DD HH:mm:ss" @change="handleSearch" />
         </a-col>
         <a-col :span="4">
           <a-button type="primary" @click="handleSearch">搜索</a-button>

@@ -53,7 +53,8 @@ const allDomains = computed(() => {
 // ── 编辑目标值 ──────────────────────────────────
 const editVisible = ref(false)
 const editForm = ref({ id: '', target_value_sec: 0 })
-const { execute: doUpdate, isFetching: updating } = usePut(ApiPerfBenchmark.updateTarget, editForm)
+const updatePayload = ref({ id: '', target_value_ms: 0 })
+const { execute: doUpdate, isFetching: updating } = usePut(ApiPerfBenchmark.updateTarget, updatePayload)
 
 async function handleSaveEdit() {
   if (!editForm.value.target_value_sec || editForm.value.target_value_sec <= 0) {
@@ -61,10 +62,11 @@ async function handleSaveEdit() {
     return
   }
   // 前端秒 → 后端毫秒
-  await doUpdate({
+  updatePayload.value = {
     id: editForm.value.id,
     target_value_ms: editForm.value.target_value_sec * 1000,
-  })
+  }
+  await doUpdate()
   Message.success('目标值已更新')
   editVisible.value = false
   getList()

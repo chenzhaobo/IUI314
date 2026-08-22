@@ -6,7 +6,6 @@ import { ApiSysDictType } from '@/api/sysApis'
 import IuButton from '@/components/iui/iu-button.vue'
 import type { iuButtonPropsType } from '@/components/iui/iui-props'
 import { hasPermission } from '@/hooks'
-import type { MessageSchema } from '@/i18n'
 
 defineOptions({ name: 'UserManageOperator' })
 
@@ -23,7 +22,7 @@ const props = defineProps({
 
 const emits = defineEmits(['handAdd', 'handleUpdate', 'handleDelete'])
 
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 
 const operateButtons = computed<iuButtonPropsType[]>(() => [
   {

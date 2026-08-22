@@ -3,7 +3,6 @@ import { ref, toRaw, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
-import type { MessageSchema } from '@/i18n'
 import { useAppStore, usePermissionStore } from '@/stores'
 import type { AppRouteRecordRaw } from '@/types/base/router'
 import BreadcrumbDropdown from '@/components/layout/nav-bar/breadcrumb-dropdown.vue'
@@ -12,7 +11,7 @@ import IuiIcon from '@/components/svg-icon/iui-icon.vue'
 defineOptions({ name: 'Breadcrumb' })
 
 const appStore = useAppStore()
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 const route = useRoute()
 const levelList = ref<AppRouteRecordRaw[]>()
 

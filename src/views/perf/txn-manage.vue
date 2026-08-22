@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { ref, computed, watch, h } from 'vue'
-import { Message } from '@arco-design/web-vue'
+import { Message, type TableColumnData, type TreeNodeData } from '@arco-design/web-vue'
 import { useGet, usePost, usePut } from '@/hooks'
 import { ApiPerfBenchmark, ApiPerfMenu, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
 import * as XLSX from 'xlsx'
@@ -200,16 +200,17 @@ function collectMenuIds(node: any): string[] {
   return ids
 }
 
-function handleTreeSelect(keys: string[], data: { node: any }) {
-  selectedKeys.value = keys
+function handleTreeSelect(keys: (string | number)[], data: { node?: TreeNodeData }) {
+  const stringKeys = keys.map(String)
+  selectedKeys.value = stringKeys
   queryParams.value.page_num = 1
-  if (keys.length === 0) {
+  if (stringKeys.length === 0) {
     selectedMenuName.value = ''
     queryParams.value.menu_ids = ''
     fetchAll()
     return
   }
-  const fullNode = findNodeByKey(treeData.value, keys[0]) || data?.node
+  const fullNode = findNodeByKey(treeData.value, stringKeys[0]) || data.node
   selectedMenuName.value = fullNode?.title || ''
   const ids = collectMenuIds(fullNode)
   if (ids.length > 0) {
@@ -246,8 +247,10 @@ const editForm = ref({
   target_value_sec: 0,
 })
 
-const { execute: doUpdateTarget, isFetching: updatingTarget } = usePut(ApiPerfBenchmark.updateTarget, editForm)
-const { execute: doUpdateInfo, isFetching: updatingInfo } = usePut(ApiPerfBenchmark.updateTxnInfo, editForm)
+const targetUpdatePayload = ref({ txn_code: '', target_value_ms: 0 })
+const infoUpdatePayload = ref<{ txn_code: string; display_name: string | null; txn_type: string | null }>({ txn_code: '', display_name: null, txn_type: null })
+const { execute: doUpdateTarget, isFetching: updatingTarget } = usePut(ApiPerfBenchmark.updateTarget, targetUpdatePayload)
+const { execute: doUpdateInfo, isFetching: updatingInfo } = usePut(ApiPerfBenchmark.updateTxnInfo, infoUpdatePayload)
 
 const updating = computed(() => updatingTarget.value || updatingInfo.value)
 
@@ -257,16 +260,18 @@ async function handleSaveEdit() {
     return
   }
   if (editForm.value.target_value_sec > 0) {
-    await doUpdateTarget({
+    targetUpdatePayload.value = {
       txn_code: editForm.value.txn_code,
       target_value_ms: editForm.value.target_value_sec * 1000,
-    })
+    }
+    await doUpdateTarget()
   }
-  await doUpdateInfo({
+  infoUpdatePayload.value = {
     txn_code: editForm.value.txn_code,
     display_name: editForm.value.display_name || null,
     txn_type: editForm.value.txn_type || null,
-  })
+  }
+  await doUpdateInfo()
   Message.success('事务信息已更新')
   editVisible.value = false
   fetchAll()
@@ -527,24 +532,26 @@ function handleTableFilterChange(dataIndex: string, filteredValues: string[]) {
   fetchAll()
 }
 
-const columns = [
-  { title: '事务编码', dataIndex: 'txn_code', width: 160, ellipsis: true, tooltip: true, fixed: 'left' as const, filterable: { type: 'single' as const, renderContent: stringFilterRender } },
-  { title: '事务全称', dataIndex: 'txn_name', width: 250, ellipsis: true, tooltip: true, filterable: { type: 'single' as const, renderContent: stringFilterRender } },
-  { title: '简明名称', dataIndex: 'display_name', width: 150, ellipsis: true, tooltip: true, filterable: { type: 'single' as const, renderContent: stringFilterRender } },
-  { title: '事务类型', dataIndex: 'txn_type', width: 100, align: 'center' as const, slotName: 'txn_type', filterable: { type: 'single' as const, renderContent: stringFilterRender } },
-  { title: '按钮Key', dataIndex: 'button_key', width: 90, ellipsis: true, tooltip: true, filterable: { type: 'single' as const, renderContent: stringFilterRender } },
-  { title: '菜单', dataIndex: 'menu_name', width: 120, ellipsis: true, tooltip: true, filterable: { type: 'single' as const, renderContent: stringFilterRender } },
-  { title: '项目组', dataIndex: 'project_group_name', width: 110, ellipsis: true, tooltip: true, filterable: { type: 'single' as const, renderContent: stringFilterRender } },
-  { title: '业务领域', dataIndex: 'business_area', width: 90, align: 'center' as const, filterable: { type: 'single' as const, renderContent: stringFilterRender } },
-  { title: '关联脚本', dataIndex: 'script_count', width: 80, align: 'center' as const, slotName: 'script_count', filterable: { type: 'single' as const, renderContent: numericFilterRender } },
-  { title: '目标值(秒)', dataIndex: 'target_value_ms', width: 100, align: 'center' as const, slotName: 'target_value', filterable: { type: 'single' as const, renderContent: numericFilterRender } },
-  { title: '比对值(秒)', dataIndex: 'baseline_value_ms', width: 100, align: 'center' as const, slotName: 'baseline_value', filterable: { type: 'single' as const, renderContent: numericFilterRender } },
-  { title: '最近均值(秒)', dataIndex: 'average_ms', width: 110, align: 'center' as const, slotName: 'average', filterable: { type: 'single' as const, renderContent: numericFilterRender } },
-  { title: '达标', dataIndex: 'pass_status', width: 80, align: 'center' as const, slotName: 'pass_status', filterable: { type: 'single' as const, renderContent: stringFilterRender } },
-  { title: '比对值更新迭代', dataIndex: 'baseline_iteration_name', width: 140, ellipsis: true, tooltip: true, filterable: { type: 'single' as const, renderContent: stringFilterRender } },
-  { title: '比对值更新时间', dataIndex: 'baseline_updated_at', width: 160, slotName: 'baseline_updated_at', filterable: { type: 'single' as const, renderContent: stringFilterRender } },
-  { title: '状态', dataIndex: 'status', width: 60, align: 'center' as const, slotName: 'status', filterable: { type: 'single' as const, renderContent: stringFilterRender } },
-  { title: '操作', key: 'action', width: 80, align: 'center' as const, slotName: 'action', fixed: 'right' as const },
+// 注意：filterable 的 filter 是 arco 的必填字段，但本页筛选走服务端
+// （见 handleTableFilterChange），所以这里恒返回 true，不在前端二次过滤。
+const columns: TableColumnData[] = [
+  { title: '事务编码', dataIndex: 'txn_code', width: 160, ellipsis: true, tooltip: true, fixed: 'left' as const, filterable: { filter: () => true, renderContent: stringFilterRender } },
+  { title: '事务全称', dataIndex: 'txn_name', width: 250, ellipsis: true, tooltip: true, filterable: { filter: () => true, renderContent: stringFilterRender } },
+  { title: '简明名称', dataIndex: 'display_name', width: 150, ellipsis: true, tooltip: true, filterable: { filter: () => true, renderContent: stringFilterRender } },
+  { title: '事务类型', dataIndex: 'txn_type', width: 100, align: 'center' as const, slotName: 'txn_type', filterable: { filter: () => true, renderContent: stringFilterRender } },
+  { title: '按钮Key', dataIndex: 'button_key', width: 90, ellipsis: true, tooltip: true, filterable: { filter: () => true, renderContent: stringFilterRender } },
+  { title: '菜单', dataIndex: 'menu_name', width: 120, ellipsis: true, tooltip: true, filterable: { filter: () => true, renderContent: stringFilterRender } },
+  { title: '项目组', dataIndex: 'project_group_name', width: 110, ellipsis: true, tooltip: true, filterable: { filter: () => true, renderContent: stringFilterRender } },
+  { title: '业务领域', dataIndex: 'business_area', width: 90, align: 'center' as const, filterable: { filter: () => true, renderContent: stringFilterRender } },
+  { title: '关联脚本', dataIndex: 'script_count', width: 80, align: 'center' as const, slotName: 'script_count', filterable: { filter: () => true, renderContent: numericFilterRender } },
+  { title: '目标值(秒)', dataIndex: 'target_value_ms', width: 100, align: 'center' as const, slotName: 'target_value', filterable: { filter: () => true, renderContent: numericFilterRender } },
+  { title: '比对值(秒)', dataIndex: 'baseline_value_ms', width: 100, align: 'center' as const, slotName: 'baseline_value', filterable: { filter: () => true, renderContent: numericFilterRender } },
+  { title: '最近均值(秒)', dataIndex: 'average_ms', width: 110, align: 'center' as const, slotName: 'average', filterable: { filter: () => true, renderContent: numericFilterRender } },
+  { title: '达标', dataIndex: 'pass_status', width: 80, align: 'center' as const, slotName: 'pass_status', filterable: { filter: () => true, renderContent: stringFilterRender } },
+  { title: '比对值更新迭代', dataIndex: 'baseline_iteration_name', width: 140, ellipsis: true, tooltip: true, filterable: { filter: () => true, renderContent: stringFilterRender } },
+  { title: '比对值更新时间', dataIndex: 'baseline_updated_at', width: 160, slotName: 'baseline_updated_at', filterable: { filter: () => true, renderContent: stringFilterRender } },
+  { title: '状态', dataIndex: 'status', width: 60, align: 'center' as const, slotName: 'status', filterable: { filter: () => true, renderContent: stringFilterRender } },
+  { title: '操作', width: 80, align: 'center' as const, slotName: 'action', fixed: 'right' as const },
 ]
 
 // ── 脚本关联抽屉 ──────────────────────────────────

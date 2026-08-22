@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { type PropType, computed, unref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { MessageSchema } from '@/i18n'
 import { FormItemType, type IuQueryFormField } from '@/types/base/iu-form'
 
 defineOptions({ name: 'IuQueryForm' })
@@ -16,7 +15,7 @@ const props = defineProps({
   },
 })
 const emit = defineEmits(['query'])
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 const formValue = defineModel('formValue', { type: Object, required: true })
 function resetQuery() {
   formValue.value = {}

@@ -8,7 +8,6 @@ import { ErrorFlag } from '@/api/apis'
 import { ApiSysMenu, ApiSysRole } from '@/api/sysApis'
 import IuModal from '@/components/iui/iu-modal.vue'
 import { filterObjectArray, useGet, usePost, usePut } from '@/hooks'
-import type { MessageSchema } from '@/i18n'
 import { FormItemType, type IuFormField } from '@/types/base/iu-form'
 import { dictKey, type dictUse } from '@/types/system/dict'
 import type { menu } from '@/types/system/menu'
@@ -28,7 +27,7 @@ const props = defineProps({
 })
 
 const emits = defineEmits(['getList'])
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 const iuModalRef = ref<InstanceType<typeof IuModal>>()
 
 const menuTree = ref()

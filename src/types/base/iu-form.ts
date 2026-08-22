@@ -1,6 +1,6 @@
 import type { CheckboxOption, Direction, FieldRule, SelectFieldNames, SelectOptionData, SelectOptionGroup, TreeFieldNames, TreeNodeData } from '@arco-design/web-vue'
 import type { RadioOption } from '@arco-design/web-vue/es/radio/interface'
-import type { MaybeRef } from '@vueuse/core'
+import type { MaybeRef } from 'vue'
 import type { Component } from 'vue'
 
 // 基础表单

@@ -113,11 +113,11 @@ function getGroupLabel(key: string) {
     <a-card title="平台配置管理" :bordered="false">
       <template #extra>
         <a-space>
-          <a-button @click="getList">
+          <a-button @click="() => getList()">
             <template #icon><icon-refresh /></template>
             刷新
           </a-button>
-          <a-button type="primary" :loading="saving" @click="handleSave">
+          <a-button type="primary" :loading="saving" @click="() => handleSave()">
             <template #icon><icon-save /></template>
             保存配置
           </a-button>

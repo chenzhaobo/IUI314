@@ -77,7 +77,8 @@
 
         <!-- 应用优先级表格 -->
         <a-table :data="domainData.apps" :pagination="{ pageSize: 20, showTotal: true }" size="small" row-key="app_number"
-          :expandable="{ expandedRowKeys: expandedApps, onExpand: (keys: string[]) => expandedApps = keys }">
+          :expandable="{ expandedRowKeys: expandedApps }"
+          @expanded-change="(keys: (string | number)[]) => expandedApps = keys.map(String)">
           <template #columns>
             <a-table-column title="优先级" data-index="priority" :width="70" align="center" />
             <a-table-column title="应用" :width="180">
@@ -128,7 +129,7 @@
         <a-card v-if="guideData" title="分析指导" size="small" style="margin-top: 16px">
           <a-alert type="info" style="margin-bottom: 12px">{{ guideData.summary }}</a-alert>
           <a-timeline>
-            <a-timeline-item v-for="item in guideData.action_plan" :key="item.priority" :label="'P' + item.priority">
+            <a-timeline-item v-for="item in guideData.action_plan" :key="item.priority" :label="`P${item.priority}`">
               <b>{{ item.app_name }}（{{ item.app }}）</b>：{{ item.issue }}<br />
               <span style="color: #86909c">行动：{{ item.action }}</span><br />
               <span style="color: #00b42a">{{ item.expected_improvement }}</span>
@@ -136,7 +137,7 @@
           </a-timeline>
           <a-divider orientation="left">下一步</a-divider>
           <a-space direction="vertical">
-            <span v-for="(step, i) in guideData.next_steps" :key="i">{{ i + 1 }}. {{ step }}</span>
+            <span v-for="(step, i) in guideData.next_steps" :key="i">{{ Number(i) + 1 }}. {{ step }}</span>
           </a-space>
         </a-card>
       </template>

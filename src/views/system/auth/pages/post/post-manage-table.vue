@@ -5,7 +5,6 @@ import { useI18n } from 'vue-i18n'
 import { ApiSysPost } from '@/api/sysApis'
 import DictTag from '@/components/common/dict-tag.vue'
 import { hasPermission, parseTime } from '@/hooks'
-import type { MessageSchema } from '@/i18n'
 import { dictKey, type dictUse } from '@/types/system/dict'
 import type { userInformation } from '@/types/system/userInformation'
 
@@ -26,7 +25,7 @@ const emits = defineEmits([
   'handleDelete',
   'handleSelectionChangeFn',
 ])
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 const tableData = defineModel<userInformation[] | null>('tableData', { required: true })
 
 const rowSelection = ref<TableRowSelection>({

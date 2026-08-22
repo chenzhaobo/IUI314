@@ -7,7 +7,6 @@ import UserAvatar from './pages/user-avatar.vue'
 import UserInformation from './pages/user-information.vue'
 import { ApiSysPost, ApiSysRole, ApiSysUser } from '@/api/sysApis'
 import { parseTime, useGet } from '@/hooks'
-import type { MessageSchema } from '@/i18n'
 import type { pageQueryParam } from '@/types/base/apis'
 import type { postList } from '@/types/system/post'
 import type { roleList } from '@/types/system/role'
@@ -15,7 +14,7 @@ import type { userInfo, userInformation } from '@/types/system/userInformation'
 
 defineOptions({ name: 'UserProfile' })
 
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 const postOptions = ref<{ [k: string]: string }>({})
 const roleOptions = ref<{ [k: string]: string }>({})
 

@@ -186,11 +186,11 @@ const columns = [
         <a-row :gutter="16">
           <a-col :span="12">
             <a-form-item label="支持的模型 (JSON 数组)">
-              <a-textarea v-model="form.supported_models_json" :auto-size="{ minRows: 1, maxRows: 3 }" placeholder='["auto","claude-sonnet-4"]' />
+              <a-textarea :model-value="form.supported_models_json ?? undefined" :auto-size="{ minRows: 1, maxRows: 3 }" placeholder='["auto","claude-sonnet-4"]' @update:model-value="(value: string) => { form.supported_models_json = value }" />
             </a-form-item>
           </a-col>
           <a-col :span="12">
-            <a-form-item label="默认模型"><a-input v-model="form.default_model" placeholder="auto" /></a-form-item>
+            <a-form-item label="默认模型"><a-input :model-value="form.default_model ?? undefined" placeholder="auto" @update:model-value="(value: string) => { form.default_model = value }" /></a-form-item>
           </a-col>
         </a-row>
         <a-row :gutter="16">
@@ -202,12 +202,12 @@ const columns = [
             </a-form-item>
           </a-col>
         </a-row>
-        <a-form-item label="健康检查命令"><a-input v-model="form.health_check_cmd" placeholder="如：--help 或 --version" /></a-form-item>
+        <a-form-item label="健康检查命令"><a-input :model-value="form.health_check_cmd ?? undefined" placeholder="如：--help 或 --version" @update:model-value="(value: string) => { form.health_check_cmd = value }" /></a-form-item>
         <a-form-item label="技能挂载路径">
-          <a-input v-model="form.skill_mount_path" placeholder="如：.qoder/skills/{skill_code} 或 .kiro/skills/{skill_code}" />
+          <a-input :model-value="form.skill_mount_path ?? undefined" placeholder="如：.qoder/skills/{skill_code} 或 .kiro/skills/{skill_code}" @update:model-value="(value: string) => { form.skill_mount_path = value }" />
           <template #extra>执行时 Skill 文件会同步到 工作目录/{此路径} 下，{skill_code} 为占位符</template>
         </a-form-item>
-        <a-form-item label="备注"><a-textarea v-model="form.remark" :auto-size="{ minRows: 2, maxRows: 4 }" /></a-form-item>
+        <a-form-item label="备注"><a-textarea :model-value="form.remark ?? undefined" :auto-size="{ minRows: 2, maxRows: 4 }" @update:model-value="(value: string) => { form.remark = value }" /></a-form-item>
       </a-form>
     </a-modal>
   </div>

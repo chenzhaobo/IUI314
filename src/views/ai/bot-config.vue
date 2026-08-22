@@ -128,10 +128,22 @@ const accessModeLabel = computed(() => {
                 <a-textarea v-model="form.system_prompt" :auto-size="{ minRows: 3, maxRows: 6 }" placeholder="Bot 的系统角色设定" />
               </a-form-item>
               <a-form-item label="会话超时（分钟）">
-                <a-input-number v-model="form.session_timeout_min" :min="5" :max="1440" style="width: 120px" />
+                <a-input-number
+                  :model-value="form.session_timeout_min ? Number(form.session_timeout_min) : undefined"
+                  :min="5"
+                  :max="1440"
+                  style="width: 120px"
+                  @change="(value: number | undefined) => form.session_timeout_min = value === undefined ? '' : String(value)"
+                />
               </a-form-item>
               <a-form-item label="最大历史轮数">
-                <a-input-number v-model="form.max_history" :min="5" :max="100" style="width: 120px" />
+                <a-input-number
+                  :model-value="form.max_history ? Number(form.max_history) : undefined"
+                  :min="5"
+                  :max="100"
+                  style="width: 120px"
+                  @change="(value: number | undefined) => form.max_history = value === undefined ? '' : String(value)"
+                />
               </a-form-item>
               <a-form-item label="准入模式">
                 <a-select v-model="form.access_mode" style="width: 200px">

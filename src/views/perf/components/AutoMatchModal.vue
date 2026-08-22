@@ -58,7 +58,7 @@ function handleDownloadUnmatchedApps() {
 
 <template>
   <a-modal :visible="visible" @update:visible="(v: boolean) => emit('update:visible', v)" title="自动匹配项目组结果" :footer="false" :width="560">
-    <a-descriptions :column="1" layout="inline" bordered size="small" style="margin-bottom: 12px">
+    <a-descriptions :column="1" layout="inline-horizontal" bordered size="small" style="margin-bottom: 12px">
       <a-descriptions-item label="回填模块项目组">{{ result?.modules_backfilled ?? 0 }} 条</a-descriptions-item>
       <a-descriptions-item label="匹配应用数">{{ result?.apps_matched ?? 0 }} / {{ (result?.apps_matched ?? 0) + (result?.unmatched_apps?.length ?? 0) }}</a-descriptions-item>
       <a-descriptions-item label="更新应用数">{{ result?.apps_updated ?? 0 }} 条</a-descriptions-item>

@@ -7,7 +7,6 @@ import { ErrorFlag } from '@/api/apis'
 import { ApiSysUser } from '@/api/sysApis'
 import DictTag from '@/components/common/dict-tag.vue'
 import { hasPermission, parseTime, usePut } from '@/hooks'
-import type { MessageSchema } from '@/i18n'
 import { dictKey, type dictUse } from '@/types/system/dict'
 import type { resetUserPwd, userInformation } from '@/types/system/userInformation'
 import ResetPwd from '@/views/system/auth/pages/user/resetPwd.vue'
@@ -34,7 +33,7 @@ const emits = defineEmits([
   'handleSelectionChangeFn',
 ])
 
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 
 const tableData = defineModel<userInformation[] | null>('tableData', { required: true })
 

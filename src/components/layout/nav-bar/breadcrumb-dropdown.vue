@@ -2,7 +2,6 @@
 import { type PropType, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AppRouteRecordRaw } from '@/types/base/router'
-import type { MessageSchema } from '@/i18n'
 import BreadcrumbDropdownSub from '@/components/layout/nav-bar/breadcrumb-dropdown-sub.vue'
 
 defineOptions({ name: 'BreadcrumbDropdown' })
@@ -13,7 +12,7 @@ const props = defineProps({
   },
 })
 const dataList = computed<AppRouteRecordRaw>(() => props.list)
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 </script>
 
 <template>

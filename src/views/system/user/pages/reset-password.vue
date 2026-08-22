@@ -6,7 +6,6 @@ import { type FieldRule, type FormInstance, Message } from '@arco-design/web-vue
 import { ApiSysUser, ErrorFlag } from '@/api/apis'
 import { TabAction } from '@/components/layout/tab-bar/useTabBar'
 import { useFormUtil, usePut } from '@/hooks'
-import type { MessageSchema } from '@/i18n'
 import { router } from '@/router'
 import { useTabBarStore, useUserStore } from '@/stores'
 
@@ -15,7 +14,7 @@ defineOptions({ name: 'ResetPassword' })
 const { formValidate } = useFormUtil()
 const userStore = useUserStore()
 const tabBarStore = useTabBarStore()
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 
 const user = reactive({
   oldPassword: undefined,

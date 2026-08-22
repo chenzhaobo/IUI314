@@ -10,7 +10,6 @@ import { dictKey, type dictUse } from '@/types/system/dict'
 import { usePost, usePut } from '@/hooks'
 import { ApiSysMenu } from '@/api/sysApis'
 import { ErrorFlag } from '@/api/apis'
-import type { MessageSchema } from '@/i18n'
 import { MenuType } from '@/types/base/router'
 import type { menu } from '@/types/system/menu'
 import IuIconSelect from '@/components/svg-icon/iu-icon-select.vue'
@@ -24,7 +23,7 @@ interface MenuManageModalProps {
   dicts: Record<string, dictUse[]>
   menuTree: menu[]
 }
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 
 const iuModalRef = ref<InstanceType<typeof IuModal>>()
 const menuSelectTree = computed(() => props.menuTree)

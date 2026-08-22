@@ -30,7 +30,7 @@ const loginForm = ref<LoginFormLocal>({
 })
 
 const isDark = useTheme().get_is_dark()
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 
 // 验证码获取
 // 接口返回 { captcha_on_off: boolean, uuid: string, img: string(base64图片) }

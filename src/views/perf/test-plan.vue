@@ -69,7 +69,7 @@ const { data: envData } = useGet<any>(ApiPerfEnv.getList, { page_num: 1, page_si
 const envOptions = computed(() => (envData.value?.list || []).map((e: any) => ({ label: e.env_name, value: e.id })))
 function envName(envId?: string | null) {
   if (!envId) return '-'
-  const e = envOptions.value.find(o => o.value === envId)
+  const e = envOptions.value.find((o: { label: string; value: string }) => o.value === envId)
   return e ? e.label : envId
 }
 
@@ -343,7 +343,7 @@ function fetchPlanEstimate(planId: string, maxConcurrency: number) {
   estimateResult.value = null
   if (!planId) return
   estimateLoading.value = true
-  const { execute, data } = useGet(ApiPerfTestPlan.estimateTime, { plan_id: planId, max_concurrency: maxConcurrency })
+  const { execute, data } = useGet<{ data?: unknown }>(ApiPerfTestPlan.estimateTime, { plan_id: planId, max_concurrency: maxConcurrency })
   execute().then(() => {
     estimateResult.value = data.value?.data || null
     estimateLoading.value = false

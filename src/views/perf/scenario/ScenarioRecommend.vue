@@ -16,7 +16,7 @@
           <a-input-number v-model="usageThreshold" placeholder="使用频次阈值" :min="0" :step="50" />
         </a-col>
         <a-col :span="8">
-          <a-button type="primary" :loading="loading" @click="handleRecommend">执行推荐</a-button>
+          <a-button type="primary" :loading="loading" @click="() => handleRecommend()">执行推荐</a-button>
         </a-col>
       </a-row>
 

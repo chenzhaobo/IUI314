@@ -132,7 +132,7 @@ function openAnalysisModal(record: any) {
 
 async function handleUpdateAnalysis() {
   try {
-    await doUpdateAnalysis(analysisForm.value)
+    await doUpdateAnalysis()
     Message.success('分析状态已更新')
     analysisModalVisible.value = false
     await loadDetails()

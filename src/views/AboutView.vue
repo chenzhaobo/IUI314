@@ -3,11 +3,10 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useUserStore } from '@/stores'
-import type { MessageSchema } from '@/i18n'
 
 defineOptions({ name: 'Dashboard' })
 
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 const userStore = useUserStore()
 
 // 展示名优先用昵称（扫码登录用户的账号是 kd_<金蝶uid>，不适合直接展示）

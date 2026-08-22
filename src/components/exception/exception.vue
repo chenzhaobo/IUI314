@@ -2,14 +2,13 @@
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
-import type { MessageSchema } from '@/i18n'
 import { router } from '@/router'
 
 defineOptions({
   name: 'Exception',
 })
 
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 const route = useRoute()
 const routeHomePath = '/index'
 function back() {

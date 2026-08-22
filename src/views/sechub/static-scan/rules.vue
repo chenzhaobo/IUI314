@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { AssuranceMode, PageResult, RuleVersion, ScanPointTreeNode, StaticScanDomain } from '@/types/static-scan'
 import { computed, reactive, ref } from 'vue'
-import { Message, Modal } from '@arco-design/web-vue'
+import { Message, Modal, type TableColumnData } from '@arco-design/web-vue'
 import { ApiSecRuleVersion, ApiSecScanPoint } from '@/api/sechubApis'
 import StatusBadge from '@/components/static-scan/StatusBadge.vue'
 import { useDownload, useGet, usePost, useToken } from '@/hooks'
@@ -89,8 +89,8 @@ const { data, isFetching, execute: loadList } = useGet<PageResult<RuleVersion>>(
 )
 const rows = computed(() => data.value?.list ?? [])
 const total = computed(() => data.value?.total ?? 0)
-const releasedCount = computed(() => rows.value.filter(item => item.release_status === 'formal').length)
-const blockedCount = computed(() => rows.value.filter(item => item.release_status !== 'formal').length)
+const releasedCount = computed(() => rows.value.filter(item => item.release_status === 'released').length)
+const blockedCount = computed(() => rows.value.filter(item => item.release_status !== 'released').length)
 
 function refreshList() {
   query.value.page_num = 1
@@ -110,7 +110,7 @@ function changePage(page: number) {
   void loadList()
 }
 
-const columns = [
+const columns: TableColumnData[] = [
   { title: '领域 / 分类', dataIndex: 'domain', slotName: 'domain', width: 150 },
   { title: '扫描点', dataIndex: 'scan_point_name', slotName: 'scanPoint', width: 230 },
   { title: '规则版本', dataIndex: 'name', slotName: 'rule', width: 180 },
@@ -742,8 +742,8 @@ function downloadTemplate() {
           </a-descriptions-item>
         </a-descriptions>
 
-        <a-alert v-if="detailRecord.release_status !== 'formal'" type="warning" class="m-b-8px">
-          该规则当前为「{{ detailRecord.release_status }}」，尚未达到正式发布（formal）条件，扫描结果不计入权威结论。
+        <a-alert v-if="detailRecord.release_status !== 'released'" type="warning" class="m-b-8px">
+          该规则当前为「{{ detailRecord.release_status }}」，尚未达到正式发布（released）条件，扫描结果不计入权威结论。
         </a-alert>
 
         <a-collapse :bordered="false">

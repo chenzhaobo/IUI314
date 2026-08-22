@@ -139,7 +139,10 @@ const { execute: fetchPeriodOptions } = useGet<any>(ApiPerfCompliance.periodOpti
   },
 })
 
-const onPeriodTypeChange = (pt: string) => {
+type ArcoSelectionValue = string | number | boolean | Record<string, unknown> | (string | number | boolean | Record<string, unknown>)[]
+
+const onPeriodTypeChange = (pt: ArcoSelectionValue) => {
+  if (typeof pt !== 'string') return
   selectedPeriod.value = ''
   periodOptions.value = []
   treeData.value = []
@@ -160,7 +163,8 @@ const onProductLineChange = () => {
   fetchPeriodOptions()
 }
 
-const onPeriodChange = (period: string) => {
+const onPeriodChange = (period: ArcoSelectionValue) => {
+  if (typeof period !== 'string') return
   selectedKeys.value = []
   selectedNode.value = null
   if (period) reloadTree()
@@ -360,10 +364,10 @@ const displayTree = computed(() => {
   return filterNodes(wrappedTree.value)
 })
 
-const onTreeSelect = (keys: string[], data: any) => {
-  selectedKeys.value = keys
+const onTreeSelect = (keys: (string | number)[]) => {
+  selectedKeys.value = keys.map(String)
   // 从包含“全部”根节点的完整树中查找，保证 root 节点也能正确定位
-  selectedNode.value = keys.length ? findTreeNode(wrappedTree.value, keys[0]) : null
+  selectedNode.value = keys.length ? findTreeNode(wrappedTree.value, String(keys[0])) : null
   // 选中节点变化会触发 watch 自动重拉趋势
 }
 

@@ -59,7 +59,7 @@ export const useAppStore = defineStore('app', {
     },
   }),
   persist: {
-    paths: ['sideBar', 'device', 'app'],
+    pick: ['sideBar', 'device', 'app'],
   },
   actions: {
     toggleSideBar(isMobile?: boolean) {

@@ -3,8 +3,8 @@ import { computed, unref } from 'vue'
 import { type LocationQueryRaw, stringifyQuery } from 'vue-router'
 
 import { Message } from '@arco-design/web-vue'
+import type { MaybeRef } from 'vue'
 import {
-  type MaybeRef,
   type UseFetchOptions,
   type UseFetchReturn,
   createFetch,

@@ -425,6 +425,11 @@ const columns = [
 onMounted(() => {
   void loadRuleStats()
 })
+
+// 这些 a-form 只用来做纵向布局，不做校验，但 arco 的 model 是必填 prop。
+// 用一个模块级常量而不是在模板里写 :model="{}"，避免每次渲染都新建对象。
+const layoutOnlyModel = {}
+
 </script>
 
 <template>
@@ -575,7 +580,7 @@ onMounted(() => {
 
     <!-- 标记已修复弹窗（批量）-->
     <a-modal v-model:visible="fixedVisible" :title="`标记已修复（${fixedTargets.length} 条）`" :ok-loading="fixedLoading" @ok="submitFixed" @cancel="fixedVisible = false">
-      <a-form layout="vertical">
+      <a-form layout="vertical" :model="layoutOnlyModel">
         <a-alert type="info" class="m-b-12px">
           将对 {{ fixedTargets.length }} 条「修复中」的缺陷统一标记为已修复
         </a-alert>
@@ -587,7 +592,7 @@ onMounted(() => {
 
     <!-- 标记不处理弹窗（批量）-->
     <a-modal v-model:visible="wontFixVisible" :title="`标记不处理（${wontFixTargets.length} 条）`" width="560px" :ok-loading="wontFixLoading" @ok="submitWontFix" @cancel="wontFixVisible = false">
-      <a-form layout="vertical">
+      <a-form layout="vertical" :model="layoutOnlyModel">
         <a-alert type="warning" class="m-b-12px">
           将对 {{ wontFixTargets.length }} 条「打开/重新打开」的缺陷统一标记为不处理
         </a-alert>

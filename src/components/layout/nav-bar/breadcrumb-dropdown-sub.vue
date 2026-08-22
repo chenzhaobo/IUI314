@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { type PropType, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { MessageSchema } from '@/i18n'
 import { router } from '@/router'
 import type { AppRouteRecordRaw } from '@/types/base/router'
 
@@ -13,7 +12,7 @@ const props = defineProps({
   },
 })
 const dataList = computed<AppRouteRecordRaw>(() => props.list)
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 </script>
 
 <template>

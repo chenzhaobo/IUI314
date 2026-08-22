@@ -7,7 +7,6 @@ import IuButton from '@/components/iui/iu-button.vue'
 import type { iuButtonPropsType } from '@/components/iui/iui-props'
 import { TabAction } from '@/components/layout/tab-bar/useTabBar'
 import { hasPermission } from '@/hooks'
-import type { MessageSchema } from '@/i18n'
 import { router } from '@/router'
 import { useTabBarStore } from '@/stores'
 import { MenuType } from '@/types/base/router'
@@ -27,7 +26,7 @@ const props = defineProps({
 
 const emits = defineEmits(['handAdd', 'handleDelete'])
 
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 const tabBarStore = useTabBarStore()
 function handleClose() {
   // 路由回退

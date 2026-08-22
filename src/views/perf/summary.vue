@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { ref, computed } from 'vue'
-import { Message } from '@arco-design/web-vue'
+import { Message, type TableColumnData } from '@arco-design/web-vue'
 import { useGet, usePost } from '@/hooks'
 import { ApiPerfSummary, ApiPerfIteration } from '@/api/apis'
 
@@ -50,11 +50,13 @@ async function handleGenerate() {
 const detailVisible = ref(false)
 const detailData = ref<any>(null)
 const txnList = computed(() => detailData.value?.key_txn_json || [])
-
-const { execute: fetchDetail } = useGet<any>(ApiPerfSummary.getById, { id: '' })
+const detailQuery = ref({ id: '' })
+const { data: detailRaw, execute: fetchDetail } = useGet<any>(ApiPerfSummary.getById, detailQuery, { immediate: false })
 
 async function handleDetail(id: string) {
-  detailData.value = await fetchDetail({ id })
+  detailQuery.value.id = id
+  await fetchDetail()
+  detailData.value = detailRaw.value ?? null
   detailVisible.value = true
 }
 
@@ -63,29 +65,29 @@ const statusMap: Record<string, { color: string; text: string }> = {
   fail: { color: 'red', text: '失败' },
 }
 
-const columns = [
+const columns: TableColumnData[] = [
   { title: '迭代', dataIndex: 'iteration_name', width: 160, ellipsis: true, tooltip: true },
   { title: '领域', dataIndex: 'domain_name', width: 120, ellipsis: true, tooltip: true },
   { title: '脚本总数', dataIndex: 'total_scripts', width: 90, align: 'center' },
   { title: '成功', dataIndex: 'success_count', width: 70, align: 'center' },
   { title: '失败', dataIndex: 'failed_count', width: 70, align: 'center' },
   { title: '关键事务数', dataIndex: 'key_txn_count', width: 100, align: 'center' },
-  { title: '通过/失败', key: 'txn', width: 100, align: 'center', slotName: 'txn' },
+  { title: '通过/失败', width: 100, align: 'center', slotName: 'txn' },
   { title: '平均响应(ms)', dataIndex: 'avg_response_ms', width: 120, align: 'right', render: ({ record }: any) => record.avg_response_ms?.toFixed(1) || '-' },
   { title: 'P95(ms)', dataIndex: 'avg_p95_ms', width: 100, align: 'right', render: ({ record }: any) => record.avg_p95_ms?.toFixed(1) || '-' },
   { title: '错误率(%)', dataIndex: 'avg_error_pct', width: 100, align: 'right', render: ({ record }: any) => record.avg_error_pct?.toFixed(2) || '-' },
   { title: '吞吐量', dataIndex: 'avg_throughput', width: 100, align: 'right', render: ({ record }: any) => record.avg_throughput?.toFixed(2) || '-' },
-  { title: '操作', key: 'action', width: 80, align: 'center', slotName: 'action' },
+  { title: '操作', width: 80, align: 'center', slotName: 'action' },
 ]
 
-const txnColumns = [
+const txnColumns: TableColumnData[] = [
   { title: '事务编码', dataIndex: 'txn_code', width: 180, ellipsis: true, tooltip: true },
   { title: '事务名称', dataIndex: 'txn_name', width: 240, ellipsis: true, tooltip: true },
   { title: '平均(ms)', dataIndex: 'avg_ms', width: 100, align: 'right', render: ({ record }: any) => record.avg_ms?.toFixed(1) },
   { title: 'P95(ms)', dataIndex: 'p95_ms', width: 100, align: 'right', render: ({ record }: any) => record.p95_ms?.toFixed(1) },
   { title: '错误率(%)', dataIndex: 'error_pct', width: 100, align: 'right', render: ({ record }: any) => record.error_pct?.toFixed(2) },
   { title: '吞吐量', dataIndex: 'throughput', width: 100, align: 'right', render: ({ record }: any) => record.throughput?.toFixed(2) },
-  { title: '状态', key: 'success', width: 80, align: 'center', slotName: 'success' },
+  { title: '状态', width: 80, align: 'center', slotName: 'success' },
 ]
 </script>
 

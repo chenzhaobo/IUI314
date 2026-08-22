@@ -4,7 +4,6 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
 import { TabAction } from './useTabBar'
-import type { MessageSchema } from '@/i18n'
 import type { TagProps } from '@/types/base/router'
 import { useTabBarStore } from '@/stores'
 
@@ -22,7 +21,7 @@ const props = defineProps({
     default: 0,
   },
 })
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 const route = useRoute()
 const tabBarStore = useTabBarStore()
 

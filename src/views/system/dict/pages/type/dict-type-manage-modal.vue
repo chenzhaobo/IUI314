@@ -9,7 +9,6 @@ import IuModal from '@/components/iui/iu-modal.vue'
 import { useGet, usePost, usePut } from '@/hooks'
 import { FormItemType, type IuFormField } from '@/types/base/iu-form'
 import { dictKey, type dictType, type dictUse } from '@/types/system/dict'
-import type { MessageSchema } from '@/i18n'
 
 defineOptions({ name: 'DictTypeManageModal' })
 
@@ -25,7 +24,7 @@ const props = defineProps({
 })
 
 const emits = defineEmits(['getList'])
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 const iuModalRef = ref<InstanceType<typeof IuModal>>()
 
 const modalIcon = ref()

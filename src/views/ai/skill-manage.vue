@@ -68,13 +68,21 @@ async function handleDeploy(record: AiSkill) {
 // ── 新增/编辑弹窗 ──────────────────────────────────
 const modalVisible = ref(false)
 const isEdit = ref(false)
-const form = ref<Partial<AiSkill>>({})
+type SkillForm = Omit<Partial<AiSkill>, 'description' | 'agent_id' | 'work_dir_path' | 'required_env_json' | 'tags_json' | 'remark'> & {
+  description?: string
+  agent_id?: string
+  work_dir_path?: string
+  required_env_json?: string
+  tags_json?: string
+  remark?: string
+}
+const form = ref<SkillForm>({})
 const submitting = ref(false)
 
 function handleAdd() {
   isEdit.value = false
   form.value = {
-    skill_code: '', skill_name: '', description: '', agent_id: null, prompt_template: '',
+    skill_code: '', skill_name: '', description: '', agent_id: undefined, prompt_template: '',
     work_dir_type: 'temp', work_dir_path: '', required_env_json: '', input_schema_json: '',
     output_format: 'json', output_path_pattern: '', tags_json: '[]', status: 'active', remark: '',
   }
@@ -83,7 +91,15 @@ function handleAdd() {
 
 function handleEdit(record: AiSkill) {
   isEdit.value = true
-  form.value = { ...record }
+  form.value = {
+    ...record,
+    description: record.description ?? undefined,
+    agent_id: record.agent_id ?? undefined,
+    work_dir_path: record.work_dir_path ?? undefined,
+    required_env_json: record.required_env_json ?? undefined,
+    tags_json: record.tags_json ?? undefined,
+    remark: record.remark ?? undefined,
+  }
   modalVisible.value = true
 }
 

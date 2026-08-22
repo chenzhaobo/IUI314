@@ -109,7 +109,10 @@ function onSearch() {
   void loadCrossRows()
 }
 
-function onRoundChange(key: string) {
+function onRoundChange(value: string | number | boolean | Record<string, unknown> | (string | number | boolean | Record<string, unknown>)[]) {
+  if (typeof value !== 'string' && typeof value !== 'number')
+    return
+  const key = String(value)
   selectedRoundKey.value = key
   if (!key) {
     currentRun.value = null

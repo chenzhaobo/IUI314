@@ -2,7 +2,6 @@
 import { type PropType, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import IuQueryForm from '@/components/iui/iu-query-form.vue'
-import type { MessageSchema } from '@/i18n'
 import { FormItemType, type IuQueryFormField } from '@/types/base/iu-form'
 import { dictKey, type dictUse } from '@/types/system/dict'
 import type { userQueryParam } from '@/types/system/userInformation'
@@ -17,7 +16,7 @@ const props = defineProps({
 })
 
 const emits = defineEmits(['getList'])
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 const queryParams = defineModel<userQueryParam>('queryParams', { required: true })
 const showSearch = defineModel<boolean>('showSearch', { required: true })
 

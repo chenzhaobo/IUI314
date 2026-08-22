@@ -2,7 +2,7 @@
 import type { Component } from 'vue'
 import { unref } from 'vue'
 import type { ButtonTypes } from '@arco-design/web-vue/es/button/constants'
-import type { MaybeRef } from '@vueuse/core'
+import type { MaybeRef } from 'vue'
 import type { IuButtonStatus } from '@/types/arco.iu'
 
 defineOptions({ name: 'IuButton' })

@@ -5,7 +5,6 @@ import { useI18n } from 'vue-i18n'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSysRole } from '@/api/sysApis'
 import { hasPermission, parseTime, usePut } from '@/hooks'
-import type { MessageSchema } from '@/i18n'
 import type { dictUse } from '@/types/system/dict'
 import type { role } from '@/types/system/role'
 
@@ -25,7 +24,7 @@ const emits = defineEmits([
   'handleSelectionChangeFn',
   'getList',
 ])
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 const tableData = defineModel<role[] | null>('tableData', { required: true })
 
 const rowSelection = ref<TableRowSelection>({

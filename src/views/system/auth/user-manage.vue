@@ -5,7 +5,6 @@ import { useI18n } from 'vue-i18n'
 import type { TreeInstance } from '@arco-design/web-vue'
 import { ApiSysDept } from '@/api/apis'
 import { emitter, useGet } from '@/hooks'
-import type { MessageSchema } from '@/i18n'
 import { systemMenus } from '@/router'
 import type { dept } from '@/types/system/dept'
 import UserManageForm from '@/views/system/auth/pages/user/user-manage-form.vue'
@@ -15,7 +14,7 @@ defineOptions({
   name: systemMenus.userManage.path,
 })
 
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 
 const fieldNames = {
   key: 'dept_id',
@@ -90,7 +89,7 @@ function getAllIds(target: dept) {
         loop(item.children)
     })
   }
-  loop([target] || [])
+  loop([target])
   return ids
 }
 

@@ -139,7 +139,7 @@ const { execute: doManualPass, isFetching: passing } = usePut(ApiPerfBenchmark.m
 
 async function handleManualPass(record: any) {
   passForm.value = { txn_code: record.txn_code }
-  await doManualPass({ txn_code: record.txn_code })
+  await doManualPass()
   Message.success('已标记为通过')
   getList()
   fetchStats()
@@ -296,7 +296,7 @@ const allColumns = [
   { key: 'compare_status', title: '比对状态', dataIndex: 'compare_status', width: 90, align: 'center' as const, slotName: 'compare_status' },
   { key: 'baseline_updated_at', title: '比对值更新时间', dataIndex: 'baseline_updated_at', width: 160, slotName: 'baseline_updated_at' },
   { key: 'baseline_iteration_name', title: '比对值更新迭代', dataIndex: 'baseline_iteration_name', width: 140, ellipsis: true, tooltip: true },
-  { key: 'action', title: '操作', key: 'action', width: 150, align: 'center' as const, slotName: 'action', fixed: 'right' as const },
+  { title: '操作', key: 'action', width: 150, align: 'center' as const, slotName: 'action', fixed: 'right' as const },
 ]
 
 // ── 列配置（拖拽排序 + 显示/隐藏） ──────────────────────────────────

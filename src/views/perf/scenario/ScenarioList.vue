@@ -4,10 +4,10 @@
       <!-- 筛选栏 -->
       <a-row :gutter="16" style="margin-bottom: 16px">
         <a-col :span="5">
-          <a-input v-model="searchForm.keyword" placeholder="场景名称" allow-clear @press-enter="fetchData" />
+          <a-input v-model="searchForm.keyword" placeholder="场景名称" allow-clear @press-enter="() => fetchData()" />
         </a-col>
         <a-col :span="4">
-          <a-input v-model="searchForm.app_number" placeholder="应用编码" allow-clear @press-enter="fetchData" />
+          <a-input v-model="searchForm.app_number" placeholder="应用编码" allow-clear @press-enter="() => fetchData()" />
         </a-col>
         <a-col :span="4">
           <a-select v-model="searchForm.source" placeholder="来源" allow-clear>
@@ -25,7 +25,7 @@
         </a-col>
         <a-col :span="5">
           <a-space>
-            <a-button type="primary" @click="fetchData">查询</a-button>
+            <a-button type="primary" @click="() => fetchData()">查询</a-button>
             <a-button type="primary" @click="handleAdd">新增</a-button>
           </a-space>
         </a-col>

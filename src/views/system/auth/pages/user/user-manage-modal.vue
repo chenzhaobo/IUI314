@@ -8,7 +8,6 @@ import { ErrorFlag } from '@/api/apis'
 import { ApiSysPost, ApiSysRole, ApiSysUser } from '@/api/sysApis'
 import IuModal from '@/components/iui/iu-modal.vue'
 import { useGet, usePost, usePut } from '@/hooks'
-import type { MessageSchema } from '@/i18n'
 import { FormItemType, type IuFormField, type SelectOptionInterface } from '@/types/base/iu-form'
 import type { dept } from '@/types/system/dept'
 import { dictKey, type dictUse } from '@/types/system/dict'
@@ -35,7 +34,7 @@ const props = defineProps({
 
 const emits = defineEmits(['getList'])
 
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 
 const iuModalRef = ref<InstanceType<typeof IuModal>>()
 

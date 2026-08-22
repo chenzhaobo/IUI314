@@ -35,19 +35,19 @@
           <a-statistic title="总问题数" :value="stats.total" />
         </a-col>
         <a-col :span="4">
-          <a-statistic title="待确认" :value="stats.by_status?.pending || 0" value-style="color: #ff7d00" />
+          <a-statistic title="待确认" :value="stats.by_status?.pending || 0" :value-style="{ color: '#ff7d00' }" />
         </a-col>
         <a-col :span="4">
-          <a-statistic title="修复中" :value="(stats.by_status?.fixing || 0) + (stats.by_status?.confirmed || 0)" value-style="color: #165dff" />
+          <a-statistic title="修复中" :value="(stats.by_status?.fixing || 0) + (stats.by_status?.confirmed || 0)" :value-style="{ color: '#165dff' }" />
         </a-col>
         <a-col :span="4">
-          <a-statistic title="已修复" :value="stats.by_status?.fixed || 0" value-style="color: #00b42a" />
+          <a-statistic title="已修复" :value="stats.by_status?.fixed || 0" :value-style="{ color: '#00b42a' }" />
         </a-col>
         <a-col :span="4">
-          <a-statistic title="已验证" :value="(stats.by_status?.verified || 0) + (stats.by_status?.closed || 0)" value-style="color: #86909c" />
+          <a-statistic title="已验证" :value="(stats.by_status?.verified || 0) + (stats.by_status?.closed || 0)" :value-style="{ color: '#86909c' }" />
         </a-col>
         <a-col :span="4">
-          <a-statistic title="不修复" :value="stats.by_status?.wontfix || 0" value-style="color: #86909c" />
+          <a-statistic title="不修复" :value="stats.by_status?.wontfix || 0" :value-style="{ color: '#86909c' }" />
         </a-col>
       </a-row>
 
@@ -67,7 +67,7 @@
             >
               <div class="issue-title">{{ issue.title }}</div>
               <div class="issue-meta">
-                <a-tag size="small" :color="severityColor(issue.severity)">{{ severityText(issue.severity) }}</a-tag>
+                <a-tag size="small" :color="severityColor(issue.severity ?? '')">{{ severityText(issue.severity ?? '') }}</a-tag>
                 <span class="issue-no">{{ issue.issue_no }}</span>
               </div>
               <div class="issue-footer">
@@ -109,6 +109,7 @@
           v-for="action in getAvailableActions(currentIssue?.status)"
           :key="action.target"
           :type="action.type"
+          :status="action.status"
           size="small"
           @click="handleChangeStatus(currentIssue, action.target)"
         >
@@ -151,7 +152,17 @@ const listParams = computed(() => ({ product_line: filterProductLine.value, seve
 const statsParams = computed(() => ({ product_line: filterProductLine.value, project_group_code: filterProjectGroup.value }))
 
 // 问题列表
-const { data: listData, execute: fetchList } = useGet<any>(ApiPerfIssue.getList, listParams, { immediate: true })
+// 只声明本页用到的字段：看板按 status 分列，卡片渲染需要这些属性
+interface IssueRow {
+  id: string
+  status: string
+  severity?: string
+  project_group_name?: string
+  app_name?: string
+  title?: string
+  issue_no?: string
+}
+const { data: listData, execute: fetchList } = useGet<{ list?: IssueRow[] }>(ApiPerfIssue.getList, listParams, { immediate: true })
 const issues = computed(() => listData.value?.list || [])
 
 // 统计
@@ -161,35 +172,35 @@ const stats = computed(() => statsData.value || {})
 // 项目组列表
 const projectGroups = computed(() => {
   const pgs = new Set<string>()
-  issues.value.forEach((i: any) => i.project_group_name && pgs.add(i.project_group_name))
+  issues.value.forEach((i: { project_group_name?: string }) => i.project_group_name && pgs.add(i.project_group_name))
   return Array.from(pgs)
 })
 
 const getColumnIssues = (status: string) => issues.value.filter((i) => i.status === status)
 
 const getAvailableActions = (status: string) => {
-  const actions: { target: string; label: string; type: 'primary' | 'success' | 'warning' | 'danger' | 'secondary' }[] = []
+  const actions: { target: string; label: string; type: 'primary' | 'secondary'; status?: 'success' | 'warning' | 'danger' }[] = []
   switch (status) {
     case 'pending':
       actions.push({ target: 'confirmed', label: '确认', type: 'primary' })
-      actions.push({ target: 'wontfix', label: '不修复', type: 'danger' })
+      actions.push({ target: 'wontfix', label: '不修复', type: 'primary', status: 'danger' })
       break
     case 'confirmed':
       actions.push({ target: 'fixing', label: '开始修复', type: 'primary' })
-      actions.push({ target: 'wontfix', label: '不修复', type: 'danger' })
+      actions.push({ target: 'wontfix', label: '不修复', type: 'primary', status: 'danger' })
       break
     case 'fixing':
-      actions.push({ target: 'fixed', label: '标记已修复', type: 'success' })
+      actions.push({ target: 'fixed', label: '标记已修复', type: 'primary', status: 'success' })
       break
     case 'fixed':
-      actions.push({ target: 'verified', label: '验证通过', type: 'success' })
-      actions.push({ target: 'fixing', label: '重新修复', type: 'warning' })
+      actions.push({ target: 'verified', label: '验证通过', type: 'primary', status: 'success' })
+      actions.push({ target: 'fixing', label: '重新修复', type: 'primary', status: 'warning' })
       break
     case 'verified':
       actions.push({ target: 'closed', label: '关闭', type: 'secondary' })
       break
     case 'wontfix':
-      actions.push({ target: 'pending', label: '重新打开', type: 'warning' })
+      actions.push({ target: 'pending', label: '重新打开', type: 'primary', status: 'warning' })
       break
   }
   return actions

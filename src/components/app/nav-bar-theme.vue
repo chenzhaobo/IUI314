@@ -2,12 +2,11 @@
 import { useI18n } from 'vue-i18n'
 
 import { useTheme } from '@/hooks'
-import type { MessageSchema } from '@/i18n'
 import { useAppStore } from '@/stores'
 
 defineOptions({ name: 'NavBarTheme' })
 const appStore = useAppStore()
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 const { set_theme, theme_list } = useTheme()
 </script>
 

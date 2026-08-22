@@ -334,7 +334,7 @@ async function handleHealthCheck(record: any) {
             :title="healthCheckResult.status === 'healthy' ? '连接正常' : '连接异常'"
           >
             <template #extra>
-              <a-descriptions :column="1" layout="inline" bordered size="small" style="text-align: left">
+              <a-descriptions :column="1" layout="inline-horizontal" bordered size="small" style="text-align: left">
                 <a-descriptions-item label="数据库地址">{{ healthCheckResult.db_host }}:{{ healthCheckResult.db_port }}</a-descriptions-item>
                 <a-descriptions-item v-if="healthCheckResult.latency_ms !== undefined" label="连接延迟">{{ healthCheckResult.latency_ms }} ms</a-descriptions-item>
                 <a-descriptions-item v-if="healthCheckResult.error" label="错误信息">{{ healthCheckResult.error }}</a-descriptions-item>

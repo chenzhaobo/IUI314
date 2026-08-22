@@ -2,7 +2,7 @@
 import { ref, computed, watch, onUnmounted, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
-import { EventSourcePolyfill, type MessageEvent } from 'event-source-polyfill'
+import { EventSourcePolyfill, type Event as SseEvent, type MessageEvent as SseMessageEvent } from 'event-source-polyfill'
 import { useGet, usePost, usePut } from '@/hooks'
 import { ApiPerfRun, ApiPerfScript, ApiPerfIteration, ApiPerfTask, ApiPerfLoadNode } from '@/api/apis'
 import { useToken } from '@/hooks/app'
@@ -140,18 +140,18 @@ function handleSSELog(record: any) {
   const url = `${baseUrl}/${ApiPerfRun.sseLog}?id=${record.id}`
   currentSSE = new EventSourcePolyfill(url, {
     withCredentials: false,
-    headers: { Authorization: token.value },
+    headers: { Authorization: token },
   })
 
-  currentSSE.onmessage = (e: MessageEvent) => {
+  currentSSE.onmessage = (e: SseMessageEvent) => {
     sseLogContent.value += e.data + '\n'
     nextTick(() => {
       if (logAreaRef.value) logAreaRef.value.scrollTop = logAreaRef.value.scrollHeight
     })
   }
 
-  currentSSE.addEventListener('status', (e: MessageEvent) => {
-    sseRunStatus.value = e.data
+  currentSSE.addEventListener('status', (e: SseEvent) => {
+    if ('data' in e && typeof e.data === 'string') sseRunStatus.value = e.data
   })
 
   currentSSE.addEventListener('end', () => {
@@ -200,7 +200,7 @@ async function handleRetry(record: any) {
 async function handleDownloadJmx(record: any) {
   try {
     const resp = await fetch(`${baseUrl}${ApiPerfRun.downloadJmx}?id=${encodeURIComponent(record.id)}&source=run`, {
-      headers: { Authorization: token.value },
+      headers: { Authorization: token },
     })
     const contentType = resp.headers.get('content-type') || ''
     if (contentType.includes('application/json')) {

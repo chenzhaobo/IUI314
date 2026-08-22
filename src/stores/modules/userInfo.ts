@@ -34,7 +34,7 @@ export const useUserStore = defineStore('userInfo', {
     },
   }),
   persist: {
-    paths: ['token', 'localUserInfo', 'rememberMe'],
+    pick: ['token', 'localUserInfo', 'rememberMe'],
   },
   actions: {
     /**

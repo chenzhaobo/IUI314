@@ -4,7 +4,6 @@ import { type PropType, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useTabBar } from './useTabBar'
-import type { MessageSchema } from '@/i18n'
 import { useTabBarStore } from '@/stores'
 import type { TagProps } from '@/types/base/router'
 import TabBarItemDropdown from '@/components/layout/tab-bar/tab-bar-item-dropdown.vue'
@@ -19,7 +18,7 @@ const props = defineProps({
     },
   },
 })
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 const { goto } = useTabBar()
 
 const tabBarStore = useTabBarStore()

@@ -11,7 +11,7 @@ export const useMenuData = defineStore('menuData', {
     menuTreeSelect: [],
   }),
   persist: {
-    paths: ['menuTreeSelect'],
+    pick: ['menuTreeSelect'],
   },
   getters: {
     getMenuTreeSelect(): menu[] {

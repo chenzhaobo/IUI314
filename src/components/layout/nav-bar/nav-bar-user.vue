@@ -8,7 +8,6 @@ import ChangeCom from './changeCom.vue'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSysDept, ApiSysRole, ApiSysUser } from '@/api/sysApis'
 import { useGet, usePut } from '@/hooks'
-import type { MessageSchema } from '@/i18n'
 import { router } from '@/router'
 import { useUserStore } from '@/stores'
 import type { dept, deptList } from '@/types/system/dept'
@@ -16,7 +15,7 @@ import type { role, roleList } from '@/types/system/role'
 
 defineOptions({ name: 'NavBarUser' })
 
-const { t } = useI18n<{ message: MessageSchema }>({ useScope: 'global' })
+const { t } = useI18n({ useScope: 'global' })
 const userStore = useUserStore()
 const role_id = ref('')
 const roleOptions = ref<role[]>([])
