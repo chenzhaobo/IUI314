@@ -443,7 +443,8 @@ function trackSourceJob(receipt: WorkerJobReceipt) {
     max_attempts: 3,
   }
   sourceJobs.value = [job, ...sourceJobs.value.filter(item => item.job_id !== job.job_id)]
-  void pollSourceJob(job.job_id)
+  if (!terminalSourceJobStatuses.has(job.status))
+    void pollSourceJob(job.job_id)
 }
 
 async function pollSourceJob(jobId: string) {
@@ -575,7 +576,7 @@ async function validateRepository(repository: RepositoryBinding) {
       return
     if (data.value)
       trackSourceJob(data.value)
-    Message.success('已提交连通性验证')
+    Message.success(data.value?.status === 'succeeded' ? '仓库连通性验证通过' : '已提交连通性验证')
     await loadRepositories()
   }
   finally {
