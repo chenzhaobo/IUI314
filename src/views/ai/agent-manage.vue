@@ -1,9 +1,10 @@
 <script lang="ts" setup>
+import type { AgentModelSyncResult, AiAgent, AiListResult } from '@/api/aiApis'
+import { Message, Modal } from '@arco-design/web-vue'
 import { computed, ref } from 'vue'
-import { Message } from '@arco-design/web-vue'
-import { useGet, usePost, usePut, useDelete } from '@/hooks'
-import { ApiAiAgent, type AiAgent, type AiListResult } from '@/api/aiApis'
+import { ApiAiAgent } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
+import { useDelete, useGet, usePost, usePut } from '@/hooks'
 
 defineOptions({ name: 'ai-agent-manage' })
 
@@ -92,6 +93,50 @@ async function handleHealthCheck(record: AiAgent) {
   }
 }
 
+// ── CLI 模型探测与同步 ──────────────────────────────────
+const syncingAgentId = ref('')
+
+async function syncAgentModels(record: AiAgent, applyRecommendedTemplate = false, expectedUpdatedAt?: string) {
+  if (syncingAgentId.value) {
+    return
+  }
+  syncingAgentId.value = record.id
+  try {
+    const { data, execute, error } = usePost<AgentModelSyncResult>(ApiAiAgent.syncModels, {
+      id: record.id,
+      apply_recommended_template: applyRecommendedTemplate,
+      expected_updated_at: expectedUpdatedAt,
+    })
+    await execute()
+    const response = data.value as AgentModelSyncResult | string | null
+    if (error.value || !response || response === ErrorFlag || typeof response === 'string') {
+      Message.error('模型同步失败，请检查 Agent 路径、登录状态和服务端日志')
+      return
+    }
+
+    const result = response
+    Message.success(
+      applyRecommendedTemplate
+        ? `已同步 ${result.model_count} 个模型并更新执行命令`
+        : `已从 ${result.cli_kind} CLI 同步 ${result.model_count} 个模型`,
+    )
+    await fetchList()
+
+    if (!applyRecommendedTemplate && result.recommended_invoke_template !== record.invoke_template) {
+      Modal.confirm({
+        title: '模型同步完成',
+        content: '检测到当前执行命令与推荐模板不同。是否应用推荐模板？该操作会覆盖现有命令中的自定义 MCP、权限和其他参数；不确定时请选择“保留当前命令”。',
+        okText: '应用推荐命令',
+        cancelText: '保留当前命令',
+        onOk: () => syncAgentModels(record, true, result.config_updated_at),
+      })
+    }
+  }
+  finally {
+    syncingAgentId.value = ''
+  }
+}
+
 // ── 表格列 ──────────────────────────────────
 const columns = [
   { title: 'Agent Code', dataIndex: 'agent_code', width: 120 },
@@ -101,7 +146,7 @@ const columns = [
   { title: '最大并发', dataIndex: 'max_concurrent', width: 80 },
   { title: '超时(s)', dataIndex: 'max_timeout_secs', width: 80 },
   { title: '状态', dataIndex: 'status', width: 80, slotName: 'status' },
-  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 220, fixed: 'right' as const },
+  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 300, fixed: 'right' as const },
 ]
 </script>
 
@@ -149,6 +194,7 @@ const columns = [
           <a-space>
             <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
             <a-button type="text" size="small" :loading="healthLoading" @click="handleHealthCheck(record)">健康检查</a-button>
+            <a-button type="text" size="small" :disabled="Boolean(syncingAgentId)" :loading="syncingAgentId === record.id" @click="syncAgentModels(record)">同步模型</a-button>
             <a-popconfirm content="确认删除该 Agent？" @ok="handleDelete(record)">
               <a-button type="text" size="small" status="danger">删除</a-button>
             </a-popconfirm>
@@ -187,6 +233,7 @@ const columns = [
           <a-col :span="12">
             <a-form-item label="支持的模型 (JSON 数组)">
               <a-textarea :model-value="form.supported_models_json ?? undefined" :auto-size="{ minRows: 1, maxRows: 3 }" placeholder='["auto","claude-sonnet-4"]' @update:model-value="(value: string) => { form.supported_models_json = value }" />
+              <template #extra>列表中的“同步模型”会调用本机 CLI 自动更新，无需手工复制。</template>
             </a-form-item>
           </a-col>
           <a-col :span="12">

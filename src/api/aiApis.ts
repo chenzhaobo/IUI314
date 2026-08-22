@@ -10,6 +10,7 @@ export enum ApiAiAgent {
   edit = '/ai/agent/edit',
   delete = '/ai/agent/delete',
   healthCheck = '/ai/agent/health_check',
+  syncModels = '/ai/agent/sync_models',
 }
 
 // ── Skill 管理 ──────────────────────────────────────
@@ -77,6 +78,18 @@ export interface BotUserAccess {
 }
 
 // ── 类型定义 ──────────────────────────────────────
+export interface AgentModelSyncResult {
+  agent_id: string
+  agent_code: string
+  cli_kind: 'qoder' | 'kiro'
+  models: string[]
+  model_count: number
+  default_model: string
+  recommended_invoke_template: string
+  invoke_template_updated: boolean
+  config_updated_at: string
+}
+
 export interface AiAgent {
   id: string
   agent_code: string
@@ -157,7 +170,7 @@ export interface AiInvokeResponse {
   execution_id: string
   status: string
   output_json: unknown
-  output_files: { path: string; size_bytes: number }[]
+  output_files: { path: string, size_bytes: number }[]
   session_id: string | null
   duration_ms: number
   error_message: string | null
