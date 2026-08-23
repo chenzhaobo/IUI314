@@ -883,6 +883,8 @@ export interface CrossRunAggRow {
   rejected: number
   error: number
   pending: number
+  /** 兜底对账收敛来的「待人工复核」，与 pending/error 同属"没有有效 AI 结论"，可重跑 */
+  review_needed: number
   risk_high: number
   risk_medium: number
   risk_low: number

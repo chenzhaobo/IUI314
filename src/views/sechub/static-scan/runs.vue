@@ -136,6 +136,14 @@ function progressLabel(row: CrossRunAggRow): string {
 
 // ===== 一键重扫错误候选（整个轮次）=====
 const retryingRunId = ref('')
+// 可重跑数量 = error + 未确认 + 待人工复核。
+// 后端 retry-errors 实际重置的就是这三种状态（见 RETRYABLE_AI_STATUSES）：
+// 任务中途挂掉的候选停在 pending，兜底对账收敛的停在 review_needed，
+// 原先按钮只看 error，这两种情况就只能一条条手动重扫。
+function retryableCount(row: CrossRunAggRow) {
+  return (row.error || 0) + (row.pending || 0) + (row.review_needed || 0)
+}
+
 async function retryErrors(row: CrossRunAggRow) {
   retryingRunId.value = row.run_id
   try {
@@ -260,11 +268,11 @@ const crossColumns = [
             type="text"
             size="small"
             status="warning"
-            :disabled="!record.error"
+            :disabled="retryableCount(record) === 0"
             :loading="retryingRunId === record.run_id"
             @click="retryErrors(record)"
           >
-            重扫错误{{ record.error ? `(${record.error})` : '' }}
+            重扫未完成{{ retryableCount(record) ? `(${retryableCount(record)})` : '' }}
           </a-button>
         </template>
       </a-table>
