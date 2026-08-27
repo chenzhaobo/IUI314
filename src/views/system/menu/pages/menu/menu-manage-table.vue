@@ -32,6 +32,35 @@ const emits = defineEmits([
 
 const tableData = defineModel<menu[] | null>('tableData', { required: true })
 
+// 上移/下移的边界判断。
+//
+// 表格是树，一行的"能否上移"取决于它在**同一父级**下的位置，而不是在整个扁平列表里的
+// 位置。所以按 pid 建索引：树里每一层的顺序就是后端返回的顺序（order_sort + id），
+// 与 move_menu 的重排基准一致，判断结果才不会和实际行为打架。
+const siblingIndex = computed(() => {
+  const map = new Map<string, { index: number, total: number }>()
+  const walk = (rows: menu[]) => {
+    rows.forEach((row, index) => {
+      map.set(row.id!, { index, total: rows.length })
+      if (row.children?.length)
+        walk(row.children as menu[])
+    })
+  }
+  walk(tableData.value || [])
+  return map
+})
+
+function isFirstInSiblings(row: menu) {
+  const pos = siblingIndex.value.get(row.id!)
+  // 取不到位置时不置灰：宁可让用户点一次拿到"已在边界"的提示，也不要错误地禁掉按钮
+  return pos ? pos.index === 0 : false
+}
+
+function isLastInSiblings(row: menu) {
+  const pos = siblingIndex.value.get(row.id!)
+  return pos ? pos.index === pos.total - 1 : false
+}
+
 // 表格列属性
 const columns = computed<TableColumnData[]>(() => [
   {
@@ -167,6 +196,7 @@ const columns = computed<TableColumnData[]>(() => [
           <a-button
             type="text"
             shape="circle"
+            :disabled="isFirstInSiblings(record)"
             @click="emits('handleMove', record, 'up')"
           >
             <IconArrowUp class="cursor-pointer" />
@@ -179,6 +209,7 @@ const columns = computed<TableColumnData[]>(() => [
           <a-button
             type="text"
             shape="circle"
+            :disabled="isLastInSiblings(record)"
             @click="emits('handleMove', record, 'down')"
           >
             <IconArrowDown class="cursor-pointer" />
