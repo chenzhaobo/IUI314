@@ -27,6 +27,7 @@ const emits = defineEmits([
   'handleDelete',
   'handleAddByCopy',
   'goToApi',
+  'handleMove',
 ])
 
 const tableData = defineModel<menu[] | null>('tableData', { required: true })
@@ -157,6 +158,30 @@ const columns = computed<TableColumnData[]>(() => [
             @click="emits('goToApi', record)"
           >
             <IconFolderAdd class="cursor-pointer" />
+          </a-button>
+        </a-tooltip>
+        <a-tooltip
+          v-if="hasPermission(ApiSysMenu.move)"
+          content="上移"
+        >
+          <a-button
+            type="text"
+            shape="circle"
+            @click="emits('handleMove', record, 'up')"
+          >
+            <IconArrowUp class="cursor-pointer" />
+          </a-button>
+        </a-tooltip>
+        <a-tooltip
+          v-if="hasPermission(ApiSysMenu.move)"
+          content="下移"
+        >
+          <a-button
+            type="text"
+            shape="circle"
+            @click="emits('handleMove', record, 'down')"
+          >
+            <IconArrowDown class="cursor-pointer" />
           </a-button>
         </a-tooltip>
         <a-tooltip

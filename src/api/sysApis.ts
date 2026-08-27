@@ -73,6 +73,7 @@ export enum ApiSysMenu {
   getEnabledTree = '/system/menu/get_all_enabled_menu_tree',
   add = '/system/menu/add',
   edit = '/system/menu/edit',
+  move = '/system/menu/move',
   delete = '/system/menu/delete',
   updateLogCache = '/system/menu/update_log_cache_method',
 }

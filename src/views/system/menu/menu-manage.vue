@@ -9,6 +9,7 @@ import {
   useDelete,
   useDicts,
   useGet,
+  usePut,
 } from '@/hooks'
 import { dictKey } from '@/types/system/dict'
 import RightToolBar from '@/components/common/right-tool-bar.vue'
@@ -59,6 +60,24 @@ async function getList() {
 
 const handAdd = (row?: menu, pid?: string) => modalRef.value?.handleAdd(row, pid)
 const handleAddByCopy = (row: menu) => modalRef.value?.handleAddByCopy(row)
+
+// 同级上移/下移。后端做的是整段重新编号（现网 order_sort 有重复与空洞，
+// 单纯两行互换在重复值上不会产生可见变化），所以移动后必须重新拉取列表。
+const moving = ref(false)
+async function handleMove(row: menu, direction: 'up' | 'down') {
+  if (moving.value)
+    return
+  moving.value = true
+  try {
+    const { execute, error } = usePut(ApiSysMenu.move, { id: row.id, direction })
+    await execute()
+    if (!error.value)
+      await getList()
+  }
+  finally {
+    moving.value = false
+  }
+}
 const handleUpdate = (row: menu) => modalRef.value?.handleUpdate(row)
 
 async function getMenuSelectTree() {
@@ -152,6 +171,7 @@ onMounted(async () => {
       @handle-update="handleUpdate"
       @handle-add="handAdd"
       @handle-add-by-copy="handleAddByCopy"
+      @handle-move="handleMove"
       @go-to-api="goto_api"
     />
     <MenuManageModal
