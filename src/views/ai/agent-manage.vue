@@ -74,13 +74,15 @@ async function handleDelete(record: AiAgent) {
 
 // ── 健康检查 ──────────────────────────────────
 const healthResult = ref<any>(null)
-const healthLoading = ref(false)
+// 按行记录正在检查的 agent id。原先用一个全局 boolean，点任意一行的「健康检查」
+// 会让表格里所有行的按钮同时进入 loading，看起来像"触发了所有 agent"。
+const healthCheckingAgentId = ref('')
 async function handleHealthCheck(record: AiAgent) {
-  healthLoading.value = true
+  healthCheckingAgentId.value = record.id
   healthResult.value = null
   const { data, execute, error } = useGet<any>(ApiAiAgent.healthCheck, { id: record.id })
   await execute()
-  healthLoading.value = false
+  healthCheckingAgentId.value = ''
   if (error.value || data.value === ErrorFlag) {
     Message.error('健康检查失败')
     return
@@ -121,6 +123,13 @@ async function syncAgentModels(record: AiAgent, applyRecommendedTemplate = false
         : `已从 ${result.cli_kind} CLI 同步 ${result.model_count} 个模型`,
     )
     await fetchList()
+    // 列表刷新不会带动编辑弹窗里的 form —— 若正在编辑同一个 agent，
+    // 「支持的模型 (JSON 数组)」还是打开弹窗那一刻的旧值，看起来像同步没生效。
+    if (modalVisible.value && form.value.id === record.id) {
+      form.value.supported_models_json = JSON.stringify(result.models)
+      if (result.default_model)
+        form.value.default_model = result.default_model
+    }
 
     if (!applyRecommendedTemplate && result.recommended_invoke_template !== record.invoke_template) {
       Modal.confirm({
@@ -193,8 +202,8 @@ const columns = [
         <template #operations="{ record }">
           <a-space>
             <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
-            <a-button type="text" size="small" :loading="healthLoading" @click="handleHealthCheck(record)">健康检查</a-button>
-            <a-button type="text" size="small" :disabled="Boolean(syncingAgentId)" :loading="syncingAgentId === record.id" @click="syncAgentModels(record)">同步模型</a-button>
+            <a-button type="text" size="small" :loading="healthCheckingAgentId === record.id" @click="handleHealthCheck(record)">健康检查</a-button>
+            <a-button type="text" size="small" :disabled="syncingAgentId === record.id" :loading="syncingAgentId === record.id" @click="syncAgentModels(record)">同步模型</a-button>
             <a-popconfirm content="确认删除该 Agent？" @ok="handleDelete(record)">
               <a-button type="text" size="small" status="danger">删除</a-button>
             </a-popconfirm>
