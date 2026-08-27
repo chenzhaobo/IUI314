@@ -112,6 +112,27 @@ export interface MutationReceipt {
   status: string
 }
 
+// 代码仓库编辑请求。除 module_id/relation_id/idempotency_key 外全部可选，
+// 只提交实际改动的字段；后端要求至少有一项变更。
+export interface RepositoryEditRequest {
+  module_id: string
+  relation_id: string
+  name?: string
+  code?: string
+  git_url?: string
+  credential_ref?: string | null
+  clear_credential?: boolean
+  default_branch?: string
+  root_path?: string
+  // root_path 不接受空串，清空根路径必须用这个开关
+  clear_root_path?: boolean
+  default_scan_branch?: string
+  scan_enabled?: boolean
+  is_primary?: boolean
+  allow_local_test_repository?: boolean
+  idempotency_key: string
+}
+
 export interface WorkerJobReceipt {
   job_id: string
   status: string

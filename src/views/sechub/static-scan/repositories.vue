@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import type { ModuleWithRepository, RepositorySyncResponse } from '@/types/static-scan'
+import type { ModuleWithRepository, MutationReceipt, RepositoryEditRequest, RepositorySyncResponse } from '@/types/static-scan'
 import { Message } from '@arco-design/web-vue'
 import { useDebounceFn } from '@vueuse/core'
 import { computed, reactive, ref } from 'vue'
 import { ApiPerfModule } from '@/api/perfApis'
 import { ApiSecModuleRepository } from '@/api/sechubApis'
-import { useGet, usePost } from '@/hooks'
+import { useGet, usePost, usePut } from '@/hooks'
 
 defineOptions({ name: 'StaticScanRepositories' })
 
@@ -154,6 +154,117 @@ async function submitAdd() {
   }
 }
 
+// ===== 编辑弹窗 =====
+// 只提交与原值不同的字段：后端 validate_edit_request 会拒绝「没有任何变更」的请求，
+// 且 git_url / 默认分支 / 凭据变更会把状态退回 pending_validation，不能无脑全量提交。
+const editVisible = ref(false)
+const editLoading = ref(false)
+const editRecord = ref<ModuleWithRepository | null>(null)
+const editForm = reactive({
+  name: '',
+  code: '',
+  git_url: '',
+  default_branch: '',
+  root_path: '',
+  scan_enabled: true,
+})
+
+function openEditDialog(record: ModuleWithRepository) {
+  editRecord.value = record
+  editForm.name = record.repository_name
+  editForm.code = record.repository_code
+  editForm.git_url = record.git_url
+  editForm.default_branch = record.default_branch
+  editForm.root_path = record.root_path ?? ''
+  editForm.scan_enabled = record.scan_enabled
+  editVisible.value = true
+}
+
+function buildEditPayload(record: ModuleWithRepository): RepositoryEditRequest | null {
+  const payload: RepositoryEditRequest = {
+    module_id: record.module_id,
+    relation_id: record.relation_id,
+    idempotency_key: crypto.randomUUID(),
+  }
+  let changed = false
+  const name = editForm.name.trim()
+  if (name && name !== record.repository_name) {
+    payload.name = name
+    changed = true
+  }
+  const code = editForm.code.trim()
+  if (code && code !== record.repository_code) {
+    payload.code = code
+    changed = true
+  }
+  const gitUrl = editForm.git_url.trim()
+  if (gitUrl && gitUrl !== record.git_url) {
+    payload.git_url = gitUrl
+    payload.allow_local_test_repository = gitUrl.startsWith('local-test:')
+    // 后端要求切到 local-test 时必须显式清空凭据
+    if (payload.allow_local_test_repository)
+      payload.clear_credential = true
+    changed = true
+  }
+  const branch = editForm.default_branch.trim()
+  if (branch && branch !== record.default_branch) {
+    payload.default_branch = branch
+    changed = true
+  }
+  const rootPath = editForm.root_path.trim()
+  const originalRootPath = (record.root_path ?? '').trim()
+  if (rootPath !== originalRootPath) {
+    if (rootPath)
+      payload.root_path = rootPath
+    else
+      payload.clear_root_path = true
+    changed = true
+  }
+  if (editForm.scan_enabled !== record.scan_enabled) {
+    payload.scan_enabled = editForm.scan_enabled
+    changed = true
+  }
+  return changed ? payload : null
+}
+
+async function submitEdit() {
+  const record = editRecord.value
+  if (!record)
+    return
+  if (!editForm.name.trim() || !editForm.code.trim() || !editForm.git_url.trim() || !editForm.default_branch.trim()) {
+    Message.warning('仓库名称、编码、Git URL 与默认分支不能为空')
+    return
+  }
+  const payload = buildEditPayload(record)
+  if (!payload) {
+    Message.info('没有任何修改')
+    return
+  }
+  editLoading.value = true
+  try {
+    const { data, execute, error } = usePut<MutationReceipt>(
+      ApiSecModuleRepository.edit,
+      payload,
+      { immediate: false },
+    )
+    await execute()
+    if (error.value) {
+      Message.error(`保存失败: ${(error.value as any)?.message || error.value}`)
+      return
+    }
+    // 改了 Git URL / 分支 / 凭据后状态会退回待验证，明确提示用户重新验证
+    if (data.value?.status === 'pending_validation')
+      Message.success('已保存，仓库地址或分支已变更，状态退回待验证，请重新执行验证')
+    else
+      Message.success('已保存')
+    editVisible.value = false
+    await loadList()
+  }
+  finally {
+    editLoading.value = false
+  }
+}
+
 const columns = [
   { title: '模块名称', dataIndex: 'module_name', width: 160 },
   { title: '模块简码', dataIndex: 'module_code', width: 120 },
@@ -164,7 +275,7 @@ const columns = [
   { title: '根路径', dataIndex: 'root_path', width: 120, ellipsis: true, tooltip: true },
   { title: '扫描启用', dataIndex: 'scan_enabled', slotName: 'scanEnabled', width: 90 },
   { title: '状态', dataIndex: 'status', slotName: 'status', width: 100 },
-  { title: '操作', slotName: 'operations', width: 290, fixed: 'right' as const },
+  { title: '操作', slotName: 'operations', width: 340, fixed: 'right' as const },
 ]
 
 // ===== 过滤条件 =====
@@ -196,10 +307,10 @@ function openDetail(record: ModuleWithRepository) {
 }
 
 const statusMap: Record<string, { label: string, color: string }> = {
-  active: { label: '活跃', color: 'green' },
-  validated: { label: '已验证', color: 'blue' },
-  pending: { label: '待验证', color: 'orange' },
-  error: { label: '异常', color: 'red' },
+  // 后端 ck_sec_repository_status 只允许这四个取值
+  pending_validation: { label: '待验证', color: 'orange' },
+  active: { label: '已验证', color: 'green' },
+  invalid: { label: '校验失败', color: 'red' },
   disabled: { label: '禁用', color: 'gray' },
 }
 
@@ -207,7 +318,7 @@ function statusInfo(status: string) {
   return statusMap[status] ?? { label: status, color: 'gray' }
 }
 
-// 验证仓库
+// 验证仓库：带上 module_id/relation_id，后端才会以库里存的配置为准并写回状态
 const validatingId = ref('')
 async function validateRepo(record: ModuleWithRepository) {
   validatingId.value = record.relation_id
@@ -215,6 +326,8 @@ async function validateRepo(record: ModuleWithRepository) {
     const { execute, error } = usePost(
       ApiSecModuleRepository.validate,
       {
+        module_id: record.module_id,
+        relation_id: record.relation_id,
         git_url: record.git_url,
         default_branch: record.default_branch,
         allow_local_test_repository: record.git_url.startsWith('local-test:'),
@@ -225,9 +338,11 @@ async function validateRepo(record: ModuleWithRepository) {
     await execute()
     if (error.value) {
       Message.error(`验证失败: ${error.value.message || error.value}`)
+      // 失败也要刷新：后端已把 status 写成 invalid、validation_error 落库
+      await loadList()
       return
     }
-    Message.success('已提交验证任务')
+    Message.success('仓库校验通过')
     await loadList()
   }
   finally {
@@ -319,10 +434,9 @@ async function syncRepo(record: ModuleWithRepository) {
           style="width: 240px"
         />
         <a-select v-model="statusFilter" placeholder="状态" allow-clear style="width: 120px">
-          <a-option value="active">活跃</a-option>
-          <a-option value="validated">已验证</a-option>
-          <a-option value="pending">待验证</a-option>
-          <a-option value="error">异常</a-option>
+          <a-option value="pending_validation">待验证</a-option>
+          <a-option value="active">已验证</a-option>
+          <a-option value="invalid">校验失败</a-option>
           <a-option value="disabled">禁用</a-option>
         </a-select>
         <a-typography-text type="secondary">
@@ -356,6 +470,9 @@ async function syncRepo(record: ModuleWithRepository) {
           <a-space>
             <a-button type="text" size="small" @click="openDetail(record)">
               详情
+            </a-button>
+            <a-button type="text" size="small" @click="openEditDialog(record)">
+              编辑
             </a-button>
             <a-button
               type="text"
@@ -434,6 +551,42 @@ async function syncRepo(record: ModuleWithRepository) {
         <a-form-item label="启用扫描">
           <a-switch v-model="addForm.scan_enabled" />
         </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <!-- 编辑代码仓库弹窗 -->
+    <a-modal
+      v-model:visible="editVisible"
+      title="编辑代码仓库"
+      :ok-loading="editLoading"
+      @ok="submitEdit"
+      @cancel="editVisible = false"
+    >
+      <a-form :model="editForm" layout="vertical">
+        <a-form-item label="所属模块">
+          <span>{{ editRecord?.module_name }}（{{ editRecord?.module_code }}）</span>
+        </a-form-item>
+        <a-form-item label="仓库名称" required>
+          <a-input v-model="editForm.name" placeholder="仓库名称" />
+        </a-form-item>
+        <a-form-item label="仓库编码" required>
+          <a-input v-model="editForm.code" placeholder="全局唯一" />
+        </a-form-item>
+        <a-form-item label="Git URL" required>
+          <a-input v-model="editForm.git_url" placeholder="https://git.example.com/group/repo.git" />
+        </a-form-item>
+        <a-form-item label="默认分支" required>
+          <a-input v-model="editForm.default_branch" placeholder="master" />
+        </a-form-item>
+        <a-form-item label="根路径">
+          <a-input v-model="editForm.root_path" placeholder="留空表示仓库根目录" />
+        </a-form-item>
+        <a-form-item label="启用扫描">
+          <a-switch v-model="editForm.scan_enabled" />
+        </a-form-item>
+        <a-alert type="warning">
+          修改 Git URL 或默认分支后，仓库状态会退回「待验证」，需要重新执行验证。
+        </a-alert>
       </a-form>
     </a-modal>
 
