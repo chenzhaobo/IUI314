@@ -124,6 +124,19 @@ const accessModeLabel = computed(() => {
               <a-form-item label="AI 执行器编码">
                 <a-input v-model="form.agent_code" placeholder="对应 ai_agent 表的 agent_code" />
               </a-form-item>
+              <a-form-item label="云之家机器人 webhook">
+                <a-input
+                  v-model="form.send_msg_url"
+                  allow-clear
+                  placeholder="https://www.yunzhijia.com/gateway/robot/webhook/send?yzjtype=0&yzjtoken=xxx"
+                />
+                <template #extra>
+                  <span>
+                    用于在云之家群里 @机器人 指挥平台：平台据此推导 WebSocket 地址收消息、回复走同一地址。
+                    留空则回落到 config.toml 的 [notification.yunzhijia] send_msg_url。改动需重启服务生效。
+                  </span>
+                </template>
+              </a-form-item>
               <a-form-item label="系统提示词">
                 <a-textarea v-model="form.system_prompt" :auto-size="{ minRows: 3, maxRows: 6 }" placeholder="Bot 的系统角色设定" />
               </a-form-item>

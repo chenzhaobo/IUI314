@@ -141,8 +141,8 @@
             </a-form-item>
           </a-col>
           <a-col :span="16">
-            <a-form-item label="云之家推送群 chat_id">
-              <a-input v-model="form.yzj_chat_id" allow-clear placeholder="群机器人 token 或完整 sendMsgUrl，留空则不推送" />
+            <a-form-item label="群组通知机器人">
+              <a-input v-model="form.yzj_chat_id" allow-clear placeholder="群机器人 token 或完整 webhook 地址，留空则不推送日报" />
             </a-form-item>
           </a-col>
         </a-row>
