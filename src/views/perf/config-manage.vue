@@ -6,8 +6,11 @@ import { ApiPerfConfig } from '@/api/apis'
 
 defineOptions({ name: 'config-manage' })
 
-// ── 路径校验 ──────────────────────────────────
+// ── 配置项校验 ──────────────────────────────────
 const PATH_CONFIG_KEYS = ['jmeter_work_dir', 'jmeter_script_dir', 'jmeter_home_dir', 'report_base_dir']
+const AI_CONFIRM_BATCH_SIZE_KEY = 'static_scan_ai_confirm_batch_size'
+const AI_CONFIRM_BATCH_SIZE_MIN = 1
+const AI_CONFIRM_BATCH_SIZE_MAX = 1000
 const WINDOWS_DRIVE_RE = /^[a-zA-Z]:[/\\]/
 
 /** 检测是否为 Windows 盘符路径 */
@@ -20,20 +23,40 @@ function isPathConfig(c: any): boolean {
   return PATH_CONFIG_KEYS.includes(c.config_key)
 }
 
-/** 路径配置校验状态 */
-function getPathValidateStatus(c: any): 'error' | undefined {
-  if (!isPathConfig(c)) return undefined
+/** 是否为静态扫描 AI 确认的单批候选条数配置 */
+function isAiConfirmBatchSizeConfig(c: any): boolean {
+  return c.config_key === AI_CONFIRM_BATCH_SIZE_KEY
+}
+
+function isValidAiConfirmBatchSize(value: unknown): boolean {
+  const size = Number(value)
+  return Number.isInteger(size) && size >= AI_CONFIRM_BATCH_SIZE_MIN && size <= AI_CONFIRM_BATCH_SIZE_MAX
+}
+
+function handleAiConfirmBatchSizeChange(c: any, value: number | string | undefined) {
+  c.config_value = value === undefined ? '' : String(value)
+}
+
+/** 配置项校验状态 */
+function getConfigValidateStatus(c: any): 'error' | undefined {
   const val = c.config_value || ''
-  if (val && isWindowsDrivePath(val)) return 'error'
+  if (isPathConfig(c) && val && isWindowsDrivePath(val)) {
+    return 'error'
+  }
+  if (isAiConfirmBatchSizeConfig(c) && !isValidAiConfirmBatchSize(val)) {
+    return 'error'
+  }
   return undefined
 }
 
-/** 路径配置校验提示 */
-function getPathValidateHelp(c: any): string {
-  if (!isPathConfig(c)) return ''
+/** 配置项校验提示 */
+function getConfigValidateHelp(c: any): string {
   const val = c.config_value || ''
-  if (val && isWindowsDrivePath(val)) {
+  if (isPathConfig(c) && val && isWindowsDrivePath(val)) {
     return 'Windows 盘符路径不适用于 Linux 容器环境，请改为相对路径（如 data/_jmeter）'
+  }
+  if (isAiConfirmBatchSizeConfig(c) && !isValidAiConfirmBatchSize(val)) {
+    return `请输入 ${AI_CONFIRM_BATCH_SIZE_MIN} 到 ${AI_CONFIRM_BATCH_SIZE_MAX} 之间的整数`
   }
   return ''
 }
@@ -77,13 +100,10 @@ function handleBoolChange(c: any, val: boolean | string | number) {
 const saving = ref(false)
 
 async function handleSave() {
-  // 前端拦截：检查是否有 Windows 盘符路径
-  const invalidPaths = configList.value.filter(
-    (c: any) => isPathConfig(c) && c.config_value && isWindowsDrivePath(c.config_value)
-  )
-  if (invalidPaths.length > 0) {
-    const keys = invalidPaths.map((c: any) => c.label || c.config_key).join('、')
-    Message.error(`以下配置使用了 Windows 盘符路径，无法在 Linux 容器中使用：${keys}`)
+  const invalidConfigs = configList.value.filter((c: any) => getConfigValidateStatus(c))
+  if (invalidConfigs.length > 0) {
+    const keys = invalidConfigs.map((c: any) => c.label || c.config_key).join('、')
+    Message.error(`以下配置值不合法，请修正后再保存：${keys}`)
     return
   }
 
@@ -132,20 +152,29 @@ function getGroupLabel(key: string) {
               <a-col v-for="c in configs" :key="c.id" :span="12">
                 <a-form-item
                   :label="c.label || c.config_key"
-                  :validate-status="getPathValidateStatus(c)"
-                  :help="getPathValidateHelp(c)"
+                  :validate-status="getConfigValidateStatus(c)"
+                  :help="getConfigValidateHelp(c)"
                 >
                   <a-switch
                     v-if="isBoolConfig(c)"
                     :model-value="c.config_value === 'true'"
                     @change="(val: boolean | string | number) => handleBoolChange(c, val)"
                   />
+                  <a-input-number
+                    v-else-if="isAiConfirmBatchSizeConfig(c)"
+                    :model-value="Number(c.config_value)"
+                    :min="AI_CONFIRM_BATCH_SIZE_MIN"
+                    :max="AI_CONFIRM_BATCH_SIZE_MAX"
+                    :precision="0"
+                    placeholder="如 200"
+                    @change="(val: number | string | undefined) => handleAiConfirmBatchSizeChange(c, val)"
+                  />
                   <a-input
                     v-else
                     v-model="c.config_value"
                     :placeholder="`请输入${c.label || c.config_key}`"
                     allow-clear
-                    :status="getPathValidateStatus(c)"
+                    :status="getConfigValidateStatus(c)"
                   />
                   <template #extra>
                     <span class="config-remark">{{ c.remark || '' }}</span>
