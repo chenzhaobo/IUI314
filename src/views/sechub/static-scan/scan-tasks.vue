@@ -61,6 +61,12 @@ const allModelOptions = computed<string[]>(() => {
   return Array.from(modelSet)
 })
 
+/** Agent 下拉选项（只列启用中的） */
+const agentOptions = computed(() => (agentListRaw.value?.list ?? []).map(a => ({
+  code: a.agent_code,
+  label: `${a.agent_name}（${a.agent_code}）`,
+})))
+
 // ═══════════════════════════════════════════════════════════
 //  工具函数
 // ═══════════════════════════════════════════════════════════
@@ -95,6 +101,14 @@ function scanModeLabel(mode: string): string {
 /** AI 模式标签 */
 function aiModeLabel(mode: string): string {
   return mode === 'agent' ? '自主审计' : '平台编排'
+}
+
+/**
+ * 某行未指定 Agent 时，执行时实际会用的默认 Agent。
+ * 与后端兜底保持一致：batch → qoder-cli，agent → qoder-cli-scan。
+ */
+function rowFallbackAgent(record: { ai_mode?: string | null }): string {
+  return record.ai_mode === 'agent' ? 'qoder-cli-scan' : 'qoder-cli'
 }
 
 /** 领域字符串转展示标签列表 */
@@ -160,6 +174,40 @@ const form = reactive<{
   ai_agent_code: '',
   status: true,
 })
+
+/**
+ * 未指定 Agent 时后端的兜底取值，随 AI 模式变化：
+ *   平台编排(batch) → qoder-cli        （static_prescan.rs 的 confirm 流程默认值）
+ *   自主审计(agent) → qoder-cli-scan   （scan_agent.rs 触发自主审计的默认值）
+ * 这里只用于给用户展示"留空会用哪个"，不参与提交。
+ */
+const fallbackAgentCode = computed(() => (form.ai_mode === 'agent' ? 'qoder-cli-scan' : 'qoder-cli'))
+
+/**
+ * 模型下拉范围：选了 Agent 就只列该 Agent 支持的模型，避免配出该 Agent 跑不了的组合；
+ * 没选 Agent（用兜底）时列全部 Agent 的模型并集。
+ */
+const modelOptions = computed<string[]>(() => {
+  const code = form.ai_agent_code.trim()
+  if (!code)
+    return allModelOptions.value
+  const agent = (agentListRaw.value?.list ?? []).find(a => a.agent_code === code)
+  if (!agent?.supported_models_json)
+    return allModelOptions.value
+  try {
+    return JSON.parse(agent.supported_models_json) as string[]
+  }
+  catch {
+    return allModelOptions.value
+  }
+})
+
+/** 切换 Agent 后，若已选模型不在新 Agent 的支持列表内则清空，避免提交无效组合 */
+function onAgentChange() {
+  const current = form.ai_model.trim()
+  if (current && !modelOptions.value.includes(current))
+    form.ai_model = ''
+}
 
 function resetForm() {
   form.id = ''
@@ -433,6 +481,7 @@ const columns = [
   { title: '上次执行', dataIndex: 'last_scheduled_at', slotName: 'last_scheduled_at', width: 160 },
   { title: '并发数', dataIndex: 'concurrency', width: 70, align: 'right' as const },
   { title: 'AI 模式', dataIndex: 'ai_mode', slotName: 'ai_mode', width: 90 },
+  { title: 'Agent', dataIndex: 'ai_agent_code', slotName: 'ai_agent_code', width: 130, ellipsis: true, tooltip: true },
   { title: '模型', dataIndex: 'ai_model', width: 120, ellipsis: true, tooltip: true },
   { title: '自动确认', dataIndex: 'auto_confirm', slotName: 'auto_confirm', width: 80 },
   { title: '启用调度', dataIndex: 'schedule_enabled', slotName: 'schedule_enabled', width: 90 },
@@ -553,6 +602,14 @@ const columns = [
           >
             {{ aiModeLabel(record.ai_mode) }}
           </a-tag>
+        </template>
+
+        <!-- Agent：未指定时显示后端按模式兜底的实际 Agent，避免让人以为"没配就不跑" -->
+        <template #ai_agent_code="{ record }">
+          <span v-if="record.ai_agent_code">{{ record.ai_agent_code }}</span>
+          <a-tooltip v-else content="任务未指定 Agent，执行时按 AI 模式使用默认 Agent">
+            <span class="agent-default">{{ rowFallbackAgent(record) }}（默认）</span>
+          </a-tooltip>
         </template>
 
         <!-- 自动确认 -->
@@ -757,6 +814,26 @@ const columns = [
           </a-radio-group>
         </a-form-item>
 
+        <!-- Agent -->
+        <a-form-item label="Agent">
+          <a-select
+            v-model="form.ai_agent_code"
+            placeholder="留空表示按 AI 模式使用默认 Agent"
+            allow-clear
+            allow-search
+            style="width: 100%"
+            @change="onAgentChange"
+          >
+            <a-option v-for="a in agentOptions" :key="a.code" :value="a.code">
+              {{ a.label }}
+            </a-option>
+          </a-select>
+          <template #extra>
+            留空则使用默认 Agent：当前模式下为 <strong>{{ fallbackAgentCode }}</strong>。
+            选定 Agent 后，下方模型下拉只列该 Agent 支持的模型。
+          </template>
+        </a-form-item>
+
         <!-- 模型 -->
         <a-form-item label="模型">
           <a-select
@@ -766,7 +843,7 @@ const columns = [
             allow-search
             style="width: 100%"
           >
-            <a-option v-for="m in allModelOptions" :key="m" :value="m">
+            <a-option v-for="m in modelOptions" :key="m" :value="m">
               {{ m }}
             </a-option>
           </a-select>
