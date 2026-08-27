@@ -2,7 +2,7 @@
 import { onMounted, ref, toRaw } from 'vue'
 
 import { Message, Modal } from '@arco-design/web-vue'
-import { ApiSysMenu } from '@/api/apis'
+import { ApiSysMenu, ErrorFlag } from '@/api/apis'
 import {
   deleteEmptyChildren,
   filterObjectArray,
@@ -69,10 +69,16 @@ async function handleMove(row: menu, direction: 'up' | 'down') {
     return
   moving.value = true
   try {
-    const { execute, error } = usePut(ApiSysMenu.move, { id: row.id, direction })
+    // 判 data.value === ErrorFlag 是本仓库的统一口径：afterFetch 在业务 code != 200 时
+    // 把 data 置为 ErrorFlag 并已弹过提示。error.value 只反映 HTTP 层错误，
+    // 业务失败时它是空的 —— 用它判断会把失败当成功。
+    const { execute, data } = usePut(ApiSysMenu.move, { id: row.id, direction })
     await execute()
-    if (!error.value)
-      await getList()
+    if (data.value === ErrorFlag)
+      return
+    // 后端在边界时返回 200 + "已在边界，无需移动"，属正常结果而非错误；
+    // 无论是否真的移动都重新拉取，保证列表与库内顺序一致。
+    await getList()
   }
   finally {
     moving.value = false
