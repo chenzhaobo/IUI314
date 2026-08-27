@@ -126,6 +126,8 @@ export enum ApiSecModuleRepository {
   sourceSnapshots = '/sechub/module/repository/source-snapshots',
   sourceJob = '/sechub/module/repository/source-job',
   branches = '/sechub/module/repository/branches',
+  sync = '/sechub/module/repository/sync',
+  commits = '/sechub/module/repository/commits',
 }
 
 // ── 静态扫描范围 ──────────────────────────────────
@@ -270,6 +272,7 @@ export enum ApiSecPrescan {
   issueClaim = '/sechub/prescan/issue-claim',
   issueFixed = '/sechub/prescan/issue-fixed',
   scanRunsUnified = '/sechub/scan-runs/unified',
+  commits = '/sechub/prescan/commits',
 }
 
 // ── 反编译源码库（外网标品包源码，供性能分析与 local-test 扫描） ──

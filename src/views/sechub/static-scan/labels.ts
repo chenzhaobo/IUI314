@@ -58,12 +58,31 @@ export const aiStatusLabels: Record<string, { label: string, color: string }> = 
 }
 
 /**
- * pending 子状态文案：根据 run.status + pending 候选数量推导可读描述。
- * 后端不返回细分子状态字段，仅用 status + 数量组合推导。
+ * 确认状态子标签文案。
+ * 优先级：error > review_needed > pending > 全部已确认。
+ * 只有三者全为 0 时才返回"全部已确认"（绿色语义）。
+ *
+ * @param runStatus - run.status 字段
+ * @param pendingCount - 待 AI 确认数量
+ * @param errorCount - AI 确认出错数量（可选，旧调用方不传默认 0）
+ * @param reviewNeededCount - 待人工复核数量（可选，旧调用方不传默认 0）
  */
-export function pendingSubLabel(runStatus: string, pendingCount: number): string {
-  if (pendingCount === 0)
+export function pendingSubLabel(
+  runStatus: string,
+  pendingCount: number,
+  errorCount = 0,
+  reviewNeededCount = 0,
+): string {
+  // 三者全为 0 → 全部已确认
+  if (pendingCount === 0 && errorCount === 0 && reviewNeededCount === 0)
     return '全部已确认'
+  // error 优先
+  if (errorCount > 0)
+    return `有错误（${errorCount} 条）`
+  // 仅 review_needed
+  if (reviewNeededCount > 0 && pendingCount === 0)
+    return `待人工复核（${reviewNeededCount} 条）`
+  // pending > 0（可能同时有 review_needed）
   if (runStatus === 'pending')
     return `排队中（${pendingCount} 条待确认）`
   if (runStatus === 'running')
@@ -72,5 +91,26 @@ export function pendingSubLabel(runStatus: string, pendingCount: number): string
   return `${pendingCount} 条待确认`
 }
 
-/** pending 列 tooltip 文案 */
-export const pendingTooltip = '这是同一次 Run 的 AI 确认进度，不是多个任务。待确认数会随 AI 逐条处理而递减。'
+/**
+ * 确认状态列 tooltip 文案，列出各维度数量便于用户判断。
+ *
+ * @param pendingCount - 待 AI 确认数量
+ * @param errorCount - AI 确认出错数量（可选，默认 0）
+ * @param reviewNeededCount - 待人工复核数量（可选，默认 0）
+ */
+export function pendingTooltip(
+  pendingCount: number,
+  errorCount = 0,
+  reviewNeededCount = 0,
+): string {
+  if (pendingCount === 0 && errorCount === 0 && reviewNeededCount === 0)
+    return 'AI 确认已全部完成，无待处理项。'
+  const parts: string[] = []
+  if (pendingCount > 0)
+    parts.push(`待 AI 确认：${pendingCount} 条`)
+  if (errorCount > 0)
+    parts.push(`AI 确认出错：${errorCount} 条`)
+  if (reviewNeededCount > 0)
+    parts.push(`待人工复核：${reviewNeededCount} 条`)
+  return `${parts.join('，')}。点击"重扫未完成"可批量重试。`
+}

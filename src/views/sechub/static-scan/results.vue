@@ -62,31 +62,48 @@ async function postAction<T = unknown>(url: string, payload: Record<string, any>
 // ===== 轮次列表（模型 × 模式 横评）=====
 const crossRows = ref<CrossRunAggRow[]>([])
 const crossLoading = ref(false)
+/** 防竞态：记录最新 loadCrossRows 调用序号，旧请求回来时丢弃 */
+const crossLoadSeq = ref(0)
+// 当前选中轮次（run_id + ai_model + ai_mode 唯一确定一个「模型×模式」轮次）
+const currentRun = ref<{ run_id: string, ai_model: string, ai_mode: string } | null>(null)
+const selectedRoundKey = ref('')
 
+/**
+ * 加载轮次列表。
+ * - autoSelectLatest: 若没有已选轮次时自动选中最新轮次（首次进入时用）。
+ * - 不清空既有的筛选条件（domainFilter/statusFilter 等），查询按钮只是重新拉数据。
+ */
 async function loadCrossRows(autoSelectLatest = true) {
+  // 用版本号防止竞态：应用快速切换时旧请求回来的数据不覆盖最新选择
+  const seq = ++crossLoadSeq.value
   crossLoading.value = true
   try {
     const params = new URLSearchParams()
     if (selectedRepoId.value)
       params.set('repository_id', selectedRepoId.value)
-    crossRows.value = await fetchJson<CrossRunAggRow[]>(`${ApiSecPrescan.crossRunCompare}?${params.toString()}`) ?? []
-    // 默认选中最新批次（后端按 created_at 倒序返回，首条即最新）
-    if (autoSelectLatest && crossRows.value.length)
+    const rows = await fetchJson<CrossRunAggRow[]>(`${ApiSecPrescan.crossRunCompare}?${params.toString()}`) ?? []
+    // 过期响应丢弃
+    if (seq !== crossLoadSeq.value)
+      return
+    crossRows.value = rows
+    // 仅在没有已选轮次、且调用方要求时才自动选最新轮次
+    if (autoSelectLatest && !selectedRoundKey.value && crossRows.value.length)
       onRoundChange(roundKey(crossRows.value[0]))
   }
   finally {
-    crossLoading.value = false
+    if (seq === crossLoadSeq.value)
+      crossLoading.value = false
   }
 }
-
-// 当前选中轮次（run_id + ai_model + ai_mode 唯一确定一个「模型×模式」轮次）
-const currentRun = ref<{ run_id: string, ai_model: string, ai_mode: string } | null>(null)
-const selectedRoundKey = ref('')
 
 function roundKey(r: { run_id: string, ai_model?: string | null, ai_mode?: string | null }): string {
   return `${r.run_id}||${r.ai_model ?? ''}||${r.ai_mode ?? ''}`
 }
 
+/**
+ * 切换应用时的处理：重置轮次与候选相关状态，重新加载该应用的轮次列表。
+ * 不影响 statusFilter/domainFilter 等独立的候选筛选条件。
+ */
 function onAppChange() {
   currentRun.value = null
   selectedRoundKey.value = ''
@@ -95,18 +112,25 @@ function onAppChange() {
   ruleStats.value = []
   candidatePage.value = null
   pageNum.value = 1
+  // 重新加载当前应用对应的轮次列表，并自动选中最新轮次
+  void loadCrossRows(true)
 }
 
-// 查询按钮：根据当前条件重新加载
+/**
+ * 点击"查询"按钮：只重新加载数据，不清空用户已选的筛选条件。
+ * 分页归位到第 1 页是合理的（查询语义决定结果集可能完全不同）。
+ */
 function onSearch() {
-  currentRun.value = null
-  selectedRoundKey.value = ''
-  selectedRuleId.value = 'all'
-  scanPointFilter.value = ''
-  ruleStats.value = []
-  candidatePage.value = null
   pageNum.value = 1
-  void loadCrossRows()
+  // 若已有轮次选择，直接按当前条件刷新候选；否则重新加载轮次列表
+  if (currentRun.value) {
+    void loadRuleStats()
+    void loadCandidates()
+  }
+  else {
+    // 没有选轮次时重新加载轮次列表（按当前应用过滤），并自动选最新轮次
+    void loadCrossRows(true)
+  }
 }
 
 function onRoundChange(value: string | number | boolean | Record<string, unknown> | (string | number | boolean | Record<string, unknown>)[]) {
@@ -361,7 +385,7 @@ async function retryCandidate(row: CandidateDetailRow) {
   }
 }
 
-// 轮次/模型标签：模型与模式均为空时，是预扫描候选尚未经过 AI 确认的“待AI确认”分组
+// 轮次/模型标签：模型与模式均为空时，是预扫描候选尚未经过 AI 确认的"待AI确认"分组
 function roundModelLabel(row: { ai_model?: string | null, ai_mode?: string | null } | null): string {
   if (row?.ai_model?.trim())
     return row.ai_model.trim()
@@ -370,7 +394,7 @@ function roundModelLabel(row: { ai_model?: string | null, ai_mode?: string | nul
   return '默认模型'
 }
 
-// ===== 标签映射 =====
+// ===== 标签映射（需在轮次展示辅助函数之前声明，避免 use-before-define）=====
 const aiStatusLabels: Record<string, { label: string, color: string }> = {
   pending: { label: '待确认', color: 'gray' },
   confirmed: { label: '确认问题', color: 'red' },
@@ -387,6 +411,64 @@ const riskLabels: Record<string, { label: string, color: string }> = {
 const modeLabels: Record<string, { label: string, color: string }> = {
   batch: { label: '平台编排', color: 'blue' },
   agent: { label: 'Agent', color: 'purple' },
+}
+
+// ===== 轮次展示辅助函数 =====
+
+/**
+ * 安全格式化时间字符串，解析失败时回退原值，避免因字段缺失或格式异常抛异常。
+ * 支持 ISO8601 及常见 "YYYY-MM-DD HH:mm:ss" 格式。
+ */
+function formatTime(val: string | null | undefined): string {
+  if (!val)
+    return '-'
+  try {
+    const d = new Date(val)
+    if (Number.isNaN(d.getTime()))
+      return val
+    // 格式化为本地时间 "YYYY-MM-DD HH:mm"
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+  catch {
+    return val
+  }
+}
+
+/**
+ * 取 commit sha 的短 8 位，字段缺失时返回占位符。
+ */
+function shortSha(sha: string | null | undefined): string {
+  if (!sha || !sha.trim())
+    return '-'
+  return sha.trim().slice(0, 8)
+}
+
+/**
+ * 轮次下拉选项的主要显示文本：模型/模式 · 分支 · 短sha · 时间
+ * 字段可能为 null，均需容错处理，不渲染 null/undefined。
+ */
+function roundOptionLabel(row: CrossRunAggRow): string {
+  const model = roundModelLabel(row)
+  const mode = modeLabels[row.ai_mode ?? '']?.label ?? (row.ai_mode?.trim() ? row.ai_mode : '待确认')
+  const branch = row.branch?.trim() ? row.branch.trim() : '-'
+  const sha = shortSha(row.commit_sha)
+  const time = formatTime(row.commit_time || row.created_at)
+  return `${model} · ${mode} · ${branch} · ${sha} · ${time}`
+}
+
+/**
+ * 轮次 tooltip 展示的完整信息，供悬浮时查看更多细节。
+ */
+function roundTooltipContent(row: CrossRunAggRow): string {
+  const lines: string[] = []
+  lines.push(`Commit：${row.commit_sha?.trim() || '-'}`)
+  lines.push(`分支：${row.branch?.trim() || '-'}`)
+  lines.push(`扫描时间：${formatTime(row.commit_time || row.created_at)}`)
+  lines.push(`模型：${roundModelLabel(row)}`)
+  lines.push(`模式：${modeLabels[row.ai_mode ?? '']?.label ?? (row.ai_mode?.trim() ? row.ai_mode : '待确认')}`)
+  lines.push(`候选总数：${row.total}（确认 ${row.confirmed} / 已排除 ${row.rejected} / 待确认 ${row.pending}）`)
+  return lines.join('\n')
 }
 
 // ===== 表格列 =====
@@ -442,15 +524,32 @@ async function initFromRoute(q: Record<string, unknown>) {
   }
 }
 
+/**
+ * 路由 query 内容是否真正发生了变化（排除对象引用变化导致的误触发）。
+ * 只比对对本页有意义的字段：run_id / repository_id / ai_model / ai_mode / scan_point_id。
+ */
+function routeQueryChanged(
+  oldQ: Record<string, unknown>,
+  newQ: Record<string, unknown>,
+): boolean {
+  const keys = ['run_id', 'repository_id', 'ai_model', 'ai_mode', 'scan_point_id'] as const
+  return keys.some(k => (oldQ[k] ?? '') !== (newQ[k] ?? ''))
+}
+
 onMounted(() => {
   void initFromRoute(route.query as Record<string, unknown>)
 })
 
-// 路由变化时重新初始化（同页面跳转）
-watch(() => route.query, (q) => {
-  if (!q.run_id && !q.repository_id)
+// 路由变化时重新初始化（同页面跳转），但只在参数内容真正变化时触发，
+// 避免其他 query 参数变动（如 tab 切换）或组件内部更新 URL 触发多余的重置。
+watch(() => route.query, (newQ, oldQ) => {
+  const n = newQ as Record<string, unknown>
+  const o = oldQ as Record<string, unknown>
+  if (!n.run_id && !n.repository_id)
     return
-  void initFromRoute(q as Record<string, unknown>)
+  if (!routeQueryChanged(o, n))
+    return
+  void initFromRoute(n)
 })
 </script>
 
@@ -486,15 +585,26 @@ watch(() => route.query, (q) => {
           </a-option>
         </a-select>
         <span class="selector-label">轮次</span>
+        <!-- 轮次下拉：选项携带 commit sha / 分支 / 时间，悬浮展示完整 tooltip -->
         <a-select
           v-model="selectedRoundKey"
           placeholder="选择「模型 × 模式」轮次"
-          style="width: 320px"
+          style="width: 420px"
           :loading="crossLoading"
           @change="onRoundChange"
         >
-          <a-option v-for="row in crossRows" :key="roundKey(row)" :value="roundKey(row)">
-            {{ roundModelLabel(row) }} · {{ modeLabels[row.ai_mode ?? '']?.label ?? (row.ai_mode?.trim() ? row.ai_mode : '待确认') }} · {{ row.created_at }}
+          <a-option
+            v-for="row in crossRows"
+            :key="roundKey(row)"
+            :value="roundKey(row)"
+          >
+            <a-tooltip
+              :content="roundTooltipContent(row)"
+              position="right"
+              mini
+            >
+              <span class="round-option-text">{{ roundOptionLabel(row) }}</span>
+            </a-tooltip>
           </a-option>
         </a-select>
         <span class="selector-label">领域</span>
@@ -678,4 +788,6 @@ watch(() => route.query, (q) => {
 .s-total { color: var(--color-text-2); }
 .report-fallback { padding: 12px 0; }
 .report-tip { margin-top: 12px; color: var(--color-text-3); font-size: 12px; line-height: 1.6; }
+/* 轮次选项文本：撑满宽度以让 tooltip 覆盖整行 */
+.round-option-text { display: inline-block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

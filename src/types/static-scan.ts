@@ -874,6 +874,7 @@ export interface CrossRunAggRow {
   repository_name: string
   branch?: string | null
   commit_sha?: string | null
+  commit_time?: string | null
   created_at: string
   status: string
   ai_model?: string | null
@@ -890,4 +891,31 @@ export interface CrossRunAggRow {
   risk_low: number
   avg_confidence?: number | null
   confirm_rate?: number | null
+}
+
+// ── 仓库 Commit 相关类型 ────────────────────────────
+
+/** 单条 commit 记录（对应 /sechub/module/repository/commits 与 /sechub/prescan/commits） */
+export interface RepositoryCommit {
+  sha: string
+  short_sha: string
+  subject: string
+  author: string
+  commit_time: string
+}
+
+/** commit 列表响应，包含所在分支与提交列表 */
+export interface RepositoryCommitListResponse {
+  branch: string
+  list: RepositoryCommit[]
+}
+
+/** 仓库同步操作响应（对应 /sechub/module/repository/sync） */
+export interface RepositorySyncResponse {
+  repository_id: string
+  action: string
+  branch_count: number
+  head_sha: string
+  message: string
+  duration_ms: number
 }

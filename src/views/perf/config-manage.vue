@@ -11,6 +11,10 @@ const PATH_CONFIG_KEYS = ['jmeter_work_dir', 'jmeter_script_dir', 'jmeter_home_d
 const AI_CONFIRM_BATCH_SIZE_KEY = 'static_scan_ai_confirm_batch_size'
 const AI_CONFIRM_BATCH_SIZE_MIN = 1
 const AI_CONFIRM_BATCH_SIZE_MAX = 1000
+// AI 确认单批超时（秒）：与批大小是两个独立配置，批量调大时通常需要同步调大超时
+const AI_CONFIRM_TIMEOUT_KEY = 'static_scan_ai_confirm_timeout_secs'
+const AI_CONFIRM_TIMEOUT_MIN = 60
+const AI_CONFIRM_TIMEOUT_MAX = 1800
 const WINDOWS_DRIVE_RE = /^[a-zA-Z]:[/\\]/
 
 /** 检测是否为 Windows 盘符路径 */
@@ -37,6 +41,20 @@ function handleAiConfirmBatchSizeChange(c: any, value: number | string | undefin
   c.config_value = value === undefined ? '' : String(value)
 }
 
+/** 是否为静态扫描 AI 确认的单批超时配置 */
+function isAiConfirmTimeoutConfig(c: any): boolean {
+  return c.config_key === AI_CONFIRM_TIMEOUT_KEY
+}
+
+function isValidAiConfirmTimeout(value: unknown): boolean {
+  const secs = Number(value)
+  return Number.isInteger(secs) && secs >= AI_CONFIRM_TIMEOUT_MIN && secs <= AI_CONFIRM_TIMEOUT_MAX
+}
+
+function handleAiConfirmTimeoutChange(c: any, value: number | string | undefined) {
+  c.config_value = value === undefined ? '' : String(value)
+}
+
 /** 配置项校验状态 */
 function getConfigValidateStatus(c: any): 'error' | undefined {
   const val = c.config_value || ''
@@ -44,6 +62,9 @@ function getConfigValidateStatus(c: any): 'error' | undefined {
     return 'error'
   }
   if (isAiConfirmBatchSizeConfig(c) && !isValidAiConfirmBatchSize(val)) {
+    return 'error'
+  }
+  if (isAiConfirmTimeoutConfig(c) && !isValidAiConfirmTimeout(val)) {
     return 'error'
   }
   return undefined
@@ -57,6 +78,9 @@ function getConfigValidateHelp(c: any): string {
   }
   if (isAiConfirmBatchSizeConfig(c) && !isValidAiConfirmBatchSize(val)) {
     return `请输入 ${AI_CONFIRM_BATCH_SIZE_MIN} 到 ${AI_CONFIRM_BATCH_SIZE_MAX} 之间的整数`
+  }
+  if (isAiConfirmTimeoutConfig(c) && !isValidAiConfirmTimeout(val)) {
+    return `请输入 ${AI_CONFIRM_TIMEOUT_MIN} 到 ${AI_CONFIRM_TIMEOUT_MAX} 之间的整数（秒）`
   }
   return ''
 }
@@ -168,6 +192,15 @@ function getGroupLabel(key: string) {
                     :precision="0"
                     placeholder="如 200"
                     @change="(val: number | string | undefined) => handleAiConfirmBatchSizeChange(c, val)"
+                  />
+                  <a-input-number
+                    v-else-if="isAiConfirmTimeoutConfig(c)"
+                    :model-value="Number(c.config_value)"
+                    :min="AI_CONFIRM_TIMEOUT_MIN"
+                    :max="AI_CONFIRM_TIMEOUT_MAX"
+                    :precision="0"
+                    placeholder="如 600"
+                    @change="(val: number | string | undefined) => handleAiConfirmTimeoutChange(c, val)"
                   />
                   <a-input
                     v-else

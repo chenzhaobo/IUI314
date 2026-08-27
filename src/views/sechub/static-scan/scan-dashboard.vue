@@ -11,6 +11,8 @@ import type {
   PrescanStatusResponse,
   PrescanTriggerResponse,
   RepositoryBranch,
+  RepositoryCommit,
+  RepositoryCommitListResponse,
   RunCompare,
   ScanPointSummaryRow,
   UnifiedScanRunRow,
@@ -367,11 +369,93 @@ const prescanBranches = ref<RepositoryBranch[]>([])
 const prescanBranch = ref('')
 const prescanCommit = ref('')
 const loadingBranches = ref(false)
+// 显式刷新分支按钮的 loading（refresh=true 会真的 git fetch，比较慢）
+const refreshingBranches = ref(false)
+// 目标 commit 下拉列表
+const prescanCommits = ref<RepositoryCommit[]>([])
+const loadingCommits = ref(false)
+// 差量基准 commit 下拉列表（与目标分支相同）
+const baseCommits = ref<RepositoryCommit[]>([])
+// 请求序号：防止慢响应覆盖最新选择
+let commitSeq = 0
 // 扫描范围
 const scanScope = ref<'full' | 'diff_last' | 'diff_commit'>('full')
 const baseCommitInput = ref('')
 const diffGranularity = ref<'file' | 'hunk'>('file')
 const hunkEnabled = ref(false)
+
+// 格式化 commit 时间（ISO8601，带时区）为 yymmddhhmmss，解析失败容错返回空串
+function formatCommitTime(iso: string): string {
+  try {
+    const d = new Date(iso)
+    if (Number.isNaN(d.getTime())) {
+      return ''
+    }
+    const yy = String(d.getFullYear()).slice(2)
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const dd = String(d.getDate()).padStart(2, '0')
+    const hh = String(d.getHours()).padStart(2, '0')
+    const mi = String(d.getMinutes()).padStart(2, '0')
+    const ss = String(d.getSeconds()).padStart(2, '0')
+    return `${yy}${mm}${dd}${hh}${mi}${ss}`
+  }
+  catch {
+    return ''
+  }
+}
+
+// 将 RepositoryCommit 格式化为下拉选项标签：短sha + 日期 + 标题
+function formatCommitLabel(c: RepositoryCommit): string {
+  const time = formatCommitTime(c.commit_time)
+  return `${c.short_sha} ${time} ${c.subject}`
+}
+
+// 加载指定分支的 commit 列表；用请求序号防止乱序覆盖
+async function loadPrescanCommits(branch: string) {
+  const repo = selectedRepo.value
+  if (!repo || !branch) {
+    prescanCommits.value = []
+    baseCommits.value = []
+    return
+  }
+  const seq = ++commitSeq
+  loadingCommits.value = true
+  try {
+    const { data, execute } = useGet<RepositoryCommitListResponse>(
+      ApiSecPrescan.commits,
+      { module_id: repo.module_id, relation_id: repo.relation_id, branch, limit: 30 },
+      { immediate: false },
+    )
+    await execute()
+    // 旧响应丢弃，防止慢响应覆盖最新分支的选择
+    if (seq !== commitSeq) {
+      return
+    }
+    const list = data.value?.list ?? []
+    prescanCommits.value = list
+    baseCommits.value = list
+    // 默认选中该分支最新一条 commit
+    if (list.length > 0) {
+      prescanCommit.value = list[0].sha
+    }
+    else {
+      prescanCommit.value = ''
+    }
+  }
+  catch {
+    if (seq !== commitSeq) {
+      return
+    }
+    prescanCommits.value = []
+    baseCommits.value = []
+    prescanCommit.value = ''
+  }
+  finally {
+    if (seq === commitSeq) {
+      loadingCommits.value = false
+    }
+  }
+}
 
 async function openPrescanModal() {
   if (!selectedRepoId.value) {
@@ -381,12 +465,14 @@ async function openPrescanModal() {
   prescanBranch.value = ''
   prescanCommit.value = ''
   prescanBranches.value = []
+  prescanCommits.value = []
+  baseCommits.value = []
   scanScope.value = 'full'
   baseCommitInput.value = ''
   diffGranularity.value = 'file'
   hunkEnabled.value = false
   prescanModalVisible.value = true
-  // 加载分支列表
+  // 用 refresh=false 加载分支（读缓存，快路径），避免打开弹窗时触发 git fetch
   const repo = selectedRepo.value
   if (!repo) return
   loadingBranches.value = true
@@ -399,11 +485,12 @@ async function openPrescanModal() {
     await execute()
     if (data.value?.result === 'cached') {
       prescanBranches.value = data.value.data.branches
+      // 优先选中 is_default 为 true 的分支，否则退回仓库记录的 default_branch
       const def = prescanBranches.value.find(b => b.is_default)
       prescanBranch.value = def?.name ?? repo.default_branch ?? ''
-      if (def) prescanCommit.value = def.commit_sha ?? ''
     }
     else {
+      // 队列模式（缓存未命中）：回退到仓库默认分支
       prescanBranch.value = repo.default_branch ?? ''
     }
   }
@@ -413,22 +500,66 @@ async function openPrescanModal() {
   finally {
     loadingBranches.value = false
   }
+  // 选中分支后加载对应 commit 列表
+  if (prescanBranch.value) {
+    await loadPrescanCommits(prescanBranch.value)
+  }
 }
 
-function onPrescanBranchChange(value: SelectChangeValue) {
+// 显式刷新分支：点击刷新按钮才用 refresh=true 真正 git fetch
+async function refreshBranches() {
+  const repo = selectedRepo.value
+  if (!repo) return
+  refreshingBranches.value = true
+  try {
+    const { data, execute } = useGet<BranchesControlResponse>(
+      ApiSecModuleRepository.branches,
+      { module_id: repo.module_id, relation_id: repo.relation_id, refresh: true },
+      { immediate: false },
+    )
+    await execute()
+    if (data.value?.result === 'cached') {
+      prescanBranches.value = data.value.data.branches
+      // 刷新后保持当前选中分支（如果刷新后仍存在），否则选默认分支
+      const stillExists = prescanBranches.value.some(b => b.name === prescanBranch.value)
+      if (!stillExists) {
+        const def = prescanBranches.value.find(b => b.is_default)
+        prescanBranch.value = def?.name ?? repo.default_branch ?? ''
+        if (prescanBranch.value) {
+          await loadPrescanCommits(prescanBranch.value)
+        }
+      }
+    }
+  }
+  catch {
+    Message.warning('刷新分支失败')
+  }
+  finally {
+    refreshingBranches.value = false
+  }
+}
+
+async function onPrescanBranchChange(value: SelectChangeValue) {
   if (typeof value !== 'string' && typeof value !== 'number')
     return
   const branchName = String(value)
-  const br = prescanBranches.value.find(b => b.name === branchName)
-  prescanCommit.value = br?.commit_sha ?? ''
+  // 切换分支必须重新加载 commit 列表，不允许残留上一分支的 commit
+  await loadPrescanCommits(branchName)
 }
 
 function doPrescanConfirm() {
-  // 校验：指定基准 commit 时必须为 7~40 位 hex
+  // 校验：指定基准 commit 时，baseCommitInput 必须为 7~40 位 hex（下拉选的值也会写入 baseCommitInput）
   if (scanScope.value === 'diff_commit') {
     const v = baseCommitInput.value.trim()
     if (!v || !/^[0-9a-f]{7,40}$/i.test(v)) {
       Message.warning('基准 Commit SHA 须为 7~40 位十六进制字符')
+      return
+    }
+  }
+  // prescanCommit 校验：若手工输入（不在下拉列表中），同样校验格式
+  if (prescanCommit.value && !prescanCommits.value.some(c => c.sha === prescanCommit.value)) {
+    if (!/^[0-9a-f]{7,40}$/i.test(prescanCommit.value.trim())) {
+      Message.warning('目标 Commit SHA 须为 7~40 位十六进制字符')
       return
     }
   }
@@ -437,6 +568,7 @@ function doPrescanConfirm() {
     hunkEnabled.value = false
   }
   prescanModalVisible.value = false
+  // 传给后端的必须是纯 commit sha（prescanCommit 存的就是 sha，不包含展示用的日期/标题）
   triggerPrescan(false, prescanBranch.value || undefined, prescanCommit.value || undefined)
 }
 
@@ -959,7 +1091,10 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
             {{ run.branch || '未知分支' }} | {{ run.commit_sha ? run.commit_sha.slice(0, 8) : '-' }} | {{ run.started_at || '' }} | {{ runStatusLabels[run.status]?.label ?? run.status }} | 疑似{{ run.candidate_count ?? 0 }}
           </a-option>
         </a-select>
-        <a-button type="primary" :loading="triggering" :disabled="polling || !selectedRepoId" @click="openPrescanModal()">
+        <!-- 预扫描按钮：放开并发限制，只在未选应用时禁用。
+             原逻辑 :disabled="polling || !selectedRepoId" 导致有扫描轮询时无法触发新扫描，
+             但预扫描接口本身是幂等/并发安全的，多个 run 互不干扰，无需在前端串行化。 -->
+        <a-button type="primary" :loading="triggering" :disabled="!selectedRepoId" @click="openPrescanModal()">
           <template #icon><icon-play-arrow /></template>
           预扫描
         </a-button>
@@ -1282,20 +1417,45 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
     >
       <a-form :model="{}" layout="vertical">
         <a-form-item label="目标分支">
+          <!-- 分支选择行：下拉 + 显式刷新按钮（点击才 refresh=true 真正 git fetch） -->
+          <a-space style="width: 100%">
+            <a-select
+              v-model="prescanBranch"
+              :loading="loadingBranches"
+              placeholder="选择要扫描的分支"
+              allow-search
+              style="flex: 1; min-width: 0"
+              @change="onPrescanBranchChange"
+            >
+              <a-option v-for="br in prescanBranches" :key="br.name" :value="br.name">
+                {{ br.name }}{{ br.is_default ? '（默认）' : '' }}
+              </a-option>
+            </a-select>
+            <!-- 显式刷新分支：仅点此按钮才触发 git fetch（慢），打开弹窗默认用缓存 -->
+            <a-button
+              size="small"
+              :loading="refreshingBranches"
+              title="刷新分支（会执行 git fetch，较慢）"
+              @click="refreshBranches"
+            >
+              <template #icon><icon-refresh /></template>
+            </a-button>
+          </a-space>
+        </a-form-item>
+        <a-form-item label="目标 Commit（可选，留空则使用分支最新提交）">
+          <!-- commit 下拉：支持搜索 + 手工输入不在列表中的 sha，保留 7~40 位 hex 校验 -->
           <a-select
-            v-model="prescanBranch"
-            :loading="loadingBranches"
-            placeholder="选择要扫描的分支"
+            v-model="prescanCommit"
+            :loading="loadingCommits"
+            placeholder="选择或输入 Commit SHA"
             allow-search
-            @change="onPrescanBranchChange"
+            allow-create
+            style="width: 100%"
           >
-            <a-option v-for="br in prescanBranches" :key="br.name" :value="br.name">
-              {{ br.name }}{{ br.is_default ? '（默认）' : '' }}
+            <a-option v-for="c in prescanCommits" :key="c.sha" :value="c.sha">
+              {{ formatCommitLabel(c) }}
             </a-option>
           </a-select>
-        </a-form-item>
-        <a-form-item label="Commit SHA（可选，留空则使用分支最新提交）">
-          <a-input v-model="prescanCommit" placeholder="如 a1b2c3d4..." allow-clear />
         </a-form-item>
         <a-form-item label="扫描范围">
           <a-radio-group v-model="scanScope" type="button">
@@ -1305,12 +1465,20 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
           </a-radio-group>
         </a-form-item>
         <a-form-item v-if="scanScope === 'diff_commit'" label="基准 Commit SHA">
-          <a-input
+          <!-- 差量基准 commit：同样支持下拉选同分支 commit，保留手工输入与 7~40 位 hex 校验 -->
+          <a-select
             v-model="baseCommitInput"
-            placeholder="输入 7~40 位 hex commit SHA"
-            allow-clear
-            :max-length="40"
-          />
+            :disabled="scanScope !== 'diff_commit'"
+            :loading="loadingCommits"
+            placeholder="选择或输入基准 7~40 位 hex commit SHA"
+            allow-search
+            allow-create
+            style="width: 100%"
+          >
+            <a-option v-for="c in baseCommits" :key="c.sha" :value="c.sha">
+              {{ formatCommitLabel(c) }}
+            </a-option>
+          </a-select>
         </a-form-item>
         <a-form-item>
           <a-checkbox

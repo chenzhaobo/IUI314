@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import type { ModuleWithRepository } from '@/types/static-scan'
-import { computed, reactive, ref } from 'vue'
+import type { ModuleWithRepository, RepositorySyncResponse } from '@/types/static-scan'
 import { Message } from '@arco-design/web-vue'
-import { ApiSecModuleRepository } from '@/api/sechubApis'
+import { useDebounceFn } from '@vueuse/core'
+import { computed, reactive, ref } from 'vue'
 import { ApiPerfModule } from '@/api/perfApis'
+import { ApiSecModuleRepository } from '@/api/sechubApis'
 import { useGet, usePost } from '@/hooks'
 
 defineOptions({ name: 'StaticScanRepositories' })
@@ -24,25 +25,77 @@ const addForm = reactive({
   code: '',
   name: '',
   git_url: '',
-  default_branch: 'master',
+  // 默认分支默认值改为 feature_sit（内网静态扫描场景标准分支）
+  default_branch: 'feature_sit',
   root_path: '',
   scan_enabled: true,
 })
 
-// 模块选项（从模块管理查询）
-const moduleOptions = ref<{ id: string, name: string, code: string }[]>([])
+// 模块选项（从模块管理查询，走后端 keyword 远程搜索）
+// perf_module 有 2000+ 条，一次性拉前 N 条 + 前端过滤会搜不到靠后的模块，
+// 所以这里把关键字交给后端过滤（对 name/code/module_code 做 contains）。
+interface ModuleOption {
+  id: string
+  name: string
+  module_code: string
+  code: string
+}
+
+const MODULE_PAGE_SIZE = 100
+const moduleOptions = ref<ModuleOption[]>([])
 const moduleLoading = ref(false)
-async function loadModuleOptions() {
+// 已选模块单独留存：远程搜索会整体替换 options，否则已选项的回显文本会丢
+const selectedModule = ref<ModuleOption | null>(null)
+
+const moduleSelectOptions = computed<ModuleOption[]>(() => {
+  const list = moduleOptions.value
+  const picked = selectedModule.value
+  if (picked && !list.some(m => m.id === picked.id))
+    return [picked, ...list]
+  return list
+})
+
+// module_code 存在重复（如 ssc 有多条），标签里附带应用编码以便区分
+function moduleLabel(m: ModuleOption) {
+  const parts = [m.name]
+  if (m.module_code)
+    parts.push(`(${m.module_code})`)
+  if (m.code && m.code !== m.module_code)
+    parts.push(`· ${m.code}`)
+  return parts.join(' ')
+}
+
+async function loadModuleOptions(keyword = '') {
   moduleLoading.value = true
   try {
-    const { data, execute } = useGet<any>(ApiPerfModule.getList, { page_num: 1, page_size: 500 }, { immediate: false })
+    const { data, execute } = useGet<any>(
+      ApiPerfModule.getList,
+      { page_num: 1, page_size: MODULE_PAGE_SIZE, keyword },
+      { immediate: false },
+    )
     await execute()
     const list = data.value?.list ?? data.value ?? []
-    moduleOptions.value = Array.isArray(list) ? list.map((m: any) => ({ id: m.id, name: m.name, code: m.module_code || m.code })) : []
+    moduleOptions.value = Array.isArray(list)
+      ? list.map((m: any) => ({
+          id: m.id,
+          name: m.name ?? '',
+          module_code: m.module_code ?? '',
+          code: m.code ?? '',
+        }))
+      : []
   }
   finally {
     moduleLoading.value = false
   }
+}
+
+const onModuleSearch = useDebounceFn((keyword: string) => {
+  void loadModuleOptions((keyword ?? '').trim())
+}, 300)
+
+function onModuleChange(value: unknown) {
+  const id = value == null ? '' : String(value)
+  selectedModule.value = moduleOptions.value.find(m => m.id === id) ?? null
 }
 
 function openAddDialog() {
@@ -50,11 +103,14 @@ function openAddDialog() {
   addForm.code = ''
   addForm.name = ''
   addForm.git_url = ''
-  addForm.default_branch = 'master'
+  // 重置时同样使用 feature_sit，与表单初始值保持一致
+  addForm.default_branch = 'feature_sit'
   addForm.root_path = ''
   addForm.scan_enabled = true
   addVisible.value = true
-  if (!moduleOptions.value.length) loadModuleOptions()
+  selectedModule.value = null
+  // 每次打开都重新拉第一页，避免沿用上次搜索后的残留列表
+  void loadModuleOptions()
 }
 
 async function submitAdd() {
@@ -75,7 +131,7 @@ async function submitAdd() {
         code: addForm.code || addForm.git_url.split('/').pop()?.replace('.git', '') || 'repo',
         name: addForm.name || addForm.code || addForm.git_url.split('/').pop()?.replace('.git', '') || 'repo',
         git_url: addForm.git_url,
-        default_branch: addForm.default_branch || 'master',
+        default_branch: addForm.default_branch || 'feature_sit',
         root_path: addForm.root_path || null,
         scan_enabled: addForm.scan_enabled,
         is_primary: true,
@@ -108,7 +164,7 @@ const columns = [
   { title: '根路径', dataIndex: 'root_path', width: 120, ellipsis: true, tooltip: true },
   { title: '扫描启用', dataIndex: 'scan_enabled', slotName: 'scanEnabled', width: 90 },
   { title: '状态', dataIndex: 'status', slotName: 'status', width: 100 },
-  { title: '操作', slotName: 'operations', width: 220, fixed: 'right' as const },
+  { title: '操作', slotName: 'operations', width: 290, fixed: 'right' as const },
 ]
 
 // ===== 过滤条件 =====
@@ -206,6 +262,38 @@ async function triggerSnapshot(record: ModuleWithRepository) {
     snapshottingId.value = ''
   }
 }
+
+// 克隆/拉取仓库：调 sync 接口，展示可读结果（动作/分支数/head_sha/耗时）
+const syncingId = ref('')
+async function syncRepo(record: ModuleWithRepository) {
+  syncingId.value = record.relation_id
+  try {
+    const { data, execute, error } = usePost<RepositorySyncResponse>(
+      ApiSecModuleRepository.sync,
+      {
+        module_id: record.module_id,
+        relation_id: record.relation_id,
+      },
+      { immediate: false },
+    )
+    await execute()
+    if (error.value) {
+      Message.error(`克隆/拉取失败: ${(error.value as any)?.message || error.value}`)
+      return
+    }
+    if (data.value) {
+      const res = data.value
+      // 动作翻译：cloned→已克隆，fetched→已拉取，其余原样展示
+      const actionLabel = res.action === 'cloned' ? '已克隆' : res.action === 'fetched' ? '已拉取' : res.action
+      const shortSha = res.head_sha ? res.head_sha.slice(0, 8) : '-'
+      const dur = res.duration_ms != null ? `${(res.duration_ms / 1000).toFixed(1)}s` : '-'
+      Message.success(`${actionLabel}，分支数 ${res.branch_count}，HEAD ${shortSha}，耗时 ${dur}`)
+    }
+  }
+  finally {
+    syncingId.value = ''
+  }
+}
 </script>
 
 <template>
@@ -285,6 +373,15 @@ async function triggerSnapshot(record: ModuleWithRepository) {
             >
               快照
             </a-button>
+            <!-- 克隆/拉取：调 sync 接口，单行 loading，成功展示动作/分支数/head_sha/耗时 -->
+            <a-button
+              type="text"
+              size="small"
+              :loading="syncingId === record.relation_id"
+              @click="syncRepo(record)"
+            >
+              克隆/拉取
+            </a-button>
           </a-space>
         </template>
       </a-table>
@@ -302,13 +399,21 @@ async function triggerSnapshot(record: ModuleWithRepository) {
         <a-form-item label="模块" required>
           <a-select
             v-model="addForm.module_id"
-            placeholder="选择模块"
+            placeholder="输入模块名称 / 简码 / 应用编码搜索"
             allow-search
+            :filter-option="false"
             :loading="moduleLoading"
+            @search="onModuleSearch"
+            @change="onModuleChange"
           >
-            <a-option v-for="m in moduleOptions" :key="m.id" :value="m.id">
-              {{ m.name }} ({{ m.code }})
+            <a-option v-for="m in moduleSelectOptions" :key="m.id" :value="m.id">
+              {{ moduleLabel(m) }}
             </a-option>
+            <template #empty>
+              <div style="padding: 8px; color: var(--color-text-3)">
+                {{ moduleLoading ? '搜索中…' : '无匹配模块，请输入关键字搜索' }}
+              </div>
+            </template>
           </a-select>
         </a-form-item>
         <a-form-item label="仓库编码">
