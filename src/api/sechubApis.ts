@@ -273,6 +273,13 @@ export enum ApiSecPrescan {
   issueFixed = '/sechub/prescan/issue-fixed',
   scanRunsUnified = '/sechub/scan-runs/unified',
   commits = '/sechub/prescan/commits',
+  tasks = '/sechub/prescan/tasks',
+  task = '/sechub/prescan/task',
+  taskAdd = '/sechub/prescan/task-add',
+  taskEdit = '/sechub/prescan/task-edit',
+  taskDelete = '/sechub/prescan/task-delete',
+  taskTrigger = '/sechub/prescan/task-trigger',
+  taskRecords = '/sechub/prescan/task-records',
 }
 
 // ── 反编译源码库（外网标品包源码，供性能分析与 local-test 扫描） ──
