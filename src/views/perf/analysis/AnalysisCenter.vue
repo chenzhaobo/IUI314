@@ -90,12 +90,16 @@
           </a-col>
           <a-col :span="8">
             <a-form-item label="AI 模型" required>
-              <a-select v-model="form.model">
-                <a-option value="gpt-5.6-luna">GPT 5.6 Luna</a-option>
-                <a-option value="gpt-5.6-terra">GPT 5.6 Terra</a-option>
-                <a-option value="gpt-5.6-sol">GPT 5.6 Sol</a-option>
-                <a-option value="claude-sonnet-4.6">Claude Sonnet 4.6</a-option>
+              <a-select
+                v-model="form.model"
+                :placeholder="form.agent_code ? '请选择模型' : '请先选择执行 Agent'"
+                :disabled="!form.agent_code"
+              >
+                <a-option v-for="name in modelOptions" :key="name" :value="name">{{ name }}</a-option>
               </a-select>
+              <template #extra>
+                <span>选项取自所选 Agent 的「支持的模型」，可在 AI 中心点「同步模型」从 CLI 刷新。</span>
+              </template>
             </a-form-item>
           </a-col>
           <a-col :span="8"><a-form-item label="源码分析"><a-switch v-model="form.source_code_analysis" /></a-form-item></a-col>
@@ -108,7 +112,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message, Modal } from '@arco-design/web-vue'
 import { ApiAiAgent, type AiAgent, type AiListResult } from '@/api/aiApis'
@@ -134,6 +138,40 @@ const { data: agentData, isFetching: agentLoading } = useGet<AiListResult<AiAgen
   { immediate: true },
 )
 const agents = computed(() => agentData.value?.list || [])
+// 模型选项跟随所选 Agent 的 supported_models_json。
+//
+// 原先前端写死 4 个 gpt/claude 模型、后端 ALLOWED_MODELS 也是同一份硬编码，
+// 于是选了 qoder-cli 仍只能选 kiro 的模型，选完还会被后端拒。各 Agent 支持的模型
+// 本来就不同（kiro-cli 19 个、qoder 系列 15 个），且随 CLI 升级变化
+// （GLM-5.2 → GLM-5.3 就是这么过期的），只能以库里的清单为准。
+const modelOptions = computed<string[]>(() => {
+  const agent = agents.value.find(item => item.agent_code === form.value.agent_code)
+  if (!agent?.supported_models_json)
+    return []
+  try {
+    const parsed = JSON.parse(agent.supported_models_json)
+    return Array.isArray(parsed) ? parsed.filter((v: unknown): v is string => typeof v === 'string' && v.length > 0) : []
+  }
+  catch {
+    // 库里存的不是合法 JSON 时不要让下拉炸掉，留空并靠 placeholder 提示
+    return []
+  }
+})
+
+// 切换 Agent 后原模型可能不在新 Agent 的清单里，留着会提交出后端拒绝的值。
+// 优先回落到该 Agent 的默认模型，其次取清单第一项。
+watch(() => form.value.agent_code, (code) => {
+  if (!code)
+    return
+  const options = modelOptions.value
+  if (form.value.model && options.includes(form.value.model))
+    return
+  const agent = agents.value.find(item => item.agent_code === code)
+  form.value.model = (agent?.default_model && options.includes(agent.default_model))
+    ? agent.default_model
+    : (options[0] ?? '')
+})
+
 const defaultAgentCode = () => agents.value.find(agent => agent.agent_code === 'kiro-cli')?.agent_code || agents.value[0]?.agent_code || 'kiro-cli'
 const agentDisplayName = (agentCode?: string) => {
   if (!agentCode) return '-'
