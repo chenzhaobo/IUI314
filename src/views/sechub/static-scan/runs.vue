@@ -57,7 +57,7 @@ async function loadCrossRows(silent = false) {
   schedulePollIfNeeded()
 }
 
-// ===== AI 确认轮询：任一任务存在待确认候选时每 5 秒静默刷新 =====
+// ===== AI 确认轮询：任一任务存在待确认候选时每 15 秒静默刷新 =====
 const pollTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 function schedulePollIfNeeded() {
   if (pollTimer.value) {
@@ -70,7 +70,7 @@ function schedulePollIfNeeded() {
     (r.pending ?? 0) > 0 || (r.ai_exec_pending ?? 0) > 0 || (r.ai_exec_running ?? 0) > 0,
   )
   if (active)
-    pollTimer.value = setTimeout(() => void loadCrossRows(true), 5000)
+    pollTimer.value = setTimeout(() => void loadCrossRows(true), 15000)
 }
 onUnmounted(() => {
   if (pollTimer.value)
