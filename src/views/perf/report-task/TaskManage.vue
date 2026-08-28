@@ -302,6 +302,12 @@ const { data: agentData } = useGet<AiListResult<AiAgent>>(
 )
 const agents = computed(() => agentData.value?.list || [])
 
+const form = reactive<any>({
+  task_name: '', dimension_type: 'product_domain', dimension_value: undefined, product_line: '星瀚',
+  threshold_ms: 3000, daily_limit_per_group: 100, group_top_pct: 80, group_max: 200,
+  run_time: '02:00', yzj_chat_id: '', work_dir: '', agent_code: '', model: '', enabled: true,
+})
+
 // 模型选项跟随所选 Agent 的 supported_models_json：各 Agent 支持的模型不同
 // （kiro-cli 19 个、qoder 系列 15 个），且随 CLI 升级变化，硬编码追不上。
 const modelOptions = computed<string[]>(() => {
@@ -323,11 +329,6 @@ watch(() => form.agent_code, () => {
     form.model = ''
 })
 
-const form = reactive<any>({
-  task_name: '', dimension_type: 'product_domain', dimension_value: undefined, product_line: '星瀚',
-  threshold_ms: 3000, daily_limit_per_group: 100, group_top_pct: 80, group_max: 200,
-  run_time: '02:00', yzj_chat_id: '', work_dir: '', agent_code: '', model: '', enabled: true,
-})
 
 const openAddModal = () => {
   isEdit.value = false; editId.value = ''

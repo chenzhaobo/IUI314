@@ -138,6 +138,23 @@ const { data: agentData, isFetching: agentLoading } = useGet<AiListResult<AiAgen
   { immediate: true },
 )
 const agents = computed(() => agentData.value?.list || [])
+const defaultAgentCode = () => agents.value.find(agent => agent.agent_code === 'kiro-cli')?.agent_code || agents.value[0]?.agent_code || 'kiro-cli'
+const agentDisplayName = (agentCode?: string) => {
+  if (!agentCode) return '-'
+  const agent = agents.value.find(item => item.agent_code === agentCode)
+  return agent ? `${agent.agent_name}（${agent.agent_code}）` : agentCode
+}
+
+const defaultForm = () => ({
+  id: undefined as string | undefined,
+  task_name: '', product_line: '星瀚', app_number: undefined as string | undefined,
+  form_id: '', control_name: '', period_type: 'recent_days', recent_days: 7,
+  cost_threshold: 3000, max_traces: 20, source_code_analysis: false,
+  analyze_scenario: false, mode: 'batch', agent_code: defaultAgentCode(), model: 'gpt-5.6-terra', enabled: true,
+})
+const editorVisible = ref(false)
+const form = ref<any>(defaultForm())
+
 // 模型选项跟随所选 Agent 的 supported_models_json。
 //
 // 原先前端写死 4 个 gpt/claude 模型、后端 ALLOWED_MODELS 也是同一份硬编码，
@@ -172,22 +189,6 @@ watch(() => form.value.agent_code, (code) => {
     : (options[0] ?? '')
 })
 
-const defaultAgentCode = () => agents.value.find(agent => agent.agent_code === 'kiro-cli')?.agent_code || agents.value[0]?.agent_code || 'kiro-cli'
-const agentDisplayName = (agentCode?: string) => {
-  if (!agentCode) return '-'
-  const agent = agents.value.find(item => item.agent_code === agentCode)
-  return agent ? `${agent.agent_name}（${agent.agent_code}）` : agentCode
-}
-
-const defaultForm = () => ({
-  id: undefined as string | undefined,
-  task_name: '', product_line: '星瀚', app_number: undefined as string | undefined,
-  form_id: '', control_name: '', period_type: 'recent_days', recent_days: 7,
-  cost_threshold: 3000, max_traces: 20, source_code_analysis: false,
-  analyze_scenario: false, mode: 'batch', agent_code: defaultAgentCode(), model: 'gpt-5.6-terra', enabled: true,
-})
-const editorVisible = ref(false)
-const form = ref<any>(defaultForm())
 const fixedRange = ref<string[]>([])
 const openCreate = () => { form.value = defaultForm(); fixedRange.value = []; editorVisible.value = true }
 const openEdit = (record: any) => {
