@@ -46,6 +46,7 @@ export enum ApiAiExecution {
   queueList = '/ai/execution/queue-list',
   queueStats = '/ai/execution/queue-stats',
   queueDelete = '/ai/execution/queue-delete',
+  queueForceFail = '/ai/execution/queue-force-fail',
   stats = '/ai/execution/stats',
 }
 

@@ -117,25 +117,60 @@ async function loadQueue() {
 }
 loadQueue()
 
-/** 删除队列任务（执行中的后端会跳过） */
+/** 删除队列任务（默认跳过执行中；勾了执行中的行会提示改用强制） */
 async function deleteQueueSelected() {
   if (queueSelected.value.length === 0) {
     Message.warning('请先勾选要删除的队列任务')
     return
   }
+  const runningPicked = queueRows.value.filter(
+    r => queueSelected.value.includes(r.id) && r.status === 'running',
+  ).length
   Modal.warning({
     title: '确认删除选中的队列任务？',
-    content: `将删除 ${queueSelected.value.length} 条队列任务（执行中的会被自动跳过）。此操作不可恢复。`,
-    okText: '确认删除',
+    content: runningPicked > 0
+      ? `选中 ${queueSelected.value.length} 条，其中 ${runningPicked} 条为「执行中」。\n\n`
+        + '默认会跳过执行中的行（避免误删真正在跑的任务）。若这些任务实际已死'
+        + '（例如刚重启过），请改用「标记失败」，或勾选下方强制删除。'
+      : `将删除 ${queueSelected.value.length} 条队列任务。此操作不可恢复。`,
+    okText: runningPicked > 0 ? '跳过执行中并删除' : '确认删除',
     cancelText: '取消',
     okButtonProps: { status: 'danger' },
     onOk: async () => {
       const resp = await postAction<{ deleted: number, message?: string }>(
         ApiAiExecution.queueDelete,
-        { ids: queueSelected.value },
+        { ids: queueSelected.value, force: false },
       )
       if (resp) {
         Message.success(resp.message || '删除成功')
+        queueSelected.value = []
+        await loadQueue()
+      }
+    },
+  })
+}
+
+/** 手动标记失败：给重启后残留的「执行中」行一个收敛出口 */
+async function forceFailQueueSelected() {
+  if (queueSelected.value.length === 0) {
+    Message.warning('请先勾选要标记失败的队列任务')
+    return
+  }
+  Modal.warning({
+    title: '确认把选中任务标记为失败？',
+    content: `将把 ${queueSelected.value.length} 条队列任务置为「已失败」（不限当前状态）。\n\n`
+      + '适用于服务重启后残留的「执行中」任务——它实际已经死了，但租约还没到期，'
+      + '既删不掉也不会自动失败。标记后可正常删除，也可重新触发重扫。',
+    okText: '标记失败',
+    cancelText: '取消',
+    okButtonProps: { status: 'danger' },
+    onOk: async () => {
+      const resp = await postAction<{ failed: number, message?: string }>(
+        ApiAiExecution.queueForceFail,
+        { ids: queueSelected.value, reason: '用户在扫描运行页手动标记失败（服务重启后残留）' },
+      )
+      if (resp) {
+        Message.success(resp.message || '已标记失败')
         queueSelected.value = []
         await loadQueue()
       }
@@ -670,6 +705,9 @@ const crossColumns = [
           <a-option value="dead">已失败</a-option>
         </a-select>
         <a-button type="primary" @click="loadQueue">刷新</a-button>
+        <a-button status="warning" :disabled="queueSelected.length === 0" @click="forceFailQueueSelected">
+          标记失败{{ queueSelected.length ? `(${queueSelected.length})` : '' }}
+        </a-button>
         <a-button status="danger" :disabled="queueSelected.length === 0" @click="deleteQueueSelected">
           删除选中{{ queueSelected.length ? `(${queueSelected.length})` : '' }}
         </a-button>
