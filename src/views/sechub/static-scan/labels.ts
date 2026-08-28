@@ -44,7 +44,11 @@ export function categoryZhLabel(domain: string, category: string): string {
 export const runStatusLabels: Record<string, { label: string, color: string }> = {
   succeeded: { label: '已完成', color: 'green' },
   pending: { label: '排队中', color: 'gray' },
+  // 记录已建但还没开始扫描：正在拉取代码、建文件清单、加载规则、算幂等键
+  preparing: { label: '准备中', color: 'gold' },
   running: { label: '进行中', color: 'blue' },
+  // 代码与规则未变更（或并发撞同一输入），复用既有结果，未真正重扫
+  skipped: { label: '已跳过', color: 'gray' },
   failed: { label: '失败', color: 'red' },
 }
 

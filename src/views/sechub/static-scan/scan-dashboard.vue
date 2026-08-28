@@ -643,7 +643,9 @@ function startPolling() {
   polling.value = true
   pollTimer = setInterval(async () => {
     await refreshStatus()
-    if (prescanStatus.value && ['succeeded', 'failed', 'cancelled'].includes(prescanStatus.value.status)) {
+    // skipped 也是终态：代码与规则未变更（或并发撞同一输入），未真正重扫。
+    // preparing 不是终态——记录已建但还在拉代码/建清单，要继续轮询到 running。
+    if (prescanStatus.value && ['succeeded', 'failed', 'cancelled', 'skipped'].includes(prescanStatus.value.status)) {
       stopPolling()
       // 刷新 run 列表
       if (selectedRepo.value) {
