@@ -189,12 +189,12 @@
           </a-col>
           <a-col :span="8">
             <a-form-item label="开始日期">
-              <a-date-picker v-model="formData.period_start" style="width: 100%" />
+              <a-date-picker v-model="formData.period_start" value-format="YYYY-MM-DD" style="width: 100%" />
             </a-form-item>
           </a-col>
           <a-col :span="8">
             <a-form-item label="结束日期">
-              <a-date-picker v-model="formData.period_end" style="width: 100%" />
+              <a-date-picker v-model="formData.period_end" value-format="YYYY-MM-DD" style="width: 100%" />
             </a-form-item>
           </a-col>
         </a-row>

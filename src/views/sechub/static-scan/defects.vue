@@ -732,7 +732,7 @@ function shortSha(sha: string | null | undefined): string {
           </a-checkbox>
         </a-form-item>
         <a-form-item v-if="wontFixForm.sync_whitelist" label="白名单过期时间（空=永久）">
-          <a-date-picker v-model="wontFixForm.expires_at" style="width: 100%" />
+          <a-date-picker v-model="wontFixForm.expires_at" value-format="YYYY-MM-DD" style="width: 100%" />
         </a-form-item>
       </a-form>
     </a-modal>

@@ -215,6 +215,7 @@ defineExpose({ validateModalField })
                 <a-date-picker
                   v-if="item.type === FormItemType.datePicker"
                   v-model="formValue[item.field]"
+                  value-format="YYYY-MM-DD"
                   :position="item?.datePicker?.position"
                   :allow-clear="item?.datePicker?.allowClear"
                   :readonly="item?.datePicker?.readonly"

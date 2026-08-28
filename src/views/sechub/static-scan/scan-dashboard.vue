@@ -29,7 +29,7 @@ import VChart from 'vue-echarts'
 import { ApiSecModuleRepository, ApiSecPrescan } from '@/api/sechubApis'
 import { ApiAiAgent, ApiAiSkill, type AiAgent, type AiSkill } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
-import { useGet, usePost } from '@/hooks'
+import { formatTime, useGet, usePost } from '@/hooks'
 import { domainLabels, securityCategoryLabels } from './labels'
 
 type SelectChangeValue = string | number | boolean | Record<string, unknown> | (string | number | boolean | Record<string, unknown>)[]
@@ -384,24 +384,16 @@ const baseCommitInput = ref('')
 const diffGranularity = ref<'file' | 'hunk'>('file')
 const hunkEnabled = ref(false)
 
-// 格式化 commit 时间（ISO8601，带时区）为 yymmddhhmmss，解析失败容错返回空串
+// commit 下拉标签用的紧凑时间戳 yymmddhhmmss。
+// 走统一入口按**用户时区**渲染后再压缩——旧实现用 new Date().getHours() 等取的是
+// 浏览器时区分量，同一个 commit 在不同电脑上标签不一样。
 function formatCommitTime(iso: string): string {
-  try {
-    const d = new Date(iso)
-    if (Number.isNaN(d.getTime())) {
-      return ''
-    }
-    const yy = String(d.getFullYear()).slice(2)
-    const mm = String(d.getMonth() + 1).padStart(2, '0')
-    const dd = String(d.getDate()).padStart(2, '0')
-    const hh = String(d.getHours()).padStart(2, '0')
-    const mi = String(d.getMinutes()).padStart(2, '0')
-    const ss = String(d.getSeconds()).padStart(2, '0')
-    return `${yy}${mm}${dd}${hh}${mi}${ss}`
-  }
-  catch {
+  const t = formatTime(iso, { placeholder: '' })
+  if (!t) {
     return ''
   }
+  // '2026-08-28 14:00:29' -> '260828140029'
+  return t.slice(2).replace(/[-: ]/g, '')
 }
 
 // 将 RepositoryCommit 格式化为下拉选项标签：短sha + 日期 + 标题

@@ -76,7 +76,7 @@
           <a-col :span="6"><a-form-item label="控件（可选）"><a-input v-model="form.control_name" allow-clear /></a-form-item></a-col>
           <a-col :span="8"><a-form-item label="时间模式"><a-radio-group v-model="form.period_type"><a-radio value="recent_days">最近天数</a-radio><a-radio value="fixed">固定日期</a-radio></a-radio-group></a-form-item></a-col>
           <a-col v-if="form.period_type === 'recent_days'" :span="8"><a-form-item label="最近天数"><a-input-number v-model="form.recent_days" :min="1" :max="90" style="width: 100%" /></a-form-item></a-col>
-          <a-col v-else :span="16"><a-form-item label="固定日期"><a-range-picker v-model="fixedRange" style="width: 100%" /></a-form-item></a-col>
+          <a-col v-else :span="16"><a-form-item label="固定日期"><a-range-picker v-model="fixedRange" value-format="YYYY-MM-DD" style="width: 100%" /></a-form-item></a-col>
           <a-col :span="8"><a-form-item label="慢请求阈值(ms)"><a-input-number v-model="form.cost_threshold" :min="0" :step="500" style="width: 100%" /></a-form-item></a-col>
           <a-col :span="8"><a-form-item label="分析条数"><a-input-number v-model="form.max_traces" :min="1" :max="100" style="width: 100%" /></a-form-item></a-col>
           <a-col :span="8">

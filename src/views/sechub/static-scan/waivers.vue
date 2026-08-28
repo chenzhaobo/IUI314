@@ -398,7 +398,7 @@ onMounted(() => {
           <a-textarea v-model="formData.impact" placeholder="可选" />
         </a-form-item>
         <a-form-item label="过期时间">
-          <a-date-picker v-model="formData.effective_to" show-time style="width: 100%" />
+          <a-date-picker v-model="formData.effective_to" show-time value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" />
         </a-form-item>
       </a-form>
     </a-modal>

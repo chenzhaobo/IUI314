@@ -337,6 +337,7 @@ function handlePageSizeChange(size: number) {
               <a-date-picker
                 v-else-if="f.type === 'date'"
                 v-model="formData[f.field]"
+                value-format="YYYY-MM-DD"
                 :placeholder="`请选择${f.label}`"
               />
             </a-form-item>

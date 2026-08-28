@@ -89,12 +89,12 @@
         <a-row v-if="form.time_type === 'custom'" :gutter="16">
           <a-col :span="12">
             <a-form-item label="开始日期">
-              <a-date-picker v-model="form.period_start" style="width: 100%" />
+              <a-date-picker v-model="form.period_start" value-format="YYYY-MM-DD" style="width: 100%" />
             </a-form-item>
           </a-col>
           <a-col :span="12">
             <a-form-item label="结束日期">
-              <a-date-picker v-model="form.period_end" style="width: 100%" />
+              <a-date-picker v-model="form.period_end" value-format="YYYY-MM-DD" style="width: 100%" />
             </a-form-item>
           </a-col>
         </a-row>
@@ -167,7 +167,7 @@
           </a-col>
         </a-row>
         <a-form-item v-if="scheduleOn" label="执行时间">
-          <a-time-picker v-model="scheduleTime" format="HH:mm" style="width: 150px" />
+          <a-time-picker v-model="scheduleTime" format="HH:mm" value-format="HH:mm" style="width: 150px" />
         </a-form-item>
         <a-form-item label="备注">
           <a-textarea v-model="form.description" :max-length="500" show-word-limit />

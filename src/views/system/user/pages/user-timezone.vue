@@ -4,7 +4,7 @@ import { Message } from '@arco-design/web-vue'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSysUser } from '@/api/sysApis'
-import { DEFAULT_TIMEZONE, formatTime, TIMEZONE_OPTIONS, timeZoneLabel, usePut } from '@/hooks'
+import { DEFAULT_TIMEZONE, formatTime, parseTimeInput, TIMEZONE_OPTIONS, timeZoneLabel, usePut } from '@/hooks'
 import { useUserStore } from '@/stores'
 
 defineOptions({ name: 'UserTimezone' })
@@ -36,7 +36,7 @@ const previewSelected = computed(() =>
 const previewDefault = computed(() =>
   formatTime(nowTick.value, { timeZone: DEFAULT_TIMEZONE, placeholder: '-' }),
 )
-const offsetLabel = computed(() => timeZoneLabel(selected.value, new Date(nowTick.value)))
+const offsetLabel = computed(() => timeZoneLabel(selected.value, parseTimeInput(nowTick.value) ?? undefined))
 const changed = computed(() => selected.value !== (userStore.user.timezone || DEFAULT_TIMEZONE))
 
 const saving = ref(false)

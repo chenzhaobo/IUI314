@@ -137,7 +137,7 @@
         <a-row :gutter="16">
           <a-col :span="8">
             <a-form-item label="执行时间">
-              <a-time-picker v-model="form.run_time" format="HH:mm" style="width: 100%" />
+              <a-time-picker v-model="form.run_time" format="HH:mm" value-format="HH:mm" style="width: 100%" />
             </a-form-item>
           </a-col>
           <a-col :span="16">
@@ -183,7 +183,7 @@
     <a-modal v-model:visible="triggerVisible" title="手动触发（全部启用任务）" :width="440" @ok="handleTrigger" :ok-loading="triggering">
       <a-form layout="vertical" :model="layoutOnlyModel">
         <a-form-item label="数据日期（默认昨天）">
-          <a-date-picker v-model="triggerDate" style="width: 100%" />
+          <a-date-picker v-model="triggerDate" value-format="YYYY-MM-DD" style="width: 100%" />
         </a-form-item>
         <a-form-item label="只跑指定阶段（空=全流程）">
           <a-select v-model="triggerStage" allow-clear placeholder="全流程：下载→提取→分类→缺陷归因→报告→推送">
