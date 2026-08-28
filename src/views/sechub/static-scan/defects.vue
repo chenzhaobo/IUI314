@@ -410,15 +410,16 @@ const statusLabels: Record<string, { label: string, color: string }> = {
 }
 
 const columns = [
-  { title: '缺陷标题', dataIndex: 'title', width: 300, ellipsis: true, tooltip: true },
+  { title: '缺陷标题', dataIndex: 'title', width: 260, ellipsis: true, tooltip: true },
   { title: '领域', dataIndex: 'domain', slotName: 'domain', width: 80 },
-  { title: '分类', dataIndex: 'category', width: 120, ellipsis: true, tooltip: true },
+  { title: '分类', dataIndex: 'category', width: 110, ellipsis: true, tooltip: true },
   { title: '风险', dataIndex: 'risk_level', slotName: 'risk', width: 70 },
   { title: '状态', dataIndex: 'status', slotName: 'status', width: 95 },
-  { title: '负责人', dataIndex: 'assignee', width: 90, ellipsis: true, tooltip: true },
-  { title: '文件', dataIndex: 'file_path', width: 220, ellipsis: true, tooltip: true },
-  { title: '命中', dataIndex: 'hit_count', width: 60 },
-  { title: '更新时间', dataIndex: 'updated_at', width: 150 },
+  { title: '负责人', dataIndex: 'assignee', width: 80, ellipsis: true, tooltip: true },
+  { title: '文件', dataIndex: 'file_path', width: 200, ellipsis: true, tooltip: true },
+  { title: '命中', dataIndex: 'hit_count', width: 55 },
+  { title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 150 },
+  { title: '更新时间', dataIndex: 'updated_at', width: 130 },
   { title: '操作', slotName: 'ops', width: 110, fixed: 'right' as const },
 ]
 
@@ -430,6 +431,33 @@ onMounted(() => {
 // 用一个模块级常量而不是在模板里写 :model="{}"，避免每次渲染都新建对象。
 const layoutOnlyModel = {}
 
+/**
+ * 安全格式化时间字符串，解析失败时回退原值，不抛异常。
+ * 支持 ISO8601 及 "YYYY-MM-DD HH:mm:ss" 格式。
+ */
+function formatTime(val: string | null | undefined): string {
+  if (!val)
+    return '-'
+  try {
+    const d = new Date(val)
+    if (Number.isNaN(d.getTime()))
+      return val
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+  catch {
+    return val
+  }
+}
+
+/**
+ * 取 commit sha 的短 8 位，字段缺失时返回占位符。
+ */
+function shortSha(sha: string | null | undefined): string {
+  if (!sha || !sha.trim())
+    return '-'
+  return sha.trim().slice(0, 8)
+}
 </script>
 
 <template>
@@ -542,7 +570,7 @@ const layoutOnlyModel = {}
         row-key="id"
         size="small"
         :row-selection="{ type: 'checkbox', showCheckedAll: true }"
-        :scroll="{ x: 1350, y: 'calc(100vh - 420px)' }"
+        :scroll="{ x: 1480, y: 'calc(100vh - 420px)' }"
         @page-change="onPageChange"
         @page-size-change="onPageSizeChange"
         @selection-change="handleSelectionChange"
@@ -563,6 +591,18 @@ const layoutOnlyModel = {}
             {{ statusLabels[record.status]?.label ?? record.status }}
           </a-tag>
         </template>
+            <template #introducedAt="{ record }">
+              <!-- 引入时间列：为空时显示 -，悬浮展示完整 commit / 作者 / 时间 -->
+              <a-tooltip
+                :content="record.introduced_commit || record.introduced_author || record.introduced_at
+                  ? `Commit：${record.introduced_commit || '-'}\n引入者：${record.introduced_author || '-'}\n时间：${formatTime(record.introduced_at)}`
+                  : '非 git 仓库或该行未被版本控制，无法定位引入时间'"
+                position="top"
+                mini
+              >
+                <span>{{ formatTime(record.introduced_at) }}</span>
+              </a-tooltip>
+            </template>
         <template #ops="{ record }">
           <a-space>
             <a-button type="text" size="small" :disabled="!record.ai_detail_report" @click="viewReport(record)">
@@ -661,6 +701,18 @@ const layoutOnlyModel = {}
         <a-descriptions-item label="风险">{{ reportRow?.risk_level ?? '-' }}</a-descriptions-item>
         <a-descriptions-item label="状态">{{ statusLabels[reportRow?.status ?? '']?.label ?? reportRow?.status }}</a-descriptions-item>
         <a-descriptions-item label="文件" :span="3">{{ reportRow?.file_path }}{{ reportRow?.start_line ? `:${reportRow.start_line}` : '' }}</a-descriptions-item>
+        <a-descriptions-item label="引入时间">
+          {{ formatTime(reportRow?.introduced_at) }}
+        </a-descriptions-item>
+        <a-descriptions-item label="引入者">
+          {{ reportRow?.introduced_author || '-' }}
+        </a-descriptions-item>
+        <a-descriptions-item label="引入 Commit">
+          <a-tooltip v-if="reportRow?.introduced_commit" :content="reportRow.introduced_commit" mini>
+            <span style="font-family: monospace">{{ shortSha(reportRow.introduced_commit) }}</span>
+          </a-tooltip>
+          <span v-else>-</span>
+        </a-descriptions-item>
       </a-descriptions>
       <MdPreview v-if="reportRow?.ai_detail_report" :model-value="reportRow.ai_detail_report" />
       <a-empty v-else description="暂无详细报告" />

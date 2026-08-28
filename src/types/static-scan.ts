@@ -718,6 +718,12 @@ export interface CandidateDetailRow {
   ai_mode?: string | null
   ai_model?: string | null
   ai_detail_report?: string | null
+  /** 引入该问题的 commit sha（40 位，git 仓库模式才有值，否则为 null） */
+  introduced_commit?: string | null
+  /** 引入时间，格式 "YYYY-MM-DD HH:mm:ss"，非 git 仓库或未跟踪文件为 null */
+  introduced_at?: string | null
+  /** 引入者 git 作者名，非 git 仓库或未跟踪文件为 null */
+  introduced_author?: string | null
 }
 
 export interface CandidateDetailPage {
@@ -788,6 +794,12 @@ export interface ScanIssueRow {
   ai_detail_report?: string | null
   created_at: string
   updated_at: string
+  /** 引入该问题的 commit sha（40 位，git 仓库模式才有值，否则为 null） */
+  introduced_commit?: string | null
+  /** 引入时间，格式 "YYYY-MM-DD HH:mm:ss"，非 git 仓库或未跟踪文件为 null */
+  introduced_at?: string | null
+  /** 引入者 git 作者名，非 git 仓库或未跟踪文件为 null */
+  introduced_author?: string | null
 }
 
 export interface ScanIssuePage {

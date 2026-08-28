@@ -473,13 +473,14 @@ function roundTooltipContent(row: CrossRunAggRow): string {
 
 // ===== 表格列 =====
 const candidateColumns = [
-  { title: '文件', dataIndex: 'file_path', width: 280, ellipsis: true, tooltip: true },
+  { title: '文件', dataIndex: 'file_path', width: 260, ellipsis: true, tooltip: true },
   { title: '行号', dataIndex: 'start_line', width: 60 },
-  { title: '匹配文本', dataIndex: 'matched_text', width: 200, ellipsis: true, tooltip: true },
+  { title: '匹配文本', dataIndex: 'matched_text', width: 180, ellipsis: true, tooltip: true },
   { title: 'AI状态', dataIndex: 'ai_status', slotName: 'aiStatus', width: 90 },
   { title: '风险', dataIndex: 'ai_risk_level', slotName: 'riskLevel', width: 70 },
   { title: '置信度', dataIndex: 'ai_confidence', slotName: 'confidence', width: 80 },
-  { title: 'AI理由', dataIndex: 'ai_rationale', width: 260, ellipsis: true, tooltip: true },
+  { title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 150 },
+  { title: 'AI理由', dataIndex: 'ai_rationale', width: 220, ellipsis: true, tooltip: true },
   { title: '操作', slotName: 'ops', width: 110, fixed: 'right' as const },
 ]
 
@@ -706,6 +707,18 @@ watch(() => route.query, (newQ, oldQ) => {
             <template #confidence="{ record }">
               {{ record.ai_confidence != null ? Number(record.ai_confidence).toFixed(2) : '-' }}
             </template>
+            <template #introducedAt="{ record }">
+              <!-- 引入时间列：为空时显示 -，悬浮展示完整 commit / 作者 / 时间 -->
+              <a-tooltip
+                :content="record.introduced_commit || record.introduced_author || record.introduced_at
+                  ? `Commit：${record.introduced_commit || '-'}\n引入者：${record.introduced_author || '-'}\n时间：${formatTime(record.introduced_at)}`
+                  : '非 git 仓库或该行未被版本控制，无法定位引入时间'"
+                position="top"
+                mini
+              >
+                <span>{{ formatTime(record.introduced_at) }}</span>
+              </a-tooltip>
+            </template>
             <template #ops="{ record }">
               <a-space :size="4">
                 <a-button
@@ -746,6 +759,18 @@ watch(() => route.query, (newQ, oldQ) => {
         <a-descriptions-item label="模型">{{ roundModelLabel(reportRow) }}</a-descriptions-item>
         <a-descriptions-item label="模式">{{ modeLabels[reportRow?.ai_mode ?? '']?.label ?? (reportRow?.ai_mode?.trim() ? reportRow.ai_mode : '待确认') }}</a-descriptions-item>
         <a-descriptions-item label="风险">{{ reportRow?.ai_risk_level ?? '-' }}</a-descriptions-item>
+        <a-descriptions-item label="引入时间">
+          {{ formatTime(reportRow?.introduced_at) }}
+        </a-descriptions-item>
+        <a-descriptions-item label="引入者">
+          {{ reportRow?.introduced_author || '-' }}
+        </a-descriptions-item>
+        <a-descriptions-item label="引入 Commit">
+          <a-tooltip v-if="reportRow?.introduced_commit" :content="reportRow.introduced_commit" mini>
+            <span style="font-family: monospace">{{ shortSha(reportRow.introduced_commit) }}</span>
+          </a-tooltip>
+          <span v-else>-</span>
+        </a-descriptions-item>
       </a-descriptions>
       <MdPreview v-if="reportRow?.ai_detail_report" :model-value="reportRow.ai_detail_report" />
       <div v-else class="report-fallback">
