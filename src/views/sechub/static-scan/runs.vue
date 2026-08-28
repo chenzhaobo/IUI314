@@ -4,6 +4,7 @@ import { Message, Modal } from '@arco-design/web-vue'
 import { computed, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ErrorFlag } from '@/api/apis'
+import { ApiAiExecution } from '@/api/aiApis'
 import { ApiSecModuleRepository, ApiSecPrescan } from '@/api/sechubApis'
 import { useGet, usePost } from '@/hooks'
 import { pendingSubLabel, pendingTooltip, runStatusLabels } from './labels'
@@ -64,6 +65,94 @@ async function postAction<T = unknown>(url: string, payload: Record<string, any>
     return null
   return request.data.value
 }
+
+// ===== 任务队列（静态扫描的 AI 确认/自主审计任务在这里排队）=====
+// 放在「扫描运行」页而不是 AI 中心：队列里跑的就是静态扫描任务，
+// AI 中心只负责展示通用的 AI 执行记录。
+interface QueueRow {
+  id: string
+  task_kind: string
+  biz_id: string
+  shard_key?: string | null
+  status: string
+  attempt: number
+  max_attempt: number
+  run_after: string
+  lease_until?: string | null
+  locked_by?: string | null
+  last_error?: string | null
+  created_at: string
+}
+
+const queueStatus = ref('')
+const queueRows = ref<QueueRow[]>([])
+const queueSelected = ref<string[]>([])
+const queueLoading = ref(false)
+const queueStats = ref<Record<string, number>>({})
+
+const queueKindLabels: Record<string, string> = {
+  static_scan_confirm: '平台编排确认',
+  static_scan_agent: '自主审计分片',
+}
+const queueStatusLabels: Record<string, { label: string, color: string }> = {
+  pending: { label: '待领取', color: 'gray' },
+  running: { label: '执行中', color: 'blue' },
+  succeeded: { label: '成功', color: 'green' },
+  dead: { label: '已失败', color: 'red' },
+}
+
+async function loadQueue() {
+  queueLoading.value = true
+  try {
+    const params = new URLSearchParams()
+    if (queueStatus.value)
+      params.set('status', queueStatus.value)
+    params.set('limit', '200')
+    queueRows.value = await fetchJson<QueueRow[]>(`${ApiAiExecution.queueList}?${params.toString()}`) ?? []
+    queueStats.value = await fetchJson<Record<string, number>>(ApiAiExecution.queueStats) ?? {}
+  }
+  finally {
+    queueLoading.value = false
+  }
+}
+loadQueue()
+
+/** 删除队列任务（执行中的后端会跳过） */
+async function deleteQueueSelected() {
+  if (queueSelected.value.length === 0) {
+    Message.warning('请先勾选要删除的队列任务')
+    return
+  }
+  Modal.warning({
+    title: '确认删除选中的队列任务？',
+    content: `将删除 ${queueSelected.value.length} 条队列任务（执行中的会被自动跳过）。此操作不可恢复。`,
+    okText: '确认删除',
+    cancelText: '取消',
+    okButtonProps: { status: 'danger' },
+    onOk: async () => {
+      const resp = await postAction<{ deleted: number, message?: string }>(
+        ApiAiExecution.queueDelete,
+        { ids: queueSelected.value },
+      )
+      if (resp) {
+        Message.success(resp.message || '删除成功')
+        queueSelected.value = []
+        await loadQueue()
+      }
+    },
+  })
+}
+
+const queueColumns = [
+  { title: '任务类型', dataIndex: 'task_kind', slotName: 'qkind', width: 130 },
+  { title: '扫描运行(run)', dataIndex: 'biz_id', width: 190, ellipsis: true, tooltip: true },
+  { title: '分片', dataIndex: 'shard_key', width: 120, ellipsis: true, tooltip: true },
+  { title: '状态', dataIndex: 'status', slotName: 'qstatus', width: 90 },
+  { title: '尝试', dataIndex: 'attempt', slotName: 'qattempt', width: 70 },
+  { title: '租约到期', dataIndex: 'lease_until', width: 160 },
+  { title: '失败原因', dataIndex: 'last_error', width: 260, ellipsis: true, tooltip: true },
+  { title: '创建时间', dataIndex: 'created_at', width: 160 },
+]
 
 // ===== 模型结果总览（跨 Run 横评：后端已改为每个 run_id 只返回一行汇总）=====
 const crossRows = ref<CrossRunAggRow[]>([])
@@ -485,6 +574,53 @@ const crossColumns = [
           查询
         </a-button>
       </a-space>
+    </a-card>
+
+    <!-- 任务队列：静态扫描的 AI 确认/自主审计任务在此排队与执行 -->
+    <a-card :bordered="false" class="m-b-12px">
+      <template #title>
+        任务队列
+        <small class="card-sub">
+          待领取 {{ queueStats.pending ?? 0 }} ／ 执行中 {{ queueStats.running ?? 0 }}
+          ／ 成功 {{ queueStats.succeeded ?? 0 }} ／ 已失败 {{ queueStats.dead ?? 0 }}
+          ·失败不自动重试，需手动重扫
+        </small>
+      </template>
+      <a-space class="m-b-8px">
+        <a-select v-model="queueStatus" placeholder="队列状态" allow-clear style="width: 150px" @change="loadQueue">
+          <a-option value="pending">待领取</a-option>
+          <a-option value="running">执行中</a-option>
+          <a-option value="succeeded">成功</a-option>
+          <a-option value="dead">已失败</a-option>
+        </a-select>
+        <a-button type="primary" @click="loadQueue">刷新</a-button>
+        <a-button status="danger" :disabled="queueSelected.length === 0" @click="deleteQueueSelected">
+          删除选中{{ queueSelected.length ? `(${queueSelected.length})` : '' }}
+        </a-button>
+      </a-space>
+      <a-table
+        v-model:selectedKeys="queueSelected"
+        :loading="queueLoading"
+        :data="queueRows"
+        :columns="queueColumns"
+        row-key="id"
+        :row-selection="{ type: 'checkbox', showCheckedAll: true }"
+        :pagination="{ pageSize: 10, showTotal: true }"
+        size="small"
+        :scroll="{ x: 1200 }"
+      >
+        <template #qkind="{ record }">
+          {{ queueKindLabels[record.task_kind] ?? record.task_kind }}
+        </template>
+        <template #qstatus="{ record }">
+          <a-tag :color="queueStatusLabels[record.status]?.color ?? 'gray'">
+            {{ queueStatusLabels[record.status]?.label ?? record.status }}
+          </a-tag>
+        </template>
+        <template #qattempt="{ record }">
+          {{ record.attempt }}/{{ record.max_attempt }}
+        </template>
+      </a-table>
     </a-card>
 
     <!-- 模型结果总览 -->
