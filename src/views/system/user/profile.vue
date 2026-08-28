@@ -5,8 +5,9 @@ import { useI18n } from 'vue-i18n'
 import ResetPassword from './pages/reset-password.vue'
 import UserAvatar from './pages/user-avatar.vue'
 import UserInformation from './pages/user-information.vue'
+import UserTimezone from './pages/user-timezone.vue'
 import { ApiSysPost, ApiSysRole, ApiSysUser } from '@/api/sysApis'
-import { parseTime, useGet } from '@/hooks'
+import { formatTime, useGet } from '@/hooks'
 import type { pageQueryParam } from '@/types/base/apis'
 import type { postList } from '@/types/system/post'
 import type { roleList } from '@/types/system/role'
@@ -125,7 +126,7 @@ getUser()
                   <IconCalendar />
                   <span class="m-l-3px">{{ t('sys.createTime') }}</span>
                 </template>
-                {{ parseTime(userInfos.created_at) }}
+                {{ formatTime(userInfos.created_at) }}
               </a-form-item>
             </a-form>
           </div>
@@ -144,6 +145,9 @@ getUser()
             </a-tab-pane>
             <a-tab-pane key="resetPwd" :title="t('sys.user.updatePwd')">
               <ResetPassword />
+            </a-tab-pane>
+            <a-tab-pane key="timezone" title="时区设置">
+              <UserTimezone :user-id="userInfos.id" :timezone="userInfos.timezone" />
             </a-tab-pane>
           </a-tabs>
         </a-card>
