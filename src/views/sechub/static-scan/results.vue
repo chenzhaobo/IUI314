@@ -405,7 +405,7 @@ async function retryCandidate(row: CandidateDetailRow) {
       payload.model = currentRun.value.ai_model.trim()
     const resp = await postAction<{ message?: string }>(ApiSecPrescan.retryCandidate, payload)
     if (resp) {
-      Message.success(resp.message || '已提交重扫，正在后台重新确认')
+      Message.success(resp.message || '已提交重扫并加入队列，消费者每 5 秒领取一次')
       setTimeout(() => void loadCandidates(), 1500)
     }
   }

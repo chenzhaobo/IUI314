@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { CrossRunAggRow, ModuleWithRepository } from '@/types/static-scan'
 import { Message, Modal } from '@arco-design/web-vue'
-import { computed, onUnmounted, ref } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ErrorFlag } from '@/api/apis'
 import { ApiAiExecution } from '@/api/aiApis'
@@ -214,6 +214,73 @@ loadCrossRows()
 
 function onSearch() {
   void loadCrossRows()
+}
+
+// ===== 分页（客户端分页：cross-run-compare 一次返回全量，这里切页展示）=====
+const pageNum = ref(1)
+const pageSize = ref(20)
+const pagedCrossRows = computed(() => {
+  const start = (pageNum.value - 1) * pageSize.value
+  return filteredCrossRows.value.slice(start, start + pageSize.value)
+})
+// 过滤条件变化后回到第一页，避免停在越界页码上看到空表
+watch([selectedProjectGroupId, selectedStatus, selectedRepoId], () => {
+  pageNum.value = 1
+})
+
+// ===== 批量重扫未完成（多选工程/运行后，只重扫其剩余未完成任务）=====
+const selectedRunKeys = ref<string[]>([])
+const bulkRetrying = ref(false)
+
+/** 选中行里真正有可重扫内容的（可重跑数量 > 0） */
+const bulkRetryTargets = computed(() =>
+  filteredCrossRows.value.filter(r => selectedRunKeys.value.includes(r.run_id) && retryableCount(r) > 0),
+)
+
+async function bulkRetry() {
+  if (selectedRunKeys.value.length === 0) {
+    Message.warning('请先勾选要重扫的运行')
+    return
+  }
+  const targets = bulkRetryTargets.value
+  if (targets.length === 0) {
+    Message.warning('选中的运行没有未完成任务（错误/未确认/待复核均为 0）')
+    return
+  }
+  const totalCandidates = targets.reduce((sum, r) => sum + retryableCount(r), 0)
+  Modal.confirm({
+    title: '确认批量重扫未完成任务？',
+    content: `将对 ${targets.length} 个运行的共 ${totalCandidates} 条未完成候选（错误/未确认/待复核）重新入队确认。`
+      + '\n\n每个运行只重扫其剩余未完成部分，已确认/已排除的结论不受影响。',
+    okText: '确认重扫',
+    cancelText: '取消',
+    onOk: async () => {
+      bulkRetrying.value = true
+      let ok = 0
+      let fail = 0
+      try {
+        // 逐个提交：后端队列有「同业务同分片只允许一条在飞」的唯一约束，重复提交是安全的
+        for (const row of targets) {
+          const payload: Record<string, any> = { run_id: row.run_id }
+          const models = (row.ai_model ?? '').split(',').map(m => m.trim()).filter(Boolean)
+          if (models.length === 1)
+            payload.model = models[0]
+          const resp = await postAction<{ message?: string }>(ApiSecPrescan.retryErrors, payload)
+          if (resp)
+            ok += 1
+          else
+            fail += 1
+        }
+        Message.success(`批量重扫已提交：成功 ${ok} 个${fail ? `，失败 ${fail} 个` : ''}`)
+        selectedRunKeys.value = []
+        setTimeout(() => void loadCrossRows(), 1500)
+        void loadQueue()
+      }
+      finally {
+        bulkRetrying.value = false
+      }
+    },
+  })
 }
 
 // ===== 查看明细 → 跳转扫描结果详情 =====
@@ -629,14 +696,38 @@ const crossColumns = [
         模型结果总览
         <small class="card-sub">每行 = 一个扫描任务（run），点击操作查看明细或重扫</small>
       </template>
+      <template #extra>
+        <a-space>
+          <a-button
+            type="primary"
+            status="warning"
+            :loading="bulkRetrying"
+            :disabled="selectedRunKeys.length === 0"
+            @click="bulkRetry"
+          >
+            批量重扫未完成{{ bulkRetryTargets.length ? `(${bulkRetryTargets.length})` : '' }}
+          </a-button>
+        </a-space>
+      </template>
       <a-table
+        v-model:selectedKeys="selectedRunKeys"
         :loading="crossLoading"
-        :data="filteredCrossRows"
+        :data="pagedCrossRows"
         :columns="crossColumns"
-        :pagination="false"
+        :row-selection="{ type: 'checkbox', showCheckedAll: true }"
+        :pagination="{
+          total: filteredCrossRows.length,
+          current: pageNum,
+          pageSize,
+          showTotal: true,
+          showPageSize: true,
+          pageSizeOptions: [10, 20, 50, 100],
+        }"
         row-key="key"
         size="small"
         :scroll="{ x: 1400 }"
+        @page-change="(p: number) => (pageNum = p)"
+        @page-size-change="(s: number) => { pageSize = s; pageNum = 1 }"
       >
         <!-- 分支列：null 时展示占位符 -->
         <template #crBranch="{ record }">
