@@ -108,6 +108,100 @@ async function doDelete(payload: Record<string, unknown>) {
   }
 }
 
+// ── 任务队列（方案A：PG 当 MQ）──────────────────
+/** 队列行 */
+interface QueueRow {
+  id: string
+  task_kind: string
+  biz_id: string
+  shard_key?: string | null
+  status: string
+  priority: number
+  attempt: number
+  max_attempt: number
+  run_after: string
+  locked_by?: string | null
+  lease_until?: string | null
+  last_error?: string | null
+  execution_id?: string | null
+  created_at: string
+  finished_at?: string | null
+}
+
+const queueStatus = ref('')
+const queueRows = ref<QueueRow[]>([])
+const queueSelected = ref<string[]>([])
+const queueLoading = ref(false)
+const queueStats = ref<Record<string, number>>({})
+
+async function loadQueue() {
+  queueLoading.value = true
+  try {
+    const params = new URLSearchParams()
+    if (queueStatus.value)
+      params.set('status', queueStatus.value)
+    params.set('limit', '200')
+    const listReq = useGet<QueueRow[]>(`${ApiAiExecution.queueList}?${params.toString()}`, {}, { immediate: false })
+    await listReq.execute()
+    queueRows.value = listReq.data.value ?? []
+    const statReq = useGet<Record<string, number>>(ApiAiExecution.queueStats, {}, { immediate: false })
+    await statReq.execute()
+    queueStats.value = statReq.data.value ?? {}
+  }
+  finally {
+    queueLoading.value = false
+  }
+}
+loadQueue()
+
+/** 删除队列任务（执行中的会被后端跳过） */
+async function deleteQueueSelected() {
+  if (queueSelected.value.length === 0) {
+    Message.warning('请先勾选要删除的队列任务')
+    return
+  }
+  Modal.warning({
+    title: '确认删除选中的队列任务？',
+    content: `将删除 ${queueSelected.value.length} 条队列任务（执行中的会被自动跳过）。此操作不可恢复。`,
+    okText: '确认删除',
+    cancelText: '取消',
+    okButtonProps: { status: 'danger' },
+    onOk: async () => {
+      const { data, execute, error } = usePost<{ deleted: number, message?: string }>(
+        ApiAiExecution.queueDelete,
+        { ids: queueSelected.value },
+        { immediate: false },
+      )
+      await execute()
+      if (error.value) {
+        Message.error('删除失败')
+        return
+      }
+      Message.success(data.value?.message || '删除成功')
+      queueSelected.value = []
+      await loadQueue()
+    },
+  })
+}
+
+const queueColumns = [
+  { title: '任务类型', dataIndex: 'task_kind', width: 160, ellipsis: true, tooltip: true },
+  { title: '业务ID(run)', dataIndex: 'biz_id', width: 200, ellipsis: true, tooltip: true },
+  { title: '分片', dataIndex: 'shard_key', width: 140, ellipsis: true, tooltip: true },
+  { title: '状态', dataIndex: 'status', width: 100, slotName: 'qstatus' },
+  { title: '尝试', dataIndex: 'attempt', width: 80, slotName: 'qattempt' },
+  { title: '可执行时间', dataIndex: 'run_after', width: 170 },
+  { title: '租约到期', dataIndex: 'lease_until', width: 170 },
+  { title: '执行者', dataIndex: 'locked_by', width: 140, ellipsis: true, tooltip: true },
+  { title: '最后错误', dataIndex: 'last_error', width: 240, ellipsis: true, tooltip: true },
+  { title: '创建时间', dataIndex: 'created_at', width: 170 },
+]
+
+function queueStatusColor(s: string) {
+  const map: Record<string, string> = { pending: 'gray', running: 'blue', succeeded: 'green', dead: 'red' }
+  return map[s] || 'gray'
+}
+
 // ── 详情抽屉 ──────────────────────────────────
 const drawerVisible = ref(false)
 const detail = ref<AiExecution | null>(null)
@@ -193,6 +287,47 @@ const columns = [
       </a-row>
     </a-card>
 
+    <!-- 任务队列（方案A：PG 当 MQ；真正的排队真相源）-->
+    <a-card :bordered="false" class="m-b-8px">
+      <template #title>
+        任务队列
+        <small class="card-sub">
+          待领取 {{ queueStats.pending ?? 0 }} ／ 执行中 {{ queueStats.running ?? 0 }}
+          ／ 成功 {{ queueStats.succeeded ?? 0 }} ／ 重试耗尽 {{ queueStats.dead ?? 0 }}
+        </small>
+      </template>
+      <a-space class="m-b-8px">
+        <a-select v-model="queueStatus" placeholder="队列状态" allow-clear style="width: 160px" @change="loadQueue">
+          <a-option value="pending">待领取</a-option>
+          <a-option value="running">执行中</a-option>
+          <a-option value="succeeded">成功</a-option>
+          <a-option value="dead">重试耗尽</a-option>
+        </a-select>
+        <a-button type="primary" @click="loadQueue">刷新</a-button>
+        <a-button status="danger" :disabled="queueSelected.length === 0" @click="deleteQueueSelected">
+          删除选中{{ queueSelected.length ? `(${queueSelected.length})` : '' }}
+        </a-button>
+      </a-space>
+      <a-table
+        :loading="queueLoading"
+        :data="queueRows"
+        :columns="queueColumns"
+        row-key="id"
+        v-model:selectedKeys="queueSelected"
+        :row-selection="{ type: 'checkbox', showCheckedAll: true }"
+        :pagination="{ pageSize: 10, showTotal: true }"
+        size="small"
+        :scroll="{ x: 1500 }"
+      >
+        <template #qstatus="{ record }">
+          <a-tag :color="queueStatusColor(record.status)">{{ record.status }}</a-tag>
+        </template>
+        <template #qattempt="{ record }">
+          {{ record.attempt }}/{{ record.max_attempt }}
+        </template>
+      </a-table>
+    </a-card>
+
     <!-- 表格 -->
     <a-card :bordered="false">
       <a-table
@@ -255,6 +390,7 @@ const columns = [
 
 <style scoped>
 .ai-execution-log { padding: 0; }
+.card-sub { margin-left: 12px; color: var(--color-text-3); font-weight: normal; font-size: 12px; }
 .detail-pre { max-height: 300px; overflow: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all; background: var(--color-fill-1); padding: 12px; border-radius: 4px; }
 .error-text { color: rgb(var(--red-6)); }
 </style>

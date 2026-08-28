@@ -938,6 +938,10 @@ export interface CrossRunAggRow {
   ai_pending_model?: string | null
   /** 失败原因（status='failed' 时非空）；之前只入库不返回，现补出用于前端直接展示 */
   error_message?: string | null
+  /** 队列中该 run 仍待领取的任务数（真正的「排队中」，替代旧的 ai_exec_pending） */
+  queue_pending?: number | null
+  /** 队列中该 run 正在执行的任务数 */
+  queue_running?: number | null
 }
 
 // ── 仓库 Commit 相关类型 ────────────────────────────

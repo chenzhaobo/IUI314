@@ -108,7 +108,9 @@ function schedulePollIfNeeded() {
   // 除了「还有待确认候选」，只要有批次在排队或执行中也要继续轮询，
   // 否则「排队中 → 执行中 → 完成」的阶段变化不会自动回显。
   const active = crossRows.value.some(r =>
-    (r.pending ?? 0) > 0 || (r.ai_exec_pending ?? 0) > 0 || (r.ai_exec_running ?? 0) > 0,
+    (r.pending ?? 0) > 0
+    || (r.queue_pending ?? r.ai_exec_pending ?? 0) > 0
+    || (r.queue_running ?? r.ai_exec_running ?? 0) > 0,
   )
   if (active)
     pollTimer.value = setTimeout(() => void loadCrossRows(true), 15000)
@@ -231,9 +233,12 @@ function confirmStateLabel(row: CrossRunAggRow): string {
     return '准备中'
   if (status === 'running')
     return '预扫描中'
-  // succeeded 之后进入 AI 确认阶段判定
-  const running = row.ai_exec_running ?? 0
-  const queued = row.ai_exec_pending ?? 0
+  // succeeded 之后进入 AI 确认阶段判定。
+  // 排队/执行数以**任务队列**为真相源：旧实现用 ai_exec_pending（ai_execution 里
+  // status='pending' 的条数），那是「已建记录但没抢到内存信号量」的中间态，进程重启后
+  // 永不消费却仍被计数，于是出现「排队中 51 / 33」这种莫名的大数字。
+  const running = row.queue_running ?? row.ai_exec_running ?? 0
+  const queued = row.queue_pending ?? row.ai_exec_pending ?? 0
   if (running > 0)
     return `AI执行中 ${running}`
   if (queued > 0)
@@ -255,9 +260,9 @@ function confirmStateColor(row: CrossRunAggRow): string {
   if (status === 'running')
     return 'blue'
   // succeeded 之后
-  if ((row.ai_exec_running ?? 0) > 0)
+  if ((row.queue_running ?? row.ai_exec_running ?? 0) > 0)
     return 'blue'
-  if ((row.ai_exec_pending ?? 0) > 0)
+  if ((row.queue_pending ?? row.ai_exec_pending ?? 0) > 0)
     return 'gold'
   if (!confirmTriggered(row))
     return 'gray'
@@ -287,19 +292,19 @@ function confirmStateTooltip(row: CrossRunAggRow): string {
     lines.push('预扫描正在进行中，完成后方可触发 AI 确认。')
     return lines.join('\n')
   }
-  // succeeded 之后展示 AI 确认阶段详情
-  const running = row.ai_exec_running ?? 0
-  const queued = row.ai_exec_pending ?? 0
+  // succeeded 之后展示 AI 确认阶段详情（排队/执行以任务队列为真相源）
+  const running = row.queue_running ?? row.ai_exec_running ?? 0
+  const queued = row.queue_pending ?? row.ai_exec_pending ?? 0
   if (!confirmTriggered(row)) {
     lines.push('尚未触发 AI 确认。可在扫描看板选中该运行后点「AI 确认」。')
   }
   else {
     if (queued > 0)
-      lines.push(`${queued} 个批次在排队（等后端 AI 并发槽位，全局上限 5）`)
+      lines.push(`${queued} 个任务在队列中等待（消费者每 5 秒领取，受并发上限约束）`)
     if (running > 0)
-      lines.push(`${running} 个批次正在执行（单批超时见平台配置，默认 600 秒）`)
+      lines.push(`${running} 个任务正在执行（单次超时见平台配置，默认 5400 秒）`)
     if (queued === 0 && running === 0)
-      lines.push('没有正在进行的 AI 批次')
+      lines.push('队列中没有该运行的待执行/执行中任务')
   }
   lines.push(pendingTooltip(row.pending ?? 0, row.error ?? 0, row.review_needed ?? 0))
   return lines.join('\n')

@@ -43,6 +43,9 @@ export enum ApiAiExecution {
   getById = '/ai/execution/get_by_id',
   cancel = '/ai/execution/cancel',
   batchDelete = '/ai/execution/batch-delete',
+  queueList = '/ai/execution/queue-list',
+  queueStats = '/ai/execution/queue-stats',
+  queueDelete = '/ai/execution/queue-delete',
   stats = '/ai/execution/stats',
 }
 
