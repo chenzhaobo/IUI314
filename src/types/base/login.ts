@@ -107,6 +107,8 @@ export interface User {
   phone_num: string
   role_id: string
   created_at: Date
+  /** IANA 时区名，用于前端渲染 local time；后端默认 Asia/Shanghai */
+  timezone?: string
   dept: Dept
 }
 

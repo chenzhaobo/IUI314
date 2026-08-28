@@ -52,6 +52,8 @@ export const useUserStore = defineStore('userInfo', {
       dept: '',
       uid: '',
       permissions: Array<string>(),
+      // 用户时区（IANA 名），前端所有时间按此渲染；后端默认 Asia/Shanghai
+      timezone: 'Asia/Shanghai',
     },
   }),
   persist: {
@@ -156,6 +158,7 @@ export const useUserStore = defineStore('userInfo', {
           dept: user.user.dept_id,
           uid: user.user.id,
           permissions: user.permissions,
+          timezone: user.user.timezone || 'Asia/Shanghai',
         }
         return true
       }

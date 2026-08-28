@@ -19,6 +19,8 @@ export interface userInformation {
   dept_ids?: string[]
   role_id?: string
   created_at?: string
+  /** IANA 时区名，默认 Asia/Shanghai */
+  timezone?: string
   dept?: dept
 }
 
