@@ -40,7 +40,7 @@
             </template>
           </a-table-column>
           <a-table-column title="执行时间" data-index="run_time" :width="90" />
-          <a-table-column title="工作目录" data-index="work_dir" ellipsis :width="180" />
+          <a-table-column title="工作目录" data-index="work_dir" ellipsis tooltip :width="180" />
           <a-table-column title="最近运行" :width="150">
             <template #cell="{ record }">
               <template v-if="record.last_run_date">
@@ -228,10 +228,22 @@
           <a-table-column title="心跳" :width="145">
             <template #cell="{ record }">{{ fmtTime(record.heartbeat_at) }}</template>
           </a-table-column>
-          <a-table-column title="产物/错误" ellipsis>
+          <!-- ellipsis 只截断不提示，长错误会被挡住看不到真正原因（生产实测：
+               「日期目录不存在: /data/app/report-work/...」这类路径全被吃掉）。
+               配 tooltip 让悬停展开；再加原生 title 兜底，
+               避免 tooltip 在某些容器里被 overflow 裁掉时完全看不到。 -->
+          <a-table-column title="产物/错误" ellipsis tooltip>
             <template #cell="{ record }">
-              <span v-if="record.error_message" style="color: #f53f3f">{{ record.error_message }}</span>
-              <span v-else-if="record.artifact_path" style="color: #666">{{ record.artifact_path }}</span>
+              <span
+                v-if="record.error_message"
+                style="color: #f53f3f; cursor: help"
+                :title="record.error_message"
+              >{{ record.error_message }}</span>
+              <span
+                v-else-if="record.artifact_path"
+                style="color: #666"
+                :title="record.artifact_path"
+              >{{ record.artifact_path }}</span>
               <span v-else>-</span>
             </template>
           </a-table-column>

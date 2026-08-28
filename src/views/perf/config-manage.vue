@@ -86,8 +86,26 @@ function getConfigValidateHelp(c: any): string {
 }
 
 // ── 加载配置列表 ──────────────────────────────────
+//
+// 必须把接口数据拷进自己的深响应式 ref，不能直接 v-model 到 useGet 的 data 上：
+// vueuse 的 useFetch 把 data 实现为 **shallowRef**，只有整体替换 .value 才触发更新。
+// 而这个页面是 v-model="c.config_value" —— 改的是深层属性，Vue 收不到通知，
+// 界面上表现为输入框打不进字、粘贴也没反应（生产实测就是这个现象）。
 const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<any>(ApiPerfConfig.list, {}, { immediate: true })
-const configList = computed(() => rawListData.value || [])
+const configList = ref<any[]>([])
+
+// 深拷贝，避免和 shallowRef 里的原对象共享引用（否则重新拉取时会互相污染）
+watch(
+  rawListData,
+  (val) => {
+    configList.value = Array.isArray(val) ? val.map((c: any) => ({ ...c })) : []
+  },
+  { immediate: true },
+)
+
+async function reloadConfigs() {
+  await getList()
+}
 
 // 按 group_name 分组
 const groupedConfigs = computed(() => {
