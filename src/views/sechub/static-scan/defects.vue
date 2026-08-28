@@ -6,9 +6,26 @@ import 'md-editor-v3/lib/style.css'
 import { Message } from '@arco-design/web-vue'
 import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
 import { ErrorFlag } from '@/api/apis'
-import { useGet, usePost } from '@/hooks'
+import { useDicts, useGet, usePost } from '@/hooks'
 
 defineOptions({ name: 'StaticScanDefects' })
+
+// ===== 字典：不处理原因（static_scan_wont_fix_reason）=====
+// 复用项目既有 useDicts hook（stores/modules/dicts.ts 按 dict_type 拉 sys_dict_data，带缓存）
+const wontFixReasonDicts = useDicts('static_scan_wont_fix_reason')
+const wontFixReasonOptions = computed(() => {
+  const items = wontFixReasonDicts.value.static_scan_wont_fix_reason ?? []
+  return items.map(d => ({ label: d.label, value: d.value }))
+})
+
+// code -> label 快查映射，供表格列展示
+const wontFixReasonLabelMap = computed(() => {
+  const map: Record<string, string> = {}
+  for (const opt of wontFixReasonOptions.value) {
+    map[opt.value] = opt.label
+  }
+  return map
+})
 
 // ===== 项目组选项 =====
 const { data: pgData } = useGet<any>(ApiSecProjectGroup.getAll, {}, { immediate: true })
@@ -19,7 +36,19 @@ const { data: repoList } = useGet<ModuleWithRepository[]>(ApiSecModuleRepository
 const repositories = computed(() => repoList.value ?? [])
 
 // ===== 问题列表 =====
-const queryParams = ref({ page_num: 1, page_size: 20, project_group_id: '', repository_id: '', domain: '', status: '', rule_version_id: '', scan_point_id: '' })
+// 查询参数新增 wont_fix_reason_code 用于后端过滤（后端 list_issues 已支持该参数）
+const queryParams = ref({
+  page_num: 1,
+  page_size: 20,
+  project_group_id: '',
+  repository_id: '',
+  domain: '',
+  status: '',
+  rule_version_id: '',
+  scan_point_id: '',
+  // 不处理原因代码过滤（Arco 表格 filterable 触发后写入此字段，传给后端）
+  wont_fix_reason_code: '',
+})
 const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<ScanIssuePage>(ApiSecPrescan.issues, queryParams, { immediate: true })
 const dataList = computed(() => rawListData.value?.list ?? [])
 const total = computed(() => rawListData.value?.total ?? 0)
@@ -187,6 +216,18 @@ function onPageSizeChange(size: number) {
   void getList()
 }
 
+// ===== 不处理原因列过滤（后端过滤）=====
+// Arco 表格 @filter-change 事件签名：(dataIndex: string, filteredValues: string[]) => any
+// 只关心 wont_fix_reason_code 列的过滤值，取第一个选中值传给后端（后端支持单值过滤）
+function onWontFixReasonFilter(dataIndex: string, filteredValues: string[]) {
+  if (dataIndex !== 'wont_fix_reason_code')
+    return
+  // 取第一个选中值；未选时清空过滤
+  queryParams.value.wont_fix_reason_code = filteredValues.length > 0 ? (filteredValues[0] ?? '') : ''
+  queryParams.value.page_num = 1
+  void getList()
+}
+
 // ===== POST 通用封装（业务错误时 hook 已弹 Message，这里返回 null 表示失败）=====
 async function postAction<T = unknown>(url: string, payload: Record<string, any>): Promise<T | null> {
   const request = usePost<T>(url, payload, { immediate: false })
@@ -279,7 +320,14 @@ async function submitFixed() {
 // ===== 缺陷处理：批量标记不处理（open/reopened → wont_fix，可同步白名单）=====
 const wontFixVisible = ref(false)
 const wontFixTargets = ref<ScanIssueRow[]>([])
-const wontFixForm = ref({ reason: '', impact_note: '', sync_whitelist: false, expires_at: '' })
+// reason_code 新增必填字段，reason 文本保持原有必填规则
+const wontFixForm = ref<{
+  reason: string
+  impact_note: string
+  sync_whitelist: boolean
+  expires_at: string
+  reason_code: string
+}>({ reason: '', impact_note: '', sync_whitelist: false, expires_at: '', reason_code: '' })
 const wontFixLoading = ref(false)
 
 function openWontFixModal() {
@@ -289,11 +337,16 @@ function openWontFixModal() {
     return
   }
   wontFixTargets.value = eligible
-  wontFixForm.value = { reason: '', impact_note: '', sync_whitelist: false, expires_at: '' }
+  wontFixForm.value = { reason: '', impact_note: '', sync_whitelist: false, expires_at: '', reason_code: '' }
   wontFixVisible.value = true
 }
 
 async function submitWontFix() {
+  // reason_code 为必选（统计与过滤的依据）
+  if (!wontFixForm.value.reason_code) {
+    Message.warning('请选择不处理原因分类')
+    return
+  }
   if (!wontFixForm.value.reason.trim()) {
     Message.warning('请填写不处理原因')
     return
@@ -308,6 +361,7 @@ async function submitWontFix() {
         impact_note: wontFixForm.value.impact_note,
         sync_whitelist: wontFixForm.value.sync_whitelist,
         expires_at: wontFixForm.value.expires_at || null,
+        reason_code: wontFixForm.value.reason_code,
       }) !== null)
         ok++
     }
@@ -409,19 +463,40 @@ const statusLabels: Record<string, { label: string, color: string }> = {
   verification_failed: { label: '验证失败', color: 'orange' },
 }
 
-const columns = [
-  { title: '缺陷标题', dataIndex: 'title', width: 260, ellipsis: true, tooltip: true },
-  { title: '领域', dataIndex: 'domain', slotName: 'domain', width: 80 },
-  { title: '分类', dataIndex: 'category', width: 110, ellipsis: true, tooltip: true },
-  { title: '风险', dataIndex: 'risk_level', slotName: 'risk', width: 70 },
-  { title: '状态', dataIndex: 'status', slotName: 'status', width: 95 },
-  { title: '负责人', dataIndex: 'assignee', width: 80, ellipsis: true, tooltip: true },
-  { title: '文件', dataIndex: 'file_path', width: 200, ellipsis: true, tooltip: true },
-  { title: '命中', dataIndex: 'hit_count', width: 55 },
-  { title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 150 },
-  { title: '更新时间', dataIndex: 'updated_at', width: 130 },
-  { title: '操作', slotName: 'ops', width: 110, fixed: 'right' as const },
-]
+// 不处理原因列的 Arco filterable 配置，选项来自字典（wontFixReasonOptions 异步加载）
+// 使用 computed 以便字典加载完成后自动更新过滤选项
+const wontFixReasonFilters = computed(() =>
+  wontFixReasonOptions.value.map(opt => ({ text: opt.label, value: opt.value })),
+)
+
+const columns = computed(() => [
+  { title: '缺陷标题', dataIndex: 'title', width: 240, ellipsis: true, tooltip: true },
+  { title: '领域', dataIndex: 'domain', slotName: 'domain', width: 70 },
+  { title: '分类', dataIndex: 'category', width: 100, ellipsis: true, tooltip: true },
+  { title: '风险', dataIndex: 'risk_level', slotName: 'risk', width: 65 },
+  { title: '状态', dataIndex: 'status', slotName: 'status', width: 90 },
+  { title: '负责人', dataIndex: 'assignee', width: 75, ellipsis: true, tooltip: true },
+  { title: '文件', dataIndex: 'file_path', width: 180, ellipsis: true, tooltip: true },
+  { title: '命中', dataIndex: 'hit_count', width: 50 },
+  { title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 140 },
+  { title: '更新时间', dataIndex: 'updated_at', width: 115 },
+  // 不处理原因列：宽度 130，支持后端过滤，选项来自字典
+  // filter 走后端（@filter-change → queryParams.wont_fix_reason_code），本地 filter 函数
+  // 固定返回 true，不做客户端行筛选，仅作为 Arco 的必填字段占位。
+  {
+    title: '不处理原因',
+    dataIndex: 'wont_fix_reason_code',
+    slotName: 'wontFixReason',
+    width: 130,
+    filterable: {
+      filters: wontFixReasonFilters.value,
+      multiple: false,
+      // Arco TableFilterable.filter 为必填字段；本页走后端过滤，此处返回 true 不做本地筛选
+      filter: () => true,
+    },
+  },
+  { title: '操作', slotName: 'ops', width: 105, fixed: 'right' as const },
+])
 
 onMounted(() => {
   void loadRuleStats()
@@ -574,6 +649,7 @@ function shortSha(sha: string | null | undefined): string {
         @page-change="onPageChange"
         @page-size-change="onPageSizeChange"
         @selection-change="handleSelectionChange"
+            @filter-change="onWontFixReasonFilter"
       >
         <template #domain="{ record }">
           <a-tag :color="domainLabels[record.domain]?.color ?? 'gray'" size="small">
@@ -602,6 +678,13 @@ function shortSha(sha: string | null | undefined): string {
               >
                 <span>{{ formatTime(record.introduced_at) }}</span>
               </a-tooltip>
+            </template>
+            <!-- 不处理原因列：展示字典 label，为空显示占位符，null 不渲染 -->
+            <template #wontFixReason="{ record }">
+              <span v-if="record.wont_fix_reason_code">
+                {{ wontFixReasonLabelMap[record.wont_fix_reason_code] ?? record.wont_fix_reason_code }}
+              </span>
+              <span v-else class="text-muted">-</span>
             </template>
         <template #ops="{ record }">
           <a-space>
@@ -636,6 +719,22 @@ function shortSha(sha: string | null | undefined): string {
         <a-alert type="warning" class="m-b-12px">
           将对 {{ wontFixTargets.length }} 条「打开/重新打开」的缺陷统一标记为不处理
         </a-alert>
+        <!-- 不处理原因分类（必选，后续统计与过滤的依据） -->
+        <a-form-item label="原因分类" required>
+          <a-select
+            v-model="wontFixForm.reason_code"
+            placeholder="请选择原因分类（必选）"
+            allow-clear
+          >
+            <a-option
+              v-for="opt in wontFixReasonOptions"
+              :key="opt.value"
+              :value="opt.value"
+            >
+              {{ opt.label }}
+            </a-option>
+          </a-select>
+        </a-form-item>
         <a-form-item label="不处理原因" required>
           <a-textarea v-model="wontFixForm.reason" placeholder="如：测试环境专用配置，生产不启用" :max-length="200" show-word-limit />
         </a-form-item>
