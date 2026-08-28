@@ -780,6 +780,36 @@ async function loadCandidates() {
   }
 }
 
+// ===== AI 确认按钮禁用逻辑 =====
+// 只有当前运行存在且状态为 succeeded 时才允许触发 AI 确认；
+// preparing/running 表示预扫描尚未完成，没有可确认的候选；
+// failed/skipped 表示本次扫描无有效结果，同样不允许触发。
+const aiConfirmDisabled = computed(() => {
+  if (!currentRunId.value)
+    return true
+  const status = prescanStatus.value?.status
+  return status !== 'succeeded'
+})
+
+const aiConfirmTooltip = computed(() => {
+  if (!currentRunId.value)
+    return '请先选择扫描运行'
+  const status = prescanStatus.value?.status
+  if (status === 'preparing' || status === 'running') {
+    return '预扫描尚未完成，完成后才能触发 AI 确认'
+  }
+  if (status === 'failed') {
+    return '该批次扫描失败，无有效候选，无法触发 AI 确认'
+  }
+  if (status === 'skipped') {
+    return '该批次已跳过（代码或规则未变更），无有效候选，无法触发 AI 确认'
+  }
+  if (status !== 'succeeded') {
+    return '预扫描尚未完成，完成后才能触发 AI 确认'
+  }
+  return ''
+})
+
 // ===== AI 确认（平台编排 batch / Agent 自主 agent）=====
 const aiConfirming = ref(false)
 const aiMode = ref<'batch' | 'agent'>('batch')
@@ -1100,14 +1130,23 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
           <template #icon><icon-play-arrow /></template>
           预扫描
         </a-button>
-        <a-button :loading="aiConfirming" :disabled="!currentRunId" @click="triggerAiConfirm">
-          <template #icon><icon-robot /></template>
-          AI 全量确认
-        </a-button>
-        <a-button :disabled="!currentRunId" @click="openCompare">
+        <!-- AI 确认：仅 succeeded 状态才可触发；未完成/失败/跳过时 tooltip 说明原因 -->
+        <a-tooltip :content="aiConfirmTooltip" :disabled="!aiConfirmDisabled">
+          <a-button
+            type="primary"
+            status="success"
+            :loading="aiConfirming"
+            :disabled="aiConfirmDisabled"
+            @click="triggerAiConfirm"
+          >
+            <template #icon><icon-robot /></template>
+            AI 全量确认
+          </a-button>
+        </a-tooltip>
+        <a-button type="outline" :disabled="!currentRunId" @click="openCompare">
           效果对比
         </a-button>
-        <a-button :disabled="!selectedRepoId" @click="openCrossCompare">
+        <a-button type="outline" :disabled="!selectedRepoId" @click="openCrossCompare">
           横评对比
         </a-button>
         <a-tag v-if="prescanStatus" :color="runStatusLabels[prescanStatus.status]?.color ?? 'gray'">

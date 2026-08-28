@@ -724,6 +724,8 @@ export interface CandidateDetailRow {
   introduced_at?: string | null
   /** 引入者 git 作者名，非 git 仓库或未跟踪文件为 null */
   introduced_author?: string | null
+  /** 不修复原因代码（后端新增字段），如 accepted_risk / false_positive 等 */
+  wont_fix_reason_code?: string | null
 }
 
 export interface CandidateDetailPage {
@@ -800,6 +802,8 @@ export interface ScanIssueRow {
   introduced_at?: string | null
   /** 引入者 git 作者名，非 git 仓库或未跟踪文件为 null */
   introduced_author?: string | null
+  /** 不修复原因代码（后端新增字段），如 accepted_risk / false_positive 等 */
+  wont_fix_reason_code?: string | null
 }
 
 export interface ScanIssuePage {
@@ -930,6 +934,8 @@ export interface CrossRunAggRow {
   ai_exec_pending?: number | null
   /** 正在跑：已拿到槽位，CLI 执行中 */
   ai_exec_running?: number | null
+  /** 当前排队中或执行中的 AI 执行请求所用模型（逗号拼接），结果回写前候选 ai_model 为空时展示 */
+  ai_pending_model?: string | null
 }
 
 // ── 仓库 Commit 相关类型 ────────────────────────────

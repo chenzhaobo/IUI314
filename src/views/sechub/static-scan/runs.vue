@@ -113,10 +113,15 @@ function viewErrors(row: CrossRunAggRow) {
 /**
  * 模型列文案：
  * - ai_model 非空直接展示（可能是逗号分隔的多模型聚合值）
- * - 为空时展示"待AI确认"（该 run 尚未经 AI 处理）
+ * - ai_model 为空但 ai_pending_model 有值：加「（进行中）」后缀，让用户知道模型已生效只是还没回写结果
+ * - 两者都空时返回空字符串（模板层展示占位符）
  */
-function modelLabel(row: CrossRunAggRow): string {
-  return row.ai_model?.trim() || '待AI确认'
+function modelLabel(row: CrossRunAggRow): { text: string, pending: boolean } {
+  if (row.ai_model?.trim())
+    return { text: row.ai_model.trim(), pending: false }
+  if (row.ai_pending_model?.trim())
+    return { text: `${row.ai_pending_model.trim()}（进行中）`, pending: true }
+  return { text: '', pending: false }
 }
 
 /**
@@ -166,24 +171,49 @@ function confirmTriggered(row: CrossRunAggRow): boolean {
 }
 
 /**
- * 确认状态文案。优先表达「进行到哪一步」，其次才是结果分布——
- * 因为候选在 AI 写回结果前始终是 pending，只看数字无法区分
- * 「从未触发」「已触发在排队」「正在跑」。
+ * 确认状态文案（同时涵盖预扫描阶段与 AI 确认阶段）。
+ * 优先级：
+ *  1. run.status = failed      → 预扫描失败
+ *  2. run.status = skipped     → 已跳过
+ *  3. run.status = preparing   → 准备中
+ *  4. run.status = running     → 预扫描中
+ *  5. succeeded 之后按 AI 执行状态与候选分布判断
  */
 function confirmStateLabel(row: CrossRunAggRow): string {
+  // 预扫描终态或进行态优先
+  const status = row.status
+  if (status === 'failed')
+    return '预扫描失败'
+  if (status === 'skipped')
+    return '已跳过'
+  if (status === 'preparing')
+    return '准备中'
+  if (status === 'running')
+    return '预扫描中'
+  // succeeded 之后进入 AI 确认阶段判定
   const running = row.ai_exec_running ?? 0
   const queued = row.ai_exec_pending ?? 0
   if (running > 0)
-    return queued > 0 ? `执行中 ${running}，排队 ${queued}` : `执行中 ${running}`
+    return `AI执行中 ${running}`
   if (queued > 0)
-    return `排队中 ${queued}`
+    return `AI排队中 ${queued}`
   if (!confirmTriggered(row))
-    return '未触发 AI 确认'
+    return '预扫描完成，待触发AI确认'
   return pendingSubLabel(row.status, row.pending ?? 0, row.error ?? 0, row.review_needed ?? 0)
 }
 
-/** 确认状态颜色：执行中蓝、排队中黄、未触发灰，其余沿用候选结果配色 */
+/** 确认状态颜色：预扫描阶段优先，再按 AI 确认阶段配色 */
 function confirmStateColor(row: CrossRunAggRow): string {
+  const status = row.status
+  if (status === 'failed')
+    return 'red'
+  if (status === 'skipped')
+    return 'gray'
+  if (status === 'preparing')
+    return 'gold'
+  if (status === 'running')
+    return 'blue'
+  // succeeded 之后
   if ((row.ai_exec_running ?? 0) > 0)
     return 'blue'
   if ((row.ai_exec_pending ?? 0) > 0)
@@ -196,6 +226,25 @@ function confirmStateColor(row: CrossRunAggRow): string {
 /** 确认状态 tooltip：把执行阶段与候选分布一起说清楚 */
 function confirmStateTooltip(row: CrossRunAggRow): string {
   const lines: string[] = []
+  const status = row.status
+  // 预扫描阶段直接说明，不展示候选分布
+  if (status === 'failed') {
+    lines.push('预扫描执行失败，未产生候选数据。')
+    return lines.join('\n')
+  }
+  if (status === 'skipped') {
+    lines.push('代码与规则未变更，未重复扫描，复用既有结果。')
+    return lines.join('\n')
+  }
+  if (status === 'preparing') {
+    lines.push('正在准备：拉取代码、建文件清单、加载规则。')
+    return lines.join('\n')
+  }
+  if (status === 'running') {
+    lines.push('预扫描正在进行中，完成后方可触发 AI 确认。')
+    return lines.join('\n')
+  }
+  // succeeded 之后展示 AI 确认阶段详情
   const running = row.ai_exec_running ?? 0
   const queued = row.ai_exec_pending ?? 0
   if (!confirmTriggered(row)) {
@@ -297,7 +346,7 @@ async function doDeleteRun(row: CrossRunAggRow): Promise<void> {
 // ===== 标签映射 =====
 const modeLabels: Record<string, { label: string, color: string }> = {
   batch: { label: '平台编排', color: 'blue' },
-  agent: { label: 'Agent', color: 'purple' },
+  agent: { label: '自主审计', color: 'purple' },
 }
 
 /**
@@ -333,7 +382,7 @@ const crossColumns = [
   { title: '确认问题', dataIndex: 'confirmed', width: 80 },
   { title: '已排除', dataIndex: 'rejected', width: 75 },
   { title: '错误', dataIndex: 'error', width: 60 },
-  { title: '待确认', dataIndex: 'pending', slotName: 'crPending', width: 150 },
+  { title: '状态', dataIndex: 'pending', slotName: 'crPending', width: 190 },
   { title: '高风险', dataIndex: 'risk_high', width: 70 },
   { title: '中风险', dataIndex: 'risk_medium', width: 70 },
   { title: '低风险', dataIndex: 'risk_low', width: 70 },
@@ -395,12 +444,16 @@ const crossColumns = [
           <span v-else class="text-placeholder">-</span>
         </template>
 
-        <!-- 模型列：ai_model 非空直接展示（可能是逗号聚合的多模型）；为空展示"待AI确认" -->
+        <!-- 模型列：ai_model 非空直接展示；为空但 ai_pending_model 有值时展示进行中模型；两者都空展示占位符 -->
         <template #crModel="{ record }">
-          <a-tooltip v-if="record.ai_model?.trim()" :content="record.ai_model" position="top">
-            <span class="model-name">{{ modelLabel(record) }}</span>
-          </a-tooltip>
-          <span v-else class="text-placeholder">{{ modelLabel(record) }}</span>
+          <template v-if="modelLabel(record).text">
+            <a-tooltip :content="record.ai_model ?? record.ai_pending_model ?? ''" position="top">
+              <span :class="modelLabel(record).pending ? 'model-name model-pending' : 'model-name'">
+                {{ modelLabel(record).text }}
+              </span>
+            </a-tooltip>
+          </template>
+          <span v-else class="text-placeholder">-</span>
         </template>
 
         <!-- 确认进度列 -->
@@ -408,15 +461,20 @@ const crossColumns = [
           <span :class="{ 'progress-done': progressDone(record) }">{{ progressLabel(record) }}</span>
         </template>
 
-        <!-- 模式列 -->
+        <!-- 模式列：ai_mode 可能是逗号拼接的多值（如 "batch,agent"），拆分后逐个映射中文，用顿号连接 -->
         <template #crMode="{ record }">
-          <a-tag
-            v-if="record.ai_mode?.trim()"
-            :color="modeLabels[record.ai_mode]?.color ?? 'gray'"
-            size="small"
-          >
-            {{ modeLabels[record.ai_mode]?.label ?? record.ai_mode }}
-          </a-tag>
+          <template v-if="record.ai_mode?.trim()">
+            <a-space :size="2" wrap>
+              <a-tag
+                v-for="code in record.ai_mode.split(',').map((s: string) => s.trim()).filter(Boolean)"
+                :key="code"
+                :color="modeLabels[code]?.color ?? 'gray'"
+                size="small"
+              >
+                {{ modeLabels[code]?.label ?? code }}
+              </a-tag>
+            </a-space>
+          </template>
           <span v-else class="text-placeholder">-</span>
         </template>
 
@@ -500,6 +558,7 @@ const crossColumns = [
 .selector-label { color: var(--color-text-2); }
 .card-sub { margin-left: 12px; color: var(--color-text-3); font-weight: normal; font-size: 12px; }
 .model-name { font-weight: 500; }
+.model-pending { color: var(--color-text-3); font-style: italic; }
 .progress-done { color: rgb(var(--green-6)); font-weight: 500; }
 .branch-name { font-family: var(--font-mono, monospace); font-size: 12px; color: var(--color-text-2); }
 .commit-sha { font-family: var(--font-mono, monospace); font-size: 12px; cursor: default; }

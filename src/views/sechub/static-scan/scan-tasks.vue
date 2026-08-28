@@ -130,12 +130,6 @@ const modalLoading = ref(false)
 
 /** 搜索词过滤仓库选项 */
 const repoSearchKeyword = ref('')
-const filteredRepoOptions = computed(() => {
-  const kw = repoSearchKeyword.value.trim().toLowerCase()
-  if (!kw)
-    return repoOptions.value
-  return repoOptions.value.filter(o => o.label.toLowerCase().includes(kw))
-})
 
 /** cron 基础格式校验：按空格分段必须是 6 段，且非空 */
 function validateCron(expr: string): boolean {
@@ -173,6 +167,45 @@ const form = reactive<{
   ai_model: '',
   ai_agent_code: '',
   status: true,
+})
+
+/**
+ * 对找不到名称的仓库 id，显示可读的降级文案，避免直接暴露裸十六进制。
+ * 例如：未知仓库（a6c55651…）
+ */
+function unknownRepoLabel(id: string): string {
+  return `未知仓库（${id.slice(0, 8)}…）`
+}
+
+/**
+ * 已选中的仓库选项（始终保留在候选列表里）。
+ * 对 repoOptions 里找不到的 id（例如仓库已被删除），构造降级文案选项，
+ * 避免 Arco 回退显示裸十六进制 value。
+ */
+const selectedRepoOptions = computed(() => {
+  const ids = form.repository_ids
+  if (ids.length === 0)
+    return []
+  return ids.map((id) => {
+    const found = repoOptions.value.find(o => o.value === id)
+    return found ?? { value: id, label: unknownRepoLabel(id) }
+  })
+})
+
+/**
+ * 最终呈现给 a-select 的候选列表：
+ * 把已选中的项与关键字过滤结果合并去重，确保搜索时已选项的中文名不丢失。
+ * 参考同目录 repositories.vue 中 moduleSelectOptions 的做法。
+ */
+const filteredRepoOptions = computed(() => {
+  const kw = repoSearchKeyword.value.trim().toLowerCase()
+  const filtered = kw
+    ? repoOptions.value.filter(o => o.label.toLowerCase().includes(kw))
+    : repoOptions.value
+  // 将已选中但不在过滤结果里的项补充到列表头部
+  const filteredSet = new Set(filtered.map(o => o.value))
+  const extras = selectedRepoOptions.value.filter(o => !filteredSet.has(o.value))
+  return [...extras, ...filtered]
 })
 
 /**
@@ -321,8 +354,9 @@ async function handleSave() {
 // ═══════════════════════════════════════════════════════════
 //  删除
 // ═══════════════════════════════════════════════════════════
+const deletingId = ref('')
 const deletePayload = ref<PrescanTaskIdPayload>({ id: '' })
-const { execute: execDelete, error: deleteError } = usePost(
+const { execute: execDelete, data: deleteData, error: deleteError } = usePost<string>(
   ApiSecPrescan.taskDelete,
   deletePayload,
   { immediate: false },
@@ -330,19 +364,29 @@ const { execute: execDelete, error: deleteError } = usePost(
 
 function handleDelete(record: PrescanTaskRow) {
   Modal.warning({
-    title: '确认删除',
-    content: `确定要删除任务「${record.name}」吗？此操作不可恢复。`,
+    title: '确认删除定时扫描任务',
+    content: `确定要删除任务「${record.name}」吗？\n\n`
+      + `删除后该任务及其执行记录将被移除，不会影响扫描运行那边的数据（预扫描运行、候选列表与报告均保留）。此操作不可恢复。`,
     hideCancel: false,
     okText: '删除',
+    okButtonProps: { status: 'danger' },
     onOk: async () => {
-      deletePayload.value = { id: record.id }
-      await execDelete()
-      if (deleteError.value) {
-        Message.error('删除失败')
-        return
+      deletingId.value = record.id
+      try {
+        deletePayload.value = { id: record.id }
+        await execDelete()
+        if (deleteError.value) {
+          Message.error(`删除失败：${(deleteError.value as any)?.message ?? deleteError.value}`)
+          return
+        }
+        // 后端 delete_task 软删，返回被删除的任务 id 字符串
+        const msg = deleteData.value ? String(deleteData.value) : '任务已删除'
+        Message.success(msg.includes(record.id) ? `任务「${record.name}」已删除` : msg)
+        await loadList()
       }
-      Message.success('任务已删除')
-      await loadList()
+      finally {
+        deletingId.value = ''
+      }
     },
   })
 }
@@ -661,6 +705,7 @@ const columns = [
               type="text"
               size="small"
               status="danger"
+              :loading="deletingId === record.id"
               @click="handleDelete(record)"
             >
               删除
