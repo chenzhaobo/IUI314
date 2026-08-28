@@ -403,6 +403,10 @@ async function retryCandidate(row: CandidateDetailRow) {
     const payload: Record<string, any> = { candidate_id: row.id }
     if (currentRun.value?.ai_model?.trim())
       payload.model = currentRun.value.ai_model.trim()
+    // 保持该轮次原本的模式（多模式聚合时不传，由后端推断）
+    const modes = (currentRun.value?.ai_mode ?? '').split(',').map(m => m.trim()).filter(Boolean)
+    if (modes.length === 1)
+      payload.mode = modes[0]
     const resp = await postAction<{ message?: string }>(ApiSecPrescan.retryCandidate, payload)
     if (resp) {
       Message.success(resp.message || '已提交重扫并加入队列，消费者每 5 秒领取一次')

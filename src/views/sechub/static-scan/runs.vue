@@ -265,6 +265,11 @@ async function bulkRetry() {
           const models = (row.ai_model ?? '').split(',').map(m => m.trim()).filter(Boolean)
           if (models.length === 1)
             payload.model = models[0]
+          // 传原本的模式，避免把 Agent 自主审计的运行重扫成平台编排
+          // （聚合出多种模式时不传，由后端推断）
+          const modes = (row.ai_mode ?? '').split(',').map(m => m.trim()).filter(Boolean)
+          if (modes.length === 1)
+            payload.mode = modes[0]
           const resp = await postAction<{ message?: string }>(ApiSecPrescan.retryErrors, payload)
           if (resp)
             ok += 1
@@ -484,6 +489,10 @@ async function retryErrors(row: CrossRunAggRow) {
     const models = (row.ai_model ?? '').split(',').map(m => m.trim()).filter(Boolean)
     if (models.length === 1)
       payload.model = models[0]
+    // 保持原模式（聚合出多种时交给后端推断）
+    const modes = (row.ai_mode ?? '').split(',').map(m => m.trim()).filter(Boolean)
+    if (modes.length === 1)
+      payload.mode = modes[0]
     const resp = await postAction<{ message?: string }>(ApiSecPrescan.retryErrors, payload)
     if (resp) {
       Message.success(resp.message || '已提交重扫，正在后台重新确认')
