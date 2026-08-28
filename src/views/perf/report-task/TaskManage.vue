@@ -149,6 +149,29 @@
         <a-form-item label="工作目录（技能目录隔离红线，如 性能分析产出/集团财务）">
           <a-input v-model="form.work_dir" allow-clear placeholder="下载产物/中间文件/报告均落在该目录子文件夹内" />
         </a-form-item>
+        <a-form-item label="归因 Agent">
+          <a-select v-model="form.agent_code" allow-clear placeholder="留空用 kiro-cli">
+            <a-option v-for="a in agents" :key="a.id" :value="a.agent_code">
+              {{ a.agent_name }}（{{ a.agent_code }}）
+            </a-option>
+          </a-select>
+          <template #extra>
+            <span>缺陷归因阶段调用的 AI Agent。kiro 因网络受限不可用时可切到 qoder 系列。</span>
+          </template>
+        </a-form-item>
+        <a-form-item label="归因模型">
+          <a-select
+            v-model="form.model"
+            allow-clear
+            :disabled="!form.agent_code"
+            :placeholder="form.agent_code ? '留空用该 Agent 默认模型' : '请先选择归因 Agent'"
+          >
+            <a-option v-for="name in modelOptions" :key="name" :value="name">{{ name }}</a-option>
+          </a-select>
+          <template #extra>
+            <span>选项取自所选 Agent 的「支持的模型」，可在 AI 中心点「同步模型」从 CLI 刷新。</span>
+          </template>
+        </a-form-item>
         <a-form-item label="启用">
           <a-switch v-model="form.enabled" />
           <span style="margin-left: 8px; color: #86909c; font-size: 12px">停用后定时调度与手动触发均跳过该任务</span>
@@ -236,6 +259,7 @@
 import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { ApiPerfReportTask, ApiPerfCompliance } from '@/api/perfApis'
+import { ApiAiAgent, type AiAgent, type AiListResult } from '@/api/aiApis'
 import { useGet, usePost } from '@/hooks'
 
 defineOptions({ name: 'report-task-manage' })
@@ -267,10 +291,42 @@ const modalVisible = ref(false)
 const isEdit = ref(false)
 const saving = ref(false)
 const editId = ref('')
+// 归因阶段的 Agent 与模型。
+//
+// 原先后端写死 kiro-cli + gpt-5.6-terra（defect_analysis.rs / report_attribution.rs），
+// 生产上 kiro 因网络受限调不通时无法切到 qoder，整条日报链路停在归因阶段。
+const { data: agentData } = useGet<AiListResult<AiAgent>>(
+  ApiAiAgent.getList,
+  { page_num: 1, page_size: 100 },
+  { immediate: true },
+)
+const agents = computed(() => agentData.value?.list || [])
+
+// 模型选项跟随所选 Agent 的 supported_models_json：各 Agent 支持的模型不同
+// （kiro-cli 19 个、qoder 系列 15 个），且随 CLI 升级变化，硬编码追不上。
+const modelOptions = computed<string[]>(() => {
+  const agent = agents.value.find(item => item.agent_code === form.agent_code)
+  if (!agent?.supported_models_json)
+    return []
+  try {
+    const parsed = JSON.parse(agent.supported_models_json)
+    return Array.isArray(parsed) ? parsed.filter((v: unknown): v is string => typeof v === 'string' && v.length > 0) : []
+  }
+  catch {
+    return []
+  }
+})
+
+// 换 Agent 后原模型可能不在新清单里，留着会提交出后端拒绝的值
+watch(() => form.agent_code, () => {
+  if (form.model && !modelOptions.value.includes(form.model))
+    form.model = ''
+})
+
 const form = reactive<any>({
   task_name: '', dimension_type: 'product_domain', dimension_value: undefined, product_line: '星瀚',
   threshold_ms: 3000, daily_limit_per_group: 100, group_top_pct: 80, group_max: 200,
-  run_time: '02:00', yzj_chat_id: '', work_dir: '', enabled: true,
+  run_time: '02:00', yzj_chat_id: '', work_dir: '', agent_code: '', model: '', enabled: true,
 })
 
 const openAddModal = () => {
@@ -288,6 +344,7 @@ const openEditModal = (record: any) => {
     threshold_ms: record.threshold_ms ?? 3000, daily_limit_per_group: record.daily_limit_per_group ?? 100,
     group_top_pct: record.group_top_pct ?? 80, group_max: record.group_max ?? 200,
     run_time: record.run_time || '02:00', yzj_chat_id: record.yzj_chat_id || '', work_dir: record.work_dir || '',
+    agent_code: record.agent_code || '', model: record.model || '',
     enabled: !!record.enabled,
   })
   loadDimValues()
@@ -304,6 +361,7 @@ const buildPayload = (base: any) => ({
   group_top_pct: base.group_top_pct, group_max: base.group_max,
   run_time: base.run_time || '02:00',
   yzj_chat_id: base.yzj_chat_id || undefined, work_dir: base.work_dir || undefined,
+    agent_code: base.agent_code || undefined, model: base.model || undefined,
   enabled: base.enabled,
 })
 
