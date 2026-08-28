@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { computed, ref } from 'vue'
-import { useGet } from '@/hooks'
+import { Message, Modal } from '@arco-design/web-vue'
+import { useGet, usePost } from '@/hooks'
 import { ApiAiExecution, type AiExecution, type AiExecutionStats, type AiListResult } from '@/api/aiApis'
 
 defineOptions({ name: 'ai-execution-log' })
@@ -33,6 +34,79 @@ function handleSearch() {
   fetchList()
 }
 function handlePageChange(page: number) { queryParams.value.page_num = page; fetchList() }
+
+// ── 批量删除（清理等待中的僵尸队列）──────────────────
+const selectedKeys = ref<string[]>([])
+const deleting = ref(false)
+
+/** 删除勾选的记录（后端排除 running，避免删掉正在执行的） */
+async function deleteSelected() {
+  if (selectedKeys.value.length === 0) {
+    Message.warning('请先勾选要删除的记录')
+    return
+  }
+  Modal.warning({
+    title: '确认删除选中的执行记录？',
+    content: `将删除 ${selectedKeys.value.length} 条记录（正在运行的记录会被自动跳过）。此操作不可恢复。`,
+    okText: '确认删除',
+    cancelText: '取消',
+    okButtonProps: { status: 'danger' },
+    onOk: async () => {
+      await doDelete({ ids: selectedKeys.value })
+    },
+  })
+}
+
+/** 按当前查询条件删除所有「等待中」记录（后端强制仅删 pending，需至少一个查询条件） */
+async function deleteAllMatching() {
+  const f = {
+    caller_module: queryParams.value.caller_module,
+    status: queryParams.value.status,
+    start_time: queryParams.value.start_time,
+    end_time: queryParams.value.end_time,
+    agent_id: queryParams.value.agent_id,
+    skill_id: queryParams.value.skill_id,
+  }
+  const hasFilter = Object.values(f).some(v => v && v !== '')
+  if (!hasFilter) {
+    Message.warning('按条件删除需至少设置一个查询条件（如状态=等待中），避免误删全部')
+    return
+  }
+  Modal.warning({
+    title: '确认按当前查询条件删除？',
+    content: '将删除符合当前查询条件的所有「等待中(pending)」记录（其它状态不受影响）。此操作不可恢复。',
+    okText: '确认删除',
+    cancelText: '取消',
+    okButtonProps: { status: 'danger' },
+    onOk: async () => {
+      await doDelete({ filter: f })
+    },
+  })
+}
+
+async function doDelete(payload: Record<string, unknown>) {
+  deleting.value = true
+  try {
+    const { data, execute, error } = usePost<{ deleted: number, message?: string }>(
+      ApiAiExecution.batchDelete,
+      payload,
+      { immediate: false },
+    )
+    await execute()
+    if (error.value) {
+      Message.error('删除失败')
+      return
+    }
+    if (data.value) {
+      Message.success(data.value.message || `已删除 ${data.value.deleted} 条`)
+      selectedKeys.value = []
+      fetchList()
+    }
+  }
+  finally {
+    deleting.value = false
+  }
+}
 
 // ── 详情抽屉 ──────────────────────────────────
 const drawerVisible = ref(false)
@@ -106,6 +180,16 @@ const columns = [
         <a-col :span="4">
           <a-button type="primary" @click="handleSearch">搜索</a-button>
         </a-col>
+        <a-col :span="6">
+          <a-space>
+            <a-button status="danger" :loading="deleting" :disabled="selectedKeys.length === 0" @click="deleteSelected">
+              删除选中{{ selectedKeys.length ? `(${selectedKeys.length})` : '' }}
+            </a-button>
+            <a-button status="danger" :loading="deleting" @click="deleteAllMatching">
+              按条件删除等待中
+            </a-button>
+          </a-space>
+        </a-col>
       </a-row>
     </a-card>
 
@@ -116,6 +200,8 @@ const columns = [
         :data="list"
         :columns="columns"
         row-key="id"
+        v-model:selectedKeys="selectedKeys"
+        :row-selection="{ type: 'checkbox', showCheckedAll: true }"
         :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true }"
         @page-change="handlePageChange"
         :scroll="{ x: 900 }"
