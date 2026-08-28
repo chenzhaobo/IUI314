@@ -885,10 +885,19 @@ async function loadAgentStatus() {
   const progress = await fetchJson<AgentRunProgress>(`${ApiSecPrescan.agentStatus}?run_id=${currentRunId.value}`)
   if (progress) {
     agentProgress.value = progress
-    // 全部处理完毕（无 pending）则停止轮询并刷新看板
+    // 全部处理完毕（无 pending）则停止轮询并刷新看板。
+    // 注意区分「真正审计完成」与「Agent 快速失败被兜底对账全转 review_needed」：
+    // 后者 pending 也会归零，但 confirmed+rejected 为 0、review_needed≈total，
+    // 说明 Agent 实际没跑完（CLI 失败/工具权限/回调不通），不能报「完成」。
     if (progress.pending === 0 && progress.total > 0) {
       stopAgentPolling()
-      Message.success('Agent 自主审计完成')
+      const adjudicated = (progress.confirmed ?? 0) + (progress.rejected ?? 0)
+      if (adjudicated === 0 && (progress.review_needed ?? 0) >= progress.total) {
+        Message.error('Agent 未产出有效结论：候选全部被兜底标记为待复核，通常是 Agent 执行失败（CLI/工具权限/回调不通）。请在扫描运行页查看失败原因或重扫')
+      }
+      else {
+        Message.success('Agent 自主审计完成')
+      }
       await loadDashboardData()
     }
   }
@@ -1156,7 +1165,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
           扫描中...
         </a-typography-text>
         <a-tag v-if="agentProgress" color="purple">
-          Agent 审计 {{ agentProgress.analyzed }}/{{ agentProgress.total }}（确认 {{ agentProgress.confirmed }} / 排除 {{ agentProgress.rejected }} / 待复核 {{ agentProgress.review_needed }}）
+          Agent 审计 {{ (agentProgress.confirmed ?? 0) + (agentProgress.rejected ?? 0) }}/{{ agentProgress.total }}（确认 {{ agentProgress.confirmed }} / 排除 {{ agentProgress.rejected }} / 待复核 {{ agentProgress.review_needed }} / 待处理 {{ agentProgress.pending }}）
         </a-tag>
       </a-space>
     </a-card>

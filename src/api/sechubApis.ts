@@ -260,6 +260,7 @@ export enum ApiSecPrescan {
   aiConfirm = '/sechub/prescan/ai-confirm',
   retryErrors = '/sechub/prescan/retry-errors',
   retryCandidate = '/sechub/prescan/retry-candidate',
+  blameCompensate = '/sechub/prescan/blame-compensate',
   agentStatus = '/sechub/prescan/agent-status',
   confirmCompare = '/sechub/prescan/confirm-compare',
   crossRunCompare = '/sechub/prescan/cross-run-compare',

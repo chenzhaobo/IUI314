@@ -17,6 +17,39 @@ const { data: repoList } = useGet<ModuleWithRepository[]>(ApiSecModuleRepository
 const repositories = computed(() => repoList.value ?? [])
 const selectedRepoId = ref('')
 
+// ===== 项目组、状态查询字段（客户端过滤，数据源已含 project_group_id）=====
+const selectedProjectGroupId = ref('')
+const selectedStatus = ref('')
+
+// 项目组下拉选项：从仓库列表去重聚合
+const projectGroups = computed(() => {
+  const map = new Map<string, string>()
+  for (const r of repositories.value) {
+    if (r.project_group_id)
+      map.set(r.project_group_id, r.project_group_name || r.project_group_id)
+  }
+  return Array.from(map, ([id, name]) => ({ id, name }))
+})
+
+// repository_id → project_group_id 映射，供运行行按项目组过滤
+const repoToGroup = computed(() => {
+  const map = new Map<string, string>()
+  for (const r of repositories.value) {
+    if (r.repository_id)
+      map.set(r.repository_id, r.project_group_id ?? '')
+  }
+  return map
+})
+
+// 运行状态下拉选项（与 sec_prescan_run.status 取值一致）
+const statusOptions = [
+  { value: 'preparing', label: '准备中' },
+  { value: 'running', label: '预扫描中' },
+  { value: 'succeeded', label: '预扫描完成' },
+  { value: 'failed', label: '失败' },
+  { value: 'skipped', label: '已跳过' },
+]
+
 async function fetchJson<T>(url: string): Promise<T | null> {
   const { data, execute } = useGet<T>(url, {}, { immediate: false })
   await execute()
@@ -39,6 +72,14 @@ const crossTableRows = computed(() => crossRows.value.map(row => ({
   ...row,
   key: row.run_id,
 })))
+// 应用「项目组」「状态」查询字段做客户端过滤（应用维度已由后端 repository_id 过滤）
+const filteredCrossRows = computed(() => crossTableRows.value.filter((row) => {
+  if (selectedProjectGroupId.value && repoToGroup.value.get(row.repository_id) !== selectedProjectGroupId.value)
+    return false
+  if (selectedStatus.value && row.status !== selectedStatus.value)
+    return false
+  return true
+}))
 const crossLoading = ref(false)
 
 async function loadCrossRows(silent = false) {
@@ -412,6 +453,29 @@ const crossColumns = [
             {{ repo.module_name }}（{{ repo.repository_name }}）
           </a-option>
         </a-select>
+        <span class="selector-label">项目组</span>
+        <a-select
+          v-model="selectedProjectGroupId"
+          allow-search
+          allow-clear
+          placeholder="全部项目组"
+          style="width: 220px"
+        >
+          <a-option v-for="pg in projectGroups" :key="pg.id" :value="pg.id">
+            {{ pg.name }}
+          </a-option>
+        </a-select>
+        <span class="selector-label">状态</span>
+        <a-select
+          v-model="selectedStatus"
+          allow-clear
+          placeholder="全部状态"
+          style="width: 150px"
+        >
+          <a-option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </a-option>
+        </a-select>
         <a-button type="primary" @click="onSearch">
           查询
         </a-button>
@@ -426,7 +490,7 @@ const crossColumns = [
       </template>
       <a-table
         :loading="crossLoading"
-        :data="crossTableRows"
+        :data="filteredCrossRows"
         :columns="crossColumns"
         :pagination="false"
         row-key="key"

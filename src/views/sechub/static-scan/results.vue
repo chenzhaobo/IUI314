@@ -133,6 +133,29 @@ function onSearch() {
   }
 }
 
+// ===== 一键补偿引入时间 =====
+const compensating = ref(false)
+async function compensateBlame() {
+  if (!currentRun.value) {
+    Message.warning('请先选择扫描轮次')
+    return
+  }
+  compensating.value = true
+  try {
+    const resp = await postAction<{ scanned: number, filled: number, message?: string }>(
+      ApiSecPrescan.blameCompensate,
+      { run_id: currentRun.value.run_id },
+    )
+    if (resp) {
+      Message.success(resp.message || `引入时间补偿完成：缺失 ${resp.scanned} 条，成功填充 ${resp.filled} 条`)
+      void loadCandidates()
+    }
+  }
+  finally {
+    compensating.value = false
+  }
+}
+
 function onRoundChange(value: string | number | boolean | Record<string, unknown> | (string | number | boolean | Record<string, unknown>)[]) {
   if (typeof value !== 'string' && typeof value !== 'number')
     return
@@ -298,6 +321,8 @@ const pageSize = 20
 const statusFilter = ref('')
 const domainFilter = ref('')
 const scanPointFilter = ref('')
+// 引入时间过滤：[from, to]，格式 'YYYY-MM-DD'，由 range-picker 绑定
+const introducedRange = ref<string[]>([])
 
 async function loadCandidates(silent = false) {
   if (!currentRun.value) {
@@ -322,6 +347,10 @@ async function loadCandidates(silent = false) {
       params.set('ai_status', statusFilter.value)
     if (domainFilter.value)
       params.set('domain', domainFilter.value)
+    if (introducedRange.value?.[0])
+      params.set('introduced_from', introducedRange.value[0])
+    if (introducedRange.value?.[1])
+      params.set('introduced_to', introducedRange.value[1])
     candidatePage.value = await fetchJson<CandidateDetailPage>(`${ApiSecPrescan.candidates}?${params.toString()}`)
   }
   finally {
@@ -613,8 +642,18 @@ watch(() => route.query, (newQ, oldQ) => {
           <a-option value="security">安全</a-option>
           <a-option value="performance">性能</a-option>
         </a-select>
+        <span class="selector-label">引入时间</span>
+        <a-range-picker
+          v-model="introducedRange"
+          style="width: 260px"
+          value-format="YYYY-MM-DD"
+          @change="onFilterChange"
+        />
         <a-button type="primary" @click="onSearch">
           查询
+        </a-button>
+        <a-button :loading="compensating" :disabled="!currentRun" @click="compensateBlame">
+          一键补偿引入时间
         </a-button>
       </a-space>
     </a-card>
