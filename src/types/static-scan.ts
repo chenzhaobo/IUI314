@@ -936,6 +936,8 @@ export interface CrossRunAggRow {
   ai_exec_running?: number | null
   /** 当前排队中或执行中的 AI 执行请求所用模型（逗号拼接），结果回写前候选 ai_model 为空时展示 */
   ai_pending_model?: string | null
+  /** 失败原因（status='failed' 时非空）；之前只入库不返回，现补出用于前端直接展示 */
+  error_message?: string | null
 }
 
 // ── 仓库 Commit 相关类型 ────────────────────────────

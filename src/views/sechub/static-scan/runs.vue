@@ -230,6 +230,8 @@ function confirmStateTooltip(row: CrossRunAggRow): string {
   // 预扫描阶段直接说明，不展示候选分布
   if (status === 'failed') {
     lines.push('预扫描执行失败，未产生候选数据。')
+    if (row.error_message?.trim())
+      lines.push(`失败原因：${row.error_message.trim()}`)
     return lines.join('\n')
   }
   if (status === 'skipped') {
