@@ -280,6 +280,7 @@ export enum ApiSecPrescan {
   taskDelete = '/sechub/prescan/task-delete',
   taskTrigger = '/sechub/prescan/task-trigger',
   taskRecords = '/sechub/prescan/task-records',
+  runDelete = '/sechub/prescan/run-delete',
 }
 
 // ── 反编译源码库（外网标品包源码，供性能分析与 local-test 扫描） ──
