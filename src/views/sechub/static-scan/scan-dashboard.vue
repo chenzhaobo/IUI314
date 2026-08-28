@@ -1445,13 +1445,16 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
           </a-space>
         </a-form-item>
         <a-form-item label="目标 Commit（可选，留空则使用分支最新提交）">
-          <!-- commit 下拉：支持搜索 + 手工输入不在列表中的 sha，保留 7~40 位 hex 校验 -->
+          <!-- commit 下拉：支持搜索 + 手工输入不在列表中的 sha，保留 7~40 位 hex 校验。
+               allow-clear 允许清空回「使用分支最新提交」语义；清空后 prescanCommit 为空串，
+               doPrescanConfirm 中 prescanCommit.value || undefined 会转成 undefined，后端取分支最新 commit。 -->
           <a-select
             v-model="prescanCommit"
             :loading="loadingCommits"
-            placeholder="选择或输入 Commit SHA"
+            placeholder="留空则使用分支最新提交"
             allow-search
             allow-create
+            allow-clear
             style="width: 100%"
           >
             <a-option v-for="c in prescanCommits" :key="c.sha" :value="c.sha">
@@ -1467,7 +1470,10 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
           </a-radio-group>
         </a-form-item>
         <a-form-item v-if="scanScope === 'diff_commit'" label="基准 Commit SHA">
-          <!-- 差量基准 commit：同样支持下拉选同分支 commit，保留手工输入与 7~40 位 hex 校验 -->
+          <!-- 差量基准 commit：支持下拉选同分支 commit，保留手工输入与 7~40 位 hex 校验。
+               allow-clear 允许清空；disabled 联动：仅 scanScope === 'diff_commit' 时可操作，
+               其他 scope 时此 form-item 整体隐藏（v-if），不破坏 disabled 联动逻辑。
+               清空后 baseCommitInput 为空串，doPrescanConfirm 中 diff_commit 分支要求非空会提示用户。 -->
           <a-select
             v-model="baseCommitInput"
             :disabled="scanScope !== 'diff_commit'"
@@ -1475,6 +1481,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
             placeholder="选择或输入基准 7~40 位 hex commit SHA"
             allow-search
             allow-create
+            allow-clear
             style="width: 100%"
           >
             <a-option v-for="c in baseCommits" :key="c.sha" :value="c.sha">
