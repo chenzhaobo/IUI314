@@ -8,6 +8,27 @@ import defaultAvatar from '@/assets/av.webp'
 import { useEncrypt, useGet, usePost, usePut } from '@/hooks'
 import type { FullUserInfo, KdLoginReq, LoginForm, LoginFormLocal, TokenInfo } from '@/types/base/login'
 
+/**
+ * 解析头像地址。
+ *
+ * 库里的 avatar 有两种形态，不能一律拼前缀：
+ *   本地上传   /upload/2022-03/10-xxx.jpg                        需要拼 API 前缀
+ *   扫码登录   https://static.yunzhijia.com/space/c/photo/load?id=…  已是绝对 URL
+ *
+ * 原先无条件 `VITE_API_BASE_URL + avatar`，绝对 URL 会被拼成
+ * `apihttps://static.yunzhijia.com/…`，浏览器报 net::ERR_UNKNOWN_URL_SCHEME
+ * （生产实测，扫码登录的用户头像必然裂图）。
+ */
+function resolveAvatar(avatar?: string | null): string {
+  const value = avatar?.trim()
+  if (!value)
+    return defaultAvatar
+  // 绝对 URL 与协议相对 URL 都直接用
+  if (/^(https?:)?\/\//i.test(value) || value.startsWith('data:'))
+    return value
+  return (import.meta.env.VITE_API_BASE_URL || '') + value
+}
+
 export const useUserStore = defineStore('userInfo', {
   state: () => ({
     token: {
@@ -128,10 +149,7 @@ export const useUserStore = defineStore('userInfo', {
           name: user.user.user_name,
           // nickname = 展示名（扫码用户取金蝶昵称，如"陈钊波"）；缺失时回落到账号
           nickname: user.user.user_nickname || user.user.user_name,
-          avatar:
-            user.user.avatar === '' || user.user.avatar == null
-              ? defaultAvatar
-              : import.meta.env.VITE_API_BASE_URL + user.user.avatar,
+          avatar: resolveAvatar(user.user.avatar),
           roles: user.roles,
           role: user.user.role_id,
           depts: user.depts,
