@@ -64,7 +64,12 @@ function schedulePollIfNeeded() {
     clearTimeout(pollTimer.value)
     pollTimer.value = null
   }
-  if (crossRows.value.some(r => (r.pending ?? 0) > 0))
+  // 除了「还有待确认候选」，只要有批次在排队或执行中也要继续轮询，
+  // 否则「排队中 → 执行中 → 完成」的阶段变化不会自动回显。
+  const active = crossRows.value.some(r =>
+    (r.pending ?? 0) > 0 || (r.ai_exec_pending ?? 0) > 0 || (r.ai_exec_running ?? 0) > 0,
+  )
+  if (active)
     pollTimer.value = setTimeout(() => void loadCrossRows(true), 5000)
 }
 onUnmounted(() => {
@@ -144,6 +149,68 @@ function pendingTagColor(row: CrossRunAggRow): string {
     return 'blue'
   // 全部完成时参考 run 本身状态
   return runStatusLabels[row.status]?.color ?? 'green'
+}
+
+/**
+ * 该 run 是否已经触发过 AI 确认。
+ *
+ * 两个依据取其一即可：
+ * - 有关联的 AI 执行记录（本次改动起 batch/agent 的 caller_id 都是 run_id）
+ * - 或候选里已经出现过任何 AI 结论（历史 run 的执行记录挂在 rule_version_id 上，查不到）
+ */
+function confirmTriggered(row: CrossRunAggRow): boolean {
+  if ((row.ai_exec_total ?? 0) > 0)
+    return true
+  return (row.confirmed ?? 0) > 0 || (row.rejected ?? 0) > 0
+    || (row.error ?? 0) > 0 || (row.review_needed ?? 0) > 0
+}
+
+/**
+ * 确认状态文案。优先表达「进行到哪一步」，其次才是结果分布——
+ * 因为候选在 AI 写回结果前始终是 pending，只看数字无法区分
+ * 「从未触发」「已触发在排队」「正在跑」。
+ */
+function confirmStateLabel(row: CrossRunAggRow): string {
+  const running = row.ai_exec_running ?? 0
+  const queued = row.ai_exec_pending ?? 0
+  if (running > 0)
+    return queued > 0 ? `执行中 ${running}，排队 ${queued}` : `执行中 ${running}`
+  if (queued > 0)
+    return `排队中 ${queued}`
+  if (!confirmTriggered(row))
+    return '未触发 AI 确认'
+  return pendingSubLabel(row.status, row.pending ?? 0, row.error ?? 0, row.review_needed ?? 0)
+}
+
+/** 确认状态颜色：执行中蓝、排队中黄、未触发灰，其余沿用候选结果配色 */
+function confirmStateColor(row: CrossRunAggRow): string {
+  if ((row.ai_exec_running ?? 0) > 0)
+    return 'blue'
+  if ((row.ai_exec_pending ?? 0) > 0)
+    return 'gold'
+  if (!confirmTriggered(row))
+    return 'gray'
+  return pendingTagColor(row)
+}
+
+/** 确认状态 tooltip：把执行阶段与候选分布一起说清楚 */
+function confirmStateTooltip(row: CrossRunAggRow): string {
+  const lines: string[] = []
+  const running = row.ai_exec_running ?? 0
+  const queued = row.ai_exec_pending ?? 0
+  if (!confirmTriggered(row)) {
+    lines.push('尚未触发 AI 确认。可在扫描看板选中该运行后点「AI 确认」。')
+  }
+  else {
+    if (queued > 0)
+      lines.push(`${queued} 个批次在排队（等后端 AI 并发槽位，全局上限 5）`)
+    if (running > 0)
+      lines.push(`${running} 个批次正在执行（单批超时见平台配置，默认 600 秒）`)
+    if (queued === 0 && running === 0)
+      lines.push('没有正在进行的 AI 批次')
+  }
+  lines.push(pendingTooltip(row.pending ?? 0, row.error ?? 0, row.review_needed ?? 0))
+  return lines.join('\n')
 }
 
 // ===== 一键重扫错误候选（整个轮次）=====
@@ -312,14 +379,11 @@ const crossColumns = [
           {{ record.avg_confidence != null ? Number(record.avg_confidence).toFixed(2) : '-' }}
         </template>
 
-        <!-- 待确认列：颜色区分 error / review_needed / pending / 已完成 -->
+        <!-- 待确认列：先表达 AI 确认的「是否触发 / 排队中 / 执行中」，再表达候选结果分布 -->
         <template #crPending="{ record }">
-          <a-tooltip
-            :content="pendingTooltip(record.pending ?? 0, record.error ?? 0, record.review_needed ?? 0)"
-            position="top"
-          >
-            <a-tag :color="pendingTagColor(record)" size="small">
-              {{ pendingSubLabel(record.status, record.pending ?? 0, record.error ?? 0, record.review_needed ?? 0) }}
+          <a-tooltip :content="confirmStateTooltip(record)" position="top">
+            <a-tag :color="confirmStateColor(record)" size="small">
+              {{ confirmStateLabel(record) }}
             </a-tag>
           </a-tooltip>
         </template>

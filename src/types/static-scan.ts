@@ -912,6 +912,12 @@ export interface CrossRunAggRow {
   risk_low: number
   avg_confidence?: number | null
   confirm_rate?: number | null
+  /** 该 run 关联的 AI 执行记录总数（batch 与 agent 模式的 caller_id 均为 run_id） */
+  ai_exec_total?: number | null
+  /** 排队中：执行记录已建但未抢到后端全局并发槽位 */
+  ai_exec_pending?: number | null
+  /** 正在跑：已拿到槽位，CLI 执行中 */
+  ai_exec_running?: number | null
 }
 
 // ── 仓库 Commit 相关类型 ────────────────────────────
