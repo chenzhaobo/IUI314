@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { useGet, usePost } from '@/hooks'
+import { formatTime, useGet, usePost } from '@/hooks'
 import { ApiPerfComparison, ApiPerfIteration } from '@/api/apis'
 
 defineOptions({ name: 'comparison' })
@@ -97,11 +97,6 @@ function fmtPct(v?: number | null) {
   return s + v.toFixed(1) + '%'
 }
 
-function fmtTime(time?: string | null) {
-  if (!time) return '-'
-  return time.replace('T', ' ').substring(0, 19)
-}
-
 const columns = [
   { title: '领域', dataIndex: 'domain_code', width: 100 },
   { title: '基线迭代', dataIndex: 'baseline_iteration_id', width: 160, slotName: 'baseline_iter', ellipsis: true, tooltip: true },
@@ -178,7 +173,7 @@ const txnColumns = [
             {{ overallStatusMap[record.overall_status]?.text || record.overall_status || '-' }}
           </a-tag>
         </template>
-        <template #created_at="{ record }">{{ fmtTime(record.created_at) }}</template>
+        <template #created_at="{ record }">{{ formatTime(record.created_at) }}</template>
         <template #action="{ record }">
           <a-button type="text" size="small" @click="handleDetail(record.id)">详情</a-button>
         </template>

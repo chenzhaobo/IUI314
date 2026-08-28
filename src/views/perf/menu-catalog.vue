@@ -9,7 +9,7 @@ interface CatalogTreeNode extends TreeNodeData {
   is_leaf?: boolean
   children?: CatalogTreeNode[]
 }
-import { useGet, usePost, usePut } from '@/hooks'
+import { formatTime, useGet, usePost, usePut } from '@/hooks'
 import { ApiPerfEnv, ApiPerfApp, ApiPerfMenu, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
 import SyncMenuModal from './components/SyncMenuModal.vue'
 import AutoMatchModal from './components/AutoMatchModal.vue'
@@ -546,7 +546,7 @@ watch([sourceEnvId, currentFormNumber], () => {
             <a-descriptions-item label="主表">{{ tableInfo.main_table }}</a-descriptions-item>
             <a-descriptions-item label="行数">{{ tableInfo.row_count ?? '-' }}</a-descriptions-item>
             <a-descriptions-item label="空间占用">{{ tableInfo.total_size_human ?? '-' }}</a-descriptions-item>
-            <a-descriptions-item label="统计同步时间">{{ tableInfo.synced_at ? tableInfo.synced_at.replace('T', ' ').substring(0, 19) : '-' }}</a-descriptions-item>
+            <a-descriptions-item label="统计同步时间">{{ formatTime(tableInfo.synced_at) }}</a-descriptions-item>
           </a-descriptions>
 
           <!-- 按钮筛选栏 -->
@@ -634,7 +634,7 @@ watch([sourceEnvId, currentFormNumber], () => {
             @selection-change="handleSelectionChange"
             @page-change="handleMenuPageChange"
           >
-            <template #synced_at="{ record }">{{ record.synced_at ? record.synced_at.replace('T', ' ').substring(0, 19) : '-' }}</template>
+            <template #synced_at="{ record }">{{ formatTime(record.synced_at) }}</template>
             <template #in_test_scope="{ record }">
               <a-switch
                 :model-value="record.in_test_scope === '1'"

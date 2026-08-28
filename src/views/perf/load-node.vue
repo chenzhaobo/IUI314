@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { useGet, usePost, usePut, useDelete, useToken } from '@/hooks'
+import { formatTime, useDelete, useGet, usePost, usePut, useToken } from '@/hooks'
 import { ApiPerfLoadNode } from '@/api/apis'
 
 defineOptions({ name: 'load-node' })
@@ -27,10 +27,6 @@ function handlePageChange(page: number) {
   getList()
 }
 
-function formatTime(time: string) {
-  if (!time) return '-'
-  return time.replace('T', ' ').substring(0, 19)
-}
 
 const statusColorMap: Record<string, string> = {
   online: 'green',

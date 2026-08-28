@@ -3,7 +3,7 @@ import { ref, computed, watch, onUnmounted, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { EventSourcePolyfill, type Event as SseEvent, type MessageEvent as SseMessageEvent } from 'event-source-polyfill'
-import { useGet, usePost, usePut } from '@/hooks'
+import { formatTime, useGet, usePost, usePut } from '@/hooks'
 import { ApiPerfRun, ApiPerfScript, ApiPerfIteration, ApiPerfTask, ApiPerfLoadNode } from '@/api/apis'
 import { useToken } from '@/hooks/app'
 
@@ -23,11 +23,6 @@ const total = computed(() => rawListData.value?.total || 0)
 function handleSearch() { queryParams.value.page_num = 1; getList(); resetPollTimer() }
 function handlePageChange(page: number) { queryParams.value.page_num = page; getList(); resetPollTimer() }
 
-// ── 时间格式化 ──────────────────────────────────
-function formatTime(time?: string | null) {
-  if (!time) return '-'
-  return time.replace('T', ' ').substring(0, 19)
-}
 
 const statusColorMap: Record<string, string> = {
   pending: 'gray', running: 'blue', success: 'green', failed: 'red', timeout: 'orange', cancelled: 'gray',
@@ -283,7 +278,7 @@ async function handleBatchSubmit() {
   if (batchForm.value.script_ids.length === 0) { Message.warning('请选择至少一个脚本'); return }
   batchSubmitting.value = true
   const { execute, error } = usePost(ApiPerfTask.trigger, {
-    name: `批量执行-${new Date().toLocaleString()}`,
+    name: `批量执行-${formatTime(Date.now())}`,
     iteration_id: batchForm.value.iteration_id || undefined,
     task_type: 'sequential',
     max_concurrency: 1,

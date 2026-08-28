@@ -2,7 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import * as XLSX from 'xlsx'
-import { useGet, usePut, usePost, useToken } from '@/hooks'
+import { formatTime, useGet, usePost, usePut, useToken } from '@/hooks'
 import { ApiPerfBenchmark, ApiPerfIteration, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
 import TxnTrendChart from './components/TxnTrendChart.vue'
 
@@ -149,11 +149,6 @@ async function handleManualPass(record: any) {
 function fmtSec(ms?: number | null): string {
   if (ms === null || ms === undefined) return '-'
   return (ms / 1000).toFixed(2)
-}
-
-function fmtTime(time?: string | null): string {
-  if (!time) return '-'
-  return time.replace('T', ' ').substring(0, 19)
 }
 
 function fmtPct(v?: number | null): string {
@@ -512,8 +507,8 @@ function saveColumnConfig() {
             {{ compareStatusMap[record.compare_status]?.text || record.compare_status || '-' }}
           </a-tag>
         </template>
-        <template #baseline_updated_at="{ record }">{{ fmtTime(record.baseline_updated_at) }}</template>
-        <template #created_at="{ record }">{{ fmtTime(record.created_at) }}</template>
+        <template #baseline_updated_at="{ record }">{{ formatTime(record.baseline_updated_at) }}</template>
+        <template #created_at="{ record }">{{ formatTime(record.created_at) }}</template>
         <template #action="{ record }">
           <a-space>
             <a-button type="text" size="small" @click="handleViewTrend(record)">趋势</a-button>

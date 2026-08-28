@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { useGet, usePost, usePut, useDelete } from '@/hooks'
+import { formatTime, useDelete, useGet, usePost, usePut } from '@/hooks'
 import { ApiPerfTestPlan, ApiPerfScript, ApiPerfEnv, ApiPerfIteration, ApiSysDictData, ApiPerfLoadNode } from '@/api/apis'
 
 defineOptions({ name: 'PerfTestPlan' })
@@ -29,11 +29,6 @@ function handlePageChange(page: number) {
   getList()
 }
 
-// ── 时间格式化 ──────────────────────────────────
-function formatTime(time?: string | null) {
-  if (!time) return '-'
-  return time.replace('T', ' ').substring(0, 19)
-}
 
 const columns = [
   { title: '计划名称', dataIndex: 'name', width: 200, ellipsis: true, tooltip: true },

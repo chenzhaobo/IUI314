@@ -6,7 +6,7 @@ import 'md-editor-v3/lib/style.css'
 import { Message } from '@arco-design/web-vue'
 import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
 import { ErrorFlag } from '@/api/apis'
-import { useDicts, useGet, usePost } from '@/hooks'
+import { formatTime, useDicts, useGet, usePost } from '@/hooks'
 
 defineOptions({ name: 'StaticScanDefects' })
 
@@ -510,21 +510,6 @@ const layoutOnlyModel = {}
  * 安全格式化时间字符串，解析失败时回退原值，不抛异常。
  * 支持 ISO8601 及 "YYYY-MM-DD HH:mm:ss" 格式。
  */
-function formatTime(val: string | null | undefined): string {
-  if (!val)
-    return '-'
-  try {
-    const d = new Date(val)
-    if (Number.isNaN(d.getTime()))
-      return val
-    const pad = (n: number) => String(n).padStart(2, '0')
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-  }
-  catch {
-    return val
-  }
-}
-
 /**
  * 取 commit sha 的短 8 位，字段缺失时返回占位符。
  */
@@ -762,7 +747,7 @@ function shortSha(sha: string | null | undefined): string {
     >
       <a-spin :loading="eventsLoading" style="width: 100%">
         <a-timeline v-if="eventsList.length">
-          <a-timeline-item v-for="ev in eventsList" :key="ev.id" :label="(ev.created_at ?? '').replace('T', ' ')">
+          <a-timeline-item v-for="ev in eventsList" :key="ev.id" :label="formatTime(ev.created_at)">
             <div class="event-item">
               <a-tag :color="eventTypeLabels[ev.event_type]?.color ?? 'gray'" size="small">
                 {{ eventTypeLabels[ev.event_type]?.label ?? ev.event_type }}

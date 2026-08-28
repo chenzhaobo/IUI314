@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
-import { useGet, usePost, useDelete } from '@/hooks'
+import { formatTime, useDelete, useGet, usePost } from '@/hooks'
 import { ApiPerfBaseline, ApiPerfRun, ApiPerfScript } from '@/api/apis'
 
 const router = useRouter()
@@ -35,11 +35,6 @@ const runMap = computed(() => {
   return m
 })
 
-// ── 时间格式化 ──────────────────────────────────
-function formatTime(time?: string | null) {
-  if (!time) return '-'
-  return time.replace('T', ' ').substring(0, 19)
-}
 
 const runOptions = computed(() =>
   (runData.value?.list || [])

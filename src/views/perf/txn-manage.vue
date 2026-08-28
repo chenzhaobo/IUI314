@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed, watch, h } from 'vue'
 import { Message, type TableColumnData, type TreeNodeData } from '@arco-design/web-vue'
-import { useGet, usePost, usePut } from '@/hooks'
+import { formatTime, useGet, usePost, usePut } from '@/hooks'
 import { ApiPerfBenchmark, ApiPerfMenu, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
 import * as XLSX from 'xlsx'
 
@@ -292,11 +292,6 @@ function handleEdit(record: any) {
 function fmtSec(ms?: number | null): string {
   if (ms === null || ms === undefined) return '-'
   return (ms / 1000).toFixed(1)
-}
-
-function fmtTime(time?: string | null): string {
-  if (!time) return '-'
-  return time.replace('T', ' ').substring(0, 19)
 }
 
 function fmtTxnType(val?: string): string {
@@ -714,7 +709,7 @@ const scriptColumns = [
             <a-tag v-if="record.pass_status" :color="passStatusColor(record.pass_status)" size="small">{{ fmtPassStatus(record.pass_status) }}</a-tag>
             <span v-else style="color: #999">-</span>
           </template>
-          <template #baseline_updated_at="{ record }">{{ fmtTime(record.baseline_updated_at) }}</template>
+          <template #baseline_updated_at="{ record }">{{ formatTime(record.baseline_updated_at) }}</template>
           <template #status="{ record }">
             <a-tag :color="statusColor(record.status)" size="small">{{ fmtStatus(record.status) }}</a-tag>
           </template>
@@ -768,7 +763,7 @@ const scriptColumns = [
         row-key="script_id"
         size="small"
       >
-        <template #last_run_at="{ record }">{{ fmtTime(record.last_run_at) }}</template>
+        <template #last_run_at="{ record }">{{ formatTime(record.last_run_at) }}</template>
       </a-table>
     </a-drawer>
   </div>

@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { useGet, usePut } from '@/hooks'
+import { formatTime, useGet, usePut } from '@/hooks'
 import { ApiPerfBenchmark } from '@/api/apis'
 
 defineOptions({ name: 'txn-target' })
@@ -86,11 +86,6 @@ function fmtSec(ms?: number | null): string {
   return (ms / 1000).toFixed(1)
 }
 
-function fmtTime(time?: string | null): string {
-  if (!time) return '-'
-  return time.replace('T', ' ').substring(0, 19)
-}
-
 const columns = [
   { title: '事务编码', dataIndex: 'txn_code', width: 150, ellipsis: true, tooltip: true, fixed: 'left' as const },
   { title: '事务全称', dataIndex: 'txn_name', width: 250, ellipsis: true, tooltip: true },
@@ -150,7 +145,7 @@ const columns = [
       >
         <template #target_value="{ record }">{{ fmtSec(record.target_value_ms) }}</template>
         <template #baseline_value="{ record }">{{ fmtSec(record.baseline_value_ms) }}</template>
-        <template #baseline_updated_at="{ record }">{{ fmtTime(record.baseline_updated_at) }}</template>
+        <template #baseline_updated_at="{ record }">{{ formatTime(record.baseline_updated_at) }}</template>
         <template #action="{ record }">
           <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
         </template>

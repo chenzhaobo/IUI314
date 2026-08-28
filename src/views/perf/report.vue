@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
-import { useGet, useToken } from '@/hooks'
+import { formatTime, useGet, useToken } from '@/hooks'
 import { ApiPerfReport, ApiPerfScript, ApiPerfIteration, ApiPerfRun } from '@/api/apis'
 
 defineOptions({ name: 'report' })
@@ -146,10 +146,6 @@ async function handleExport(record: any) {
   }
 }
 
-function formatTime(time?: string | null) {
-  if (!time) return '-'
-  return time.replace('T', ' ').substring(0, 19)
-}
 
 function fmt(n: number | undefined | null, digits = 2): string {
   if (n === undefined || n === null) return '-'

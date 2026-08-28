@@ -33,6 +33,10 @@ export default ({ mode }: ConfigEnv) =>
       }),
       AutoImport({
         // 自动导入 Vue 相关函数，如：ref, reactive, toRef 等
+        //
+        // 注意：**不要**把 @/hooks 的时间函数加进来。AutoImport 是构建期注入，
+        // vue-tsc 做模板类型检查时看不到，模板里用会报 TS2339（已实测 42 处报错）。
+        // 时间函数一律显式 import { formatTime } from '@/hooks'。
         imports: ['vue', 'vue-i18n'],
       }),
       createHtmlPlugin({

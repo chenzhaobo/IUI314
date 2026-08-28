@@ -13,7 +13,7 @@ import 'md-editor-v3/lib/style.css'
 import { Message } from '@arco-design/web-vue'
 import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
 import { ErrorFlag } from '@/api/apis'
-import { useGet, usePost } from '@/hooks'
+import { formatTime, useGet, usePost } from '@/hooks'
 
 defineOptions({ name: 'StaticScanResults' })
 
@@ -452,22 +452,6 @@ const modeLabels: Record<string, { label: string, color: string }> = {
  * 安全格式化时间字符串，解析失败时回退原值，避免因字段缺失或格式异常抛异常。
  * 支持 ISO8601 及常见 "YYYY-MM-DD HH:mm:ss" 格式。
  */
-function formatTime(val: string | null | undefined): string {
-  if (!val)
-    return '-'
-  try {
-    const d = new Date(val)
-    if (Number.isNaN(d.getTime()))
-      return val
-    // 格式化为本地时间 "YYYY-MM-DD HH:mm"
-    const pad = (n: number) => String(n).padStart(2, '0')
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-  }
-  catch {
-    return val
-  }
-}
-
 /**
  * 取 commit sha 的短 8 位，字段缺失时返回占位符。
  */

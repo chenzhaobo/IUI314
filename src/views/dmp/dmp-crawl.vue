@@ -11,7 +11,7 @@ import {
   type DmpListResult,
   type DmpTokenStatus,
 } from '@/api/dmpApis'
-import { useGet, usePost, usePut } from '@/hooks'
+import { formatTime, useGet, usePost, usePut } from '@/hooks'
 
 defineOptions({ name: 'dmp-crawl' })
 
@@ -363,13 +363,6 @@ function handleRowDetail(record: DmpCrawlData) {
   rowDetailVisible.value = true
 }
 
-// ═══════════════════════════════════════════════════════════
-//  工具函数
-// ═══════════════════════════════════════════════════════════
-function formatTime(time: string | null) {
-  if (!time) return '-'
-  return time.replace('T', ' ').substring(0, 19)
-}
 
 function formatCell(val: unknown): string {
   if (val === null || val === undefined) return '-'

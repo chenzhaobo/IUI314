@@ -2,7 +2,7 @@
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
-import { useGet, usePost, usePut, useDelete } from '@/hooks'
+import { formatTime, useDelete, useGet, usePost, usePut } from '@/hooks'
 import { ApiPerfTask, ApiPerfScript, ApiPerfIteration, ApiPerfDomain, ApiPerfLoadNode } from '@/api/apis'
 
 defineOptions({ name: 'task' })
@@ -32,11 +32,6 @@ function handlePageChange(page: number) {
   resetPollTimer()
 }
 
-// ── 时间格式化 ──────────────────────────────────
-function formatTime(time?: string | null) {
-  if (!time) return '-'
-  return time.replace('T', ' ').substring(0, 19)
-}
 
 const statusColorMap: Record<string, string> = {
   pending: 'gray', running: 'blue', completed: 'green',

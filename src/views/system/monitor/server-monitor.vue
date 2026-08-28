@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import MonitorTableVue from './pages/monitor-table.vue'
 import { ApiSysServiceMonitor } from '@/api/sysApis'
 import GaugeEcharts from '@/components/echarts/gauge-echarts.vue'
-import { useSSE } from '@/hooks'
+import { formatTime, useSSE } from '@/hooks'
 import { systemMenus } from '@/router'
 import type { MonitorTable, ServerMonitor } from '@/types/system/server-monitor'
 
@@ -115,7 +115,7 @@ function setServerData(data: ServerMonitor) {
     },
     {
       rowOne: 'start time',
-      rowTwo: new Date(data.process.start_time! * 1000).toLocaleString(),
+      rowTwo: formatTime(data.process.start_time),
     },
     {
       rowOne: 'run time',

@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, watch, computed } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { useGet, usePost } from '@/hooks'
+import { formatTime, useGet, usePost } from '@/hooks'
 import { ApiPerfEnv, ApiPerfMenu } from '@/api/apis'
 import TaskProgress from '@/components/common/TaskProgress.vue'
 
@@ -185,7 +185,7 @@ function restoreProgress() {
           <a-descriptions-item>{{ syncPreviewData.existing_buttons ?? 0 }}</a-descriptions-item>
         </a-descriptions>
         <a-alert v-if="syncPreviewData.last_synced_at" type="normal" :show-icon="true" style="margin-top: 8px">
-          上次同步时间: {{ syncPreviewData.last_synced_at.replace('T', ' ').substring(0, 19) }}
+          上次同步时间: {{ formatTime(syncPreviewData.last_synced_at) }}
         </a-alert>
       </div>
     </a-spin>

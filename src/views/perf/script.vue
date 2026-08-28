@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed, watch } from 'vue'
 import { Message, Modal } from '@arco-design/web-vue'
-import { useGet, usePost, usePut, useDelete, useToken } from '@/hooks'
+import { formatTime, useDelete, useGet, usePost, usePut, useToken } from '@/hooks'
 import { ApiPerfScript, ApiSecProjectGroup, ApiSysDictData, ApiPerfAttachment } from '@/api/apis'
 
 defineOptions({ name: 'script' })
@@ -58,11 +58,6 @@ function handlePageChange(page: number) {
   getList()
 }
 
-// ── 时间格式化 ──────────────────────────────────
-function formatTime(time?: string | null) {
-  if (!time) return '-'
-  return time.replace('T', ' ').substring(0, 19)
-}
 
 // ── 耗时格式化 ──────────────────────────────────
 function formatDuration(ms?: number | null) {

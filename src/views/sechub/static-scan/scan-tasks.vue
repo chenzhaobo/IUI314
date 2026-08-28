@@ -6,7 +6,7 @@ import { Message, Modal } from '@arco-design/web-vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { ApiAiAgent } from '@/api/aiApis'
 import { ApiSecModuleRepository, ApiSecPrescan } from '@/api/sechubApis'
-import { useGet, usePost } from '@/hooks'
+import { formatTime, useGet, usePost } from '@/hooks'
 
 defineOptions({ name: 'StaticScanTasks' })
 
@@ -72,27 +72,6 @@ const agentOptions = computed(() => (agentListRaw.value?.list ?? []).map(a => ({
 // ═══════════════════════════════════════════════════════════
 
 /** 格式化时间，解析失败回退原值 */
-function formatTime(val: string | null | undefined): string {
-  if (!val)
-    return '-'
-  try {
-    const d = new Date(val)
-    if (Number.isNaN(d.getTime()))
-      return val
-    return d.toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    })
-  }
-  catch {
-    return val
-  }
-}
-
 /** 扫描策略标签 */
 function scanModeLabel(mode: string): string {
   return mode === 'diff' ? '增量' : '全量'

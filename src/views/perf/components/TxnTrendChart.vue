@@ -15,7 +15,7 @@ import { type ComposeOption, use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { ECBasicOption } from 'echarts/types/dist/shared'
 import VChart from 'vue-echarts'
-import { useGet } from '@/hooks'
+import { formatTime, useGet } from '@/hooks'
 import { ApiPerfBenchmark } from '@/api/apis'
 
 defineOptions({ name: 'TxnTrendChart' })
@@ -59,18 +59,13 @@ const { data: trendData, execute: fetchTrend, isFetching: loading } = useGet<any
   { immediate: false },
 )
 
-function fmtTime(time?: string | null) {
-  if (!time) return ''
-  return time.replace('T', ' ').substring(0, 19)
-}
-
 function msToSec(ms?: number | null): number | null {
   if (ms === null || ms === undefined) return null
   return Number((ms / 1000).toFixed(3))
 }
 
 function buildOption(data: any[]): EChartsOption {
-  const xLabels = data.map((d) => fmtTime(d.created_at) || d.iteration_name || '')
+  const xLabels = data.map((d) => formatTime(d.created_at) || d.iteration_name || '')
   const actualData = data.map((d) => msToSec(d.average_ms))
   const baselineData = data.map((d) => msToSec(d.baseline_value_ms))
   const targetData = data.map((d) => msToSec(d.target_value_ms))
@@ -81,7 +76,7 @@ function buildOption(data: any[]): EChartsOption {
       formatter: (params: any) => {
         const idx = params[0].dataIndex
         const d = data[idx]
-        let html = `<b>${fmtTime(d.created_at)}</b><br/>`
+        let html = `<b>${formatTime(d.created_at)}</b><br/>`
         html += `迭代: ${d.iteration_name || '-'}<br/>`
         for (const p of params) {
           html += `${p.marker} ${p.seriesName}: ${p.value ?? '-'} 秒<br/>`

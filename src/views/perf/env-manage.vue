@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { useGet, usePost, usePut, useDelete, useToken } from '@/hooks'
+import { formatTime, useDelete, useGet, usePost, usePut, useToken } from '@/hooks'
 import { ApiPerfEnv, ApiSysDictData } from '@/api/apis'
 
 defineOptions({ name: 'env-manage' })
@@ -134,10 +134,6 @@ async function handleDelete(record: any) {
   getList()
 }
 
-function formatTime(time: string) {
-  if (!time) return '-'
-  return time.replace('T', ' ').substring(0, 19)
-}
 
 // ── 环境健康检查 ──────────────────────────────────
 const healthCheckVisible = ref(false)

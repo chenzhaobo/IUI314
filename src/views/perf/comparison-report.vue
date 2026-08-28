@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { useRouter } from 'vue-router'
-import { useGet, useDelete } from '@/hooks'
+import { formatTime, useDelete, useGet } from '@/hooks'
 import { ApiPerfComparison, ApiSysDictData, ApiPerfModule } from '@/api/apis'
 
 defineOptions({ name: 'comparison-report' })
@@ -82,12 +82,6 @@ const overallStatusMap: Record<string, { color: string; text: string }> = {
   warn: { color: 'red', text: '有劣化' },
 }
 
-// ── 工具函数 ──────────────────────────────────
-function fmtTime(time?: string | null): string {
-  if (!time) return '-'
-  return time.replace('T', ' ').substring(0, 19)
-}
-
 const columns = [
   { title: '产品领域', dataIndex: 'domain_code', width: 100, ellipsis: true, tooltip: true },
   { title: '业务领域', dataIndex: 'business_domain', width: 100, ellipsis: true, tooltip: true },
@@ -150,7 +144,7 @@ const columns = [
             {{ overallStatusMap[record.overall_status]?.text || record.overall_status || '-' }}
           </a-tag>
         </template>
-        <template #created_at="{ record }">{{ fmtTime(record.created_at) }}</template>
+        <template #created_at="{ record }">{{ formatTime(record.created_at) }}</template>
         <template #action="{ record }">
           <a-space>
             <a-button type="text" size="small" @click="handleDetail(record.id)">详情</a-button>

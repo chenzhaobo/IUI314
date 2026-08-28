@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed, watch } from 'vue'
 import { Message, type TreeNodeData } from '@arco-design/web-vue'
-import { useGet, usePost, useDelete } from '@/hooks'
+import { formatTime, useDelete, useGet, usePost } from '@/hooks'
 import { ApiPerfScript, ApiPerfScriptMenu, ApiPerfMenu, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
 
 defineOptions({ name: 'script-bindng' })
@@ -201,11 +201,6 @@ const bindColumns = [
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 80, fixed: 'right' as const },
 ]
 
-// ── 时间格式化 ──────────────────────────────────
-function formatTime(time?: string | null) {
-  if (!time) return '-'
-  return time.replace('T', ' ').substring(0, 19)
-}
 
 // ── 解绑 ──────────────────────────────────
 async function handleUnbind(record: any) {

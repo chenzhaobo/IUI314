@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { Message, type TableColumnData } from '@arco-design/web-vue'
-import { useGet, usePost } from '@/hooks'
+import { formatTime, useGet, usePost } from '@/hooks'
 import { ApiPerfEnv, ApiPerfTableStats, ApiSysDictData } from '@/api/apis'
 
 defineOptions({ name: 'entity-meta' })
@@ -469,7 +469,7 @@ onUnmounted(() => {
           <a-tag v-if="record.row_count_type === 'actual'" color="blue" size="small">精确</a-tag>
           <a-tag v-else color="green" size="small">估算</a-tag>
         </template>
-        <template #synced_at="{ record }">{{ record.synced_at ? record.synced_at.replace('T', ' ').substring(0, 19) : '-' }}</template>
+        <template #synced_at="{ record }">{{ formatTime(record.synced_at) }}</template>
       </a-table>
 
       <!-- 实体元数据列表 -->
@@ -516,8 +516,8 @@ onUnmounted(() => {
           <a-tag v-else-if="record.row_count_type === 'estimated'" color="green" size="small">估算</a-tag>
           <span v-else>-</span>
         </template>
-        <template #stats_synced_at="{ record }">{{ record.stats_synced_at ? record.stats_synced_at.replace('T', ' ').substring(0, 19) : '-' }}</template>
-        <template #entity_synced_at="{ record }">{{ record.entity_synced_at ? record.entity_synced_at.replace('T', ' ').substring(0, 19) : '-' }}</template>
+        <template #stats_synced_at="{ record }">{{ formatTime(record.stats_synced_at) }}</template>
+        <template #entity_synced_at="{ record }">{{ formatTime(record.entity_synced_at) }}</template>
       </a-table>
 
       <!-- 数据库概览 -->
@@ -583,7 +583,7 @@ onUnmounted(() => {
             <a-descriptions-item label="总空间大小(字节)">{{ formatNumber(syncPreviewData.total_size_bytes) }}</a-descriptions-item>
           </a-descriptions>
           <a-alert v-if="syncPreviewData.last_synced_at" type="normal" :show-icon="true" style="margin-top: 8px">
-            上次同步时间: {{ syncPreviewData.last_synced_at.replace('T', ' ').substring(0, 19) }}
+            上次同步时间: {{ formatTime(syncPreviewData.last_synced_at) }}
           </a-alert>
         </div>
       </a-spin>

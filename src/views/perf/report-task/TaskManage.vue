@@ -226,7 +226,7 @@
             </template>
           </a-table-column>
           <a-table-column title="心跳" :width="145">
-            <template #cell="{ record }">{{ fmtTime(record.heartbeat_at) }}</template>
+            <template #cell="{ record }">{{ formatTime(record.heartbeat_at) }}</template>
           </a-table-column>
           <!-- ellipsis 只截断不提示，长错误会被挡住看不到真正原因（生产实测：
                「日期目录不存在: /data/app/report-work/...」这类路径全被吃掉）。
@@ -248,10 +248,10 @@
             </template>
           </a-table-column>
           <a-table-column title="开始" :width="140">
-            <template #cell="{ record }">{{ fmtTime(record.started_at) }}</template>
+            <template #cell="{ record }">{{ formatTime(record.started_at) }}</template>
           </a-table-column>
           <a-table-column title="结束" :width="140">
-            <template #cell="{ record }">{{ fmtTime(record.finished_at) }}</template>
+            <template #cell="{ record }">{{ formatTime(record.finished_at) }}</template>
           </a-table-column>
           <a-table-column title="操作" :width="70" fixed="right">
             <template #cell="{ record }">
@@ -272,7 +272,7 @@ import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { ApiPerfReportTask, ApiPerfCompliance } from '@/api/perfApis'
 import { ApiAiAgent, type AiAgent, type AiListResult } from '@/api/aiApis'
-import { useGet, usePost } from '@/hooks'
+import { formatTime, useGet, usePost } from '@/hooks'
 
 defineOptions({ name: 'report-task-manage' })
 
@@ -468,7 +468,6 @@ const dimTypeColor = (t: string) => ({ product_domain: 'arcoblue', business_area
 const stageText = (s: string) => ({ preflight: '预检', download: '下载', extract: '结构提取', classify_hash: '问题分类', defect_attribution: '缺陷归因', analyze: '兼容分析', report: '日报台账', push: '推送' }[s] || s)
 const runStatusText = (s: string) => ({ running: '运行中', success: '成功', failed: '失败', skipped: '跳过', cancelled: '已取消', interrupted: '待恢复' }[s] || s || '-')
 const runStatusColor = (s: string) => ({ running: 'blue', success: 'green', failed: 'red', skipped: 'gray', cancelled: 'orange', interrupted: 'orangered' }[s] || 'gray')
-const fmtTime = (t?: string) => (t ? t.replace('T', ' ').slice(0, 19) : '-')
 const fmtDuration = (seconds?: number) => {
   const value = Math.max(0, Number(seconds || 0))
   if (value < 60) return `${value}s`
