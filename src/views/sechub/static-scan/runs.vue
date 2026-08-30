@@ -687,58 +687,8 @@ const crossColumns = [
       </a-space>
     </a-card>
 
-    <!-- 任务队列：静态扫描的 AI 确认/自主审计任务在此排队与执行 -->
+    <!-- 模型结果总览：每行一个 run，是这个页面的主视图 -->
     <a-card :bordered="false" class="m-b-12px">
-      <template #title>
-        任务队列
-        <small class="card-sub">
-          待领取 {{ queueStats.pending ?? 0 }} ／ 执行中 {{ queueStats.running ?? 0 }}
-          ／ 成功 {{ queueStats.succeeded ?? 0 }} ／ 已失败 {{ queueStats.dead ?? 0 }}
-          ·失败不自动重试，需手动重扫
-        </small>
-      </template>
-      <a-space class="m-b-8px">
-        <a-select v-model="queueStatus" placeholder="队列状态" allow-clear style="width: 150px" @change="loadQueue">
-          <a-option value="pending">待领取</a-option>
-          <a-option value="running">执行中</a-option>
-          <a-option value="succeeded">成功</a-option>
-          <a-option value="dead">已失败</a-option>
-        </a-select>
-        <a-button type="primary" @click="loadQueue">刷新</a-button>
-        <a-button status="warning" :disabled="queueSelected.length === 0" @click="forceFailQueueSelected">
-          标记失败{{ queueSelected.length ? `(${queueSelected.length})` : '' }}
-        </a-button>
-        <a-button status="danger" :disabled="queueSelected.length === 0" @click="deleteQueueSelected">
-          删除选中{{ queueSelected.length ? `(${queueSelected.length})` : '' }}
-        </a-button>
-      </a-space>
-      <a-table
-        v-model:selectedKeys="queueSelected"
-        :loading="queueLoading"
-        :data="queueRows"
-        :columns="queueColumns"
-        row-key="id"
-        :row-selection="{ type: 'checkbox', showCheckedAll: true }"
-        :pagination="{ pageSize: 10, showTotal: true }"
-        size="small"
-        :scroll="{ x: 1200 }"
-      >
-        <template #qkind="{ record }">
-          {{ queueKindLabels[record.task_kind] ?? record.task_kind }}
-        </template>
-        <template #qstatus="{ record }">
-          <a-tag :color="queueStatusLabels[record.status]?.color ?? 'gray'">
-            {{ queueStatusLabels[record.status]?.label ?? record.status }}
-          </a-tag>
-        </template>
-        <template #qattempt="{ record }">
-          {{ record.attempt }}/{{ record.max_attempt }}
-        </template>
-      </a-table>
-    </a-card>
-
-    <!-- 模型结果总览 -->
-    <a-card :bordered="false">
       <template #title>
         模型结果总览
         <small class="card-sub">每行 = 一个扫描任务（run），点击操作查看明细或重扫</small>
@@ -892,6 +842,56 @@ const crossColumns = [
               </template>
             </a-dropdown>
           </a-space>
+        </template>
+      </a-table>
+    </a-card>
+
+    <!-- 任务队列：静态扫描的 AI 确认/自主审计任务在此排队与执行 -->
+    <a-card :bordered="false">
+      <template #title>
+        任务队列
+        <small class="card-sub">
+          待领取 {{ queueStats.pending ?? 0 }} ／ 执行中 {{ queueStats.running ?? 0 }}
+          ／ 成功 {{ queueStats.succeeded ?? 0 }} ／ 已失败 {{ queueStats.dead ?? 0 }}
+          ·失败不自动重试，需手动重扫
+        </small>
+      </template>
+      <a-space class="m-b-8px">
+        <a-select v-model="queueStatus" placeholder="队列状态" allow-clear style="width: 150px" @change="loadQueue">
+          <a-option value="pending">待领取</a-option>
+          <a-option value="running">执行中</a-option>
+          <a-option value="succeeded">成功</a-option>
+          <a-option value="dead">已失败</a-option>
+        </a-select>
+        <a-button type="primary" @click="loadQueue">刷新</a-button>
+        <a-button status="warning" :disabled="queueSelected.length === 0" @click="forceFailQueueSelected">
+          标记失败{{ queueSelected.length ? `(${queueSelected.length})` : '' }}
+        </a-button>
+        <a-button status="danger" :disabled="queueSelected.length === 0" @click="deleteQueueSelected">
+          删除选中{{ queueSelected.length ? `(${queueSelected.length})` : '' }}
+        </a-button>
+      </a-space>
+      <a-table
+        v-model:selectedKeys="queueSelected"
+        :loading="queueLoading"
+        :data="queueRows"
+        :columns="queueColumns"
+        row-key="id"
+        :row-selection="{ type: 'checkbox', showCheckedAll: true }"
+        :pagination="{ pageSize: 10, showTotal: true }"
+        size="small"
+        :scroll="{ x: 1200 }"
+      >
+        <template #qkind="{ record }">
+          {{ queueKindLabels[record.task_kind] ?? record.task_kind }}
+        </template>
+        <template #qstatus="{ record }">
+          <a-tag :color="queueStatusLabels[record.status]?.color ?? 'gray'">
+            {{ queueStatusLabels[record.status]?.label ?? record.status }}
+          </a-tag>
+        </template>
+        <template #qattempt="{ record }">
+          {{ record.attempt }}/{{ record.max_attempt }}
         </template>
       </a-table>
     </a-card>
