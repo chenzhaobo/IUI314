@@ -178,7 +178,7 @@ import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { ApiPerfCompliance } from '@/api/perfApis'
-import { useGet } from '@/hooks'
+import { useGet, useDownload } from '@/hooks'
 
 defineOptions({ name: 'compliance-dashboard' })
 
@@ -543,8 +543,13 @@ const handleCreateIssue = (record: any) => {
   router.push({ path: '/cloud-perf/issue/issue-list', query: { app_number: record.code, form_name: record.name } })
 }
 
-const handleExport = () => {
+// window.open 无法携带 Authorization 头，接口又要求鉴权（Claims），
+// 结果是 401 的响应体被浏览器当成文件存下来 —— 用户看到的就是一个
+// 一两 KB、打不开的“导出文件”。必须走带 token 的 useDownload。
+const { downloadWithTip } = useDownload()
+
+const handleExport = async () => {
   const params = new URLSearchParams(drillPayload.value).toString()
-  window.open(`/api/perf/compliance/export?${params}`, '_blank')
+  await downloadWithTip(`/perf/compliance/export?${params}`, '达标率明细.csv', '达标率明细导出失败')
 }
 </script>

@@ -112,7 +112,7 @@
 import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { ApiPerfCompliance } from '@/api/perfApis'
-import { useGet, useRequest, getQueryUrl } from '@/hooks'
+import { useGet, useRequest, getQueryUrl, useDownload } from '@/hooks'
 
 defineOptions({ name: 'compliance-trend' })
 
@@ -582,9 +582,12 @@ const renderChart = (seriesList: { name: string; points: any[] }[], truncatedTot
 }
 
 // ── 导出 ──────────────────────────────────
-const handleExport = () => {
+// 同 Dashboard：window.open 带不了 Authorization，401 响应会被存成假的导出文件。
+const { downloadWithTip } = useDownload()
+
+const handleExport = async () => {
   const params = new URLSearchParams(buildTrendParams()).toString()
-  window.open(`/api/perf/compliance/trend/export?${params}`, '_blank')
+  await downloadWithTip(`/perf/compliance/trend/export?${params}`, '达标率趋势.csv', '达标率趋势导出失败')
 }
 
 // ── 辅助 ──────────────────────────────────
