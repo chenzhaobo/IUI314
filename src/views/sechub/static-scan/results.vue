@@ -319,6 +319,9 @@ const candidateLoading = ref(false)
 const pageNum = ref(1)
 const pageSize = 20
 const statusFilter = ref('')
+// 风险等级筛选（多选）。诉求是"优先处理高等级"，通常要 high 与 medium 一起看，
+// 单选每次只能看一档、反复切换很别扭。
+const riskLevelFilter = ref<string[]>([])
 const domainFilter = ref('')
 const scanPointFilter = ref('')
 // 引入时间过滤：[from, to]，格式 'YYYY-MM-DD'，由 range-picker 绑定
@@ -351,6 +354,10 @@ async function loadCandidates(silent = false) {
       params.set('introduced_from', introducedRange.value[0])
     if (introducedRange.value?.[1])
       params.set('introduced_to', introducedRange.value[1])
+    // 风险等级多选拼成逗号分隔（如 high,medium）。候选表用的是 ai_risk_level，
+    // 取值除 high/medium/low 外还有大量 info，滤掉 info 是这个筛选最主要的用途。
+    if (riskLevelFilter.value.length > 0)
+      params.set('ai_risk_level', riskLevelFilter.value.join(','))
     candidatePage.value = await fetchJson<CandidateDetailPage>(`${ApiSecPrescan.candidates}?${params.toString()}`)
   }
   finally {
@@ -704,6 +711,22 @@ watch(() => route.query, (newQ, oldQ) => {
               <a-option value="error">错误</a-option>
               <a-option value="pending">待确认</a-option>
             </a-select>
+              <!-- 风险等级多选：诉求是"优先处理高等级"，通常要 high 与 medium 一起看。
+                   info 档在候选里占绝大多数，滤掉它是本筛选最主要的用途 -->
+              <a-select
+                v-model="riskLevelFilter"
+                multiple
+                allow-clear
+                :max-tag-count="2"
+                placeholder="风险等级"
+                style="width: 190px"
+                @change="onFilterChange"
+              >
+                <a-option value="high">高</a-option>
+                <a-option value="medium">中</a-option>
+                <a-option value="low">低</a-option>
+                <a-option value="info">提示</a-option>
+              </a-select>
           </template>
           <a-table
             :loading="candidateLoading"
