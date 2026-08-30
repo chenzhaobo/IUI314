@@ -48,7 +48,17 @@ const queryParams = ref({
   scan_point_id: '',
   // 不处理原因代码过滤（Arco 表格 filterable 触发后写入此字段，传给后端）
   wont_fix_reason_code: '',
+  // 风险等级过滤，逗号分隔多选（如 high,medium），由 riskLevels 同步而来
+  risk_level: '',
 })
+
+// Arco 的 multiple 要求数组，后端接受逗号分隔字符串，这里做转换
+const riskLevels = ref<string[]>([])
+function onRiskLevelChange() {
+  queryParams.value.risk_level = riskLevels.value.join(',')
+  queryParams.value.page_num = 1
+  getList()
+}
 const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<ScanIssuePage>(ApiSecPrescan.issues, queryParams, { immediate: true })
 const dataList = computed(() => rawListData.value?.list ?? [])
 const total = computed(() => rawListData.value?.total ?? 0)
@@ -548,6 +558,21 @@ function shortSha(sha: string | null | undefined): string {
           <a-option value="wont_fix">不处理</a-option>
           <a-option value="verification_failed">验证失败</a-option>
         </a-select>
+          <!-- 风险等级多选：诉求是"优先处理高等级"，通常要 high 与 medium 一起看；
+               单选每次只能看一档、反复切换很别扭，所以做成 multiple -->
+          <a-select
+            v-model="riskLevels"
+            multiple
+            allow-clear
+            :max-tag-count="2"
+            placeholder="风险等级"
+            style="width: 190px"
+            @change="onRiskLevelChange"
+          >
+            <a-option value="high">高</a-option>
+            <a-option value="medium">中</a-option>
+            <a-option value="low">低</a-option>
+          </a-select>
         <a-button @click="refresh">
           刷新
         </a-button>
