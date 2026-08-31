@@ -107,7 +107,11 @@
         <a-divider>摘要</a-divider>
         <div class="content">{{ currentRecord?.summary || '暂无' }}</div>
         <a-divider>报告内容</a-divider>
-        <div class="content markdown">{{ currentRecord?.content || '暂无' }}</div>
+        <!-- 必须走 MdPreview。原来是 <div class="content markdown">{{ content }}</div>，
+             pre-wrap 纯文本 —— 所有标题、表格、加粗都按字面显示，
+             报告在这个抽屉里完全看不出结构。 -->
+        <MdPreview v-if="currentRecord?.content" :modelValue="currentRecord.content" />
+        <div v-else class="content">暂无</div>
         <a-divider>结论</a-divider>
         <div class="content">{{ currentRecord?.conclusion || '暂无' }}</div>
       </a-spin>
