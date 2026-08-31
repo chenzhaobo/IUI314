@@ -2,6 +2,11 @@
 import type { CrossRunAggRow, ModuleWithRepository } from '@/types/static-scan'
 import { Checkbox, Message, Modal } from '@arco-design/web-vue'
 import { computed, h, onUnmounted, ref, watch } from 'vue'
+
+import ColumnFilterPanel from './components/ColumnFilterPanel.vue'
+import type { ColumnFilterState } from './composables/useColumnFilter'
+import { applyColumnFilters, emptyFilter, isFilterActive } from './composables/useColumnFilter'
+import { useFilterPersistence } from './composables/useFilterPersistence'
 import { useRouter } from 'vue-router'
 import { ErrorFlag } from '@/api/apis'
 import { ApiAiExecution } from '@/api/aiApis'
@@ -196,14 +201,58 @@ const crossTableRows = computed(() => crossRows.value.map(row => ({
   ...row,
   key: row.run_id,
 })))
+// ===== 列过滤（前端过滤，见 composables/useColumnFilter）=====
+// 每列一份条件，key 用 dataIndex。文本列给"包含/不包含/等于/不等于"，
+// 数字列给"大于/小于"，时间列给"从…到…"。
+const columnFilters = ref<Record<string, ColumnFilterState>>({
+  repository_name: emptyFilter('text'),
+  branch: emptyFilter('text'),
+  ai_model: emptyFilter('text'),
+  total: emptyFilter('number'),
+  confirmed: emptyFilter('number'),
+  rejected: emptyFilter('number'),
+  error: emptyFilter('number'),
+  risk_high: emptyFilter('number'),
+  created_at: emptyFilter('date'),
+})
+
+/** 过滤条件变化后回到第一页，否则可能停在一个已经没有数据的页码上 */
+function onColumnFilterChange() {
+  pageNum.value = 1
+}
+
+/** 该列是否已生效（用于给表头图标高亮，Arco 靠 filteredValue 判断） */
+function filteredValueOf(key: string): string[] {
+  return isFilterActive(columnFilters.value[key]) ? ['1'] : []
+}
+
+/**
+ * 生成一列的 filterable 配置。
+ * filter 返回 true 是因为真正的过滤在 filteredCrossRows 里统一做 ——
+ * Arco 的 filter 回调只能拿到单元格值，拿不到"多列条件同时生效"的全局视图。
+ */
+function filterableOf(key: string) {
+  return {
+    slotName: `filter-${key}`,
+    filteredValue: filteredValueOf(key),
+    filter: () => true,
+    // 面板由我们自己渲染，不需要 Arco 的确认按钮
+    hideButton: true,
+  }
+}
+
 // 应用「项目组」「状态」查询字段做客户端过滤（应用维度已由后端 repository_id 过滤）
-const filteredCrossRows = computed(() => crossTableRows.value.filter((row) => {
-  if (selectedProjectGroupId.value && repoToGroup.value.get(row.repository_id) !== selectedProjectGroupId.value)
-    return false
-  if (selectedStatus.value && row.status !== selectedStatus.value)
-    return false
-  return true
-}))
+const filteredCrossRows = computed(() => {
+  const base = crossTableRows.value.filter((row) => {
+    if (selectedProjectGroupId.value && repoToGroup.value.get(row.repository_id) !== selectedProjectGroupId.value)
+      return false
+    if (selectedStatus.value && row.status !== selectedStatus.value)
+      return false
+    return true
+  })
+  // 再叠加表头的列过滤（多列条件是"且"关系，统一在这里应用）
+  return applyColumnFilters(base, columnFilters.value)
+})
 const crossLoading = ref(false)
 
 async function loadCrossRows(silent = false) {
@@ -254,6 +303,16 @@ function onSearch() {
 // ===== 分页（客户端分页：cross-run-compare 一次返回全量，这里切页展示）=====
 const pageNum = ref(1)
 const pageSize = ref(20)
+
+// 筛选条件持久化：切到别的页签再回来、或点进详情再返回时，保持上次的筛选。
+// 这个页面没有"带参数跳转进入"的场景（它是入口页），所以不需要 skipRestore。
+useFilterPersistence('static-scan-runs', {
+  selectedRepoId,
+  selectedProjectGroupId,
+  selectedStatus,
+  pageSize,
+  columnFilters,
+})
 const pagedCrossRows = computed(() => {
   const start = (pageNum.value - 1) * pageSize.value
   return filteredCrossRows.value.slice(start, start + pageSize.value)
@@ -665,26 +724,29 @@ function commitTooltip(row: CrossRunAggRow): string {
 
 // ===== 表格列 =====
 // 新增分支、commit 列；操作列收窄（改为下拉）；总列宽控制在 ~1400 以内
-const crossColumns = [
-  { title: '应用', dataIndex: 'repository_name', width: 160, ellipsis: true, tooltip: true },
-  { title: '分支', dataIndex: 'branch', slotName: 'crBranch', width: 120, ellipsis: true },
-  { title: 'Commit', dataIndex: 'commit_sha', slotName: 'crCommit', width: 110 },
-  { title: '模型', dataIndex: 'ai_model', slotName: 'crModel', width: 150, ellipsis: true },
-  { title: '模式', dataIndex: 'ai_mode', slotName: 'crMode', width: 95 },
-  { title: '总数', dataIndex: 'total', width: 65 },
-  { title: '确认进度', dataIndex: 'progress', slotName: 'crProgress', width: 85 },
-  { title: '确认问题', dataIndex: 'confirmed', width: 80 },
-  { title: '已排除', dataIndex: 'rejected', width: 75 },
-  { title: '错误', dataIndex: 'error', width: 60 },
-  { title: '状态', dataIndex: 'pending', slotName: 'crPending', width: 190 },
-  { title: '高风险', dataIndex: 'risk_high', width: 70 },
-  { title: '中风险', dataIndex: 'risk_medium', width: 70 },
-  { title: '低风险', dataIndex: 'risk_low', width: 70 },
-  { title: '确认率', dataIndex: 'confirm_rate', slotName: 'crRate', width: 80 },
-  { title: '平均置信度', dataIndex: 'avg_confidence', slotName: 'crConf', width: 90 },
-  { title: '时间', dataIndex: 'created_at', width: 120 },
+// resizable: true —— 列宽可拖动（Arco 2.58 原生支持）
+const crossColumns = computed(() => [
+  { title: '应用', dataIndex: 'repository_name', width: 160, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('repository_name') },
+  { title: '分支', dataIndex: 'branch', slotName: 'crBranch', width: 120, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('branch') },
+  { title: 'Commit', dataIndex: 'commit_sha', slotName: 'crCommit', width: 110, resizable: true },
+  { title: '模型', dataIndex: 'ai_model', slotName: 'crModel', width: 150, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('ai_model') },
+  { title: '模式', dataIndex: 'ai_mode', slotName: 'crMode', width: 95, resizable: true },
+  { title: '总数', dataIndex: 'total', width: 70, resizable: true, filterable: filterableOf('total') },
+  { title: '确认进度', dataIndex: 'progress', slotName: 'crProgress', width: 90, resizable: true },
+  { title: '确认问题', dataIndex: 'confirmed', width: 85, resizable: true, filterable: filterableOf('confirmed') },
+  { title: '已排除', dataIndex: 'rejected', width: 80, resizable: true, filterable: filterableOf('rejected') },
+  { title: '错误', dataIndex: 'error', width: 70, resizable: true, filterable: filterableOf('error') },
+  { title: '状态', dataIndex: 'pending', slotName: 'crPending', width: 190, resizable: true },
+  { title: '高风险', dataIndex: 'risk_high', width: 75, resizable: true, filterable: filterableOf('risk_high') },
+  { title: '中风险', dataIndex: 'risk_medium', width: 75, resizable: true },
+  { title: '低风险', dataIndex: 'risk_low', width: 75, resizable: true },
+  { title: '确认率', dataIndex: 'confirm_rate', slotName: 'crRate', width: 80, resizable: true },
+  { title: '平均置信度', dataIndex: 'avg_confidence', slotName: 'crConf', width: 95, resizable: true },
+  // 时间列原先 120px，而 'YYYY-MM-DD HH:MM:SS' 是 19 个字符，必然折行 ——
+  // 实测折成三行，把整行撑高、表格也跟着变宽。给足宽度并 ellipsis 兜底。
+  { title: '时间', dataIndex: 'created_at', width: 170, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('created_at') },
   { title: '操作', slotName: 'crOps', width: 160, fixed: 'right' as const },
-]
+])
 </script>
 
 <template>
@@ -768,10 +830,38 @@ const crossColumns = [
         }"
         row-key="key"
         size="small"
-        :scroll="{ x: 1400 }"
+        :bordered="{ cell: true }"
+        :scroll="{ x: 1700, y: 'calc(100vh - 430px)' }"
         @page-change="(p: number) => (pageNum = p)"
         @page-size-change="(s: number) => { pageSize = s; pageNum = 1 }"
       >
+        <template #filter-repository_name="{ }">
+          <ColumnFilterPanel v-model="columnFilters.repository_name" @change="onColumnFilterChange" />
+        </template>
+        <template #filter-branch="{ }">
+          <ColumnFilterPanel v-model="columnFilters.branch" @change="onColumnFilterChange" />
+        </template>
+        <template #filter-ai_model="{ }">
+          <ColumnFilterPanel v-model="columnFilters.ai_model" @change="onColumnFilterChange" />
+        </template>
+        <template #filter-total="{ }">
+          <ColumnFilterPanel v-model="columnFilters.total" @change="onColumnFilterChange" />
+        </template>
+        <template #filter-confirmed="{ }">
+          <ColumnFilterPanel v-model="columnFilters.confirmed" @change="onColumnFilterChange" />
+        </template>
+        <template #filter-rejected="{ }">
+          <ColumnFilterPanel v-model="columnFilters.rejected" @change="onColumnFilterChange" />
+        </template>
+        <template #filter-error="{ }">
+          <ColumnFilterPanel v-model="columnFilters.error" @change="onColumnFilterChange" />
+        </template>
+        <template #filter-risk_high="{ }">
+          <ColumnFilterPanel v-model="columnFilters.risk_high" @change="onColumnFilterChange" />
+        </template>
+        <template #filter-created_at="{ }">
+          <ColumnFilterPanel v-model="columnFilters.created_at" @change="onColumnFilterChange" />
+        </template>
         <!-- 分支列：null 时展示占位符 -->
         <template #crBranch="{ record }">
           <span class="branch-name">{{ record.branch ?? '-' }}</span>

@@ -7,6 +7,11 @@ import type {
   RuleStatRow,
 } from '@/types/static-scan'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+
+import ColumnFilterPanel from './components/ColumnFilterPanel.vue'
+import type { ColumnFilterState } from './composables/useColumnFilter'
+import { applyColumnFilters, emptyFilter, isFilterActive } from './composables/useColumnFilter'
+import { useFilterPersistence } from './composables/useFilterPersistence'
 import { useRoute } from 'vue-router'
 import { MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
@@ -517,17 +522,72 @@ function roundTooltipContent(row: CrossRunAggRow): string {
 }
 
 // ===== 表格列 =====
-const candidateColumns = [
-  { title: '文件', dataIndex: 'file_path', width: 260, ellipsis: true, tooltip: true },
-  { title: '行号', dataIndex: 'start_line', width: 60 },
-  { title: '匹配文本', dataIndex: 'matched_text', width: 180, ellipsis: true, tooltip: true },
-  { title: 'AI状态', dataIndex: 'ai_status', slotName: 'aiStatus', width: 90 },
-  { title: '风险', dataIndex: 'ai_risk_level', slotName: 'riskLevel', width: 70 },
-  { title: '置信度', dataIndex: 'ai_confidence', slotName: 'confidence', width: 80 },
-  { title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 150 },
-  { title: 'AI理由', dataIndex: 'ai_rationale', width: 220, ellipsis: true, tooltip: true },
-  { title: '操作', slotName: 'ops', width: 110, fixed: 'right' as const },
+// ===== 列过滤（前端过滤，见 composables/useColumnFilter）=====
+const columnFilters = ref<Record<string, ColumnFilterState>>({
+  file_path: emptyFilter('text'),
+  start_line: emptyFilter('number'),
+  matched_text: emptyFilter('text'),
+  method_name: emptyFilter('text'),
+  ai_rationale: emptyFilter('text'),
+  ai_confidence: emptyFilter('number'),
+  introduced_at: emptyFilter('date'),
+  introduced_author: emptyFilter('text'),
+})
+
+function onColumnFilterChange() {
+  pageNum.value = 1
+}
+
+function filterableOf(key: string) {
+  return {
+    slotName: `filter-${key}`,
+    filteredValue: isFilterActive(columnFilters.value[key]) ? ['1'] : [],
+    filter: () => true,
+    hideButton: true,
+  }
+}
+
+/**
+ * 默认展示哪些列。
+ *
+ * 全列铺开会让表格横向溢出、关键信息被挤出视野，所以次要列默认隐藏，
+ * 用上方的「显示列」下拉自行勾选。这里存的是 dataIndex/slotName 集合。
+ */
+const DEFAULT_VISIBLE_COLUMNS = [
+  'file_path', 'start_line', 'ai_status', 'ai_risk_level', 'ai_confidence', 'ops',
 ]
+const visibleColumnKeys = ref<string[]>([...DEFAULT_VISIBLE_COLUMNS])
+
+/** 全部候选列（含默认隐藏的），供「显示列」下拉与实际渲染共用 */
+const allCandidateColumns = computed(() => [
+  { key: 'file_path', title: '文件', dataIndex: 'file_path', width: 260, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('file_path') },
+  { key: 'start_line', title: '行号', dataIndex: 'start_line', width: 80, resizable: true, filterable: filterableOf('start_line') },
+  { key: 'method_name', title: '方法', dataIndex: 'method_name', width: 160, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('method_name') },
+  { key: 'matched_text', title: '匹配文本', dataIndex: 'matched_text', width: 180, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('matched_text') },
+  { key: 'ai_status', title: 'AI状态', dataIndex: 'ai_status', slotName: 'aiStatus', width: 90, resizable: true },
+  { key: 'ai_risk_level', title: '风险', dataIndex: 'ai_risk_level', slotName: 'riskLevel', width: 75, resizable: true },
+  { key: 'ai_confidence', title: '置信度', dataIndex: 'ai_confidence', slotName: 'confidence', width: 85, resizable: true, filterable: filterableOf('ai_confidence') },
+  // 时间列给足宽度：'YYYY-MM-DD HH:MM:SS' 是 19 字符，宽度不够会折行把整行撑高
+  { key: 'introduced_at', title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 170, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('introduced_at') },
+  { key: 'introduced_author', title: '引入人', dataIndex: 'introduced_author', width: 110, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('introduced_author') },
+  { key: 'ai_rationale', title: 'AI理由', dataIndex: 'ai_rationale', width: 220, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('ai_rationale') },
+  { key: 'ops', title: '操作', slotName: 'ops', width: 110, fixed: 'right' as const },
+])
+
+/** 「显示列」下拉的选项 */
+const columnOptions = computed(() =>
+  allCandidateColumns.value.map(c => ({ value: c.key, label: c.title })),
+)
+
+const candidateColumns = computed(() =>
+  allCandidateColumns.value.filter(c => visibleColumnKeys.value.includes(c.key)),
+)
+
+// 当页数据再叠加表头列过滤。后端已按 run/规则/状态等条件分页，
+// 这里只处理表头这几个自由文本/数值/时间条件，避免为每个字段都加查询参数。
+const filteredCandidates = computed(() =>
+  applyColumnFilters(candidatePage.value?.list ?? [], columnFilters.value),
+)
 
 // ===== 初始化：从路由读取 repository_id / run_id / ai_model / ai_mode / scan_point_id =====
 /**
@@ -581,6 +641,21 @@ function routeQueryChanged(
   const keys = ['run_id', 'repository_id', 'ai_model', 'ai_mode', 'scan_point_id'] as const
   return keys.some(k => (oldQ[k] ?? '') !== (newQ[k] ?? ''))
 }
+
+// 筛选条件持久化：页内往返时恢复，带参数跳转进入时不恢复。
+// 判定依据是 URL 上有没有 run_id/repository_id —— 有就说明是从别处点进来看
+// 特定对象的，套用上次筛选会看不到预期数据。
+useFilterPersistence('static-scan-results', {
+  statusFilter,
+  domainFilter,
+  riskLevelFilter,
+  scanPointFilter,
+  introducedRange,
+  visibleColumnKeys,
+  columnFilters,
+}, {
+  skipRestore: () => Boolean(route.query.run_id || route.query.repository_id),
+})
 
 onMounted(() => {
   void initFromRoute(route.query as Record<string, unknown>)
@@ -748,10 +823,19 @@ watch(() => route.query, (newQ, oldQ) => {
                 <a-option value="low">低</a-option>
                 <a-option value="info">提示</a-option>
               </a-select>
+              <!-- 显示列：次要列默认隐藏，避免表格横向溢出把关键信息挤出视野 -->
+              <a-select
+                v-model="visibleColumnKeys"
+                multiple
+                :max-tag-count="1"
+                placeholder="显示列"
+                style="width: 160px"
+                :options="columnOptions"
+              />
           </template>
           <a-table
             :loading="candidateLoading"
-            :data="candidatePage?.list ?? []"
+            :data="filteredCandidates"
             :columns="candidateColumns"
             :pagination="{
               current: pageNum,
@@ -761,9 +845,33 @@ watch(() => route.query, (newQ, oldQ) => {
             }"
             row-key="id"
             size="small"
-            :scroll="{ x: 1150 }"
+            :scroll="{ x: 1500, y: 'calc(100vh - 420px)' }"
             @page-change="(p: number) => { pageNum = p; loadCandidates() }"
           >
+            <template #filter-file_path>
+              <ColumnFilterPanel v-model="columnFilters.file_path" @change="onColumnFilterChange" />
+            </template>
+            <template #filter-start_line>
+              <ColumnFilterPanel v-model="columnFilters.start_line" @change="onColumnFilterChange" />
+            </template>
+            <template #filter-matched_text>
+              <ColumnFilterPanel v-model="columnFilters.matched_text" @change="onColumnFilterChange" />
+            </template>
+            <template #filter-method_name>
+              <ColumnFilterPanel v-model="columnFilters.method_name" @change="onColumnFilterChange" />
+            </template>
+            <template #filter-ai_rationale>
+              <ColumnFilterPanel v-model="columnFilters.ai_rationale" @change="onColumnFilterChange" />
+            </template>
+            <template #filter-ai_confidence>
+              <ColumnFilterPanel v-model="columnFilters.ai_confidence" @change="onColumnFilterChange" />
+            </template>
+            <template #filter-introduced_at>
+              <ColumnFilterPanel v-model="columnFilters.introduced_at" @change="onColumnFilterChange" />
+            </template>
+            <template #filter-introduced_author>
+              <ColumnFilterPanel v-model="columnFilters.introduced_author" @change="onColumnFilterChange" />
+            </template>
             <template #aiStatus="{ record }">
               <a-tag :color="aiStatusLabels[record.ai_status]?.color ?? 'gray'" size="small">
                 {{ aiStatusLabels[record.ai_status]?.label ?? record.ai_status }}
