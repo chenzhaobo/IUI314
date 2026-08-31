@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { CrossRunAggRow, ModuleWithRepository } from '@/types/static-scan'
-import { Message, Modal } from '@arco-design/web-vue'
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { Checkbox, Message, Modal } from '@arco-design/web-vue'
+import { computed, h, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ErrorFlag } from '@/api/apis'
 import { ApiAiExecution } from '@/api/aiApis'
@@ -283,20 +283,20 @@ async function bulkRetry() {
     return
   }
   const totalCandidates = targets.reduce((sum, r) => sum + retryableCount(r), 0)
-  Modal.confirm({
-    title: '确认批量重扫未完成任务？',
-    content: `将对 ${targets.length} 个运行的共 ${totalCandidates} 条未完成候选（错误/未确认/待复核）重新入队确认。`
-      + '\n\n每个运行只重扫其剩余未完成部分，已确认/已排除的结论不受影响。',
-    okText: '确认重扫',
-    cancelText: '取消',
-    onOk: async () => {
+  const totalSettled = targets.reduce((sum, r) => sum + settledCount(r), 0)
+  confirmRetryScope({
+    title: '确认批量重扫？',
+    scopeText: `将对 ${targets.length} 个运行重新入队确认`,
+    unfinished: totalCandidates,
+    settled: totalSettled,
+    onOk: async (includeSettled) => {
       bulkRetrying.value = true
       let ok = 0
       let fail = 0
       try {
         // 逐个提交：后端队列有「同业务同分片只允许一条在飞」的唯一约束，重复提交是安全的
         for (const row of targets) {
-          const payload: Record<string, any> = { run_id: row.run_id }
+          const payload: Record<string, any> = { run_id: row.run_id, include_settled: includeSettled }
           const models = (row.ai_model ?? '').split(',').map(m => m.trim()).filter(Boolean)
           if (models.length === 1)
             payload.model = models[0]
@@ -508,10 +508,56 @@ function confirmStateTooltip(row: CrossRunAggRow): string {
 
 // ===== 一键重扫错误候选（整个轮次）=====
 const retryingRunId = ref('')
-// 可重跑数量 = error + 未确认 + 待人工复核
-// 后端 retry-errors 实际重置就是这三种状态（RETRYABLE_AI_STATUSES）
+// 默认可重跑数量 = error + 未确认。与后端 RETRYABLE_AI_STATUSES 对齐。
+//
+// review_needed 已从默认范围移出：它承载的是"需人工复核"的判定结果、业务上等同
+// 已确认，默认重扫会把这批待办悄悄抹掉。要复核它得在弹窗里显式勾选。
 function retryableCount(row: CrossRunAggRow) {
-  return (row.error || 0) + (row.pending || 0) + (row.review_needed || 0)
+  return (row.error || 0) + (row.pending || 0)
+}
+
+// 已出结论数量 = 已确认 + 待人工复核，勾选"连已出结论的一起重扫"时才纳入。
+// 与后端 SETTLED_AI_STATUSES 对齐；rejected 刻意不含（量最大，纳入会让规模失控）。
+function settledCount(row: CrossRunAggRow) {
+  return (row.confirmed || 0) + (row.review_needed || 0)
+}
+
+/**
+ * 重扫前的确认弹窗。勾选后才把已确认/待复核的候选一起重置。
+ *
+ * 每次调用都复位成不勾选 —— 这是破坏性操作（清掉已有结论和人工待办），
+ * 不能因为上次勾过就默认继续勾着。
+ */
+function confirmRetryScope(opts: {
+  title: string
+  scopeText: string
+  unfinished: number
+  settled: number
+  onOk: (includeSettled: boolean) => Promise<void>
+}) {
+  const include = ref(false)
+  Modal.confirm({
+    title: opts.title,
+    content: () => h('div', { style: 'line-height:1.7' }, [
+      h('div', `${opts.scopeText}，其中未完成（错误/未确认）${opts.unfinished} 条。`),
+      h('div', { style: 'color:#86909c;margin-top:4px' },
+        '默认只重扫未完成部分，已确认/待人工复核/已排除的结论不受影响。'),
+      opts.settled > 0
+        ? h('div', { style: 'margin-top:10px' }, [
+            h(Checkbox, {
+              'modelValue': include.value,
+              'onUpdate:modelValue': (v: any) => { include.value = Boolean(v) },
+            }, () => `连已出结论的一起重扫（额外 ${opts.settled} 条：已确认 + 待人工复核）`),
+            h('div', { style: 'color:#f77234;margin-top:4px;font-size:12px' },
+              '勾选后这些候选的 AI 结论与详细报告会被清空并重新判定，请确认已无人跟进。'),
+          ])
+        : h('div', { style: 'color:#86909c;margin-top:8px;font-size:12px' },
+            '该范围内没有已出结论的候选。'),
+    ]),
+    okText: '确认重扫',
+    cancelText: '取消',
+    onOk: () => opts.onOk(include.value),
+  })
 }
 
 async function retryErrors(row: CrossRunAggRow) {

@@ -216,7 +216,7 @@ import { useRoute } from 'vue-router'
 import { Message, Modal } from '@arco-design/web-vue'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
-import { ApiPerfPeriodicReport, ApiPerfReportV2 } from '@/api/perfApis'
+import { ApiPerfReportV2 } from '@/api/perfApis'
 import { useDelete, useDownload, useGet, usePost, usePut } from '@/hooks'
 
 defineOptions({ name: 'report-list' })
@@ -304,7 +304,7 @@ async function handleDownloadHtml(record: any) {
   const { downloadWithTip } = useDownload()
   const name = `${record.title || '报告'}.html`
   await downloadWithTip(
-    `${ApiPerfPeriodicReport.reportHtml}?id=${encodeURIComponent(record.id)}`,
+    `${ApiPerfReportV2.reportHtml}?id=${encodeURIComponent(record.id)}`,
     name,
     '报告下载失败',
   )

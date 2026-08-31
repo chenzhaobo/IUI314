@@ -414,9 +414,16 @@ function downloadReport() {
 
 // ===== 单条重扫（重置为 pending 并重新 AI 确认）=====
 const retryingCandidateId = ref('')
-/** 允许重扫的状态：错误 / 已排除 / 需人工 */
+/**
+ * 允许单条重扫的状态。
+ *
+ * 包含 confirmed：换了模型或改了规则知识后，想复核已确认的问题是常见诉求，
+ * 单条重扫是显式操作、不会误伤别人，所以放开。
+ * （批量重扫默认**不**碰 confirmed / review_needed，要勾选才纳入 —— 见 runs.vue）
+ * 不含 pending：那是还没出结论、本来就在排队，重扫没有意义。
+ */
 function canRetry(status: string): boolean {
-  return ['error', 'rejected', 'review_needed'].includes(status)
+  return ['error', 'rejected', 'review_needed', 'confirmed'].includes(status)
 }
 async function retryCandidate(row: CandidateDetailRow) {
   retryingCandidateId.value = row.id

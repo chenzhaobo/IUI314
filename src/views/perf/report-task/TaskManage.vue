@@ -547,12 +547,15 @@ async function openDimensions(record: any) {
   dimVisible.value = true
   dimLoading.value = true
   try {
-    const { data } = await useGet(ApiPerfReportTask.dimensionProgress, {
+    // 给泛型，否则 data 是 unknown、取 .list 编译不过
+    const { data } = await useGet<any>(ApiPerfReportTask.dimensionProgress, {
       task_id: record.task_id,
       run_date: dimRunDate.value,
     })
-    dimSummary.value = { ...dimSummary.value, ...(data || {}) }
-    dimList.value = data?.list || []
+    // useGet 返回的 data 是 shallowRef，要取 .value 才是响应体
+    const payload: any = data.value ?? {}
+    dimSummary.value = { ...dimSummary.value, ...payload }
+    dimList.value = payload.list ?? []
   }
   finally {
     dimLoading.value = false
