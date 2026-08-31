@@ -40,6 +40,25 @@
             </template>
           </a-table-column>
           <a-table-column title="执行时间" data-index="run_time" :width="90" />
+          <a-table-column title="周期报告" :width="150">
+            <template #cell="{ record }">
+              <a-space size="mini">
+                <a-tag v-if="record.weekly_enabled ?? true" color="arcoblue" size="small">
+                  周报 {{ weekdayText(record.weekly_weekday ?? 2) }}
+                </a-tag>
+                <a-tag v-if="record.monthly_enabled ?? true" color="purple" size="small">
+                  月报 {{ record.monthly_day ?? 2 }} 日
+                </a-tag>
+                <span
+                  v-if="!(record.weekly_enabled ?? true) && !(record.monthly_enabled ?? true)"
+                  style="color: #86909c"
+                >未开启</span>
+                <span v-else style="color: #86909c; font-size: 12px">
+                  {{ record.period_run_time || '06:00' }}
+                </span>
+              </a-space>
+            </template>
+          </a-table-column>
           <a-table-column title="工作目录" data-index="work_dir" ellipsis tooltip :width="180" />
           <a-table-column title="最近运行" :width="150">
             <template #cell="{ record }">
@@ -175,6 +194,55 @@
         <a-form-item label="启用">
           <a-switch v-model="form.enabled" />
           <span style="margin-left: 8px; color: #86909c; font-size: 12px">停用后定时调度与手动触发均跳过该任务</span>
+        </a-form-item>
+
+        <a-divider orientation="left" style="margin: 8px 0">周期报告</a-divider>
+        <a-form-item label="生成周报">
+          <a-switch v-model="form.weekly_enabled" />
+          <a-select
+            v-model="form.weekly_weekday"
+            :disabled="!form.weekly_enabled"
+            style="width: 120px; margin-left: 12px"
+          >
+            <a-option :value="1">每周一</a-option>
+            <a-option :value="2">每周二</a-option>
+            <a-option :value="3">每周三</a-option>
+            <a-option :value="4">每周四</a-option>
+            <a-option :value="5">每周五</a-option>
+            <a-option :value="6">每周六</a-option>
+            <a-option :value="7">每周日</a-option>
+          </a-select>
+          <template #extra>
+            <span>出的始终是「上一个完整 ISO 周」。默认周二 —— 周日的日报要到周一夜间才生成，周一出周报必然缺最后一天。</span>
+          </template>
+        </a-form-item>
+        <a-form-item label="生成月报">
+          <a-switch v-model="form.monthly_enabled" />
+          <a-input-number
+            v-model="form.monthly_day"
+            :disabled="!form.monthly_enabled"
+            :min="1"
+            :max="28"
+            style="width: 130px; margin-left: 12px"
+          >
+            <template #prepend>每月</template>
+            <template #append>日</template>
+          </a-input-number>
+          <template #extra>
+            <span>出的始终是「上一个完整自然月」。上限 28 日 —— 29~31 在短月永远不会触发。</span>
+          </template>
+        </a-form-item>
+        <a-form-item label="生成时刻">
+          <a-time-picker
+            v-model="form.period_run_time"
+            format="HH:mm"
+            value-format="HH:mm"
+            :disabled="!form.weekly_enabled && !form.monthly_enabled"
+            style="width: 100%"
+          />
+          <template #extra>
+            <span>到点后的第一次调度轮询（每 5 分钟一次）会生成；已存在则跳过，不会重复出。</span>
+          </template>
         </a-form-item>
       </a-form>
     </a-modal>
@@ -387,6 +455,7 @@ const form = reactive<any>({
   task_name: '', dimension_type: 'product_domain', dimension_value: undefined, product_line: '星瀚',
   threshold_ms: 3000, daily_limit_per_group: 100, group_top_pct: 80, group_max: 200,
   run_time: '02:00', yzj_chat_id: '', work_dir: '', agent_code: '', model: '', enabled: true,
+  weekly_enabled: true, monthly_enabled: true, weekly_weekday: 2, monthly_day: 2, period_run_time: '06:00',
 })
 
 // 模型选项跟随所选 Agent 的 supported_models_json：各 Agent 支持的模型不同
@@ -413,7 +482,7 @@ watch(() => form.agent_code, () => {
 
 const openAddModal = () => {
   isEdit.value = false; editId.value = ''
-  Object.assign(form, { task_name: '', dimension_type: 'product_domain', dimension_value: undefined, product_line: '星瀚', threshold_ms: 3000, daily_limit_per_group: 100, group_top_pct: 80, group_max: 200, run_time: '02:00', yzj_chat_id: '', work_dir: '', enabled: true })
+  Object.assign(form, { task_name: '', dimension_type: 'product_domain', dimension_value: undefined, product_line: '星瀚', threshold_ms: 3000, daily_limit_per_group: 100, group_top_pct: 80, group_max: 200, run_time: '02:00', yzj_chat_id: '', work_dir: '', enabled: true, weekly_enabled: true, monthly_enabled: true, weekly_weekday: 2, monthly_day: 2, period_run_time: '06:00' })
   loadDimValues()
   modalVisible.value = true
 }
@@ -428,6 +497,13 @@ const openEditModal = (record: any) => {
     run_time: record.run_time || '02:00', yzj_chat_id: record.yzj_chat_id || '', work_dir: record.work_dir || '',
     agent_code: record.agent_code || '', model: record.model || '',
     enabled: !!record.enabled,
+    // 后端列有 NOT NULL 默认值，但老记录经接口回来可能是 undefined，
+    // 这里给出与后端一致的兜底，避免开关显示成「关」而实际是开的
+    weekly_enabled: record.weekly_enabled ?? true,
+    monthly_enabled: record.monthly_enabled ?? true,
+    weekly_weekday: record.weekly_weekday ?? 2,
+    monthly_day: record.monthly_day ?? 2,
+    period_run_time: record.period_run_time || '06:00',
   })
   loadDimValues()
   modalVisible.value = true
@@ -442,6 +518,11 @@ const buildPayload = (base: any) => ({
   threshold_ms: base.threshold_ms, daily_limit_per_group: base.daily_limit_per_group,
   group_top_pct: base.group_top_pct, group_max: base.group_max,
   run_time: base.run_time || '02:00',
+  weekly_enabled: base.weekly_enabled,
+  monthly_enabled: base.monthly_enabled,
+  weekly_weekday: base.weekly_weekday,
+  monthly_day: base.monthly_day,
+  period_run_time: base.period_run_time || '06:00',
   yzj_chat_id: base.yzj_chat_id || undefined, work_dir: base.work_dir || undefined,
     agent_code: base.agent_code || undefined, model: base.model || undefined,
   enabled: base.enabled,
@@ -460,6 +541,8 @@ const handleSave = async () => {
 }
 
 // ── 启用开关（内联切换即保存） ──────────────────────────────
+const weekdayText = (n: number) => ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'][n] || `第${n}天`
+
 const toggleEnabled = async (record: any, enabled: boolean) => {
   savePayload.value = { id: record.id, ...buildPayload({ ...record, yzj_chat_id: record.yzj_chat_id || '', work_dir: record.work_dir || '', enabled }) }
   await doSave()
