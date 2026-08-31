@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { IssueRuleStatRow, IssueVerifyResult, ModuleWithRepository, ScanIssueEventRow, ScanIssuePage, ScanIssueRow } from '@/types/static-scan'
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { Message } from '@arco-design/web-vue'
@@ -12,6 +13,7 @@ defineOptions({ name: 'StaticScanDefects' })
 
 // ===== 字典：不处理原因（static_scan_wont_fix_reason）=====
 // 复用项目既有 useDicts hook（stores/modules/dicts.ts 按 dict_type 拉 sys_dict_data，带缓存）
+const router = useRouter()
 const wontFixReasonDicts = useDicts('static_scan_wont_fix_reason')
 const wontFixReasonOptions = computed(() => {
   const items = wontFixReasonDicts.value.static_scan_wont_fix_reason ?? []
@@ -327,6 +329,67 @@ async function submitFixed() {
   }
 }
 
+// ===== 补偿匹配白名单 =====
+const whitelistBusy = ref(false)
+
+/**
+ * 把命中白名单的待处理缺陷批量标记为不处理。
+ *
+ * 白名单的来源就是本页「标记不处理」时勾选的「同步白名单」——
+ * 那会往 sec_static_waiver 写一条带指纹的豁免记录。这个按钮拿那些指纹
+ * 回头匹配 open/reopened 的缺陷，把漏标的补上。
+ *
+ * 当前是精确指纹匹配。指纹（规则+文件+方法名，不含行号）本身就是平台判定
+ * "同一问题"的口径，同指纹即同问题；"不同指纹但语义同一问题"才需要 AI，
+ * 那部分留作后续增强。
+ */
+async function compensateWhitelist() {
+  whitelistBusy.value = true
+  try {
+    const resp = await postAction<{ message?: string }>(
+      ApiSecPrescan.compensateWhitelist,
+      // 限定当前筛选的仓库，避免一次扫全库
+      { repository_id: queryParams.value.repository_id || undefined },
+    )
+    if (resp) {
+      Message.success(resp.message || '匹配完成')
+      refresh()
+    }
+  }
+  finally {
+    whitelistBusy.value = false
+  }
+}
+
+/**
+ * 跳到该缺陷对应的扫描结果详情，并定位到具体批次。
+ *
+ * 带上 run_id 精确到批次；同时带 repository_id 让结果页能正确加载轮次列表。
+ * 缺陷是跨轮次归并的实体，用 last_run_id（最近一次命中的轮次）——
+ * first_run_id 是首次检出，代码早就变了，跳过去看到的行号可能对不上。
+ */
+async function viewInResults(row: ScanIssueRow) {
+  // sec_scan_issue 没有 run_id 字段（它是跨轮次归并的实体），所以要让后端
+  // 按「规则 + 文件 + 方法名」反查候选、再定位到 run。
+  const loc = await fetchJson<{ run_id: string, repository_id: string, ai_model?: string, ai_mode?: string }>(
+    `${ApiSecPrescan.issueRun}?issue_id=${encodeURIComponent(row.id)}`,
+  )
+  if (!loc?.run_id) {
+    Message.warning('没找到这条缺陷对应的扫描轮次（候选数据可能已被清理）')
+    return
+  }
+  router.push({
+    path: '/static-scan/scan/results',
+    query: {
+      run_id: loc.run_id,
+      repository_id: loc.repository_id,
+      // 带上模型与模式，结果页的轮次选择器才能精确匹配到那一批
+      ...(loc.ai_model ? { ai_model: loc.ai_model } : {}),
+      ...(loc.ai_mode ? { ai_mode: loc.ai_mode } : {}),
+    },
+  })
+}
+
 // ===== 缺陷处理：批量标记不处理（open/reopened → wont_fix，可同步白名单）=====
 const wontFixVisible = ref(false)
 const wontFixTargets = ref<ScanIssueRow[]>([])
@@ -638,6 +701,13 @@ function shortSha(sha: string | null | undefined): string {
       <!-- 批量操作工具栏 -->
       <a-row class="m-b-8px">
         <a-space>
+          <!-- 补偿匹配白名单：拿白名单里的指纹回头匹配待处理缺陷，把漏标的补上。
+               白名单来源是「标记不处理」时勾选的「同步白名单」 -->
+          <a-tooltip content="用白名单里的指纹匹配待处理缺陷，命中的自动标记不处理" mini>
+            <a-button :loading="whitelistBusy" @click="compensateWhitelist">
+              补偿匹配白名单
+            </a-button>
+          </a-tooltip>
           <a-button type="primary" :disabled="!selectedIds.length" :loading="batchClaimLoading" @click="batchClaim">
             认领
           </a-button>
@@ -710,6 +780,9 @@ function shortSha(sha: string | null | undefined): string {
             </template>
         <template #ops="{ record }">
           <a-space>
+            <a-button type="text" size="small" @click="viewInResults(record)">
+              查看批次
+            </a-button>
             <a-button type="text" size="small" :disabled="!record.ai_detail_report" @click="viewReport(record)">
               报告
             </a-button>

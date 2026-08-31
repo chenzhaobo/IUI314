@@ -260,6 +260,14 @@ export enum ApiSecPrescan {
   aiConfirm = '/sechub/prescan/ai-confirm',
   retryErrors = '/sechub/prescan/retry-errors',
   retryCandidate = '/sechub/prescan/retry-candidate',
+  // 重扫范围计数（供确认弹窗先告知再执行）
+  retryScope = '/sechub/prescan/retry-scope',
+  // 给已确认候选补齐缺陷记录（AI 确认流程中断时用）
+  compensateIssues = '/sechub/prescan/compensate-issues',
+  // 把命中白名单的待处理缺陷标记为不处理
+  compensateWhitelist = '/sechub/prescan/compensate-whitelist',
+  // 按缺陷反查它最近一次被检出的扫描轮次（缺陷列表跳转用）
+  issueRun = '/sechub/prescan/issue-run',
   blameCompensate = '/sechub/prescan/blame-compensate',
   agentStatus = '/sechub/prescan/agent-status',
   confirmCompare = '/sechub/prescan/confirm-compare',

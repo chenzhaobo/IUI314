@@ -403,6 +403,75 @@ function viewReport(row: CandidateDetailRow) {
   reportVisible.value = true
 }
 
+// ===== 候选多选与批量操作 =====
+const selectedCandidateIds = ref<string[]>([])
+const bulkBusy = ref(false)
+
+/** 选中项里能重扫的（与单条重扫同一套白名单） */
+const bulkRetryableIds = computed(() =>
+  filteredCandidates.value
+    .filter(r => selectedCandidateIds.value.includes(r.id) && canRetry(r.ai_status))
+    .map(r => r.id),
+)
+
+/** 批量重扫选中的候选 */
+async function bulkRetryCandidates() {
+  const ids = bulkRetryableIds.value
+  if (ids.length === 0) {
+    Message.warning('选中的候选都不支持重扫（待确认状态本来就在排队，无需重扫）')
+    return
+  }
+  bulkBusy.value = true
+  try {
+    // 逐条提交：后端 retry-candidate 一次只收一个 candidate_id，
+    // 且队列有「同业务同分片只允许一条在飞」的约束，重复提交是安全的。
+    let ok = 0
+    for (const id of ids) {
+      const payload: Record<string, any> = { candidate_id: id }
+      if (currentRun.value?.ai_model?.trim())
+        payload.model = currentRun.value.ai_model.trim()
+      const modes = (currentRun.value?.ai_mode ?? '').split(',').map(m => m.trim()).filter(Boolean)
+      if (modes.length === 1)
+        payload.mode = modes[0]
+      if (await postAction<{ message?: string }>(ApiSecPrescan.retryCandidate, payload))
+        ok += 1
+    }
+    Message.success(`已提交 ${ok} 条重扫${ok < ids.length ? `，${ids.length - ok} 条失败` : ''}`)
+    selectedCandidateIds.value = []
+    setTimeout(() => void loadCandidates(), 1500)
+  }
+  finally {
+    bulkBusy.value = false
+  }
+}
+
+/**
+ * 补偿生成缺陷。
+ *
+ * AI 确认流程收尾失败时，confirmed 候选不会写出 sec_scan_issue ——
+ * 这里"确认问题"有计数，缺陷列表里却查不到。这个按钮把缺的补上，
+ * 不用整个 run 重扫。选中了就只补这些候选，没选就补整个轮次。
+ */
+async function compensateIssues() {
+  const ids = selectedCandidateIds.value
+  const body = ids.length > 0
+    ? { candidate_ids: ids }
+    : { run_id: currentRun.value?.run_id ?? '' }
+  if (!ids.length && !currentRun.value?.run_id) {
+    Message.warning('请先选择轮次')
+    return
+  }
+  bulkBusy.value = true
+  try {
+    const resp = await postAction<{ message?: string }>(ApiSecPrescan.compensateIssues, body)
+    if (resp)
+      Message.success(resp.message || '已提交补偿')
+  }
+  finally {
+    bulkBusy.value = false
+  }
+}
+
 // 下载 AI 生成的原始 md 报告。
 // 内容已随候选列表返回（ai_detail_report），直接本地存盘，不再向后端多要一次。
 // 文件名带上文件路径与行号，便于在一堆下载里对上是哪处代码。
@@ -591,6 +660,17 @@ const candidateColumns = computed(() =>
 const filteredCandidates = computed(() =>
   applyColumnFilters(candidatePage.value?.list ?? [], columnFilters.value),
 )
+
+/**
+ * 表格滚动配置。数据少时不设 y —— 固定高度会让空白区留在滚动容器内，
+ * 横向滚动条被推到底部压住最后几行数据。行数少就让表格自然收缩。
+ */
+const candidateScroll = computed(() => {
+  const base = { x: 1500 }
+  return filteredCandidates.value.length > 12
+    ? { ...base, y: 'calc(100vh - 420px)' }
+    : base
+})
 
 // ===== 初始化：从路由读取 repository_id / run_id / ai_model / ai_mode / scan_point_id =====
 /**
@@ -829,6 +909,21 @@ watch(() => route.query, (newQ, oldQ) => {
                 <a-option value="low">低</a-option>
                 <a-option value="info">提示</a-option>
               </a-select>
+              <a-button
+                size="small"
+                :disabled="selectedCandidateIds.length === 0"
+                :loading="bulkBusy"
+                @click="bulkRetryCandidates"
+              >
+                重扫选中({{ bulkRetryableIds.length }})
+              </a-button>
+              <!-- 补偿生成缺陷：AI 确认收尾失败时 confirmed 候选不会写出缺陷，
+                   这里"确认问题"有数、缺陷列表却查不到。选中就只补这些，没选补整轮次 -->
+              <a-tooltip content="已确认的候选若没生成缺陷记录，用这个补齐（不选则补整个轮次）" mini>
+                <a-button size="small" :loading="bulkBusy" @click="compensateIssues">
+                  补偿生成缺陷
+                </a-button>
+              </a-tooltip>
               <!-- 显示列：原有列默认全显示，新增的「方法」「引入人」默认隐藏，按需勾出 -->
               <a-select
                 v-model="visibleColumnKeys"
@@ -849,9 +944,11 @@ watch(() => route.query, (newQ, oldQ) => {
               total: candidatePage?.total ?? 0,
               showTotal: true,
             }"
+            v-model:selectedKeys="selectedCandidateIds"
+            :row-selection="{ type: 'checkbox', showCheckedAll: true }"
             row-key="id"
             size="small"
-            :scroll="{ x: 1500, y: 'calc(100vh - 420px)' }"
+            :scroll="candidateScroll"
             @page-change="(p: number) => { pageNum = p; loadCandidates() }"
           >
             <template #filter-file_path>

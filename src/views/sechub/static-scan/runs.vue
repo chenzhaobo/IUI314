@@ -304,6 +304,23 @@ function onSearch() {
 const pageNum = ref(1)
 const pageSize = ref(20)
 
+/**
+ * 表格滚动配置。
+ *
+ * 固定 y 会让表格体永远占满那个高度 —— 数据只有几行时，下方一大片空白仍在
+ * 滚动容器内，横向滚动条被推到容器底部、正好压在最后几行数据上。
+ * 所以只在行数足够多（超过一屏）时才限高；行数少就让表格自然收缩，
+ * 滚动条贴在内容下方，不会遮挡。
+ *
+ * 阈值 12 行是按 size="small" 的行高（约 40px）与 calc 的可用高度估的。
+ */
+const crossScroll = computed(() => {
+  const base = { x: 1700 }
+  return pagedCrossRows.value.length > 12
+    ? { ...base, y: 'calc(100vh - 430px)' }
+    : base
+})
+
 // 筛选条件持久化：切到别的页签再回来、或点进详情再返回时，保持上次的筛选。
 // 这个页面没有"带参数跳转进入"的场景（它是入口页），所以不需要 skipRestore。
 useFilterPersistence('static-scan-runs', {
@@ -831,7 +848,7 @@ const crossColumns = computed(() => [
         row-key="key"
         size="small"
         :bordered="{ cell: true }"
-        :scroll="{ x: 1700, y: 'calc(100vh - 430px)' }"
+        :scroll="crossScroll"
         @page-change="(p: number) => (pageNum = p)"
         @page-size-change="(s: number) => { pageSize = s; pageNum = 1 }"
       >
