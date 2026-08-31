@@ -550,11 +550,14 @@ function filterableOf(key: string) {
 /**
  * 默认展示哪些列。
  *
- * 全列铺开会让表格横向溢出、关键信息被挤出视野，所以次要列默认隐藏，
- * 用上方的「显示列」下拉自行勾选。这里存的是 dataIndex/slotName 集合。
+ * 原有的列**全部默认显示**，不要动用户已经习惯的视图 —— 之前误把匹配文本、
+ * 引入时间、AI理由也隐藏了，等于把信息藏起来，反而更难用。
+ *
+ * 只有本次新增的两列（方法、引入人）默认隐藏，需要时从「显示列」下拉勾出。
  */
 const DEFAULT_VISIBLE_COLUMNS = [
-  'file_path', 'start_line', 'ai_status', 'ai_risk_level', 'ai_confidence', 'ops',
+  'file_path', 'start_line', 'matched_text', 'ai_status', 'ai_risk_level',
+  'ai_confidence', 'introduced_at', 'ai_rationale', 'ops',
 ]
 const visibleColumnKeys = ref<string[]>([...DEFAULT_VISIBLE_COLUMNS])
 
@@ -645,7 +648,10 @@ function routeQueryChanged(
 // 筛选条件持久化：页内往返时恢复，带参数跳转进入时不恢复。
 // 判定依据是 URL 上有没有 run_id/repository_id —— 有就说明是从别处点进来看
 // 特定对象的，套用上次筛选会看不到预期数据。
-useFilterPersistence('static-scan-results', {
+// storageKey 带 -v2：列显隐也要记住（用户手动勾过就该保持），但一旦存进
+// sessionStorage，之后改 DEFAULT_VISIBLE_COLUMNS 就被旧快照盖住、看不到新默认值。
+// 加版本号后，调整默认列时把版本号 +1 即可让旧快照自然失效，不用让用户清缓存。
+useFilterPersistence('static-scan-results-v2', {
   statusFilter,
   domainFilter,
   riskLevelFilter,
@@ -823,7 +829,7 @@ watch(() => route.query, (newQ, oldQ) => {
                 <a-option value="low">低</a-option>
                 <a-option value="info">提示</a-option>
               </a-select>
-              <!-- 显示列：次要列默认隐藏，避免表格横向溢出把关键信息挤出视野 -->
+              <!-- 显示列：原有列默认全显示，新增的「方法」「引入人」默认隐藏，按需勾出 -->
               <a-select
                 v-model="visibleColumnKeys"
                 multiple
