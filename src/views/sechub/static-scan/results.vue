@@ -13,7 +13,7 @@ import 'md-editor-v3/lib/style.css'
 import { Message } from '@arco-design/web-vue'
 import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
 import { ErrorFlag } from '@/api/apis'
-import { formatTime, useGet, usePost } from '@/hooks'
+import { downloadText, formatTime, useGet, usePost } from '@/hooks'
 
 defineOptions({ name: 'StaticScanResults' })
 
@@ -396,6 +396,20 @@ const reportRow = ref<CandidateDetailRow | null>(null)
 function viewReport(row: CandidateDetailRow) {
   reportRow.value = row
   reportVisible.value = true
+}
+
+// 下载 AI 生成的原始 md 报告。
+// 内容已随候选列表返回（ai_detail_report），直接本地存盘，不再向后端多要一次。
+// 文件名带上文件路径与行号，便于在一堆下载里对上是哪处代码。
+function downloadReport() {
+  const row = reportRow.value
+  if (!row?.ai_detail_report) {
+    Message.warning('该候选暂无详细报告')
+    return
+  }
+  const base = (row.file_path ?? 'report').split('/').pop() ?? 'report'
+  const line = row.start_line ? `_L${row.start_line}` : ''
+  downloadText(row.ai_detail_report, `${base}${line}_AI报告.md`)
 }
 
 // ===== 单条重扫（重置为 pending 并重新 AI 确认）=====
@@ -822,6 +836,13 @@ watch(() => route.query, (newQ, oldQ) => {
           <span v-else>-</span>
         </a-descriptions-item>
       </a-descriptions>
+      <!-- 下载原始 md：内容已在前端手里，本地存盘即可，不必再走后端 -->
+      <div v-if="reportRow?.ai_detail_report" class="report-toolbar">
+        <a-button size="small" @click="downloadReport">
+          <template #icon><icon-download /></template>
+          下载 md
+        </a-button>
+      </div>
       <MdPreview v-if="reportRow?.ai_detail_report" :model-value="reportRow.ai_detail_report" />
       <div v-else class="report-fallback">
         <a-empty description="暂无详细报告文件" />
@@ -861,6 +882,12 @@ watch(() => route.query, (newQ, oldQ) => {
 .s-pending { color: rgb(var(--orange-6)); }
 .s-rejected { color: rgb(var(--green-6)); }
 .s-total { color: var(--color-text-2); }
+.report-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
 .report-fallback { padding: 12px 0; }
 .report-tip { margin-top: 12px; color: var(--color-text-3); font-size: 12px; line-height: 1.6; }
 /* 轮次选项文本：撑满宽度以让 tooltip 覆盖整行 */

@@ -3,6 +3,33 @@ import { Message } from '@arco-design/web-vue'
 import { useToken } from '../app'
 
 /**
+ * 把已经在前端手里的文本直接存成文件，不发请求。
+ *
+ * 适用于内容随列表接口一起返回的场景（如候选的 ai_detail_report）——
+ * 再向后端要一次纯属浪费，而且后端并没有单独的报告下载接口。
+ *
+ * 文件名会做安全处理：换掉 Windows/Linux 都不允许的字符，并限制长度，
+ * 避免用文件路径当文件名时（如 `kd/tmc/Foo.java`）浏览器静默拒绝保存。
+ */
+export function downloadText(content: string, filename: string, mime = 'text/markdown;charset=utf-8') {
+  const safe = filename
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 180) || 'download.md'
+  const blob = new Blob([content], { type: mime })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = safe
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  // 立刻 revoke 在部分浏览器会导致下载中断，放到下一帧
+  requestAnimationFrame(() => URL.revokeObjectURL(url))
+}
+
+/**
  * 带鉴权的二进制文件下载。
  *
  * 注意：token 由 pinia（持久化到 localStorage 的 `userInfo` 键）管理，

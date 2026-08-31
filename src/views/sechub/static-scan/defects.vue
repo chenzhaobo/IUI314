@@ -6,7 +6,7 @@ import 'md-editor-v3/lib/style.css'
 import { Message } from '@arco-design/web-vue'
 import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
 import { ErrorFlag } from '@/api/apis'
-import { formatTime, useDicts, useGet, usePost } from '@/hooks'
+import { downloadText, formatTime, useDicts, useGet, usePost } from '@/hooks'
 
 defineOptions({ name: 'StaticScanDefects' })
 
@@ -452,6 +452,18 @@ function viewReport(row: ScanIssueRow) {
   reportVisible.value = true
 }
 
+// 下载 AI 生成的原始 md 报告。
+// 内容已随问题列表返回（ai_detail_report），直接本地存盘，不再向后端多要一次。
+// 文件名取问题标题，便于在一堆下载里对上是哪条缺陷。
+function downloadReport() {
+  const row = reportRow.value
+  if (!row?.ai_detail_report) {
+    Message.warning('该缺陷暂无详细报告')
+    return
+  }
+  downloadText(row.ai_detail_report, `${row.title ?? 'AI报告'}.md`)
+}
+
 // ===== 标签映射 =====
 const domainLabels: Record<string, { label: string, color: string }> = {
   security: { label: '安全', color: 'red' },
@@ -823,6 +835,13 @@ function shortSha(sha: string | null | undefined): string {
           <span v-else>-</span>
         </a-descriptions-item>
       </a-descriptions>
+      <!-- 下载原始 md：内容已在前端手里，本地存盘即可，不必再走后端 -->
+      <div v-if="reportRow?.ai_detail_report" class="report-toolbar">
+        <a-button size="small" @click="downloadReport">
+          <template #icon><icon-download /></template>
+          下载 md
+        </a-button>
+      </div>
       <MdPreview v-if="reportRow?.ai_detail_report" :model-value="reportRow.ai_detail_report" />
       <a-empty v-else description="暂无详细报告" />
     </a-modal>
@@ -855,4 +874,10 @@ function shortSha(sha: string | null | undefined): string {
 .event-transition { font-size: 13px; color: var(--color-text-2); }
 .event-reason { margin-top: 4px; font-size: 12px; color: var(--color-text-3); }
 .event-commit { margin-top: 2px; font-size: 12px; color: var(--color-text-4); font-family: monospace; }
+
+.report-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
 </style>
