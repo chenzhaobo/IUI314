@@ -294,6 +294,8 @@ export enum ApiPerfReportTask {
   trigger = '/perf/periodic-report/task/trigger',
   cancel = '/perf/periodic-report/task/cancel',
   runs = '/perf/periodic-report/task/runs',
+  /** 维度级归因进度（运维视角，走 JWT；remaining==0 才算该日归因完成） */
+  dimensionProgress = '/perf/periodic-report/task/dimension-progress',
 }
 
 // ── 性能诊断分析 ──────────────────────────────────────
@@ -331,6 +333,10 @@ export enum ApiPerfReportV2 {
   publish = '/perf/report-v2/publish',
   delete = '/perf/report-v2/delete',
   dailyExport = '/perf/periodic-report/daily/export',
+  /** 报告 HTML（浏览器可直接打印成 PDF；不生成 PDF 是因为中文要嵌字体，10~20MB 不适合进制品） */
+  reportHtml = '/perf/periodic-report/report/html',
+  /** 手动补历史区间的周报/月报（常规出报由调度器自动完成） */
+  periodGenerate = '/perf/periodic-report/period/generate',
   artifacts = '/perf/report-v2/artifacts',
   artifact = '/perf/report-v2/artifact',
   artifactDownload = '/perf/report-v2/artifact/download',

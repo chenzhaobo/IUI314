@@ -253,16 +253,81 @@
           <a-table-column title="结束" :width="140">
             <template #cell="{ record }">{{ formatTime(record.finished_at) }}</template>
           </a-table-column>
-          <a-table-column title="操作" :width="70" fixed="right">
+          <a-table-column title="操作" :width="130" fixed="right">
             <template #cell="{ record }">
-              <a-popconfirm v-if="record.status === 'running'" content="在当前安全边界取消该阶段？已完成原子产物会保留。" @ok="cancelRun(record)">
-                <a-link status="danger">取消</a-link>
-              </a-popconfirm>
-              <span v-else>-</span>
+              <a-space>
+                <!-- 归因是逐维度处理的长任务，阶段行只能看到总体进度；
+                     维度明细才能看出卡在哪个表单、复用率多少 -->
+                <a-link v-if="record.stage === 'defect_attribution'" @click="openDimensions(record)">维度进度</a-link>
+                <a-popconfirm v-if="record.status === 'running'" content="在当前安全边界取消该阶段？已完成原子产物会保留。" @ok="cancelRun(record)">
+                  <a-link status="danger">取消</a-link>
+                </a-popconfirm>
+              </a-space>
             </template>
           </a-table-column>
         </template>
       </a-table>
+    </a-drawer>
+
+    <!-- 维度级归因进度：分析单位是「应用+表单+操作」，一个维度一轮 AI 处理 -->
+    <a-drawer v-model:visible="dimVisible" :title="`维度归因进度: ${dimRunDate}`" :width="1100" :footer="false">
+      <a-spin :loading="dimLoading" style="display: block">
+        <a-alert v-if="dimSummary.remaining > 0" type="warning" style="margin-bottom: 12px">
+          还有 {{ dimSummary.remaining }} 个维度未处理（共 {{ dimSummary.total }} 个）。
+          <strong>日报会等到全部处理完才生成</strong> —— 否则出的是只统计了一半的报告。
+        </a-alert>
+        <a-alert v-else-if="dimSummary.total > 0" type="success" style="margin-bottom: 12px">
+          全部 {{ dimSummary.total }} 个维度已处理完毕，日报可生成。
+        </a-alert>
+
+        <a-descriptions :column="4" size="small" bordered style="margin-bottom: 12px">
+          <a-descriptions-item label="维度总数">{{ dimSummary.total }}</a-descriptions-item>
+          <a-descriptions-item label="已完成">{{ dimSummary.done }}</a-descriptions-item>
+          <a-descriptions-item label="处理中">{{ dimSummary.running }}</a-descriptions-item>
+          <a-descriptions-item label="待处理">{{ dimSummary.pending }}</a-descriptions-item>
+          <a-descriptions-item label="失败">{{ dimSummary.failed }}</a-descriptions-item>
+          <a-descriptions-item label="根因总数">{{ dimSummary.defect_total }}</a-descriptions-item>
+          <a-descriptions-item label="新增 / 复现">
+            {{ dimSummary.new_defect_total }} / {{ dimSummary.recurring_total }}
+          </a-descriptions-item>
+          <!-- 复用率是判断「归因还要不要继续优化」的直接依据：
+               越高说明每天真正要查源码的越少 -->
+          <a-descriptions-item label="台账复用率">{{ dimSummary.reuse_rate }}%</a-descriptions-item>
+        </a-descriptions>
+
+        <a-table :data="dimList" :pagination="{ pageSize: 20, showTotal: true }" size="small" row-key="bucket">
+          <template #columns>
+            <a-table-column title="表单" data-index="form_id" :width="170" ellipsis tooltip />
+            <a-table-column title="操作" data-index="operation" :width="90" ellipsis tooltip />
+            <a-table-column title="慢请求" data-index="slow_count" :width="80" :sortable="{ sortDirections: ['descend'] }" />
+            <a-table-column title="日志数" data-index="trace_count" :width="80" />
+            <a-table-column title="状态" :width="90">
+              <template #cell="{ record }">
+                <a-tag :color="dimStatusColor(record.status)" size="small">{{ dimStatusText(record.status) }}</a-tag>
+              </template>
+            </a-table-column>
+            <!-- 线索是正则给 AI 的参考，不是产出目标：同一条 trace 里的慢 SQL、异常、
+                 循环往往是同一个根因的不同表现，所以根因数通常远小于线索数 -->
+            <a-table-column title="线索 → 根因" :width="120">
+              <template #cell="{ record }">
+                {{ record.candidate_hint }} → <strong>{{ record.defect_count }}</strong>
+              </template>
+            </a-table-column>
+            <a-table-column title="新增 / 复现" :width="100">
+              <template #cell="{ record }">{{ record.new_defect_count }} / {{ record.recurring_count }}</template>
+            </a-table-column>
+            <a-table-column title="尝试" data-index="attempt" :width="60" />
+            <a-table-column title="错误" ellipsis tooltip>
+              <template #cell="{ record }">
+                <span v-if="record.error_message" style="color: #f53f3f" :title="record.error_message">
+                  {{ record.error_message }}
+                </span>
+                <span v-else>-</span>
+              </template>
+            </a-table-column>
+          </template>
+        </a-table>
+      </a-spin>
     </a-drawer>
   </div>
 </template>
@@ -465,7 +530,42 @@ onUnmounted(stopRunTimer)
 // ── 格式化辅助 ──────────────────────────────────
 const dimTypeText = (t: string) => ({ product_domain: '产品领域', business_area: '业务领域', project_group: '项目组' }[t] || t)
 const dimTypeColor = (t: string) => ({ product_domain: 'arcoblue', business_area: 'green', project_group: 'orange' }[t] || 'gray')
-const stageText = (s: string) => ({ preflight: '预检', download: '下载', extract: '结构提取', classify_hash: '问题分类', defect_attribution: '缺陷归因', analyze: '兼容分析', report: '日报台账', push: '推送' }[s] || s)
+// ── 维度归因进度 ──────────────────────────────
+// 归因是逐维度处理的长任务（一个「应用+表单+操作」一轮 AI），阶段行只有总体进度，
+// 看不出卡在哪个表单、复用率如何。这里下钻到维度账本。
+const dimVisible = ref(false)
+const dimLoading = ref(false)
+const dimRunDate = ref('')
+const dimList = ref<any[]>([])
+const dimSummary = ref<any>({
+  total: 0, pending: 0, running: 0, done: 0, failed: 0,
+  remaining: 0, defect_total: 0, new_defect_total: 0, recurring_total: 0, reuse_rate: 0,
+})
+
+async function openDimensions(record: any) {
+  dimRunDate.value = String(record.run_date || '').slice(0, 10)
+  dimVisible.value = true
+  dimLoading.value = true
+  try {
+    const { data } = await useGet(ApiPerfReportTask.dimensionProgress, {
+      task_id: record.task_id,
+      run_date: dimRunDate.value,
+    })
+    dimSummary.value = { ...dimSummary.value, ...(data || {}) }
+    dimList.value = data?.list || []
+  }
+  finally {
+    dimLoading.value = false
+  }
+}
+
+const dimStatusText = (s: string) =>
+  ({ pending: '待处理', running: '处理中', done: '已完成', failed: '失败', skipped: '跳过' }[s] || s)
+
+const dimStatusColor = (s: string) =>
+  ({ pending: 'gray', running: 'arcoblue', done: 'green', failed: 'red', skipped: 'orange' }[s] || 'gray')
+
+const stageText = (s: string) => ({ preflight: '预检', download: '下载', extract: '结构提取', classify_hash: '问题分类', defect_attribution: '缺陷归因', report: '日报台账', push: '推送' }[s] || s)
 const runStatusText = (s: string) => ({ running: '运行中', success: '成功', failed: '失败', skipped: '跳过', cancelled: '已取消', interrupted: '待恢复' }[s] || s || '-')
 const runStatusColor = (s: string) => ({ running: 'blue', success: 'green', failed: 'red', skipped: 'gray', cancelled: 'orange', interrupted: 'orangered' }[s] || 'gray')
 const fmtDuration = (seconds?: number) => {

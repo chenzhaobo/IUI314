@@ -76,6 +76,7 @@
                   <a-link>更多<icon-down /></a-link>
                   <template #content>
                     <a-doption value="preview">HTML预览</a-doption>
+                    <a-doption value="downloadHtml">下载 HTML（可打印PDF）</a-doption>
                     <a-doption v-if="record.analysis_type === 'daily_report'" value="artifacts">过程文件</a-doption>
                     <a-doption v-if="record.analysis_type === 'daily_report'" value="export">导出 Excel</a-doption>
                     <a-doption v-if="record.status === 'draft'" value="publish">发布</a-doption>
@@ -215,7 +216,7 @@ import { useRoute } from 'vue-router'
 import { Message, Modal } from '@arco-design/web-vue'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
-import { ApiPerfReportV2 } from '@/api/perfApis'
+import { ApiPerfPeriodicReport, ApiPerfReportV2 } from '@/api/perfApis'
 import { useDelete, useDownload, useGet, usePost, usePut } from '@/hooks'
 
 defineOptions({ name: 'report-list' })
@@ -294,6 +295,20 @@ const previewVisible = ref(false)
 const previewLoading = ref(false)
 const previewContent = ref('')
 const previewTitle = ref('')
+
+// 下载报告 HTML。后端不生成 PDF —— 中文要嵌字体（10~20MB），不适合进制品；
+// HTML 用系统字体渲染，@media print 已处理分页，浏览器打开后 Ctrl+P 即可存 PDF。
+// 必须走 useDownload（带 token）：window.open 无法携带 Authorization 头，
+// 会得到 401 的响应体被存成一个打不开的文件（达标率导出踩过这个坑）。
+async function handleDownloadHtml(record: any) {
+  const { downloadWithTip } = useDownload()
+  const name = `${record.title || '报告'}.html`
+  await downloadWithTip(
+    `${ApiPerfPeriodicReport.reportHtml}?id=${encodeURIComponent(record.id)}`,
+    name,
+    '报告下载失败',
+  )
+}
 
 async function handleHtmlPreview(record: any) {
   previewTitle.value = record.title || ''
@@ -418,6 +433,9 @@ const handleMoreAction = (key: string, record: any) => {
   switch (key) {
     case 'preview':
       void handleHtmlPreview(record)
+      break
+    case 'downloadHtml':
+      void handleDownloadHtml(record)
       break
     case 'artifacts':
       void handleArtifacts(record)
