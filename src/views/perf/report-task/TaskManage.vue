@@ -295,6 +295,10 @@
           <a-descriptions-item label="台账复用率">{{ dimSummary.reuse_rate }}%</a-descriptions-item>
         </a-descriptions>
 
+        <a-alert v-if="dimSummary.detail_truncated" type="info" style="margin-bottom: 8px">
+          维度较多，明细仅显示慢请求数最高的前 {{ dimSummary.detail_limit }} 条（共 {{ dimSummary.total }} 个）。
+          上方汇总数字仍为全量口径。
+        </a-alert>
         <a-table :data="dimList" :pagination="{ pageSize: 20, showTotal: true }" size="small" row-key="bucket">
           <template #columns>
             <a-table-column title="表单" data-index="form_id" :width="170" ellipsis tooltip />
