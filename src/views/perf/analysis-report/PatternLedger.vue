@@ -119,7 +119,12 @@
                       <template #content>
                         <a-doption v-if="record.issue_id" value="viewIssue">查看问题</a-doption>
                         <a-doption v-else value="linkIssue">关联已有问题</a-doption>
-                        <a-doption value="logs">下载关联日志</a-doption>
+                        <a-doption value="logs" :disabled="!hasBundle(record)">
+                          <a-tooltip v-if="!hasBundle(record)" content="该台账没有可打包的日志与缺陷报告（无样本 trace，也没有报告文件）">
+                            <span>下载关联文件</span>
+                          </a-tooltip>
+                          <span v-else>下载关联文件</span>
+                        </a-doption>
                         <a-doption value="exportDetail">导出台账详情</a-doption>
                       </template>
                     </a-dropdown>
@@ -214,7 +219,15 @@
         <a-space>
           <a-button @click="drawerVisible = false">关闭</a-button>
           <a-button :loading="detailExporting" @click="handleDetailExport">导出台账详情</a-button>
-          <a-button type="primary" status="success" :loading="logsDownloading" @click="handleLogsDownload">下载关联日志</a-button>
+          <a-tooltip :content="bundleTip(currentRecord)">
+            <a-button
+              type="primary"
+              status="success"
+              :loading="logsDownloading"
+              :disabled="!hasBundle(currentRecord)"
+              @click="handleLogsDownload"
+            >下载关联文件</a-button>
+          </a-tooltip>
         </a-space>
       </template>
     </a-drawer>
@@ -337,7 +350,27 @@ const handleDetailExport = async (target?: any) => {
   }
 }
 
-// 下载该问题命中的原始天梯（Ops）日志压缩包，供开发自查完整时间线。
+/**
+ * 该台账是否有可打包的内容。
+ *
+ * zip 里同时装原始日志与缺陷报告 md，**两者都没有**才算无内容。
+ * 判据用台账自带字段，不额外发请求：有样本 trace 说明能定位日志；
+ * 有 md（详情已拉到）说明至少能给报告。
+ */
+const hasBundle = (record: any): boolean => {
+  if (!record?.id) return false
+  const traces = record.sample_trace_ids
+  const hasTrace = Array.isArray(traces) ? traces.length > 0 : !!traces
+  const isCurrent = record.id === currentRecord.value?.id
+  return hasTrace || (isCurrent && !!mdContent.value)
+}
+
+const bundleTip = (record: any): string =>
+  hasBundle(record)
+    ? '打包该问题的原始天梯日志与缺陷报告 md'
+    : '该台账没有可打包的日志与缺陷报告（无样本 trace，也没有报告文件）'
+
+// 下载该问题命中的原始天梯日志与缺陷报告 md（同一个 zip）。
 const handleLogsDownload = async (target?: any) => {
   const record = target || currentRecord.value
   if (!record?.id) return
@@ -345,8 +378,8 @@ const handleLogsDownload = async (target?: any) => {
   try {
     await downloadWithTip(
       `${ApiPerfPatternLedger.logs}?id=${encodeURIComponent(record.id)}`,
-      `${record.pattern_no || '问题台账'}-原始天梯日志.zip`,
-      '原始日志打包失败：日志可能已过留存期被清理，或任务工作目录已变更',
+      `${record.pattern_no || '问题台账'}-关联文件.zip`,
+      '打包失败：日志可能已过留存期被清理，或任务工作目录已变更',
     )
   } finally {
     logsDownloading.value = false

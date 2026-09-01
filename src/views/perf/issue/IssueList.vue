@@ -155,6 +155,15 @@
         <a-space>
           <a-button @click="drawerVisible = false">关闭</a-button>
           <a-button type="primary" status="success" :loading="detailExporting" @click="handleDetailExport">下载关联 Excel</a-button>
+          <!-- 归因产物（原始日志 + 缺陷报告 md）打一个 zip。
+               接口按 issue_no 反查台账，所以这里不需要台账 id。 -->
+          <a-tooltip :content="bundleTip(currentRecord)">
+            <a-button
+              :loading="bundleDownloading"
+              :disabled="!hasBundle(currentRecord)"
+              @click="handleBundleDownload"
+            >下载关联文件</a-button>
+          </a-tooltip>
         </a-space>
       </template>
     </a-drawer>
@@ -311,6 +320,46 @@ const prettyJson = (value: any): string => {
 }
 
 const { downloadWithTip } = useDownload()
+
+// ── 归因产物打包下载（原始日志 + 缺陷报告 md）──────────────────
+// 后端 pattern/logs 接受 issue 参数并反查台账，两个页面共用同一套打包逻辑。
+const bundleDownloading = ref(false)
+
+/**
+ * 是否可能有归因产物。
+ *
+ * 手工创建的问题没有归因链路产物（没有 trace、也没有 md），点了必然失败，
+ * 所以按 trace_ids 与来源判断先禁掉，别让用户白点一次再看报错。
+ */
+const hasBundle = (record: any): boolean => {
+  if (!record?.issue_no && !record?.id) return false
+  const t = record?.trace_ids
+  if (Array.isArray(t)) return t.length > 0
+  if (typeof t === 'string') return t.trim().length > 0 && t.trim() !== '[]'
+  return false
+}
+
+const bundleTip = (record: any): string =>
+  hasBundle(record)
+    ? '打包该问题的原始天梯日志与缺陷报告 md'
+    : '该问题没有关联的归因产物（无 trace 记录，通常是手工创建的问题）'
+
+const handleBundleDownload = async () => {
+  const record = currentRecord.value
+  const key = record?.issue_no || record?.id
+  if (!key) return
+  bundleDownloading.value = true
+  try {
+    await downloadWithTip(
+      `${ApiPerfPatternLedger.logs}?issue=${encodeURIComponent(key)}`,
+      `${record.issue_no || '问题'}-关联文件.zip`,
+      '打包失败：该问题可能没有关联台账，或日志已过留存期',
+    )
+  }
+  finally {
+    bundleDownloading.value = false
+  }
+}
 
 const handleExport = async () => {
   const params = new URLSearchParams()
