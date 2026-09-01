@@ -397,6 +397,7 @@ export enum ApiPerfPatternLedger {
   scopeCounts = '/perf/periodic-report/pattern/scope-counts',
   export = '/perf/periodic-report/pattern/export',
   logs = '/perf/periodic-report/pattern/logs',
+  reportMd = '/perf/periodic-report/pattern/report-md',
   save = '/perf/periodic-report/pattern/save',
   createIssue = '/perf/periodic-report/pattern/create-issue',
 }

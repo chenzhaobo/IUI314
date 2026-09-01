@@ -162,48 +162,19 @@
         </a-descriptions-item>
       </a-descriptions>
 
-      <template v-if="getDefectReport(currentRecord)">
-        <a-divider>完整缺陷报告</a-divider>
-        <a-descriptions :column="2" bordered size="small">
-          <a-descriptions-item label="问题 Hash" :span="2"><a-typography-text copyable>{{ getDefectReport(currentRecord).problem_hash }}</a-typography-text></a-descriptions-item>
-          <a-descriptions-item label="报告状态">{{ defectStatusText(getDefectReport(currentRecord).report_status) }}</a-descriptions-item>
-          <a-descriptions-item label="可生成问题">{{ getDefectReport(currentRecord).issue_ready ? '是' : '否（证据不足，需确认）' }}</a-descriptions-item>
-          <a-descriptions-item label="表单/操作" :span="2">{{ getDefectReport(currentRecord).scope?.form_id }} / {{ getDefectReport(currentRecord).scope?.operation }}</a-descriptions-item>
-          <a-descriptions-item label="影响客户" :span="2">{{ (getDefectReport(currentRecord).scope?.customers || []).join('、') }}</a-descriptions-item>
-          <a-descriptions-item label="样本/请求">{{ getDefectReport(currentRecord).metrics?.selected_sample_count }} / {{ getDefectReport(currentRecord).metrics?.affected_request_count }}</a-descriptions-item>
-          <a-descriptions-item label="最大耗时">{{ getDefectReport(currentRecord).metrics?.max_cost_ms }} ms</a-descriptions-item>
-          <a-descriptions-item label="数据规模" :span="2">{{ getDefectReport(currentRecord).metrics?.data_volume }}</a-descriptions-item>
-        </a-descriptions>
-
-        <a-divider>精确位置</a-divider>
-        <div class="content-block">
-          <div v-for="(location, idx) in getDefectReport(currentRecord).locations || []" :key="idx" style="margin-bottom: 6px">
-            <a-tag size="small">{{ location.kind }}</a-tag>
-            <code>{{ location.method || location.sql_skeleton || location.endpoint || '未定位' }}</code>
-          </div>
-        </div>
-
-        <a-divider>复现步骤</a-divider>
-        <ol class="content-block">
-          <li v-for="(step, idx) in getDefectReport(currentRecord).reproduction_steps || []" :key="idx">{{ step }}</li>
-        </ol>
-        <a-divider>期望 / 实际</a-divider>
-        <div class="content-block"><strong>期望：</strong>{{ getDefectReport(currentRecord).expected_result }}<br><strong>实际：</strong>{{ getDefectReport(currentRecord).actual_result }}</div>
-        <a-divider>根因</a-divider>
-        <div class="content-block">{{ getDefectReport(currentRecord).root_cause }}</div>
-        <a-divider>修复建议</a-divider>
-        <ul class="content-block"><li v-for="(item, idx) in getDefectReport(currentRecord).fix_suggestions || []" :key="idx">{{ item }}</li></ul>
-        <a-divider>验证建议</a-divider>
-        <ul class="content-block"><li v-for="(item, idx) in getDefectReport(currentRecord).verification_suggestions || []" :key="idx">{{ item }}</li></ul>
-        <a-divider v-if="(getDefectReport(currentRecord).missing_evidence || []).length">缺失证据</a-divider>
-        <ul v-if="(getDefectReport(currentRecord).missing_evidence || []).length" class="content-block"><li v-for="(item, idx) in getDefectReport(currentRecord).missing_evidence" :key="idx">{{ item }}</li></ul>
-      </template>
-
-      <a-divider>AI 摘要</a-divider>
-      <div class="content-block">{{ currentRecord?.ai_summary || '暂无' }}</div>
-
-      <a-divider>修复建议 (suggestion)</a-divider>
-      <div class="content-block">{{ currentRecord?.suggestion || '暂无' }}</div>
+      <!-- 缺陷报告直接渲染 md 原文。
+           原来把 md 内容拆成十几个「框」（精确位置/复现步骤/期望实际/根因/
+           修复建议/验证建议…），两个毛病：md 里的耗时分解表格与代码块渲染不出来，
+           而那恰是报告最有用的部分；归因提示词一改章节，前端拆框就得跟着改。 -->
+      <a-divider>缺陷报告</a-divider>
+      <a-spin :loading="mdLoading" style="display: block; min-height: 60px">
+        <MdPreview v-if="mdContent" :modelValue="mdContent" />
+        <a-alert v-else-if="mdReason" type="info">{{ mdReason }}</a-alert>
+        <a-empty v-else description="暂无缺陷报告" />
+      </a-spin>
+      <div v-if="mdMeta" style="margin-top: 6px; color: #86909c; font-size: 12px">
+        来源：{{ mdMeta.run_date }} / {{ mdMeta.file }}（{{ Math.round((mdMeta.bytes || 0) / 1024) }} KB{{ mdMeta.truncated ? '，已截断' : '' }}）
+      </div>
 
       <a-divider>涉及对象 (involved_object)</a-divider>
       <div class="content-block">{{ currentRecord?.involved_object || '暂无' }}</div>
@@ -261,6 +232,7 @@ import { useRouter } from 'vue-router'
 import { Message, Modal } from '@arco-design/web-vue'
 import { ApiPerfPatternLedger } from '@/api/perfApis'
 import { useDownload, useGet, usePost } from '@/hooks'
+import { MdPreview } from 'md-editor-v3'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
 
 defineOptions({ name: 'pattern-ledger' })
@@ -446,7 +418,37 @@ const handleReset = () => {
   handleSearch()
 }
 const handlePageChange = (page: number) => { pageNum.value = page; fetchData() }
-const handleDetail = (record: any) => { currentRecord.value = record; drawerVisible.value = true }
+// ── 缺陷报告 md 原文 ──────────────────────────────────
+// 直接渲染 md 而不是把内容拆成十几个框：md 里的耗时分解表格与代码块是报告
+// 最有用的部分，拆框会丢掉；而且归因提示词一改章节，拆框逻辑就得跟着改。
+const mdContent = ref('')
+const mdReason = ref('')
+const mdMeta = ref<any>(null)
+const mdLoading = ref(false)
+const mdPayload = ref<any>({})
+const { execute: fetchPatternMd } = useGet<any>(ApiPerfPatternLedger.reportMd, mdPayload, {
+  immediate: false,
+  onSuccess(data: any) {
+    const d = data || {}
+    mdContent.value = d.markdown || ''
+    mdReason.value = d.found ? '' : (d.reason || '')
+    mdMeta.value = d.found ? d : null
+  },
+})
+
+const handleDetail = (record: any) => {
+  currentRecord.value = record
+  drawerVisible.value = true
+  // 每次打开先清空，避免看到上一条台账的报告
+  mdContent.value = ''
+  mdReason.value = ''
+  mdMeta.value = null
+  const key = record?.pattern_no || record?.id
+  if (!key) return
+  mdPayload.value = { pattern: key }
+  mdLoading.value = true
+  fetchPatternMd().finally(() => { mdLoading.value = false })
+}
 const gotoIssue = (issueId: string) => {
   // '/perf/issue' 在生产菜单里不存在（问题追踪目录是 /cloud-perf/issue，且它是
   // 目录节点不能直接访问），真正的页面是 issue-list。按路由名跳转，不受菜单层级变动影响。
