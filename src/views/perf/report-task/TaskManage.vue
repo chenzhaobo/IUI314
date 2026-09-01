@@ -657,24 +657,32 @@ const dimSummary = ref<any>({
   remaining: 0, defect_total: 0, new_defect_total: 0, recurring_total: 0, reuse_rate: 0,
 })
 
-async function openDimensions(record: any) {
-  dimRunDate.value = String(record.run_date || '').slice(0, 10)
-  dimVisible.value = true
-  dimLoading.value = true
-  try {
-    // 给泛型，否则 data 是 unknown、取 .list 编译不过
-    const { data } = await useGet<any>(ApiPerfReportTask.dimensionProgress, {
-      task_id: record.task_id,
-      run_date: dimRunDate.value,
-    })
-    // useGet 返回的 data 是 shallowRef，要取 .value 才是响应体
-    const payload: any = data.value ?? {}
+// useGet 返回的是 UseFetchReturn（**不是 Promise**），必须在顶层创建、
+// 用 execute() 触发。原来写成 `await useGet(...)` 在函数内部调用：
+// 既不会发请求（url 里的 query 是打开抽屉时才有的响应式值），
+// await 一个非 Promise 也让 loading 无从收尾 —— 表现为抽屉一直转圈、
+// 网络面板里看不到任何请求。
+const dimPayloadReq = ref<any>({})
+const { execute: fetchDimProgress } = useGet<any>(ApiPerfReportTask.dimensionProgress, dimPayloadReq, {
+  immediate: false,
+  onSuccess(data: any) {
+    const payload: any = data || {}
     dimSummary.value = { ...dimSummary.value, ...payload }
     dimList.value = payload.list ?? []
+  },
+})
+
+function openDimensions(record: any) {
+  dimRunDate.value = String(record.run_date || '').slice(0, 10)
+  // 运行记录行里任务 id 字段是 task_id；任务列表行里是 id，两处都可能传进来
+  dimPayloadReq.value = {
+    task_id: record.task_id || record.id,
+    run_date: dimRunDate.value,
   }
-  finally {
-    dimLoading.value = false
-  }
+  dimList.value = []
+  dimVisible.value = true
+  dimLoading.value = true
+  fetchDimProgress().finally(() => { dimLoading.value = false })
 }
 
 const dimStatusText = (s: string) =>
