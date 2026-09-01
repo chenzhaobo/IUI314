@@ -231,7 +231,7 @@
                 status="success"
                 :loading="logsDownloading"
                 :disabled="!hasBundle(currentRecord)"
-                @click="handleLogsDownload"
+                @click="handleLogsDownload()"
               >下载关联文件</a-button>
             </span>
           </a-tooltip>
@@ -253,6 +253,8 @@ import { Message, Modal } from '@arco-design/web-vue'
 import { ApiPerfPatternLedger } from '@/api/perfApis'
 import { useDownload, useGet, usePost } from '@/hooks'
 import { MdPreview } from 'md-editor-v3'
+// 必须导入样式，否则 MdPreview 渲染出来没有任何格式（表格无边框、标题不分级）
+import 'md-editor-v3/lib/style.css'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
 
 defineOptions({ name: 'pattern-ledger' })
@@ -367,7 +369,11 @@ const bundleTip = (record: any): string =>
 
 // 下载该问题命中的原始天梯日志与缺陷报告 md（同一个 zip）。
 const handleLogsDownload = async (target?: any) => {
-  const record = target || currentRecord.value
+  // **必须挡掉 MouseEvent**：模板里写 `@click="handleLogsDownload"`（不带括号）时
+  // Vue 会把事件对象当第一个参数传进来，于是 target 是 MouseEvent、
+  // record.id 为 undefined，函数静默 return —— 表现就是「点了没反应、没有请求」。
+  const fromEvent = target && typeof target === 'object' && 'preventDefault' in target
+  const record = (fromEvent ? null : target) || currentRecord.value
   if (!record?.id) return
   logsDownloading.value = true
   try {

@@ -156,6 +156,19 @@
         <a-typography-paragraph v-for="traceId in traceIdList(currentRecord?.trace_ids)" :key="traceId" copyable style="margin: 0 0 4px">{{ traceId }}</a-typography-paragraph>
       </div>
       <div v-else class="markdown-content">暂无</div>
+      <!-- 与问题台账详情保持一致：同一份缺陷报告 md，同样的渲染方式。
+           两者是不同的表（perf_issue 是跟踪单、perf_issue_pattern 是归因台账），
+           但面向的是同一个问题，展示应当一致 —— 差异只在流程字段上。 -->
+      <a-divider>缺陷报告</a-divider>
+      <a-spin :loading="mdLoading" style="display: block; min-height: 60px">
+        <MdPreview v-if="mdContent" :modelValue="mdContent" />
+        <a-alert v-else-if="mdReason" type="info">{{ mdReason }}</a-alert>
+        <a-empty v-else description="暂无缺陷报告" />
+      </a-spin>
+      <div v-if="mdMeta" style="margin-top: 6px; color: #86909c; font-size: 12px">
+        来源：{{ mdMeta.run_date }} / {{ mdMeta.file }}（{{ Math.round((mdMeta.bytes || 0) / 1024) }} KB{{ mdMeta.truncated ? '，已截断' : '' }}）
+      </div>
+
       <a-divider>技术签名</a-divider>
       <pre class="json-content">{{ prettyJson(currentRecord?.tech_signature) }}</pre>
 
@@ -173,7 +186,7 @@
                 status="success"
                 :loading="bundleDownloading"
                 :disabled="!hasBundle(currentRecord)"
-                @click="handleBundleDownload"
+                @click="handleBundleDownload()"
               >下载关联文件</a-button>
             </span>
           </a-tooltip>
@@ -259,7 +272,9 @@ import { ref, reactive, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { MdPreview } from 'md-editor-v3'
-import { ApiPerfIssue } from '@/api/perfApis'
+// 必须导入样式，否则 MdPreview 渲染出来没有任何格式
+import 'md-editor-v3/lib/style.css'
+import { ApiPerfIssue, ApiPerfPatternLedger } from '@/api/perfApis'
 import { useDelete, useDownload, useGet, usePost, usePut } from '@/hooks'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
 
@@ -337,6 +352,33 @@ const { downloadWithTip } = useDownload()
 // ── 归因产物打包下载（原始日志 + 缺陷报告 md）──────────────────
 // 后端 pattern/logs 接受 issue 参数并反查台账，两个页面共用同一套打包逻辑。
 const bundleDownloading = ref(false)
+
+// ── 缺陷报告 md（与问题台账详情同一个接口，按 issue 反查台账）──────────
+const mdContent = ref('')
+const mdReason = ref('')
+const mdMeta = ref<any>(null)
+const mdLoading = ref(false)
+const mdPayload = ref<any>({})
+const { execute: fetchIssueMd } = useGet<any>(ApiPerfPatternLedger.reportMd, mdPayload, {
+  immediate: false,
+  onSuccess(data: any) {
+    const d = data || {}
+    mdContent.value = d.markdown || ''
+    mdReason.value = d.found ? '' : (d.reason || '')
+    mdMeta.value = d.found ? d : null
+  },
+})
+
+const loadIssueMd = (record: any) => {
+  mdContent.value = ''
+  mdReason.value = ''
+  mdMeta.value = null
+  const key = record?.issue_no || record?.id
+  if (!key) return
+  mdPayload.value = { issue: key }
+  mdLoading.value = true
+  fetchIssueMd().finally(() => { mdLoading.value = false })
+}
 
 /**
  * 是否可能有归因产物。
@@ -416,7 +458,11 @@ const handleReset = () => {
   handleSearch()
 }
 const handlePageChange = (page: number) => { pageNum.value = page; fetchData() }
-const handleDetail = (record: any) => { currentRecord.value = record; drawerVisible.value = true }
+const handleDetail = (record: any) => {
+  currentRecord.value = record
+  drawerVisible.value = true
+  loadIssueMd(record)
+}
 const handleAdd = () => { modalVisible.value = true }
 
 // 关联问题跳转（通过 ID 获取完整记录）
