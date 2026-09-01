@@ -255,13 +255,11 @@
           <a-date-picker v-model="triggerDate" value-format="YYYY-MM-DD" style="width: 100%" />
         </a-form-item>
         <a-form-item label="只跑指定阶段（空=全流程）">
-          <a-select v-model="triggerStage" allow-clear placeholder="全流程：下载→提取→分类→缺陷归因→报告→推送">
+          <a-select v-model="triggerStage" allow-clear placeholder="全流程：下载→提取→缺陷归因（日报独立节点）">
             <a-option value="preflight">preflight（预检，不调用 Ops）</a-option>
             <a-option value="download">download（下载）</a-option>
             <a-option value="extract">extract（结构化提取）</a-option>
-            <a-option value="classify_hash">classify_hash（确定性分类）</a-option>
-            <a-option value="defect_attribution">defect_attribution（逐问题缺陷报告）</a-option>
-            <a-option value="analyze">analyze（兼容入口：提取+分类+归因）</a-option>
+            <a-option value="defect_attribution">defect_attribution（AI 逐维度归因）</a-option>
             <a-option value="report">report（日报与台账）</a-option>
             <a-option value="push">push（推送）</a-option>
           </a-select>
@@ -685,7 +683,9 @@ const dimStatusText = (s: string) =>
 const dimStatusColor = (s: string) =>
   ({ pending: 'gray', running: 'arcoblue', done: 'green', failed: 'red', skipped: 'orange' }[s] || 'gray')
 
-const stageText = (s: string) => ({ preflight: '预检', download: '下载', extract: '结构提取', classify_hash: '问题分类', defect_attribution: '缺陷归因', report: '日报台账', push: '推送' }[s] || s)
+// classify_hash 已从流水线移除（旧架构的正则机械分类，产物无人读取），
+// 但历史运行记录里还有这个阶段名，映射必须保留，否则旧记录显示成裸英文。
+const stageText = (s: string) => ({ preflight: '预检', download: '下载', extract: '结构提取', classify_hash: '问题分类（已废弃）', defect_attribution: '缺陷归因', report: '日报台账', push: '推送' }[s] || s)
 const runStatusText = (s: string) => ({ running: '运行中', success: '成功', failed: '失败', skipped: '跳过', cancelled: '已取消', interrupted: '待恢复' }[s] || s || '-')
 const runStatusColor = (s: string) => ({ running: 'blue', success: 'green', failed: 'red', skipped: 'gray', cancelled: 'orange', interrupted: 'orangered' }[s] || 'gray')
 const fmtDuration = (seconds?: number) => {
