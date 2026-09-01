@@ -40,23 +40,12 @@
             </template>
           </a-table-column>
           <a-table-column title="执行时间" data-index="run_time" :width="90" />
-          <a-table-column title="周期报告" :width="150">
+          <!-- 单行 + 省略 + 悬浮提示。原来用 a-space 排两个标签再跟时间，
+               150px 宽放不下就换行，把 06:00 挤成竖排 —— 表格列宽有限，
+               信息密度高的内容一律走「一行摘要 + tooltip 全文」。 -->
+          <a-table-column title="周期报告" :width="150" ellipsis tooltip>
             <template #cell="{ record }">
-              <a-space size="mini">
-                <a-tag v-if="record.weekly_enabled ?? true" color="arcoblue" size="small">
-                  周报 {{ weekdayText(record.weekly_weekday ?? 2) }}
-                </a-tag>
-                <a-tag v-if="record.monthly_enabled ?? true" color="purple" size="small">
-                  月报 {{ record.monthly_day ?? 2 }} 日
-                </a-tag>
-                <span
-                  v-if="!(record.weekly_enabled ?? true) && !(record.monthly_enabled ?? true)"
-                  style="color: #86909c"
-                >未开启</span>
-                <span v-else style="color: #86909c; font-size: 12px">
-                  {{ record.period_run_time || '06:00' }}
-                </span>
-              </a-space>
+              <span>{{ periodSummary(record) }}</span>
             </template>
           </a-table-column>
           <a-table-column title="工作目录" data-index="work_dir" ellipsis tooltip :width="180" />
@@ -74,9 +63,12 @@
               <a-switch :model-value="!!record.enabled" size="small" @change="(v: boolean | string | number) => toggleEnabled(record, !!v)" />
             </template>
           </a-table-column>
-          <a-table-column title="操作" :width="200" fixed="right">
+          <a-table-column title="操作" :width="240" fixed="right">
             <template #cell="{ record }">
               <a-space>
+                <!-- 行内触发只跑这一个任务，**不判断是否启用**：
+                     停用只影响定时调度，人工点某一行就是明确要补跑它。 -->
+                <a-link @click="openTriggerFor(record)">触发</a-link>
                 <a-link @click="openEditModal(record)">编辑</a-link>
                 <a-link @click="openRuns(record)">记录</a-link>
                 <a-popconfirm content="确认删除该任务？" @ok="handleDelete(record)">
@@ -91,7 +83,7 @@
       <a-alert style="margin-top: 12px" type="info">
         手动触发对全部<b>启用</b>任务执行一次（按数据日期逐阶段断点续跑）；每日定时由调度按「执行时间」自动触发。
       </a-alert>
-      <a-button style="margin-top: 8px" status="success" @click="triggerVisible = true">
+      <a-button style="margin-top: 8px" status="success" @click="openTriggerAll()">
         <template #icon><icon-thunderbolt /></template>
         手动触发
       </a-button>
@@ -248,7 +240,16 @@
     </a-modal>
 
     <!-- 手动触发弹框 -->
-    <a-modal v-model:visible="triggerVisible" title="手动触发（全部启用任务）" :width="440" @ok="handleTrigger" :ok-loading="triggering">
+    <a-modal
+      v-model:visible="triggerVisible"
+      :title="triggerTarget ? `手动触发 — ${triggerTarget.task_name}` : '手动触发（全部启用任务）'"
+      :width="440"
+      @ok="handleTrigger"
+      :ok-loading="triggering"
+    >
+      <a-alert v-if="triggerTarget" type="info" style="margin-bottom: 12px">
+        只跑这一个任务。<b>不受启用开关影响</b> —— 停用只影响定时调度，这里是人工补跑。
+      </a-alert>
       <a-form layout="vertical" :model="layoutOnlyModel">
         <a-form-item label="数据日期（默认昨天）">
           <a-date-picker v-model="triggerDate" value-format="YYYY-MM-DD" style="width: 100%" />
@@ -564,6 +565,30 @@ const triggerVisible = ref(false)
 const triggering = ref(false)
 const triggerDate = ref('')
 const triggerStage = ref<string>()
+// 非空表示只触发这一个任务（行内入口）；为空表示触发全部启用任务（顶部入口）
+const triggerTarget = ref<any>(null)
+
+const openTriggerFor = (record: any) => {
+  triggerTarget.value = record
+  triggerStage.value = undefined
+  triggerVisible.value = true
+}
+const openTriggerAll = () => {
+  triggerTarget.value = null
+  triggerStage.value = undefined
+  triggerVisible.value = true
+}
+
+/// 周期报告列的一行摘要（列宽有限，全文走 tooltip）
+const periodSummary = (r: any) => {
+  const weekly = r.weekly_enabled ?? true
+  const monthly = r.monthly_enabled ?? true
+  if (!weekly && !monthly) return '未开启'
+  const parts: string[] = []
+  if (weekly) parts.push(`周报 ${weekdayText(r.weekly_weekday ?? 2)}`)
+  if (monthly) parts.push(`月报 ${r.monthly_day ?? 2} 日`)
+  return `${parts.join(' / ')} · ${r.period_run_time || '06:00'}`
+}
 const triggerPayload = ref<any>({})
 const { data: triggerResult, error: triggerError, execute: doTrigger } = usePost<any>(ApiPerfReportTask.trigger, triggerPayload, {
   immediate: false,
@@ -571,7 +596,12 @@ const { data: triggerResult, error: triggerError, execute: doTrigger } = usePost
 const handleTrigger = async () => {
   triggering.value = true
   try {
-    triggerPayload.value = { run_date: triggerDate.value || undefined, stage: triggerStage.value || undefined }
+    triggerPayload.value = {
+      // 指定 task_id 时后端只跑该任务，且不检查 enabled（可显式补跑已停用任务）
+      task_id: triggerTarget.value?.id || undefined,
+      run_date: triggerDate.value || undefined,
+      stage: triggerStage.value || undefined,
+    }
     await doTrigger()
     if (!triggerError.value) Message.success(String(triggerResult.value || '已触发'))
     triggerVisible.value = false
