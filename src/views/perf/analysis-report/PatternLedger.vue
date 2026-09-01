@@ -124,10 +124,10 @@
                         <a-doption v-if="record.issue_id" value="viewIssue">查看问题</a-doption>
                         <a-doption v-else value="linkIssue">关联已有问题</a-doption>
                         <a-doption value="logs" :disabled="!hasBundle(record)">
-                          <a-tooltip v-if="!hasBundle(record)" content="该台账没有可打包的日志与缺陷报告（无样本 trace，也没有报告文件）">
-                            <span>下载关联文件</span>
+                          <!-- 提示挂在内部 span 上：禁用的 doption 本身不派发鼠标事件 -->
+                          <a-tooltip :content="bundleTip(record)">
+                            <span style="display: inline-block; width: 100%">下载关联文件</span>
                           </a-tooltip>
-                          <span v-else>下载关联文件</span>
                         </a-doption>
                       </template>
                     </a-dropdown>
@@ -221,14 +221,19 @@
       <template #footer>
         <a-space>
           <a-button @click="drawerVisible = false">关闭</a-button>
+          <!-- tooltip 必须包在 span 上：Arco 的 disabled 按钮不派发鼠标事件，
+               直接把 a-tooltip 套在 a-button 外面时，禁用态下浮动提示不会弹 —— 
+               而"为什么不能点"恰恰是禁用态最需要说明的。 -->
           <a-tooltip :content="bundleTip(currentRecord)">
-            <a-button
-              type="primary"
-              status="success"
-              :loading="logsDownloading"
-              :disabled="!hasBundle(currentRecord)"
-              @click="handleLogsDownload"
-            >下载关联文件</a-button>
+            <span style="display: inline-block">
+              <a-button
+                type="primary"
+                status="success"
+                :loading="logsDownloading"
+                :disabled="!hasBundle(currentRecord)"
+                @click="handleLogsDownload"
+              >下载关联文件</a-button>
+            </span>
           </a-tooltip>
         </a-space>
       </template>

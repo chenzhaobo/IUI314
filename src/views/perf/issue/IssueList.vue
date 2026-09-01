@@ -139,12 +139,18 @@
           <a-link @click="openRelatedIssue(currentRecord.related_issue_id)">{{ currentRecord.related_issue_id }}</a-link>
         </a-descriptions-item>
       </a-descriptions>
+      <!-- 这三段都是 Markdown（归因产出带列表、代码块、表格）。
+           原来 class 叫 markdown-content 却用 {{ }} 纯文本插值，名字骗人：
+           实际看到的是带 # 与 | 的原文。 -->
       <a-divider>问题描述</a-divider>
-      <div class="markdown-content">{{ currentRecord?.description || '暂无' }}</div>
+      <MdPreview v-if="currentRecord?.description" :modelValue="currentRecord.description" />
+      <div v-else class="markdown-content">暂无</div>
       <a-divider>根因分析</a-divider>
-      <div class="markdown-content">{{ currentRecord?.root_cause || '暂无' }}</div>
+      <MdPreview v-if="currentRecord?.root_cause" :modelValue="currentRecord.root_cause" />
+      <div v-else class="markdown-content">暂无</div>
       <a-divider>修复建议</a-divider>
-      <div class="markdown-content">{{ currentRecord?.fix_suggestion || '暂无' }}</div>
+      <MdPreview v-if="currentRecord?.fix_suggestion" :modelValue="currentRecord.fix_suggestion" />
+      <div v-else class="markdown-content">暂无</div>
       <a-divider>样本 Trace IDs</a-divider>
       <div v-if="traceIdList(currentRecord?.trace_ids).length" class="markdown-content">
         <a-typography-paragraph v-for="traceId in traceIdList(currentRecord?.trace_ids)" :key="traceId" copyable style="margin: 0 0 4px">{{ traceId }}</a-typography-paragraph>
@@ -156,15 +162,20 @@
       <template #footer>
         <a-space>
           <a-button @click="drawerVisible = false">关闭</a-button>
-          <a-button type="primary" status="success" :loading="detailExporting" @click="handleDetailExport">下载关联 Excel</a-button>
           <!-- 归因产物（原始日志 + 缺陷报告 md）打一个 zip。
                接口按 issue_no 反查台账，所以这里不需要台账 id。 -->
+          <!-- tooltip 包在 span 上：disabled 的按钮不派发鼠标事件，
+               否则禁用态下提示不出来。 -->
           <a-tooltip :content="bundleTip(currentRecord)">
-            <a-button
-              :loading="bundleDownloading"
-              :disabled="!hasBundle(currentRecord)"
-              @click="handleBundleDownload"
-            >下载关联文件</a-button>
+            <span style="display: inline-block">
+              <a-button
+                type="primary"
+                status="success"
+                :loading="bundleDownloading"
+                :disabled="!hasBundle(currentRecord)"
+                @click="handleBundleDownload"
+              >下载关联文件</a-button>
+            </span>
           </a-tooltip>
         </a-space>
       </template>
@@ -247,6 +258,7 @@
 import { ref, reactive, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
+import { MdPreview } from 'md-editor-v3'
 import { ApiPerfIssue } from '@/api/perfApis'
 import { useDelete, useDownload, useGet, usePost, usePut } from '@/hooks'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
@@ -283,7 +295,6 @@ const scopeCountFilters = computed(() => ({
 
 const drawerVisible = ref(false)
 const currentRecord = ref<any>(null)
-const detailExporting = ref(false)
 const modalVisible = ref(false)
 const formData = reactive<any>({
   title: '', severity: 'major', issue_type: 'slow_sql', category: 'standard',
@@ -369,17 +380,6 @@ const handleExport = async () => {
   await downloadWithTip(`${ApiPerfIssue.export}?${params.toString()}`, '问题跟踪.xlsx', '问题跟踪导出失败')
 }
 
-const handleDetailExport = async () => {
-  const record = currentRecord.value
-  if (!record) return
-  detailExporting.value = true
-  try {
-    const params = new URLSearchParams({ keyword: record.id })
-    await downloadWithTip(`${ApiPerfIssue.export}?${params.toString()}`, `${record.issue_no || '问题'}-详情.xlsx`, '关联 Excel 下载失败')
-  } finally {
-    detailExporting.value = false
-  }
-}
 const handleScopeChange = (scope: {
   product_line: string
   project_group_code?: string
