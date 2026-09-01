@@ -82,6 +82,8 @@
                 </template>
               </a-table-column>
               <a-table-column title="发现日期" data-index="found_date" :width="100" />
+              <a-table-column title="创建时间" data-index="created_at" :width="150" ellipsis tooltip />
+              <a-table-column title="更新时间" data-index="updated_at" :width="150" ellipsis tooltip />
               <a-table-column title="操作" :width="180" fixed="right">
                 <template #cell="{ record }">
                   <a-space>

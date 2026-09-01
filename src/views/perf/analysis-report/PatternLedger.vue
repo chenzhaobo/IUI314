@@ -107,6 +107,10 @@
                   <span v-else>--</span>
                 </template>
               </a-table-column>
+              <!-- 时间列放最后：排查「这条台账是什么时候建的、最近一次命中是什么时候」
+                   靠周趋势看不出来，而回填/合并过的台账更需要看 updated_at。 -->
+              <a-table-column title="创建时间" data-index="created_at" :width="150" ellipsis tooltip />
+              <a-table-column title="更新时间" data-index="updated_at" :width="150" ellipsis tooltip />
               <a-table-column title="操作" :width="200" fixed="right">
                 <template #cell="{ record }">
                   <a-space>
@@ -125,7 +129,6 @@
                           </a-tooltip>
                           <span v-else>下载关联文件</span>
                         </a-doption>
-                        <a-doption value="exportDetail">导出台账详情</a-doption>
                       </template>
                     </a-dropdown>
                   </a-space>
@@ -218,7 +221,6 @@
       <template #footer>
         <a-space>
           <a-button @click="drawerVisible = false">关闭</a-button>
-          <a-button :loading="detailExporting" @click="handleDetailExport">导出台账详情</a-button>
           <a-tooltip :content="bundleTip(currentRecord)">
             <a-button
               type="primary"
@@ -337,18 +339,6 @@ const handleExport = async () => {
   await downloadWithTip(`${ApiPerfPatternLedger.export}?${params.toString()}`, '问题台账.xlsx', '问题台账导出失败')
 }
 
-const handleDetailExport = async (target?: any) => {
-  const record = target || currentRecord.value
-  if (!record) return
-  const exactKey = record.pattern_fingerprint || record.pattern_no
-  const params = new URLSearchParams({ keyword: exactKey })
-  detailExporting.value = true
-  try {
-    await downloadWithTip(`${ApiPerfPatternLedger.export}?${params.toString()}`, `${record.pattern_no || '问题台账'}-详情.xlsx`, '台账详情导出失败')
-  } finally {
-    detailExporting.value = false
-  }
-}
 
 /**
  * 该台账是否有可打包的内容。
@@ -404,9 +394,6 @@ const handleMoreAction = (key: string, record: any) => {
       break
     case 'logs':
       void handleLogsDownload(record)
-      break
-    case 'exportDetail':
-      void handleDetailExport(record)
       break
     default:
       break
