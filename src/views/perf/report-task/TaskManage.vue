@@ -722,11 +722,31 @@ function openDimensions(record: any) {
   fetchDimProgress().finally(() => { dimLoading.value = false })
 }
 
+// 维度进度要自动刷新。
+//
+// 归因是整条链路最长的阶段：实测一个维度平均 400 秒、一天 77 个维度要跑 8 小时。
+// 抽屉原来只在打开时拉一次，之后再不发请求 —— 盯着看半小时数字都不变，
+// 分不清是卡死还是在推进（运行记录抽屉早就有 5 秒轮询，这里漏了）。
+// 只在「还有维度没做完」时轮询，做完就停，避免空转。
+let dimTimer: ReturnType<typeof setInterval> | null = null
+const stopDimTimer = () => { if (dimTimer) { clearInterval(dimTimer); dimTimer = null } }
+watch([dimVisible, dimSummary], ([visible, summary]: any[]) => {
+  stopDimTimer()
+  const busy = Number(summary?.remaining ?? 0) > 0 || Number(summary?.running ?? 0) > 0
+  if (visible && busy) {
+    dimTimer = setInterval(() => { fetchDimProgress() }, 5000)
+  }
+}, { deep: true })
+onUnmounted(stopDimTimer)
+
 const dimStatusText = (s: string) =>
-  ({ pending: '待处理', running: '处理中', done: '已完成', failed: '失败', skipped: '跳过' }[s] || s)
+  ({ pending: '待处理', running: '处理中', done: '已完成', failed: '失败', skipped: '跳过',
+     // 分桶口径变化后遗留的旧维度会被作废，不再派发也不计入进度
+     obsolete: '已作废' }[s] || s)
 
 const dimStatusColor = (s: string) =>
-  ({ pending: 'gray', running: 'arcoblue', done: 'green', failed: 'red', skipped: 'orange' }[s] || 'gray')
+  ({ pending: 'gray', running: 'arcoblue', done: 'green', failed: 'red', skipped: 'orange',
+     obsolete: 'gray' }[s] || 'gray')
 
 // classify_hash 已从流水线移除（旧架构的正则机械分类，产物无人读取），
 // 但历史运行记录里还有这个阶段名，映射必须保留，否则旧记录显示成裸英文。
