@@ -254,6 +254,13 @@
         <a-form-item label="数据日期（默认昨天）">
           <a-date-picker v-model="triggerDate" value-format="YYYY-MM-DD" style="width: 100%" />
         </a-form-item>
+        <a-form-item label="强制重跑">
+          <a-switch v-model="triggerForce" />
+          <span class="hint">
+            默认开启断点续跑：已成功的阶段会被跳过，所以对跑过的日期点触发会
+            <b>什么都不做</b>。改了配置或想用同一天数据复验时打开这个。
+          </span>
+        </a-form-item>
         <a-form-item label="只跑指定阶段（空=全流程）">
           <a-select v-model="triggerStage" allow-clear placeholder="全流程：下载→提取→缺陷归因（日报独立节点）">
             <a-option value="preflight">preflight（预检，不调用 Ops）</a-option>
@@ -314,11 +321,24 @@
               <span v-else>-</span>
             </template>
           </a-table-column>
-          <a-table-column title="开始" :width="140">
+          <!-- 阶段记录按 (任务,日期,阶段) 原地更新：重跑不会新增行，只有次数会加。
+               不显示次数的话，重跑过和没重跑过的记录长得一模一样。 -->
+          <a-table-column title="次数" :width="64" align="center">
+            <template #cell="{ record }">
+              <a-tag v-if="(record.attempt || 1) > 1" color="orange" size="small">
+                第 {{ record.attempt }} 次
+              </a-tag>
+              <span v-else>1</span>
+            </template>
+          </a-table-column>
+          <a-table-column title="本次开始" :width="140">
             <template #cell="{ record }">{{ formatTime(record.started_at) }}</template>
           </a-table-column>
-          <a-table-column title="结束" :width="140">
+          <a-table-column title="本次结束" :width="140">
             <template #cell="{ record }">{{ formatTime(record.finished_at) }}</template>
+          </a-table-column>
+          <a-table-column title="首次创建" :width="140">
+            <template #cell="{ record }">{{ formatTime(record.created_at) }}</template>
           </a-table-column>
           <a-table-column title="操作" :width="130" fixed="right">
             <template #cell="{ record }">
@@ -560,6 +580,9 @@ const handleDelete = async (record: any) => {
 
 // ── 手动触发 ──────────────────────────────────
 const triggerVisible = ref(false)
+// 断点续跑默认生效，所以重复触发同一天会静默跳过；这个开关让人能显式重跑，
+// 不必再去库里删运行记录
+const triggerForce = ref(false)
 const triggering = ref(false)
 const triggerDate = ref('')
 const triggerStage = ref<string>()
@@ -599,9 +622,17 @@ const handleTrigger = async () => {
       task_id: triggerTarget.value?.id || undefined,
       run_date: triggerDate.value || undefined,
       stage: triggerStage.value || undefined,
+      force: triggerForce.value || undefined,
     }
     await doTrigger()
-    if (!triggerError.value) Message.success(String(triggerResult.value || '已触发'))
+    if (!triggerError.value) {
+      const text = String(triggerResult.value || '已触发')
+      // 「什么都没跑」用绿色成功提示会误导 —— 用户正是据此以为跑了却没记录。
+      // 这类结果用警告色，并延长停留时间（消息里要交代跳过原因与解决办法）。
+      const skipped = text.startsWith('未执行')
+      if (skipped) Message.warning({ content: text, duration: 8000 })
+      else Message.success({ content: text, duration: 5000 })
+    }
     triggerVisible.value = false
   } finally { triggering.value = false }
 }
@@ -710,6 +741,16 @@ const layoutOnlyModel = {}
 </script>
 
 <style scoped>
+/* 表单项下方的说明文字。开关类配置光看标签看不出默认行为，
+   所以把「默认断点续跑、重复触发会静默跳过」写在旁边。 */
+.hint {
+  display: block;
+  margin-top: 4px;
+  color: var(--color-text-3);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .container {
   padding: 16px;
 }
