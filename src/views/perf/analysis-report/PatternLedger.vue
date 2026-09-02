@@ -79,6 +79,28 @@
                   <span>{{ dimensionTypeText(record.dimension_type) }} / {{ record.dimension_value }}</span>
                 </template>
               </a-table-column>
+              <!-- 归属三列：台账原来只有任务自身的维度（如 product_domain/集团财务），
+                   那表示「由哪个任务产出」而不是「归哪个项目组」，问题因此派不出去。
+                   现在按 form_id 从达标率快照反查填上。查不到显示 --，
+                   空值本身是「映射数据缺这个表单」的信号，不要当成 bug。 -->
+              <a-table-column title="项目组" data-index="project_group_code" :width="90">
+                <template #cell="{ record }">
+                  <a-tag v-if="record.project_group_code" color="arcoblue" size="small">
+                    {{ record.project_group_code }}
+                  </a-tag>
+                  <span v-else class="muted">--</span>
+                </template>
+              </a-table-column>
+              <a-table-column title="业务领域" data-index="business_area" :width="90">
+                <template #cell="{ record }">
+                  {{ record.business_area || '--' }}
+                </template>
+              </a-table-column>
+              <a-table-column title="应用" data-index="app_number" :width="80">
+                <template #cell="{ record }">
+                  {{ record.app_number || '--' }}
+                </template>
+              </a-table-column>
               <a-table-column title="产品线" data-index="product_line" :width="80" />
               <a-table-column title="首次出现" data-index="first_found_week" :width="100" />
               <a-table-column title="最近出现" data-index="last_found_week" :width="100" />
@@ -549,6 +571,9 @@ const handleLinkIssue = async () => {
 </script>
 
 <style scoped>
+/* 归属查不到时的占位。用弱化色而不是留空：留空看不出是「没查到」还是「渲染漏了」。 */
+.muted { color: var(--color-text-4); }
+
 .content-block {
   white-space: pre-wrap;
   background: var(--color-fill-1);
