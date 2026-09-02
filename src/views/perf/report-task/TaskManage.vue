@@ -281,8 +281,18 @@
     </a-modal>
 
     <!-- 运行记录抽屉 -->
-    <a-drawer v-model:visible="drawerVisible" :title="`运行记录: ${currentTask?.task_name || ''}`" :width="1080" :footer="false">
-      <a-table :data="runList" :loading="runLoading" :pagination="false" size="small" row-key="id">
+    <!-- 宽度用视口百分比而不是固定 px：运行记录有 10 列（含产物/错误这种长文本），
+         1080px 下错误信息只能截断成一小段，排查时还得逐行点开看。 -->
+    <a-drawer v-model:visible="drawerVisible" :title="`运行记录: ${currentTask?.task_name || ''}`" width="90%" :footer="false">
+      <!-- 分页：一个任务跑一段时间就有几十上百条阶段记录（每天 5 个阶段，
+             重跑还会累计），不分页要一直滚，也看不出总共多少条 -->
+        <a-table
+          :data="runList"
+          :loading="runLoading"
+          :pagination="{ pageSize: 20, showTotal: true, showPageSize: true }"
+          size="small"
+          row-key="id"
+        >
         <template #columns>
           <a-table-column title="数据日期" data-index="run_date" :width="100" />
           <a-table-column title="阶段" :width="120">
@@ -363,7 +373,7 @@
     </a-drawer>
 
     <!-- 维度级归因进度：分析单位是「应用+表单+操作」，一个维度一轮 AI 处理 -->
-    <a-drawer v-model:visible="dimVisible" :title="`维度归因进度: ${dimRunDate}`" :width="1100" :footer="false">
+    <a-drawer v-model:visible="dimVisible" :title="`维度归因进度: ${dimRunDate}`" width="90%" :footer="false">
       <a-spin :loading="dimLoading" style="display: block">
         <a-alert v-if="dimSummary.remaining > 0" type="warning" style="margin-bottom: 12px">
           还有 {{ dimSummary.remaining }} 个维度未处理（共 {{ dimSummary.total }} 个）。
