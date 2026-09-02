@@ -253,6 +253,10 @@
       <a-form layout="vertical" :model="layoutOnlyModel">
         <a-form-item label="数据日期（默认昨天）">
           <a-date-picker v-model="triggerDate" value-format="YYYY-MM-DD" style="width: 100%" />
+          <span v-if="triggerStage === 'weekly' || triggerStage === 'monthly'" class="hint">
+            周报/月报以这个日期为锚点，取它所在的整{{ triggerStage === 'weekly' ? '周' : '月' }}。
+            与调度生成的区别只是不等区间闭合、不等触发时刻 —— 同区间重复生成会复用既有报告，不会堆重复。
+          </span>
         </a-form-item>
         <a-form-item label="强制重跑">
           <a-switch v-model="triggerForce" />
@@ -268,6 +272,8 @@
             <a-option value="extract">extract（结构化提取）</a-option>
             <a-option value="defect_attribution">defect_attribution（AI 逐维度归因）</a-option>
             <a-option value="report">report（日报与台账）</a-option>
+            <a-option value="weekly">weekly（周报，取数据日期所在那一周）</a-option>
+            <a-option value="monthly">monthly（月报，取数据日期所在那一月）</a-option>
             <a-option value="push">push（推送）</a-option>
           </a-select>
         </a-form-item>

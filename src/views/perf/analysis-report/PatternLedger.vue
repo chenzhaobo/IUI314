@@ -116,7 +116,7 @@
                   <a-space>
                     <a-link @click="handleDetail(record)">详情</a-link>
                     <a-tooltip :content="createIssueTip(record)">
-                      <a-link :disabled="!!record.issue_id || !getDefectReport(record)" status="success" @click="handleCreateIssue(record)">生成问题</a-link>
+                      <a-link :disabled="!!record.issue_id || !hasDefectReport(record)" status="success" @click="handleCreateIssue(record)">生成问题</a-link>
                     </a-tooltip>
                     <a-dropdown @select="(key: any) => handleMoreAction(String(key), record)">
                       <a-link>更多<icon-down /></a-link>
@@ -222,7 +222,7 @@
         <a-space>
           <a-button @click="drawerVisible = false">关闭</a-button>
           <!-- tooltip 必须包在 span 上：Arco 的 disabled 按钮不派发鼠标事件，
-               直接把 a-tooltip 套在 a-button 外面时，禁用态下浮动提示不会弹 —— 
+               直接把 a-tooltip 套在 a-button 外面时，禁用态下浮动提示不会弹 ——
                而"为什么不能点"恰恰是禁用态最需要说明的。 -->
           <a-tooltip :content="bundleTip(currentRecord)">
             <span style="display: inline-block">
@@ -296,6 +296,16 @@ const linkIssueId = ref('')
 const linkPattern = ref<any>(null)
 
 const getDefectReport = (record: any) => record?.evidence?.defect_report || null
+// 新链路的 evidence 是 md 报告路径数组，如 ["01_task_approve__click/defect_1.md"]。
+// 旧链路把整个 DefectReport 结构内联在 evidence.defect_report 里。
+// 两种都算「有完整报告」—— 只认旧结构会让所有新台账的「生成问题」都点不了，
+// 而且提示「旧台账没有完整缺陷报告」正好把话说反：报告是完整的，只是格式变了。
+const getReportFiles = (record: any): string[] => {
+  const ev = record?.evidence
+  if (!Array.isArray(ev)) return []
+  return ev.filter((x: any) => typeof x === 'string' && x.endsWith('.md'))
+}
+const hasDefectReport = (record: any) => !!getDefectReport(record) || getReportFiles(record).length > 0
 const defectStatusText = (status: string) => ({ complete: '完整', evidence_insufficient: '证据不足', pending_retry: '待重试' }[status] || status || '--')
 const statusMap: Record<string, string> = {
   new: '新发现', issued: '已提单', scheduled: '已排期', fixing: '修复中',
@@ -390,7 +400,7 @@ const handleLogsDownload = async (target?: any) => {
 // 生成问题按钮的禁用原因，直接写在 tooltip 里避免用户猜。
 const createIssueTip = (record: any): string => {
   if (record?.issue_id) return `已生成问题 ${record.issue_id}，可从"更多"查看`
-  if (!getDefectReport(record)) return '旧台账没有完整缺陷报告，不能自动提单'
+  if (!hasDefectReport(record)) return '该台账没有关联缺陷报告，不能自动提单'
   return '从完整缺陷报告生成问题跟踪'
 }
 
@@ -501,13 +511,21 @@ const performCreateIssue = async (record: any, confirmEvidenceInsufficient: bool
 
 const handleCreateIssue = (record: any) => {
   const report = getDefectReport(record)
-  if (!report) { Message.warning('该台账没有完整缺陷报告，不能自动生成问题'); return }
-  const insufficient = !report.issue_ready
+  const files = getReportFiles(record)
+  if (!report && files.length === 0) {
+    Message.warning('该台账没有关联缺陷报告，不能自动生成问题')
+    return
+  }
+  // 新链路没有 issue_ready / problem_hash 这两个字段（它们属于旧的内联结构），
+  // 证据是否充分由归因时的硬性取证要求保证，这里不再让用户二次确认。
+  const insufficient = !!report && !report.issue_ready
   Modal.confirm({
     title: insufficient ? '以待补证问题提单？' : '生成问题跟踪？',
     content: insufficient
       ? '当前缺陷报告明确标记为证据不足。继续后将创建真实问题单，并保留缺失证据与待补证说明。'
-      : `将从问题 ${report.problem_hash} 的完整缺陷报告创建真实问题跟踪，并原子回填台账关联。`,
+      : report
+        ? `将从问题 ${report.problem_hash} 的完整缺陷报告创建真实问题跟踪，并原子回填台账关联。`
+        : `将从缺陷报告 ${files.join('、')} 创建问题跟踪，并原子回填台账关联。`,
     okText: insufficient ? '确认待补证提单' : '确认生成',
     onOk: () => performCreateIssue(record, insufficient),
   })
