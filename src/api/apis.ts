@@ -55,6 +55,7 @@ import type {
   ApiDmp
 } from './dmpApis'
 import type { ApiAiAgent, ApiAiSkill, ApiAiExecution, ApiAiInvoke } from './aiApis'
+import type { ApiMcArtifact, ApiMcAudit, ApiMcEnvironment } from './mcApis'
 
 export type APIS =
   | ApiSysLogin
@@ -107,6 +108,9 @@ export type APIS =
   | ApiAiSkill
   | ApiAiExecution
   | ApiAiInvoke
+  | ApiMcArtifact
+  | ApiMcEnvironment
+  | ApiMcAudit
 
 export const ErrorFlag = '__________' // 错误标志
 export * from './sysApis'
@@ -115,3 +119,4 @@ export * from './perfApis'
 export * from './infraApis'
 export * from './dmpApis'
 export * from './aiApis'
+export * from './mcApis'
