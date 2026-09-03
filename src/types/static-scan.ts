@@ -726,6 +726,31 @@ export interface CandidateDetailRow {
   introduced_author?: string | null
   /** 不修复原因代码（后端新增字段），如 accepted_risk / false_positive 等 */
   wont_fix_reason_code?: string | null
+  /** 本候选最近一次被派发确认的批次号（重扫范围追溯用） */
+  dispatch_id?: string | null
+  /**
+   * 历史结论列表（新到旧）。换模型复核会**追加**一条而不是覆盖，
+   * 所以同一条候选下可以并排看到不同模型的判定差异。
+   */
+  verdicts?: CandidateVerdictRow[]
+}
+
+/** 单条候选的一次 AI 结论（多模型对比用） */
+export interface CandidateVerdictRow {
+  id: string
+  ai_model?: string | null
+  ai_mode?: string | null
+  verdict: string
+  risk_level?: string | null
+  confidence?: number | null
+  rationale?: string | null
+  /** 是否有落盘报告正文 */
+  has_report: boolean
+  detail_report?: string | null
+  dispatch_id?: string | null
+  /** 是否为当前采信的结论（列表页 ai_* 字段来自这一条） */
+  adopted: boolean
+  created_at: string
 }
 
 export interface CandidateDetailPage {

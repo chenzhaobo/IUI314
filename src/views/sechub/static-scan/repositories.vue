@@ -5,7 +5,7 @@ import { useDebounceFn } from '@vueuse/core'
 import { computed, reactive, ref } from 'vue'
 import { ApiPerfModule } from '@/api/perfApis'
 import { ApiSecModuleRepository } from '@/api/sechubApis'
-import { useGet, usePost, usePut } from '@/hooks'
+import { newIdempotencyKey, postAction, putAction, useGet } from '@/hooks'
 
 defineOptions({ name: 'StaticScanRepositories' })
 
@@ -124,7 +124,11 @@ async function submitAdd() {
   }
   addLoading.value = true
   try {
-    const { execute, error } = usePost(
+    // 失败判定必须用 postAction（返回 null）而不是 error.value ——
+    // 拦截器对业务错误只把 data 换成 ErrorFlag，从不设置 error，
+    // 用 error.value 判断会把「后端明确拒绝」当成成功，然后弹「绑定成功」
+    // 把拦截器的红色提示覆盖掉：用户看到成功，库里没有数据。
+    const ok = await postAction<MutationReceipt>(
       ApiSecModuleRepository.bind,
       {
         module_id: addForm.module_id,
@@ -136,16 +140,12 @@ async function submitAdd() {
         scan_enabled: addForm.scan_enabled,
         is_primary: true,
         allow_local_test_repository: false,
-        idempotency_key: crypto.randomUUID(),
+        idempotency_key: newIdempotencyKey(),
       },
-      { immediate: false },
     )
-    await execute()
-    if (error.value) {
-      Message.error('绑定失败')
+    if (!ok)
       return
-    }
-    Message.success('代码仓库绑定成功')
+    Message.success('代码仓库绑定成功，状态为「待验证」，请点击「验证」确认可达')
     addVisible.value = false
     await loadList()
   }
@@ -184,7 +184,7 @@ function buildEditPayload(record: ModuleWithRepository): RepositoryEditRequest |
   const payload: RepositoryEditRequest = {
     module_id: record.module_id,
     relation_id: record.relation_id,
-    idempotency_key: crypto.randomUUID(),
+    idempotency_key: newIdempotencyKey(),
   }
   let changed = false
   const name = editForm.name.trim()
@@ -242,18 +242,14 @@ async function submitEdit() {
   }
   editLoading.value = true
   try {
-    const { data, execute, error } = usePut<MutationReceipt>(
+    const data = await putAction<MutationReceipt>(
       ApiSecModuleRepository.edit,
-      payload,
-      { immediate: false },
+      payload as unknown as Record<string, unknown>,
     )
-    await execute()
-    if (error.value) {
-      Message.error(`保存失败: ${(error.value as any)?.message || error.value}`)
+    if (!data)
       return
-    }
     // 改了 Git URL / 分支 / 凭据后状态会退回待验证，明确提示用户重新验证
-    if (data.value?.status === 'pending_validation')
+    if (data.status === 'pending_validation')
       Message.success('已保存，仓库地址或分支已变更，状态退回待验证，请重新执行验证')
     else
       Message.success('已保存')
@@ -323,7 +319,7 @@ const validatingId = ref('')
 async function validateRepo(record: ModuleWithRepository) {
   validatingId.value = record.relation_id
   try {
-    const { execute, error } = usePost(
+    const ok = await postAction(
       ApiSecModuleRepository.validate,
       {
         module_id: record.module_id,
@@ -331,19 +327,13 @@ async function validateRepo(record: ModuleWithRepository) {
         git_url: record.git_url,
         default_branch: record.default_branch,
         allow_local_test_repository: record.git_url.startsWith('local-test:'),
-        idempotency_key: crypto.randomUUID(),
+        idempotency_key: newIdempotencyKey(),
       },
-      { immediate: false },
     )
-    await execute()
-    if (error.value) {
-      Message.error(`验证失败: ${error.value.message || error.value}`)
-      // 失败也要刷新：后端已把 status 写成 invalid、validation_error 落库
-      await loadList()
-      return
-    }
-    Message.success('仓库校验通过')
+    // 失败也要刷新：后端已把 status 写成 invalid、validation_error 落库
     await loadList()
+    if (ok)
+      Message.success('仓库校验通过')
   }
   finally {
     validatingId.value = ''
@@ -355,23 +345,18 @@ const snapshottingId = ref('')
 async function triggerSnapshot(record: ModuleWithRepository) {
   snapshottingId.value = record.relation_id
   try {
-    const { execute, error } = usePost(
+    const ok = await postAction(
       ApiSecModuleRepository.sourceSnapshot,
       {
         module_id: record.module_id,
         relation_id: record.relation_id,
         operation: 'update',
         revision: {},
-        idempotency_key: crypto.randomUUID(),
+        idempotency_key: newIdempotencyKey(),
       },
-      { immediate: false },
     )
-    await execute()
-    if (error.value) {
-      Message.error(`快照任务提交失败: ${error.value.message || error.value}`)
-      return
-    }
-    Message.success('已提交源码快照任务')
+    if (ok)
+      Message.success('已提交源码快照任务')
   }
   finally {
     snapshottingId.value = ''
@@ -383,27 +368,20 @@ const syncingId = ref('')
 async function syncRepo(record: ModuleWithRepository) {
   syncingId.value = record.relation_id
   try {
-    const { data, execute, error } = usePost<RepositorySyncResponse>(
+    const res = await postAction<RepositorySyncResponse>(
       ApiSecModuleRepository.sync,
       {
         module_id: record.module_id,
         relation_id: record.relation_id,
       },
-      { immediate: false },
     )
-    await execute()
-    if (error.value) {
-      Message.error(`克隆/拉取失败: ${(error.value as any)?.message || error.value}`)
+    if (!res)
       return
-    }
-    if (data.value) {
-      const res = data.value
-      // 动作翻译：cloned→已克隆，fetched→已拉取，其余原样展示
-      const actionLabel = res.action === 'cloned' ? '已克隆' : res.action === 'fetched' ? '已拉取' : res.action
-      const shortSha = res.head_sha ? res.head_sha.slice(0, 8) : '-'
-      const dur = res.duration_ms != null ? `${(res.duration_ms / 1000).toFixed(1)}s` : '-'
-      Message.success(`${actionLabel}，分支数 ${res.branch_count}，HEAD ${shortSha}，耗时 ${dur}`)
-    }
+    // 动作翻译：cloned→已克隆，fetched→已拉取，其余原样展示
+    const actionLabel = res.action === 'cloned' ? '已克隆' : res.action === 'fetched' ? '已拉取' : res.action
+    const shortSha = res.head_sha ? res.head_sha.slice(0, 8) : '-'
+    const dur = res.duration_ms != null ? `${(res.duration_ms / 1000).toFixed(1)}s` : '-'
+    Message.success(`${actionLabel}，分支数 ${res.branch_count}，HEAD ${shortSha}，耗时 ${dur}`)
   }
   finally {
     syncingId.value = ''
@@ -434,10 +412,18 @@ async function syncRepo(record: ModuleWithRepository) {
           style="width: 240px"
         />
         <a-select v-model="statusFilter" placeholder="状态" allow-clear style="width: 120px">
-          <a-option value="pending_validation">待验证</a-option>
-          <a-option value="active">已验证</a-option>
-          <a-option value="invalid">校验失败</a-option>
-          <a-option value="disabled">禁用</a-option>
+          <a-option value="pending_validation">
+            待验证
+          </a-option>
+          <a-option value="active">
+            已验证
+          </a-option>
+          <a-option value="invalid">
+            校验失败
+          </a-option>
+          <a-option value="disabled">
+            禁用
+          </a-option>
         </a-select>
         <a-typography-text type="secondary">
           共 {{ filteredRows.length }} 条
@@ -598,16 +584,36 @@ async function syncRepo(record: ModuleWithRepository) {
       :footer="false"
     >
       <a-descriptions v-if="detailRecord" :column="1" bordered size="small">
-        <a-descriptions-item label="模块名称">{{ detailRecord.module_name }}</a-descriptions-item>
-        <a-descriptions-item label="模块简码">{{ detailRecord.module_code }}</a-descriptions-item>
-        <a-descriptions-item label="项目组">{{ detailRecord.project_group_name }}</a-descriptions-item>
-        <a-descriptions-item label="业务领域">{{ detailRecord.business_area }}</a-descriptions-item>
-        <a-descriptions-item label="产品领域">{{ detailRecord.product_domain }}</a-descriptions-item>
-        <a-descriptions-item label="仓库名称">{{ detailRecord.repository_name }}</a-descriptions-item>
-        <a-descriptions-item label="仓库编码">{{ detailRecord.repository_code }}</a-descriptions-item>
-        <a-descriptions-item label="Git URL">{{ detailRecord.git_url }}</a-descriptions-item>
-        <a-descriptions-item label="默认分支">{{ detailRecord.default_branch }}</a-descriptions-item>
-        <a-descriptions-item label="根路径">{{ detailRecord.root_path || '/' }}</a-descriptions-item>
+        <a-descriptions-item label="模块名称">
+          {{ detailRecord.module_name }}
+        </a-descriptions-item>
+        <a-descriptions-item label="模块简码">
+          {{ detailRecord.module_code }}
+        </a-descriptions-item>
+        <a-descriptions-item label="项目组">
+          {{ detailRecord.project_group_name }}
+        </a-descriptions-item>
+        <a-descriptions-item label="业务领域">
+          {{ detailRecord.business_area }}
+        </a-descriptions-item>
+        <a-descriptions-item label="产品领域">
+          {{ detailRecord.product_domain }}
+        </a-descriptions-item>
+        <a-descriptions-item label="仓库名称">
+          {{ detailRecord.repository_name }}
+        </a-descriptions-item>
+        <a-descriptions-item label="仓库编码">
+          {{ detailRecord.repository_code }}
+        </a-descriptions-item>
+        <a-descriptions-item label="Git URL">
+          {{ detailRecord.git_url }}
+        </a-descriptions-item>
+        <a-descriptions-item label="默认分支">
+          {{ detailRecord.default_branch }}
+        </a-descriptions-item>
+        <a-descriptions-item label="根路径">
+          {{ detailRecord.root_path || '/' }}
+        </a-descriptions-item>
         <a-descriptions-item label="扫描启用">
           <a-tag :color="detailRecord.scan_enabled ? 'green' : 'gray'" size="small">
             {{ detailRecord.scan_enabled ? '启用' : '禁用' }}

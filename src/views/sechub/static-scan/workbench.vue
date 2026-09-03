@@ -28,7 +28,7 @@ import {
   ApiSecScanTask,
 } from '@/api/sechubApis'
 import ScopePreviewPanel from '@/components/static-scan/ScopePreviewPanel.vue'
-import { useGet, usePost } from '@/hooks'
+import { newIdempotencyKey, useGet, usePost } from '@/hooks'
 
 defineOptions({ name: 'StaticScanWorkbench' })
 
@@ -317,7 +317,7 @@ async function handlePreview() {
       return
     }
 
-    completeScanIdempotencyKey.value = crypto.randomUUID()
+    completeScanIdempotencyKey.value = newIdempotencyKey()
     const request = usePost<PreflightDecision>(ApiSecScanRun.preflight, completeScanRequest(), { immediate: false })
     await request.execute()
     completePreflight.value = request.error.value ? null : request.data.value

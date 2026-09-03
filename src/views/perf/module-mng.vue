@@ -18,7 +18,7 @@ import * as XLSX from 'xlsx'
 import { ApiPerfModule } from '@/api/perfApis'
 import { ApiSecModuleRepository, ApiSecProjectGroup } from '@/api/sechubApis'
 import StatusBadge from '@/components/static-scan/StatusBadge.vue'
-import { useDelete, useDicts, useGet, usePost, usePut } from '@/hooks'
+import { newIdempotencyKey, useDelete, useDicts, useGet, usePost, usePut } from '@/hooks'
 
 defineOptions({ name: 'ModuleMng' })
 
@@ -523,7 +523,7 @@ function openBind() {
     scan_enabled: true,
     is_primary: repositories.value.length === 0,
     allow_local_test_repository: false,
-    idempotency_key: crypto.randomUUID(),
+    idempotency_key: newIdempotencyKey(),
   }
   bindVisible.value = true
 }
@@ -542,7 +542,7 @@ async function submitBind() {
       credential_ref: bindForm.value.credential_ref || null,
       root_path: bindForm.value.root_path || null,
       default_scan_branch: bindForm.value.default_scan_branch || null,
-      idempotency_key: crypto.randomUUID(),
+      idempotency_key: newIdempotencyKey(),
     }
     const { execute, error } = usePost<MutationReceipt>(ApiSecModuleRepository.bind, payload, { immediate: false })
     await execute()
@@ -567,7 +567,7 @@ async function validateRepository(repository: RepositoryBinding) {
         credential_ref: repository.credential_ref ?? null,
         default_branch: repository.default_branch,
         allow_local_test_repository: repository.git_url.startsWith('local-test:'),
-        idempotency_key: crypto.randomUUID(),
+        idempotency_key: newIdempotencyKey(),
       },
       { immediate: false },
     )
@@ -609,7 +609,7 @@ async function repositoryOperation(repository: RepositoryBinding, operation: 'cl
       relation_id: repository.relation_id,
       operation,
       revision,
-      idempotency_key: crypto.randomUUID(),
+      idempotency_key: newIdempotencyKey(),
     }
     const { data, execute, error } = usePost<WorkerJobReceipt>(ApiSecModuleRepository.sourceSnapshot, payload, { immediate: false })
     await execute()

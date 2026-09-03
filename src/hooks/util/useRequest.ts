@@ -1,15 +1,16 @@
-import NProgress from 'nprogress'
-import { computed, unref } from 'vue'
-import { type LocationQueryRaw, stringifyQuery } from 'vue-router'
+import type { UseFetchOptions, UseFetchReturn } from '@vueuse/core'
+import type { MaybeRef } from 'vue'
+import type { LocationQueryRaw } from 'vue-router'
 
 import { Message } from '@arco-design/web-vue'
-import type { MaybeRef } from 'vue'
 import {
-  type UseFetchOptions,
-  type UseFetchReturn,
   createFetch,
   isObject,
+
 } from '@vueuse/core'
+import NProgress from 'nprogress'
+import { computed, unref } from 'vue'
+import { stringifyQuery } from 'vue-router'
 
 import { ErrorFlag } from '@/api/apis'
 import { useToken } from '@/hooks'
@@ -39,15 +40,18 @@ export const useRequest = createFetch({
       const status = data?.code || 200
       if (status === 200) {
         data = data.data || {}
-      } else if (status === 401) {
+      }
+      else if (status === 401) {
         // JWT未授权（token 缺失/失效/过期），跳转登录页
         await log_out()
-      } else if (status === 403) {
+      }
+      else if (status === 403) {
         // 接口无权限：仅提示，不跳转、不登出。
         // 页面里的次要请求（如导航栏拉角色列表）没权限时不应影响整个会话
         no_permission(response?.url)
         data = ErrorFlag
-      } else {
+      }
+      else {
         // 400/500/其他错误码：显示后端错误信息
         Message.error(data?.msg || `请求失败 (${status})`)
         data = ErrorFlag
@@ -68,14 +72,18 @@ export const useRequest = createFetch({
       // 网络层错误（无响应）或后端返回非JSON错误体
       if (response?.status === 401) {
         await log_out()
-      } else if (response?.status === 403) {
+      }
+      else if (response?.status === 403) {
         no_permission(response?.url)
-      } else if (data?.msg) {
+      }
+      else if (data?.msg) {
         // 后端返回了 JSON 格式的错误信息
         Message.error(data.msg)
-      } else if (error) {
+      }
+      else if (error) {
         Message.error('网络请求失败，请检查网络连接')
-      } else {
+      }
+      else {
         Message.error(`请求失败 (${response?.status || '未知错误'})`)
       }
       NProgress.done()
@@ -212,6 +220,82 @@ export function useDelete<T = unknown>(
   return useRequest<T>(url, { ...options })
     .delete(payload, 'json')
     .json()
+}
+
+/**
+ * 判定一次请求是否失败（业务错误 / 网络错误）。
+ *
+ * ## 为什么不能用 `error.value`
+ * `useFetch` 的 `afterFetch` 钩子**只能返回 `{ data, response }`**，没法设置 `error`。
+ * 所以拦截器对后端业务错误（code 非 200）的处理是「弹一次 Message + 把 data 换成
+ * `ErrorFlag` 哨兵」，`onFetchError` 里也显式 `return { error: undefined }`。
+ * 结论：**`error.value` 永远是空的**，用它判断成败必然判成「成功」。
+ *
+ * 踩过的实例：代码仓库新增/编辑用 `if (error.value)` 判断，后端明确拒绝了
+ * （唯一约束冲突等），前端却接着弹「绑定成功」把拦截器的红色提示覆盖掉，
+ * 弹窗关闭、列表刷新，用户看到成功而库里没有数据。
+ */
+export function isRequestFailed(data: unknown): boolean {
+  return data === ErrorFlag || data === null || data === undefined
+}
+
+/**
+ * POST 并返回业务数据；失败返回 `null`（拦截器已经弹过错误提示，无需重复提示）。
+ *
+ * 各页面此前各自实现了一份同名的 `postAction`（results / defects / runs /
+ * waivers / campaigns / approvals / dispositions 七处），这里收敛成共享实现，
+ * 新代码一律用它，避免又写出 `if (error.value)` 那种判不出失败的写法。
+ */
+export async function postAction<T = unknown>(
+  url: string,
+  payload?: Record<string, unknown>,
+): Promise<T | null> {
+  const request = usePost<T>(url, payload, { immediate: false })
+  await request.execute()
+  return isRequestFailed(request.data.value) ? null : (request.data.value as T)
+}
+
+/** PUT 并返回业务数据；失败返回 `null`。语义同 [`postAction`]。 */
+export async function putAction<T = unknown>(
+  url: string,
+  payload?: Record<string, unknown>,
+): Promise<T | null> {
+  const request = usePut<T>(url, payload, { immediate: false })
+  await request.execute()
+  return isRequestFailed(request.data.value) ? null : (request.data.value as T)
+}
+
+/**
+ * 生成幂等键（UUID v4）。
+ *
+ * **不能直接用 `crypto.randomUUID()`**：它只在**安全上下文**（https 或 localhost）
+ * 可用。内网通过 `http://<IP>:8003` 访问时 `crypto.randomUUID` 是 `undefined`，
+ * 调用直接抛 `TypeError`，而调用点常在 `try/finally`（无 catch）里，异常冒到
+ * Arco 的 `@ok` 后弹窗既不关闭也不提示 —— 表现为「点保存没反应」，
+ * 且**请求根本没发出**。代码仓库页的新增/编辑/验证/快照四个按钮全中招，
+ * 只有不用它的「克隆/拉取」是好的。
+ *
+ * 这里优先用原生实现，不可用时退回 `getRandomValues`，再退回 `Math.random`。
+ */
+export function newIdempotencyKey(): string {
+  const c = globalThis.crypto as Crypto | undefined
+  if (typeof c?.randomUUID === 'function')
+    return c.randomUUID()
+  // getRandomValues 在非安全上下文同样可用（它不是 secure-context-only）
+  if (typeof c?.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16)
+    c.getRandomValues(bytes)
+    bytes[6] = (bytes[6] & 0x0F) | 0x40 // version 4
+    bytes[8] = (bytes[8] & 0x3F) | 0x80 // variant 10
+    const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+  }
+  // 最后兜底：幂等键只要求「本次请求唯一」，不做安全用途，随机性足够
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (ch) => {
+    const r = (Math.random() * 16) | 0
+    const v = ch === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
 }
 
 /**

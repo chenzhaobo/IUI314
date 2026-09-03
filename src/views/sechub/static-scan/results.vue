@@ -1,24 +1,25 @@
 <script setup lang="ts">
+import type { ColumnFilterState } from './composables/useColumnFilter'
 import type {
   CandidateDetailPage,
   CandidateDetailRow,
+  CandidateVerdictRow,
   CrossRunAggRow,
   ModuleWithRepository,
   RuleStatRow,
 } from '@/types/static-scan'
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 
+import { Message } from '@arco-design/web-vue'
+import { MdPreview } from 'md-editor-v3'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { ErrorFlag } from '@/api/apis'
+import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
+import { downloadText, formatTime, useGet, usePost } from '@/hooks'
 import ColumnFilterPanel from './components/ColumnFilterPanel.vue'
-import type { ColumnFilterState } from './composables/useColumnFilter'
 import { applyColumnFilters, emptyFilter, isFilterActive } from './composables/useColumnFilter'
 import { useFilterPersistence } from './composables/useFilterPersistence'
-import { useRoute } from 'vue-router'
-import { MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
-import { Message } from '@arco-design/web-vue'
-import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
-import { ErrorFlag } from '@/api/apis'
-import { downloadText, formatTime, useGet, usePost } from '@/hooks'
 
 defineOptions({ name: 'StaticScanResults' })
 
@@ -407,42 +408,26 @@ function viewReport(row: CandidateDetailRow) {
 const selectedCandidateIds = ref<string[]>([])
 const bulkBusy = ref(false)
 
-/** 选中项里能重扫的（与单条重扫同一套白名单） */
+/** 选中项里能重扫的（全状态放开，见 canRetry） */
 const bulkRetryableIds = computed(() =>
   filteredCandidates.value
     .filter(r => selectedCandidateIds.value.includes(r.id) && canRetry(r.ai_status))
     .map(r => r.id),
 )
 
-/** 批量重扫选中的候选 */
+/**
+ * 批量重扫选中的候选。
+ *
+ * 走与单条相同的弹窗（可指定模型），因为「换个模型看结论是否一致」这个诉求
+ * 在批量场景下更常见 —— 一次挑十几条有疑问的候选，换模型跑一遍再比。
+ *
+ * 范围安全由服务端的 dispatch_id 保证：每次派发只标记本次这些候选，
+ * AI 自取候选的接口按 dispatch_id 过滤，拿不到同规则下其它 pending 候选。
+ * 这里逐条提交是因为 retry-candidate 一次只收一个 candidate_id，
+ * 且队列有「同业务同分片只允许一条在飞」的约束，重复提交是安全的。
+ */
 async function bulkRetryCandidates() {
-  const ids = bulkRetryableIds.value
-  if (ids.length === 0) {
-    Message.warning('选中的候选都不支持重扫（待确认状态本来就在排队，无需重扫）')
-    return
-  }
-  bulkBusy.value = true
-  try {
-    // 逐条提交：后端 retry-candidate 一次只收一个 candidate_id，
-    // 且队列有「同业务同分片只允许一条在飞」的约束，重复提交是安全的。
-    let ok = 0
-    for (const id of ids) {
-      const payload: Record<string, any> = { candidate_id: id }
-      if (currentRun.value?.ai_model?.trim())
-        payload.model = currentRun.value.ai_model.trim()
-      const modes = (currentRun.value?.ai_mode ?? '').split(',').map(m => m.trim()).filter(Boolean)
-      if (modes.length === 1)
-        payload.mode = modes[0]
-      if (await postAction<{ message?: string }>(ApiSecPrescan.retryCandidate, payload))
-        ok += 1
-    }
-    Message.success(`已提交 ${ok} 条重扫${ok < ids.length ? `，${ids.length - ok} 条失败` : ''}`)
-    selectedCandidateIds.value = []
-    setTimeout(() => void loadCandidates(), 1500)
-  }
-  finally {
-    bulkBusy.value = false
-  }
+  openRetryModal(bulkRetryableIds.value)
 }
 
 /**
@@ -489,35 +474,109 @@ function downloadReport() {
 // ===== 单条重扫（重置为 pending 并重新 AI 确认）=====
 const retryingCandidateId = ref('')
 /**
- * 允许单条重扫的状态。
+ * 允许单条重扫的状态：**全部放开**。
  *
- * 包含 confirmed：换了模型或改了规则知识后，想复核已确认的问题是常见诉求，
- * 单条重扫是显式操作、不会误伤别人，所以放开。
- * （批量重扫默认**不**碰 confirmed / review_needed，要勾选才纳入 —— 见 runs.vue）
- * 不含 pending：那是还没出结论、本来就在排队，重扫没有意义。
+ * 之前排除了 pending（"本来就在排队，重扫没有意义"）。实际不成立：内网经常出现
+ * AI 确认任务中途挂掉、候选永久停在 pending 的情况，此时"重新入队"正是要做的事。
+ * 后端单条路径本来就不看状态白名单（`reset_candidates_for_retry` 在
+ * `candidate_ids` 非空时忽略状态），这里放开只是让前端不再多此一举地挡住。
+ *
+ * 范围安全由服务端的 `dispatch_id` 保证：本次派发只标记被勾选的候选，
+ * AI 自取候选的接口按 dispatch_id 过滤，看不到范围外的候选。
  */
-function canRetry(status: string): boolean {
-  return ['error', 'rejected', 'review_needed', 'confirmed'].includes(status)
+function canRetry(_status: string): boolean {
+  return true
 }
-async function retryCandidate(row: CandidateDetailRow) {
-  retryingCandidateId.value = row.id
+
+// ===== 重扫弹窗：可指定模型（换模型验证结论一致性）=====
+const retryModalVisible = ref(false)
+const retryTargetIds = ref<string[]>([])
+/** 空串 = 沿用该轮次原模型 */
+const retryModel = ref('')
+const retryBusy = ref(false)
+
+/** 已在本 run 出现过的模型，作为下拉候选（换模型复核时直接选） */
+const knownModels = computed(() => {
+  const set = new Set<string>()
+  for (const r of crossRows.value) {
+    const m = (r.ai_model ?? '').trim()
+    if (m)
+      set.add(m)
+  }
+  return [...set].sort()
+})
+
+function openRetryModal(ids: string[]) {
+  if (ids.length === 0) {
+    Message.warning('请先勾选要重扫的候选')
+    return
+  }
+  retryTargetIds.value = [...ids]
+  retryModel.value = ''
+  retryModalVisible.value = true
+}
+
+/**
+ * 提交重扫。指定了模型时不会覆盖旧结论 —— 后端把每次结论写成
+ * `sec_prescan_candidate_verdict` 明细行，候选主表只更新"当前采信"的那条，
+ * 所以换模型重扫后两个模型的判定可以并排对比。
+ */
+async function submitRetry() {
+  const ids = retryTargetIds.value
+  retryBusy.value = true
   try {
-    const payload: Record<string, any> = { candidate_id: row.id }
-    if (currentRun.value?.ai_model?.trim())
-      payload.model = currentRun.value.ai_model.trim()
-    // 保持该轮次原本的模式（多模式聚合时不传，由后端推断）
+    const model = retryModel.value.trim()
     const modes = (currentRun.value?.ai_mode ?? '').split(',').map(m => m.trim()).filter(Boolean)
-    if (modes.length === 1)
-      payload.mode = modes[0]
-    const resp = await postAction<{ message?: string }>(ApiSecPrescan.retryCandidate, payload)
-    if (resp) {
-      Message.success(resp.message || '已提交重扫并加入队列，消费者每 5 秒领取一次')
-      setTimeout(() => void loadCandidates(), 1500)
+    let ok = 0
+    for (const id of ids) {
+      const payload: Record<string, any> = { candidate_id: id }
+      // 显式选了模型就用它；没选则沿用该轮次原模型（为空表示 Agent 默认模型）
+      const effectiveModel = model || (currentRun.value?.ai_model?.trim() ?? '')
+      if (effectiveModel)
+        payload.model = effectiveModel
+      if (modes.length === 1)
+        payload.mode = modes[0]
+      if (await postAction<{ message?: string }>(ApiSecPrescan.retryCandidate, payload))
+        ok += 1
     }
+    const modelNote = model ? `（模型 ${model}）` : ''
+    Message.success(`已提交 ${ok} 条重扫${modelNote}${ok < ids.length ? `，${ids.length - ok} 条失败` : ''}`)
+    retryModalVisible.value = false
+    selectedCandidateIds.value = []
+    setTimeout(() => void loadCandidates(), 1500)
   }
   finally {
-    retryingCandidateId.value = ''
+    retryBusy.value = false
   }
+}
+
+async function retryCandidate(row: CandidateDetailRow) {
+  openRetryModal([row.id])
+}
+
+// ===== 多模型结论对比（展开行）=====
+const verdictColumns = [
+  { key: 'adopted', title: '', slotName: 'vAdopted', width: 60 },
+  { key: 'ai_model', title: '模型', dataIndex: 'ai_model', width: 170, ellipsis: true, tooltip: true },
+  { key: 'ai_mode', title: '模式', slotName: 'vMode', width: 90 },
+  { key: 'verdict', title: '结论', slotName: 'vVerdict', width: 90 },
+  { key: 'risk_level', title: '风险', dataIndex: 'risk_level', width: 70 },
+  { key: 'confidence', title: '置信度', slotName: 'vConfidence', width: 80 },
+  { key: 'rationale', title: '判定依据', dataIndex: 'rationale', ellipsis: true, tooltip: true },
+  { key: 'report', title: '报告', slotName: 'vReport', width: 70 },
+  { key: 'created_at', title: '时间', slotName: 'vCreatedAt', width: 160 },
+]
+
+/** 该候选是否存在「不同结论」——两个模型判得不一样时高亮提示人工裁定 */
+function verdictDisagrees(row: CandidateDetailRow): boolean {
+  const set = new Set((row.verdicts ?? []).map(v => v.verdict))
+  return set.size > 1
+}
+
+/** 查看某次结论对应的报告正文（复用报告弹窗，只替换正文） */
+function viewVerdictReport(row: CandidateDetailRow, v: CandidateVerdictRow) {
+  reportRow.value = { ...row, ai_detail_report: v.detail_report ?? null, ai_model: v.ai_model, ai_mode: v.ai_mode, ai_risk_level: v.risk_level }
+  reportVisible.value = true
 }
 
 // 轮次/模型标签：模型与模式均为空时，是预扫描候选尚未经过 AI 确认的"待AI确认"分组
@@ -625,8 +684,15 @@ function filterableOf(key: string) {
  * 只有本次新增的两列（方法、引入人）默认隐藏，需要时从「显示列」下拉勾出。
  */
 const DEFAULT_VISIBLE_COLUMNS = [
-  'file_path', 'start_line', 'matched_text', 'ai_status', 'ai_risk_level',
-  'ai_confidence', 'introduced_at', 'ai_rationale', 'ops',
+  'file_path',
+  'start_line',
+  'matched_text',
+  'ai_status',
+  'ai_risk_level',
+  'ai_confidence',
+  'introduced_at',
+  'ai_rationale',
+  'ops',
 ]
 const visibleColumnKeys = ref<string[]>([...DEFAULT_VISIBLE_COLUMNS])
 
@@ -816,8 +882,12 @@ watch(() => route.query, (newQ, oldQ) => {
         </a-select>
         <span class="selector-label">领域</span>
         <a-select v-model="domainFilter" allow-clear placeholder="全部领域" style="width: 130px" @change="onFilterChange">
-          <a-option value="security">安全</a-option>
-          <a-option value="performance">性能</a-option>
+          <a-option value="security">
+            安全
+          </a-option>
+          <a-option value="performance">
+            性能
+          </a-option>
         </a-select>
         <span class="selector-label">引入时间</span>
         <a-range-picker
@@ -851,8 +921,8 @@ watch(() => route.query, (newQ, oldQ) => {
           <a-spin :loading="ruleStatsLoading" style="width: 100%">
             <a-tree
               v-if="ruleTree.length"
-              :data="ruleTree"
               v-model:expanded-keys="expandedKeys"
+              :data="ruleTree"
               :selected-keys="[selectedRuleId]"
               @select="onTreeSelect"
             >
@@ -887,65 +957,84 @@ watch(() => route.query, (newQ, oldQ) => {
           </template>
           <template #extra>
             <a-select v-model="statusFilter" placeholder="AI状态" allow-clear style="width: 140px" @change="onFilterChange">
-              <a-option value="confirmed">确认问题</a-option>
-              <a-option value="rejected">已排除</a-option>
-              <a-option value="review_needed">需人工</a-option>
-              <a-option value="error">错误</a-option>
-              <a-option value="pending">待确认</a-option>
+              <a-option value="confirmed">
+                确认问题
+              </a-option>
+              <a-option value="rejected">
+                已排除
+              </a-option>
+              <a-option value="review_needed">
+                需人工
+              </a-option>
+              <a-option value="error">
+                错误
+              </a-option>
+              <a-option value="pending">
+                待确认
+              </a-option>
             </a-select>
-              <!-- 风险等级多选：诉求是"优先处理高等级"，通常要 high 与 medium 一起看。
+            <!-- 风险等级多选：诉求是"优先处理高等级"，通常要 high 与 medium 一起看。
                    info 档在候选里占绝大多数，滤掉它是本筛选最主要的用途 -->
-              <a-select
-                v-model="riskLevelFilter"
-                multiple
-                allow-clear
-                :max-tag-count="2"
-                placeholder="风险等级"
-                style="width: 190px"
-                @change="onFilterChange"
-              >
-                <a-option value="high">高</a-option>
-                <a-option value="medium">中</a-option>
-                <a-option value="low">低</a-option>
-                <a-option value="info">提示</a-option>
-              </a-select>
-              <a-button
-                size="small"
-                :disabled="selectedCandidateIds.length === 0"
-                :loading="bulkBusy"
-                @click="bulkRetryCandidates"
-              >
-                重扫选中({{ bulkRetryableIds.length }})
-              </a-button>
-              <!-- 补偿生成缺陷：AI 确认收尾失败时 confirmed 候选不会写出缺陷，
+            <a-select
+              v-model="riskLevelFilter"
+              multiple
+              allow-clear
+              :max-tag-count="2"
+              placeholder="风险等级"
+              style="width: 190px"
+              @change="onFilterChange"
+            >
+              <a-option value="high">
+                高
+              </a-option>
+              <a-option value="medium">
+                中
+              </a-option>
+              <a-option value="low">
+                低
+              </a-option>
+              <a-option value="info">
+                提示
+              </a-option>
+            </a-select>
+            <a-button
+              size="small"
+              :disabled="selectedCandidateIds.length === 0"
+              :loading="bulkBusy"
+              @click="bulkRetryCandidates"
+            >
+              重扫选中({{ bulkRetryableIds.length }})
+            </a-button>
+            <!-- 补偿生成缺陷：AI 确认收尾失败时 confirmed 候选不会写出缺陷，
                    这里"确认问题"有数、缺陷列表却查不到。选中就只补这些，没选补整轮次 -->
-              <a-tooltip content="已确认的候选若没生成缺陷记录，用这个补齐（不选则补整个轮次）" mini>
-                <a-button size="small" :loading="bulkBusy" @click="compensateIssues">
-                  补偿生成缺陷
-                </a-button>
-              </a-tooltip>
-              <!-- 显示列：原有列默认全显示，新增的「方法」「引入人」默认隐藏，按需勾出 -->
-              <a-select
-                v-model="visibleColumnKeys"
-                multiple
-                :max-tag-count="1"
-                placeholder="显示列"
-                style="width: 160px"
-                :options="columnOptions"
-              />
+            <a-tooltip content="已确认的候选若没生成缺陷记录，用这个补齐（不选则补整个轮次）" mini>
+              <a-button size="small" :loading="bulkBusy" @click="compensateIssues">
+                补偿生成缺陷
+              </a-button>
+            </a-tooltip>
+            <!-- 显示列：原有列默认全显示，新增的「方法」「引入人」默认隐藏，按需勾出 -->
+            <a-select
+              v-model="visibleColumnKeys"
+              multiple
+              :max-tag-count="1"
+              placeholder="显示列"
+              style="width: 160px"
+              :options="columnOptions"
+            />
           </template>
           <a-table
+            v-model:selected-keys="selectedCandidateIds"
             :loading="candidateLoading"
             :data="filteredCandidates"
             :columns="candidateColumns"
             :pagination="{
               current: pageNum,
-              pageSize: pageSize,
+              pageSize,
               total: candidatePage?.total ?? 0,
               showTotal: true,
             }"
-            v-model:selectedKeys="selectedCandidateIds"
             :row-selection="{ type: 'checkbox', showCheckedAll: true }"
+            :expandable="{ title: '结论', width: 40 }"
             row-key="id"
             size="small"
             :scroll="candidateScroll"
@@ -1014,7 +1103,6 @@ watch(() => route.query, (newQ, oldQ) => {
                   type="text"
                   size="small"
                   status="warning"
-                  :disabled="!canRetry(record.ai_status)"
                   :loading="retryingCandidateId === record.id"
                   @click="retryCandidate(record)"
                 >
@@ -1022,12 +1110,89 @@ watch(() => route.query, (newQ, oldQ) => {
                 </a-button>
               </a-space>
             </template>
+            <!-- 展开行：同一候选的多次结论（换模型复核后可直接对比判定差异） -->
+            <template #expand-row="{ record }">
+              <div class="verdict-panel">
+                <a-empty v-if="!record.verdicts?.length" description="暂无结论记录（该候选还没经过 AI 确认）" />
+                <template v-else>
+                  <div class="verdict-hint">
+                    共 {{ record.verdicts.length }} 次结论。换模型重扫会**追加**一条而不是覆盖，
+                    下面按时间倒序列出；标「采信」的那条就是列表页展示的结论。
+                    <span v-if="verdictDisagrees(record)" class="verdict-warn">⚠️ 不同模型结论不一致，建议人工裁定</span>
+                  </div>
+                  <a-table
+                    :data="record.verdicts"
+                    :columns="verdictColumns"
+                    :pagination="false"
+                    row-key="id"
+                    size="mini"
+                  >
+                    <template #vAdopted="{ record: v }">
+                      <a-tag v-if="v.adopted" color="arcoblue" size="small">
+                        采信
+                      </a-tag>
+                      <span v-else class="text-muted">历史</span>
+                    </template>
+                    <template #vVerdict="{ record: v }">
+                      <a-tag :color="aiStatusLabels[v.verdict]?.color ?? 'gray'" size="small">
+                        {{ aiStatusLabels[v.verdict]?.label ?? v.verdict }}
+                      </a-tag>
+                    </template>
+                    <template #vMode="{ record: v }">
+                      {{ modeLabels[v.ai_mode ?? '']?.label ?? (v.ai_mode || '-') }}
+                    </template>
+                    <template #vConfidence="{ record: v }">
+                      {{ v.confidence != null ? Number(v.confidence).toFixed(2) : '-' }}
+                    </template>
+                    <template #vReport="{ record: v }">
+                      <a-button v-if="v.has_report" type="text" size="mini" @click="viewVerdictReport(record, v)">
+                        查看
+                      </a-button>
+                      <a-tooltip v-else content="该次结论没有落盘报告；confirmed / 需人工复核的结论现在会被服务端强制要求报告，缺失即拒绝入库" mini>
+                        <span class="text-muted">无</span>
+                      </a-tooltip>
+                    </template>
+                    <template #vCreatedAt="{ record: v }">
+                      {{ formatTime(v.created_at) }}
+                    </template>
+                  </a-table>
+                </template>
+              </div>
+            </template>
           </a-table>
         </a-card>
       </div>
     </div>
 
-    <!-- 查看报告弹窗（富文本渲染 Markdown，宽幅+可滚动，避免抽屉显示不全）-->
+    <!-- 重扫弹窗：可指定模型，用于「换个模型看结论是否一致」 -->
+    <a-modal
+      v-model:visible="retryModalVisible"
+      title="重扫候选"
+      :ok-loading="retryBusy"
+      @ok="submitRetry"
+      @cancel="retryModalVisible = false"
+    >
+      <a-alert type="info" class="m-b-12px">
+        本次将重扫 <b>{{ retryTargetIds.length }}</b> 条候选。范围严格限定在勾选的这些候选上：
+        平台给这批候选打一个派发批次号，AI 只能通过该批次号取候选，
+        取不到同规则下的其它候选。
+      </a-alert>
+      <a-form :model="{ retryModel }" layout="vertical">
+        <a-form-item label="使用模型">
+          <a-select v-model="retryModel" placeholder="留空 = 沿用该轮次原模型" allow-clear allow-create>
+            <a-option v-for="m in knownModels" :key="m" :value="m">
+              {{ m }}
+            </a-option>
+          </a-select>
+          <template #extra>
+            换一个模型可以验证结论是否一致。<b>旧结论不会被覆盖</b> ——
+            每次结论都单独存一行，展开候选行即可并排对比。
+          </template>
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <!-- 查看报告弹窗（富文本渲染 Markdown，宽幅+可滚动，避免抽屉显示不全） -->
     <a-modal
       :visible="reportVisible"
       width="85%"
@@ -1038,9 +1203,15 @@ watch(() => route.query, (newQ, oldQ) => {
       @cancel="reportVisible = false"
     >
       <a-descriptions :column="3" bordered size="small" class="m-b-12px">
-        <a-descriptions-item label="模型">{{ roundModelLabel(reportRow) }}</a-descriptions-item>
-        <a-descriptions-item label="模式">{{ modeLabels[reportRow?.ai_mode ?? '']?.label ?? (reportRow?.ai_mode?.trim() ? reportRow.ai_mode : '待确认') }}</a-descriptions-item>
-        <a-descriptions-item label="风险">{{ reportRow?.ai_risk_level ?? '-' }}</a-descriptions-item>
+        <a-descriptions-item label="模型">
+          {{ roundModelLabel(reportRow) }}
+        </a-descriptions-item>
+        <a-descriptions-item label="模式">
+          {{ modeLabels[reportRow?.ai_mode ?? '']?.label ?? (reportRow?.ai_mode?.trim() ? reportRow.ai_mode : '待确认') }}
+        </a-descriptions-item>
+        <a-descriptions-item label="风险">
+          {{ reportRow?.ai_risk_level ?? '-' }}
+        </a-descriptions-item>
         <a-descriptions-item label="引入时间">
           {{ formatTime(reportRow?.introduced_at) }}
         </a-descriptions-item>
@@ -1057,7 +1228,9 @@ watch(() => route.query, (newQ, oldQ) => {
       <!-- 下载原始 md：内容已在前端手里，本地存盘即可，不必再走后端 -->
       <div v-if="reportRow?.ai_detail_report" class="report-toolbar">
         <a-button size="small" @click="downloadReport">
-          <template #icon><icon-download /></template>
+          <template #icon>
+            <icon-download />
+          </template>
           下载 md
         </a-button>
       </div>
@@ -1083,6 +1256,9 @@ watch(() => route.query, (newQ, oldQ) => {
 .selector-label { color: var(--color-text-2); }
 .card-sub { margin-left: 12px; color: var(--color-text-3); font-weight: normal; font-size: 12px; }
 .text-muted { color: var(--color-text-4); }
+.verdict-panel { padding: 8px 12px; background: var(--color-fill-1); }
+.verdict-hint { margin-bottom: 8px; color: var(--color-text-3); font-size: 12px; }
+.verdict-warn { margin-left: 8px; color: rgb(var(--warning-6)); font-weight: 600; }
 .split-layout { display: flex; gap: 0; align-items: stretch; }
 .split-layout.dragging { user-select: none; cursor: col-resize; }
 .split-left { flex-shrink: 0; overflow: hidden; }
