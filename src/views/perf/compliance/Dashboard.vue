@@ -50,6 +50,15 @@
             <a-option v-for="o in projectGroupOptions" :key="o.code" :value="o.code">{{ o.name }}</a-option>
           </a-select>
         </a-col>
+              <a-col :span="3">
+          <!-- 「未分类」节点只能看出有多少量没归类，看不出是哪些应用。
+               导出的列格式与模块管理导入模板一致，填好项目组编码就能直接导回去 -->
+          <a-tooltip content="导出未归类应用清单（CSV），列格式对齐模块管理导入模板" mini>
+            <a-button size="small" :loading="unclsExporting" @click="handleExportUnclassified">
+              导出未归类
+            </a-button>
+          </a-tooltip>
+        </a-col>
       </a-row>
       <a-row :gutter="16" style="margin-bottom: 12px" align="center">
         <a-col :span="24">
@@ -547,6 +556,25 @@ const handleCreateIssue = (record: any) => {
 // 结果是 401 的响应体被浏览器当成文件存下来 —— 用户看到的就是一个
 // 一两 KB、打不开的“导出文件”。必须走带 token 的 useDownload。
 const { downloadWithTip } = useDownload()
+
+// 未归类应用清单：按当前产品线导出，附请求量与"待办"分档
+// （应用目录无此应用 / 应用未填项目组 / 项目组未填业务领域），
+// 好判断先补哪批 —— 三种情况的处理方式完全不同。
+const unclsExporting = ref(false)
+const handleExportUnclassified = async () => {
+  unclsExporting.value = true
+  try {
+    const params = new URLSearchParams({ product_line: productLine.value }).toString()
+    await downloadWithTip(
+      `/perf/compliance/export-unclassified?${params}`,
+      `未归类应用_${productLine.value}.csv`,
+      '未归类应用导出失败',
+    )
+  }
+  finally {
+    unclsExporting.value = false
+  }
+}
 
 const handleExport = async () => {
   const params = new URLSearchParams(drillPayload.value).toString()
