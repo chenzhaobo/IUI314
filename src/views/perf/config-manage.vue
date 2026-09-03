@@ -11,10 +11,16 @@ const PATH_CONFIG_KEYS = ['jmeter_work_dir', 'jmeter_script_dir', 'jmeter_home_d
 const AI_CONFIRM_BATCH_SIZE_KEY = 'static_scan_ai_confirm_batch_size'
 const AI_CONFIRM_BATCH_SIZE_MIN = 1
 const AI_CONFIRM_BATCH_SIZE_MAX = 1000
-// AI 确认单批超时（秒）：与批大小是两个独立配置，批量调大时通常需要同步调大超时
+// AI 确认单批超时（秒）：与批大小是两个独立配置，批量调大时通常需要同步调大超时。
+//
+// 上限从 1800 提到 5400，与后端 AI_CONFIRM_TIMEOUT_MAX 保持一致。1800 卡住了内网的
+// 实际需要：一次调用要让 AI 自己循环把整个工作单元做完，慢机器上正常就超过 30 分钟。
+// 5400 与 agent 自主审计的 scan_agent_exec_timeout_secs 默认值一致，且必须小于
+// scan_agent_token_ttl_secs（默认 7200）—— 超时长于令牌有效期会让 AI 跑到一半时
+// 回调全部失败，比直接超时更难查。
 const AI_CONFIRM_TIMEOUT_KEY = 'static_scan_ai_confirm_timeout_secs'
 const AI_CONFIRM_TIMEOUT_MIN = 60
-const AI_CONFIRM_TIMEOUT_MAX = 1800
+const AI_CONFIRM_TIMEOUT_MAX = 5400
 const WINDOWS_DRIVE_RE = /^[a-zA-Z]:[/\\]/
 
 /** 检测是否为 Windows 盘符路径 */
@@ -205,17 +211,19 @@ function getGroupLabel(key: string) {
                   <a-input-number
                     v-else-if="isAiConfirmBatchSizeConfig(c)"
                     :model-value="Number(c.config_value)"
-                    :min="AI_CONFIRM_BATCH_SIZE_MIN"
-                    :max="AI_CONFIRM_BATCH_SIZE_MAX"
                     :precision="0"
                     placeholder="如 200"
                     @change="(val: number | string | undefined) => handleAiConfirmBatchSizeChange(c, val)"
                   />
+                  <!--
+                    刻意**不绑** :min / :max：a-input-number 绑了上限会在输入时
+                    静默把超出的值夹到上限 —— 用户输 3600、控件当场变 1800、保存下去
+                    也是 1800，看起来像"每次升级都被重置"，实际是从没存进去过。
+                    越界交给下方 validate-status / help 显式报错，用户能看见被拒。
+                  -->
                   <a-input-number
                     v-else-if="isAiConfirmTimeoutConfig(c)"
                     :model-value="Number(c.config_value)"
-                    :min="AI_CONFIRM_TIMEOUT_MIN"
-                    :max="AI_CONFIRM_TIMEOUT_MAX"
                     :precision="0"
                     placeholder="如 600"
                     @change="(val: number | string | undefined) => handleAiConfirmTimeoutChange(c, val)"
