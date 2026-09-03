@@ -268,6 +268,7 @@ export enum ApiSecPrescan {
   compensateWhitelist = '/sechub/prescan/compensate-whitelist',
   // 按缺陷反查它最近一次被检出的扫描轮次（缺陷列表跳转用）
   issueRun = '/sechub/prescan/issue-run',
+  issueDmpCode = '/sechub/prescan/issue-dmp-code',
   blameCompensate = '/sechub/prescan/blame-compensate',
   agentStatus = '/sechub/prescan/agent-status',
   confirmCompare = '/sechub/prescan/confirm-compare',

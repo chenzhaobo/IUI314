@@ -151,6 +151,8 @@ const displayTree = computed(() => {
 
 function onDimensionChange() {
   selectedKeys.value = []
+  // 换维度后原来的选中值在新维度里没有意义，回到全量
+  void loadGlobalOverview()
   expandedKeys.value = []
   treeSearch.value = ''
 }
@@ -159,10 +161,47 @@ function onDimensionChange() {
 const globalData = ref<GlobalOverview | null>(null)
 const globalLoading = ref(false)
 
+/**
+ * 左树选中节点 → 概览接口的筛选参数。
+ *
+ * 分组节点的 key 用的是**显示名**（如 `grp:集团财务`），而后端项目组维度要的是
+ * project_group_id，所以要反查一次；业务领域与产品领域本身就是名值合一，直接传。
+ * 「未分类」传哨兵值 __unclassified__，后端翻译成「该列为空」——
+ * 与左树把空归类归到「未分类」分组的口径对齐。
+ */
+const overviewFilter = computed<Record<string, string>>(() => {
+  const out: Record<string, string> = {}
+  const key = selectedKeys.value[0] ?? ''
+  if (!key)
+    return out
+  if (key.startsWith('app:')) {
+    out.repository_id = key.slice(4)
+    return out
+  }
+  if (!key.startsWith('grp:'))
+    return out
+
+  const name = key.slice(4)
+  const unclassified = name === '未分类'
+  const sentinel = unclassified ? '__unclassified__' : name
+  if (dimension.value === 'project_group') {
+    // 名 → id。同名分组取第一个匹配到的 id 即可（项目组名在库里是唯一的）
+    const id = repositories.value.find(r => (r.project_group_name || '未分类') === name)?.project_group_id
+    out.project_group_id = unclassified ? '__unclassified__' : (id || '')
+  }
+  else if (dimension.value === 'business_area') {
+    out.business_area = sentinel
+  }
+  else {
+    out.product_domain = sentinel
+  }
+  return out
+})
+
 async function loadGlobalOverview() {
   globalLoading.value = true
   try {
-    const { data, execute } = useGet<GlobalOverview>(ApiSecPrescan.globalOverview, {}, { immediate: false })
+    const { data, execute } = useGet<GlobalOverview>(ApiSecPrescan.globalOverview, overviewFilter.value, { immediate: false })
     await execute()
     // API 出错时 data.value 为 ErrorFlag 字符串，需过滤，避免模板读取 .top_apps.length 报错
     const d = data.value as unknown
@@ -245,6 +284,8 @@ const selectedRepo = computed(() => repositories.value.find(r => r.repository_id
 
 function onTreeSelect(keys: (string | number)[]) {
   selectedKeys.value = keys.map(String)
+  // 点击即刷新右侧：概览按新的筛选范围重算
+  void loadGlobalOverview()
   const key = String(keys[0] ?? '')
   if (key.startsWith('app:')) {
     selectedRepoId.value = key.slice(4)

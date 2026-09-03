@@ -804,6 +804,8 @@ export interface ScanIssueRow {
   introduced_author?: string | null
   /** 不修复原因代码（后端新增字段），如 accepted_risk / false_positive 等 */
   wont_fix_reason_code?: string | null
+  /** DMP 缺陷编码：关联到 DMP 系统的缺陷单号 */
+  dmp_defect_code?: string | null
 }
 
 export interface ScanIssuePage {

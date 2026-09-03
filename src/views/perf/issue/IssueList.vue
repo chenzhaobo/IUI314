@@ -7,6 +7,25 @@
           <a-input v-model="searchForm.keyword" placeholder="标题/编号/表单" allow-clear @press-enter="handleSearch" />
         </a-col>
         <a-col :span="3">
+          <a-select v-model="searchForm.process_status" placeholder="处理进度" allow-clear @change="handleSearch">
+            <a-option v-for="s in PROCESS_FLOW" :key="s.value" :value="s.value">{{ s.label }}</a-option>
+            <a-option value="__none__">未认领</a-option>
+          </a-select>
+          <a-input-group>
+            <a-input
+              v-model="searchForm.dmp_defect_code"
+              placeholder="DMP 编码"
+              allow-clear
+              style="width: 140px"
+              @press-enter="handleSearch"
+              @clear="handleSearch"
+            />
+            <a-tooltip content="只看还没关联 DMP 单的" mini>
+              <a-button :type="searchForm.dmp_defect_code === '__none__' ? 'primary' : 'outline'" @click="toggleDmpUnlinked">
+                未关联
+              </a-button>
+            </a-tooltip>
+          </a-input-group>
           <a-select v-model="searchForm.status" placeholder="状态" allow-clear>
             <a-option value="pending">待确认</a-option>
             <a-option value="confirmed">已确认</a-option>
@@ -44,6 +63,22 @@
           <a-space>
             <a-button type="primary" @click="handleSearch">查询</a-button>
             <a-button @click="handleReset">重置</a-button>
+            <!-- 内部处理流程：工具栏按钮，勾选后点。
+                 与「状态」列（生产复现状态）是两个维度，不会互相覆盖 -->
+            <a-button type="primary" :disabled="!selectedIds.length" @click="openClaim">认领</a-button>
+            <a-dropdown :disabled="!selectedIds.length" @select="(v) => transition(String(v))">
+              <a-button :disabled="!selectedIds.length" :loading="transitionLoading">
+                处理状态
+                <template #icon><icon-down /></template>
+              </a-button>
+              <template #content>
+                <a-doption v-for="s in PROCESS_FLOW" :key="s.value" :value="s.value">
+                  {{ s.label }}
+                </a-doption>
+              </template>
+            </a-dropdown>
+            <a-button :disabled="!selectedIds.length" @click="openDmp">DMP 编码</a-button>
+            <span v-if="selectedIds.length" class="sel-hint">已选 {{ selectedIds.length }} 条</span>
             <a-button status="success" @click="handleExport">导出 Excel</a-button>
             <a-button type="primary" status="success" @click="handleAdd">新增</a-button>
           </a-space>
@@ -56,7 +91,7 @@
         </aside>
         <div class="scope-content">
           <!-- 表格 -->
-          <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange" row-key="id">
+          <a-table :data="tableData" :loading="loading" :pagination="pagination" :row-selection="{ type: 'checkbox', showCheckedAll: true }" :selected-keys="selectedIds" @selection-change="onSelectionChange" @page-change="handlePageChange" row-key="id">
             <template #columns>
               <a-table-column title="编号" data-index="issue_no" :width="130" />
               <a-table-column title="标题" data-index="title" :width="250" ellipsis />
@@ -74,6 +109,24 @@
               <a-table-column title="状态" data-index="status" :width="90">
                 <template #cell="{ record }">
                   <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
+                </template>
+              </a-table-column>
+              <!-- 内部处理进度：与上面的「状态」不是一回事，那个是生产复现状态 -->
+              <a-table-column title="处理进度" data-index="process_status" :width="90">
+                <template #cell="{ record }">
+                  <a-tooltip v-if="record.process_status" :content="`处理人：${record.process_owner || '-'}${record.process_prev_status ? ` ← ${processLabel(record.process_prev_status)}` : ''}`" mini>
+                    <a-tag :color="processColor(record.process_status)" size="small">{{ processLabel(record.process_status) }}</a-tag>
+                  </a-tooltip>
+                  <span v-else class="dmp-empty">未认领</span>
+                </template>
+              </a-table-column>
+              <a-table-column title="处理人" data-index="process_owner" :width="85" ellipsis tooltip />
+              <a-table-column title="DMP 编码" data-index="dmp_defect_code" :width="130" ellipsis>
+                <template #cell="{ record }">
+                  <a-typography-text v-if="record.dmp_defect_code" copyable :copy-text="record.dmp_defect_code">
+                    {{ record.dmp_defect_code }}
+                  </a-typography-text>
+                  <span v-else class="dmp-empty">未关联</span>
                 </template>
               </a-table-column>
               <a-table-column title="来源" data-index="source" :width="80">
@@ -265,6 +318,27 @@
       </a-form>
     </a-modal>
   </div>
+
+    <!-- 认领：必须有处理人 —— 认领的全部意义就是把责任落到人头上 -->
+    <a-modal v-model:visible="claimVisible" :title="`认领缺陷（${selectedIds.length} 条）`" :ok-loading="claimLoading" @ok="submitClaim">
+      <a-form :model="{ claimOwner }" layout="vertical">
+        <a-form-item label="处理人" required>
+          <a-input v-model="claimOwner" placeholder="默认为当前登录人" allow-clear />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <!-- DMP 编码：留空提交即清除关联 -->
+    <a-modal v-model:visible="dmpVisible" :title="`设置 DMP 缺陷编码（${selectedIds.length} 条）`" :ok-loading="dmpLoading" @ok="submitDmp">
+      <a-form :model="{ dmpCode }" layout="vertical">
+        <a-form-item label="DMP 缺陷编码">
+          <a-input v-model="dmpCode" placeholder="如 DMP-2026-0001，留空则清除关联" allow-clear />
+        </a-form-item>
+        <a-alert v-if="!dmpCode.trim()" type="warning">
+          留空提交会清除所选 {{ selectedIds.length }} 条缺陷的 DMP 编码
+        </a-alert>
+      </a-form>
+    </a-modal>
 </template>
 
 <script setup lang="ts">
@@ -277,6 +351,7 @@ import 'md-editor-v3/lib/style.css'
 import { ApiPerfIssue, ApiPerfPatternLedger } from '@/api/perfApis'
 import { useDelete, useDownload, useGet, usePost, usePut } from '@/hooks'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
+import { useUserStore } from '@/stores'
 
 defineOptions({ name: 'issue-list' })
 
@@ -299,10 +374,16 @@ const searchForm = reactive({
   product_domain: '',
   app_number: '',
   form_id: '',
+  // DMP 缺陷编码过滤，模糊匹配；__none__ 筛未提单的
+  dmp_defect_code: '',
+  // 内部处理状态过滤；__none__ 筛未进入流程的
+  process_status: '',
 })
 const scopeCountFilters = computed(() => ({
   keyword: searchForm.keyword,
   status: searchForm.status,
+  dmp_defect_code: searchForm.dmp_defect_code,
+  process_status: searchForm.process_status,
   severity: searchForm.severity,
   category: searchForm.category,
   source: searchForm.source,
@@ -334,6 +415,121 @@ const getNextStatuses = (current: string) => {
     fixed: ['verified', 'fixing'], verified: ['closed'], wontfix: ['pending'],
   }
   return transitions[current] || []
+}
+
+// ===== 内部处理流程 =====
+//
+// 与「状态」列是两码事：那个是**生产复现状态**（对外口径：生产上还复现不复现），
+// 这个是内部处理进度。两者会同时存在 —— 比如已发版但生产仍复现。
+const PROCESS_FLOW = [
+  { value: 'claimed', label: '已认领', color: 'blue' },
+  { value: 'fixing', label: '修复中', color: 'orange' },
+  { value: 'fixed', label: '已修复', color: 'cyan' },
+  { value: 'released', label: '已发版', color: 'green' },
+] as const
+
+function processLabel(v?: string | null) {
+  return PROCESS_FLOW.find(x => x.value === v)?.label ?? ''
+}
+function processColor(v?: string | null) {
+  return PROCESS_FLOW.find(x => x.value === v)?.color ?? 'gray'
+}
+
+const selectedIds = ref<string[]>([])
+function onSelectionChange(keys: (string | number)[]) {
+  selectedIds.value = keys.map(String)
+}
+
+// 认领：必须有处理人，认领的全部意义就是把责任落到人头上
+const claimVisible = ref(false)
+const claimOwner = ref('')
+const claimLoading = ref(false)
+const userStore = useUserStore()
+
+function openClaim() {
+  if (!selectedIds.value.length)
+    return
+  // 默认填当前登录人 —— 绝大多数情况是「我认领」
+  claimOwner.value = userStore.user?.nickname || userStore.user?.name || ''
+  claimVisible.value = true
+}
+
+async function submitClaim() {
+  if (!claimOwner.value.trim()) {
+    Message.warning('请填写处理人')
+    return
+  }
+  claimLoading.value = true
+  try {
+    await transition('claimed', claimOwner.value.trim())
+    claimVisible.value = false
+  }
+  finally {
+    claimLoading.value = false
+  }
+}
+
+const transitionLoading = ref(false)
+
+/** 内部状态流转。不校验先后顺序 —— 实际会有「直接标已修复」「退回修复中」。 */
+async function transition(target: string, owner?: string) {
+  if (!selectedIds.value.length)
+    return
+  transitionLoading.value = true
+  try {
+    const { data, execute } = usePost<{ updated: number, message: string }>(
+      ApiPerfIssue.processTransition,
+      { ids: selectedIds.value, process_status: target, process_owner: owner },
+      { immediate: false },
+    )
+    await execute()
+    Message.success(data.value?.message || '已更新')
+    selectedIds.value = []
+    await fetchData()
+  }
+  finally {
+    transitionLoading.value = false
+  }
+}
+
+// ===== DMP 缺陷编码：批量回填 =====
+// 一批缺陷常对应同一个 DMP 单，所以是「勾选后填一个」而非逐行编辑。
+const dmpVisible = ref(false)
+const dmpCode = ref('')
+const dmpLoading = ref(false)
+
+function openDmp() {
+  if (!selectedIds.value.length)
+    return
+  const codes = new Set(tableData.value.filter((r: any) => selectedIds.value.includes(r.id)).map((r: any) => r.dmp_defect_code || ''))
+  // 全都一样时预填，方便在原值上改；不一致就留空，避免误覆盖
+  dmpCode.value = codes.size === 1 ? String([...codes][0]) : ''
+  dmpVisible.value = true
+}
+
+async function submitDmp() {
+  dmpLoading.value = true
+  try {
+    const { data, execute } = usePost<{ updated: number, message: string }>(
+      ApiPerfIssue.dmpCode,
+      { ids: selectedIds.value, dmp_defect_code: dmpCode.value.trim() },
+      { immediate: false },
+    )
+    await execute()
+    Message.success(data.value?.message || '已更新')
+    dmpVisible.value = false
+    selectedIds.value = []
+    await fetchData()
+  }
+  finally {
+    dmpLoading.value = false
+  }
+}
+
+/** 「未关联 DMP」快捷筛选，再点取消 */
+function toggleDmpUnlinked() {
+  searchForm.dmp_defect_code = searchForm.dmp_defect_code === '__none__' ? '' : '__none__'
+  handleSearch()
 }
 
 const queryParams = computed(() => ({ ...searchForm, page_num: pageNum.value, page_size: pageSize.value }))
@@ -513,4 +709,14 @@ const handleDelete = async (record: any) => {
 .scope-content { flex: 1; min-width: 0; }
 .markdown-content { white-space: pre-wrap; background: var(--color-fill-1); padding: 12px; border-radius: 4px; }
 .json-content { margin: 0; max-height: 360px; overflow: auto; white-space: pre-wrap; word-break: break-all; background: var(--color-fill-1); padding: 12px; border-radius: 4px; }
+
+.dmp-empty {
+  color: var(--color-text-4);
+  font-size: 12px;
+}
+
+.sel-hint {
+  color: var(--color-text-3);
+  font-size: 12px;
+}
 </style>

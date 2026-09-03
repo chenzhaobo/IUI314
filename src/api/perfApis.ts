@@ -314,6 +314,8 @@ export enum ApiPerfIssue {
   add = '/perf/issue/add',
   edit = '/perf/issue/edit',
   changeStatus = '/perf/issue/change_status',
+  dmpCode = '/perf/issue/dmp-code',
+  processTransition = '/perf/issue/process-transition',
   delete = '/perf/issue/delete',
   stats = '/perf/issue/stats',
   export = '/perf/issue/export',

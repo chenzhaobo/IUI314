@@ -52,10 +52,18 @@ const queryParams = ref({
   wont_fix_reason_code: '',
   // 风险等级过滤，逗号分隔多选（如 high,medium），由 riskLevels 同步而来
   risk_level: '',
+  // DMP 缺陷编码过滤，模糊匹配；填 __none__ 可筛出还没提单的
+  dmp_defect_code: '',
 })
 
 // Arco 的 multiple 要求数组，后端接受逗号分隔字符串，这里做转换
 const riskLevels = ref<string[]>([])
+/** 「未关联」快捷筛选：再点一次取消，回到全部 */
+function toggleDmpUnlinked() {
+  queryParams.value.dmp_defect_code = queryParams.value.dmp_defect_code === '__none__' ? '' : '__none__'
+  refresh()
+}
+
 function onRiskLevelChange() {
   queryParams.value.risk_level = riskLevels.value.join(',')
   queryParams.value.page_num = 1
@@ -329,6 +337,42 @@ async function submitFixed() {
   }
 }
 
+// ===== DMP 缺陷编码：批量回填 =====
+// 一批缺陷常对应同一个 DMP 单，所以做成「勾选后填一个编码」而不是逐行编辑。
+const dmpVisible = ref(false)
+const dmpTargets = ref<ScanIssueRow[]>([])
+const dmpCode = ref('')
+const dmpLoading = ref(false)
+
+function openDmpModal() {
+  if (!selectedIds.value.length)
+    return
+  dmpTargets.value = [...selectedRows.value]
+  // 已有编码且全都一样时预填，方便在原值上改；不一致就留空，避免误覆盖
+  const codes = new Set(dmpTargets.value.map(r => r.dmp_defect_code || ''))
+  dmpCode.value = codes.size === 1 ? [...codes][0] : ''
+  dmpVisible.value = true
+}
+
+async function submitDmpCode() {
+  dmpLoading.value = true
+  try {
+    const res = await postAction(ApiSecPrescan.issueDmpCode, {
+      ids: dmpTargets.value.map(r => r.id),
+      dmp_defect_code: dmpCode.value.trim(),
+    })
+    if (res !== null) {
+      Message.success(dmpCode.value.trim() ? `已设置 DMP 编码（${dmpTargets.value.length} 条）` : `已清除 DMP 编码（${dmpTargets.value.length} 条）`)
+      dmpVisible.value = false
+      clearSelection()
+      void getList()
+    }
+  }
+  finally {
+    dmpLoading.value = false
+  }
+}
+
 // ===== 补偿匹配白名单 =====
 const whitelistBusy = ref(false)
 
@@ -564,6 +608,7 @@ const columns = computed(() => [
   { title: '文件', dataIndex: 'file_path', width: 180, ellipsis: true, tooltip: true },
   { title: '命中', dataIndex: 'hit_count', width: 50 },
   { title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 140 },
+  { title: 'DMP 编码', dataIndex: 'dmp_defect_code', slotName: 'dmpCode', width: 130, ellipsis: true, tooltip: true },
   { title: '更新时间', dataIndex: 'updated_at', width: 115 },
   // 不处理原因列：宽度 130，支持后端过滤，选项来自字典
   // filter 走后端（@filter-change → queryParams.wont_fix_reason_code），本地 filter 函数
@@ -648,6 +693,26 @@ function shortSha(sha: string | null | undefined): string {
             <a-option value="medium">中</a-option>
             <a-option value="low">低</a-option>
           </a-select>
+          <!-- DMP 编码过滤：模糊匹配（只记得单号一段也能找到）；
+               「未关联」是催办场景的主要用法 —— 找出确认了但还没提单的 -->
+          <a-input-group>
+            <a-input
+              v-model="queryParams.dmp_defect_code"
+              placeholder="DMP 编码"
+              allow-clear
+              style="width: 150px"
+              @press-enter="refresh"
+              @clear="refresh"
+            />
+            <a-tooltip content="只看还没关联 DMP 单的缺陷" mini>
+              <a-button
+                :type="queryParams.dmp_defect_code === '__none__' ? 'primary' : 'outline'"
+                @click="toggleDmpUnlinked"
+              >
+                未关联
+              </a-button>
+            </a-tooltip>
+          </a-input-group>
         <a-button @click="refresh">
           刷新
         </a-button>
@@ -720,6 +785,11 @@ function shortSha(sha: string | null | undefined): string {
           <a-button :disabled="!selectedIds.length" :loading="batchVerifyLoading" @click="batchVerify">
             重新验证
           </a-button>
+          <a-tooltip content="把所选缺陷关联到 DMP 单号，可批量填同一个" mini>
+            <a-button :disabled="!selectedIds.length" @click="openDmpModal">
+              DMP 编码
+            </a-button>
+          </a-tooltip>
           <span v-if="selectedIds.length" class="selected-hint">已选 {{ selectedIds.length }} 条</span>
         </a-space>
       </a-row>
@@ -747,6 +817,12 @@ function shortSha(sha: string | null | undefined): string {
           <a-tag :color="domainLabels[record.domain]?.color ?? 'gray'" size="small">
             {{ domainLabels[record.domain]?.label ?? record.domain }}
           </a-tag>
+        </template>
+        <template #dmpCode="{ record }">
+          <a-typography-text v-if="record.dmp_defect_code" copyable :copy-text="record.dmp_defect_code">
+            {{ record.dmp_defect_code }}
+          </a-typography-text>
+          <span v-else class="dmp-empty">未关联</span>
         </template>
         <template #risk="{ record }">
           <a-tag v-if="record.risk_level" :color="riskLabels[record.risk_level]?.color ?? 'gray'" size="small">
@@ -797,6 +873,23 @@ function shortSha(sha: string | null | undefined): string {
     </div>
 
     <!-- 标记已修复弹窗（批量）-->
+    <!-- DMP 缺陷编码：留空提交即清除关联 -->
+    <a-modal
+      v-model:visible="dmpVisible"
+      :title="`设置 DMP 缺陷编码（${dmpTargets.length} 条）`"
+      :ok-loading="dmpLoading"
+      @ok="submitDmpCode"
+    >
+      <a-form :model="{ dmpCode }" layout="vertical">
+        <a-form-item label="DMP 缺陷编码">
+          <a-input v-model="dmpCode" placeholder="如 DMP-2026-0001，留空则清除关联" allow-clear />
+        </a-form-item>
+        <a-alert v-if="!dmpCode.trim()" type="warning">
+          留空提交会清除所选 {{ dmpTargets.length }} 条缺陷的 DMP 编码
+        </a-alert>
+      </a-form>
+    </a-modal>
+
     <a-modal v-model:visible="fixedVisible" :title="`标记已修复（${fixedTargets.length} 条）`" :ok-loading="fixedLoading" @ok="submitFixed" @cancel="fixedVisible = false">
       <a-form layout="vertical" :model="layoutOnlyModel">
         <a-alert type="info" class="m-b-12px">
@@ -952,5 +1045,10 @@ function shortSha(sha: string | null | undefined): string {
   display: flex;
   justify-content: flex-end;
   margin-bottom: 8px;
+}
+
+.dmp-empty {
+  color: var(--color-text-4);
+  font-size: 12px;
 }
 </style>
