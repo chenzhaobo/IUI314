@@ -25,7 +25,8 @@
         无符合推荐条件的数据
       </a-alert>
 
-      <a-table v-if="recommendList.length > 0" :data="recommendList" :loading="loading" :pagination="{ pageSize: 20 }" row-key="id">
+      <div v-if="recommendList.length > 0" ref="tableWrap">
+      <a-table :data="recommendList" :loading="loading" :pagination="{ pageSize: 20 }" row-key="id" :scroll="{ y: tableHeight }">
         <template #columns>
           <a-table-column title="应用" data-index="app_name" :width="120" />
           <a-table-column title="表单" data-index="form_name" :width="150" />
@@ -54,6 +55,7 @@
           </a-table-column>
         </template>
       </a-table>
+      </div>
     </a-card>
   </div>
 </template>
@@ -62,9 +64,13 @@
 import { ref, computed } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { ApiPerfScenario } from '@/api/perfApis'
-import { usePost, usePut } from '@/hooks'
+import { usePost, usePut, useTableAutoHeight } from '@/hooks'
 
 defineOptions({ name: 'scenario-recommend' })
+
+// 表格高度自适应（滚动条在表格内，表头固定）
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 
 const productLine = ref('星瀚')
 const complianceThreshold = ref(95)

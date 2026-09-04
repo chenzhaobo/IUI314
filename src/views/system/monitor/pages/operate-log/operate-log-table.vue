@@ -4,7 +4,7 @@ import { type PropType, computed, h, ref } from 'vue'
 import OperateLogDetail from './operate-log-detail.vue'
 import { ApiSysOperateLog } from '@/api/sysApis'
 import DictTag from '@/components/common/dict-tag.vue'
-import { hasPermission, parseTime } from '@/hooks'
+import { hasPermission, parseTime, useTableAutoHeight } from '@/hooks'
 import { dictKey, type dictUse } from '@/types/system/dict'
 import type { operateLog } from '@/types/system/operate-log'
 
@@ -35,6 +35,9 @@ const rowSelection = ref<TableRowSelection>({
   showCheckedAll: true,
   onlyCurrent: false,
 })
+
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 
 // 表格列属性
 const columns = computed<TableColumnData[]>(() => [
@@ -133,14 +136,14 @@ function handleView(row: operateLog) {
       <a-skeleton-line :rows="10" />
     </a-space>
   </a-skeleton>
-<a-table
+  <div v-else ref="tableWrap">
+    <a-table
   column-resizable
-    v-else
     :columns="columns"
     :data="tableData || []"
     :row-selection="rowSelection"
     row-key="oper_id"
-    :scroll="{ minWidth: 800 }"
+    :scroll="{ minWidth: 800, y: tableHeight }"
     :pagination="false"
     @selection-change="handleSelectionChange"
   >
@@ -159,6 +162,7 @@ function handleView(row: operateLog) {
       </a-button>
     </template>
   </a-table>
+  </div>
   <OperateLogDetail
     ref="modalRef"
     :dicts="dicts"

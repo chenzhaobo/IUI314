@@ -3,7 +3,7 @@ import { type PropType, computed, h, ref } from 'vue'
 import { Message, Modal, Switch, type TableColumnData, type TableRowSelection } from '@arco-design/web-vue'
 import DictTag from '@/components/common/dict-tag.vue'
 import { dictKey, type dictUse } from '@/types/system/dict'
-import { hasPermission, parseTime, usePut } from '@/hooks'
+import { hasPermission, parseTime, usePut, useTableAutoHeight } from '@/hooks'
 import { ApiSysScheduledTasks, ApiSysScheduledTasksLog } from '@/api/sysApis'
 import type { scheduledTasks } from '@/types/system/scheduled-tasks'
 import { ErrorFlag } from '@/api/apis'
@@ -36,6 +36,9 @@ const rowSelection = ref<TableRowSelection>({
   showCheckedAll: true,
   onlyCurrent: false,
 })
+
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 
 // 表格列属性
 const columns = computed<TableColumnData[]>(() => [
@@ -212,14 +215,14 @@ function go_to_log(row?: scheduledTasks) {
       <a-skeleton-line :rows="10" />
     </a-space>
   </a-skeleton>
-<a-table
+  <div v-else ref="tableWrap">
+    <a-table
   column-resizable
-    v-else
     :columns="columns"
     :data="tableData || []"
     :row-selection="rowSelection"
     row-key="job_id"
-    :scroll="{ minWidth: 800 }"
+    :scroll="{ minWidth: 800, y: tableHeight }"
     :pagination="false"
     @selection-change="handleSelectionChange"
   >
@@ -302,4 +305,5 @@ function go_to_log(row?: scheduledTasks) {
       </a-tooltip>
     </template>
   </a-table>
+  </div>
 </template>

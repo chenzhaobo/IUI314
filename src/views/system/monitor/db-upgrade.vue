@@ -2,7 +2,7 @@
 import { Message, Modal } from '@arco-design/web-vue'
 import { computed, ref } from 'vue'
 import { ApiSysMigration } from '@/api/apis'
-import { formatTime, useDelete, useGet, usePost } from '@/hooks'
+import { formatTime, useDelete, useGet, usePost, useTableAutoHeight } from '@/hooks'
 
 defineOptions({ name: 'DbUpgrade' })
 
@@ -104,6 +104,10 @@ const columns = [
   { title: '机器', dataIndex: 'host', width: 110, ellipsis: true },
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 150, fixed: 'right' as const },
 ]
+
+// 表格高度自适应：滚动条出现在表格内、表头固定
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 </script>
 
 <template>
@@ -144,6 +148,7 @@ const columns = [
         </template>
       </a-alert>
 
+      <div ref="tableWrap">
       <a-table
         :loading="isFetching"
         :columns="columns"
@@ -151,7 +156,7 @@ const columns = [
         row-key="migration"
         size="small"
         :pagination="{ pageSize: 20, showTotal: true, showPageSize: true }"
-        :scroll="{ x: 1300 }"
+        :scroll="{ x: 1300, y: tableHeight }"
         :expandable="logAvailable ? { width: 40 } : undefined"
         :row-class="(record: any) => (!record.applied || (record.stmt_failed || 0) > 0 ? 'db-upg-bad' : '')"
         @expand="(rowKey: string | number) => onExpand(rowKey)"
@@ -231,6 +236,7 @@ const columns = [
           </a-spin>
         </template>
       </a-table>
+      </div>
     </a-card>
   </div>
 </template>

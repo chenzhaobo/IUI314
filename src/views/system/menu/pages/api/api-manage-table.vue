@@ -3,7 +3,7 @@ import { type PropType, computed, h, ref } from 'vue'
 import { type TableColumnData, type TableRowSelection, Tag } from '@arco-design/web-vue'
 import DictTag from '@/components/common/dict-tag.vue'
 import { dictKey, type dictUse } from '@/types/system/dict'
-import { hasPermission, parseTime } from '@/hooks'
+import { hasPermission, parseTime, useTableAutoHeight } from '@/hooks'
 import { ApiSysMenu } from '@/api/sysApis'
 import type { menu } from '@/types/system/menu'
 
@@ -134,6 +134,10 @@ const columns = computed<TableColumnData[]>(() => [
 function handleSelectionChange(keys: (string | number)[]) {
   return emits('handleSelectionChangeFn', keys, tableData.value, 'id', 'menu_name')
 }
+
+// 表格高度自适应：滚动条出现在表格内、表头固定
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 </script>
 
 <template>
@@ -142,14 +146,14 @@ function handleSelectionChange(keys: (string | number)[]) {
       <a-skeleton-line :rows="10" />
     </a-space>
   </a-skeleton>
+  <div ref="tableWrap" v-else>
 <a-table
   column-resizable
-    v-else
     :columns="columns"
     :data="tableData || []"
     :row-selection="rowSelection"
     row-key="id"
-    :scroll="{ minWidth: 800 }"
+    :scroll="{ minWidth: 800, y: tableHeight }"
     :pagination="false"
     @selection-change="handleSelectionChange"
   >
@@ -197,4 +201,5 @@ function handleSelectionChange(keys: (string | number)[]) {
       </a-space>
     </template>
   </a-table>
+  </div>
 </template>

@@ -1,8 +1,8 @@
 <script lang="ts" setup>
 import { Message, Modal, type TableColumnData } from '@arco-design/web-vue'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { ApiSysOnlineUser } from '@/api/sysApis'
-import { hasPermission, parseTime, useDelete } from '@/hooks'
+import { hasPermission, parseTime, useDelete, useTableAutoHeight } from '@/hooks'
 import type { onlineUser } from '@/types/system/online-user'
 
 defineOptions({ name: 'OnlineUserTable' })
@@ -12,6 +12,9 @@ const emits = defineEmits([
 ])
 
 const tableData = defineModel<onlineUser[] | null>('tableData', { required: true })
+
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 
 // 表格列属性
 const columns = computed<TableColumnData[]>(() => [
@@ -125,12 +128,13 @@ function handleForceLogout(row?: onlineUser) {
 </script>
 
 <template>
-<a-table
+  <div ref="tableWrap">
+    <a-table
   column-resizable
     :columns="columns"
     :data="tableData || []"
     row-key="id"
-    :scroll="{ minWidth: 800 }"
+    :scroll="{ minWidth: 800, y: tableHeight }"
     :pagination="false"
   >
     <template #operation="{ record }">
@@ -148,4 +152,5 @@ function handleForceLogout(row?: onlineUser) {
       </a-button>
     </template>
   </a-table>
+  </div>
 </template>

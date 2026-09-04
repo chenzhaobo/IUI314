@@ -5,7 +5,7 @@ import { computed, h, onUnmounted, ref, watch } from 'vue'
 
 import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import type { ColumnFilterState } from '@/hooks'
-import { applyColumnFilters, emptyFilter, isFilterActive, useFilterPersistence } from '@/hooks'
+import { applyColumnFilters, emptyFilter, isFilterActive, useFilterPersistence, useTableAutoHeight } from '@/hooks'
 import { useRouter } from 'vue-router'
 import { ErrorFlag } from '@/api/apis'
 import { ApiAiExecution } from '@/api/aiApis'
@@ -304,21 +304,11 @@ const pageNum = ref(1)
 const pageSize = ref(20)
 
 /**
- * 表格滚动配置。
- *
- * 固定 y 会让表格体永远占满那个高度 —— 数据只有几行时，下方一大片空白仍在
- * 滚动容器内，横向滚动条被推到容器底部、正好压在最后几行数据上。
- * 所以只在行数足够多（超过一屏）时才限高；行数少就让表格自然收缩，
- * 滚动条贴在内容下方，不会遮挡。
- *
- * 阈值 12 行是按 size="small" 的行高（约 40px）与 calc 的可用高度估的。
+ * 表格滚动配置：横向固定宽度，纵向用自适应高度（滚动条落在表格内、表头固定）。
  */
-const crossScroll = computed(() => {
-  const base = { x: 1700 }
-  return pagedCrossRows.value.length > 12
-    ? { ...base, y: 'calc(100vh - 430px)' }
-    : base
-})
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
+const crossScroll = computed(() => ({ x: 1700, y: tableHeight.value }))
 
 // 筛选条件持久化：切到别的页签再回来、或点进详情再返回时，保持上次的筛选。
 // 这个页面没有"带参数跳转进入"的场景（它是入口页），所以不需要 skipRestore。
@@ -830,6 +820,7 @@ const crossColumns = computed(() => [
           </a-button>
         </a-space>
       </template>
+      <div ref="tableWrap">
       <a-table
         v-model:selectedKeys="selectedRunKeys"
         :loading="crossLoading"
@@ -997,6 +988,7 @@ const crossColumns = computed(() => [
           </a-space>
         </template>
       </a-table>
+      </div>
     </a-card>
 
     <!-- 任务队列：静态扫描的 AI 确认/自主审计任务在此排队与执行 -->

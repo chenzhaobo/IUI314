@@ -122,7 +122,8 @@
           </a-row>
 
           <!-- 明细表格 -->
-          <a-table :data="tableData" :loading="tableLoading" :pagination="false" size="small" row-key="code" :scroll="{ y: 'calc(100vh - 380px)' }" style="flex: 1; min-height: 0">
+          <div ref="tableWrap" style="flex: 1; min-height: 0">
+          <a-table :data="tableData" :loading="tableLoading" :pagination="false" size="small" row-key="code" :scroll="{ y: tableHeight }" style="flex: 1; min-height: 0">
             <template #columns>
               <a-table-column title="名称" data-index="name" :width="180" ellipsis />
               <a-table-column title="3秒达标率" :width="90">
@@ -176,6 +177,7 @@
               </a-table-column>
             </template>
           </a-table>
+          </div>
         </div>
       </div>
     </a-card>
@@ -187,11 +189,15 @@ import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { ApiPerfCompliance } from '@/api/perfApis'
-import { useGet, useDownload } from '@/hooks'
+import { useGet, useDownload, useTableAutoHeight } from '@/hooks'
 
 defineOptions({ name: 'compliance-dashboard' })
 
 const router = useRouter()
+
+// 表格高度自适应（滚动条在表格内，表头固定）
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 
 // ── 产品线选择（星瀚/星空，默认星瀚） ──────────────────────────────────
 const productLine = ref('星瀚')
