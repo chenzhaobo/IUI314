@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import type { ModuleWithRepository, MutationReceipt, RepositoryEditRequest, RepositorySyncResponse } from '@/types/static-scan'
 import type { ColumnFilterState } from '@/hooks'
+import type { ModuleWithRepository, MutationReceipt, RepositoryEditRequest, RepositorySyncResponse } from '@/types/static-scan'
 import { Message } from '@arco-design/web-vue'
 import { useDebounceFn } from '@vueuse/core'
 import { computed, reactive, ref, watch } from 'vue'
 import { ApiPerfModule } from '@/api/perfApis'
 import { ApiSecModuleRepository } from '@/api/sechubApis'
+import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import {
   applyColumnFilters,
   emptyFilter,
@@ -15,8 +16,9 @@ import {
   putAction,
   useFilterPersistence,
   useGet,
+  useTableAutoHeight,
+  withTableDefaults,
 } from '@/hooks'
-import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 
 defineOptions({ name: 'StaticScanRepositories' })
 
@@ -283,6 +285,11 @@ async function submitEdit() {
 //     Git URL 这类自由文本，候选无穷、枚举不适用，所以用自家的 ColumnFilterPanel
 //     （运算符面板：包含/不包含/等于/不等于），见 @/hooks/util/useColumnFilter
 //   · a-table 的 :pagination 传对象而不是 false → 分页 + 每页条数下拉
+// 分页状态（声明在列过滤之前：onColumnFilterChange 要复位页码）
+const pageNum = ref(1)
+const pageSize = ref(20)
+const PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 200]
+
 const FILTERABLE_COLUMNS = [
   'module_name',
   'module_code',
@@ -299,8 +306,8 @@ const columnFilters = ref<Record<string, ColumnFilterState>>(
 )
 
 function onColumnFilterChange() {
+  // 条件变了要回第一页；持久化由 useFilterPersistence 的 deep watch 自动完成
   pageNum.value = 1
-  saveTableState()
 }
 
 /** 生成列的 filterable 配置；带激活态高亮，否则用户看不出哪列在过滤 */
@@ -318,18 +325,18 @@ function filterableOf(key: string) {
   }
 }
 
-const columns = computed(() => [
-  { title: '模块名称', dataIndex: 'module_name', width: 160, ellipsis: true, tooltip: true, filterable: filterableOf('module_name') },
+const columns = computed(() => withTableDefaults([
+  { title: '模块名称', dataIndex: 'module_name', width: 160, filterable: filterableOf('module_name') },
   { title: '模块简码', dataIndex: 'module_code', width: 120, filterable: filterableOf('module_code') },
-  { title: '仓库名称', dataIndex: 'repository_name', width: 160, ellipsis: true, tooltip: true, filterable: filterableOf('repository_name') },
+  { title: '仓库名称', dataIndex: 'repository_name', width: 160, filterable: filterableOf('repository_name') },
   { title: '仓库编码', dataIndex: 'repository_code', width: 120, filterable: filterableOf('repository_code') },
-  { title: 'Git URL', dataIndex: 'git_url', width: 280, ellipsis: true, tooltip: true, filterable: filterableOf('git_url') },
+  { title: 'Git URL', dataIndex: 'git_url', width: 280, filterable: filterableOf('git_url') },
   { title: '默认分支', dataIndex: 'default_branch', width: 100, filterable: filterableOf('default_branch') },
-  { title: '根路径', dataIndex: 'root_path', width: 120, ellipsis: true, tooltip: true, filterable: filterableOf('root_path') },
+  { title: '根路径', dataIndex: 'root_path', width: 120, filterable: filterableOf('root_path') },
   { title: '扫描启用', dataIndex: 'scan_enabled', slotName: 'scanEnabled', width: 90 },
   { title: '状态', dataIndex: 'status', slotName: 'status', width: 100 },
   { title: '操作', slotName: 'operations', width: 340, fixed: 'right' as const },
-])
+]))
 
 // ===== 过滤条件 =====
 const keyword = ref('')
@@ -366,9 +373,6 @@ const filteredRows = computed(() => {
 // （本机测试库 186 条，生产 182 条），后端没有分页参数。为它加分页要动接口契约，
 // 而这个量级前端切片毫无压力；真正的痛点是"一屏 180 行滚不到底"，切片就解决了。
 // 数据量再涨一个数量级时再推后端分页。
-const pageNum = ref(1)
-const pageSize = ref(20)
-const PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 200]
 
 const pagedRows = computed(() => {
   const start = (pageNum.value - 1) * pageSize.value
@@ -386,7 +390,6 @@ watch(filteredRows, (list) => {
 function onPageSizeChange(size: number) {
   pageSize.value = size
   pageNum.value = 1
-  saveTableState()
 }
 
 // 关键字/状态变化都要回到第一页，否则同上会看到空表格
@@ -396,12 +399,20 @@ watch([keyword, statusFilter], () => {
 
 // 每页条数与筛选条件按标签页暂存：页内往返（点进详情再回来）不用重新设一遍。
 // 见 @/hooks/util/useFilterPersistence 里关于 keep-alive key 带 query 的说明。
-const { save: saveTableState } = useFilterPersistence('sechub-repositories', {
+useFilterPersistence('sechub-repositories', {
   keyword,
   statusFilter,
   pageSize,
   columnFilters,
 })
+
+// ===== 表格高度自适应（滚动条出现在表格内，表头固定）=====
+//
+// 原来只给了 `:scroll.x`，没有 y —— 数据一多就得拖整个页面的滚动条，
+// 表头跟着滚出视口，看到第 30 行时已经不知道哪列是哪列。
+// 固定写 y: 400 在大屏上又白浪费半屏，所以按视口实时算。
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 
 // ===== 详情抽屉 =====
 const detailVisible = ref(false)
@@ -540,80 +551,82 @@ async function syncRepo(record: ModuleWithRepository) {
       </a-space>
     </a-card>
 
-    <a-card :bordered="false">
-      <a-table
-        :data="pagedRows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="{
-          current: pageNum,
-          pageSize,
-          total: filteredRows.length,
-          showTotal: true,
-          showPageSize: true,
-          pageSizeOptions: PAGE_SIZE_OPTIONS,
-        }"
-        column-resizable
-        row-key="relation_id"
-        :scroll="{ x: 1400 }"
-        @page-change="(p: number) => (pageNum = p)"
-        @page-size-change="onPageSizeChange"
-      >
-        <!-- 列头筛选面板：Arco 自带的 filters 是枚举多选，这里要过滤自由文本，
-             所以用共享的运算符面板（包含/不包含/等于/不等于） -->
-        <template v-for="key in FILTERABLE_COLUMNS" #[`filter-${key}`] :key="key">
-          <ColumnFilterPanel v-model="columnFilters[key]" @change="onColumnFilterChange" />
-        </template>
+    <div ref="tableWrap">
+      <a-card :bordered="false">
+        <a-table
+          :data="pagedRows"
+          :columns="columns"
+          :loading="loading"
+          :pagination="{
+            current: pageNum,
+            pageSize,
+            total: filteredRows.length,
+            showTotal: true,
+            showPageSize: true,
+            pageSizeOptions: PAGE_SIZE_OPTIONS,
+          }"
+          column-resizable
+          row-key="relation_id"
+          :scroll="{ x: 1400, y: tableHeight }"
+          @page-change="(p: number) => (pageNum = p)"
+          @page-size-change="onPageSizeChange"
+        >
+          <!-- 列头筛选面板：Arco 自带的 filters 是枚举多选，这里要过滤自由文本，
+               所以用共享的运算符面板（包含/不包含/等于/不等于） -->
+          <template v-for="key in FILTERABLE_COLUMNS" #[`filter-${key}`] :key="key">
+            <ColumnFilterPanel v-model="columnFilters[key]" @change="onColumnFilterChange" />
+          </template>
 
-        <template #scanEnabled="{ record }">
-          <a-tag :color="record.scan_enabled ? 'green' : 'gray'" size="small">
-            {{ record.scan_enabled ? '启用' : '禁用' }}
-          </a-tag>
-        </template>
+          <template #scanEnabled="{ record }">
+            <a-tag :color="record.scan_enabled ? 'green' : 'gray'" size="small">
+              {{ record.scan_enabled ? '启用' : '禁用' }}
+            </a-tag>
+          </template>
 
-        <template #status="{ record }">
-          <a-tag :color="statusInfo(record.status).color" size="small">
-            {{ statusInfo(record.status).label }}
-          </a-tag>
-        </template>
+          <template #status="{ record }">
+            <a-tag :color="statusInfo(record.status).color" size="small">
+              {{ statusInfo(record.status).label }}
+            </a-tag>
+          </template>
 
-        <template #operations="{ record }">
-          <a-space>
-            <a-button type="text" size="small" @click="openDetail(record)">
-              详情
-            </a-button>
-            <a-button type="text" size="small" @click="openEditDialog(record)">
-              编辑
-            </a-button>
-            <a-button
-              type="text"
-              size="small"
-              :loading="validatingId === record.relation_id"
-              @click="validateRepo(record)"
-            >
-              验证
-            </a-button>
-            <a-button
-              type="text"
-              size="small"
-              :loading="snapshottingId === record.relation_id"
-              @click="triggerSnapshot(record)"
-            >
-              快照
-            </a-button>
-            <!-- 克隆/拉取：调 sync 接口，单行 loading，成功展示动作/分支数/head_sha/耗时 -->
-            <a-button
-              type="text"
-              size="small"
-              :loading="syncingId === record.relation_id"
-              @click="syncRepo(record)"
-            >
-              克隆/拉取
-            </a-button>
-          </a-space>
-        </template>
-      </a-table>
-    </a-card>
+          <template #operations="{ record }">
+            <a-space>
+              <a-button type="text" size="small" @click="openDetail(record)">
+                详情
+              </a-button>
+              <a-button type="text" size="small" @click="openEditDialog(record)">
+                编辑
+              </a-button>
+              <a-button
+                type="text"
+                size="small"
+                :loading="validatingId === record.relation_id"
+                @click="validateRepo(record)"
+              >
+                验证
+              </a-button>
+              <a-button
+                type="text"
+                size="small"
+                :loading="snapshottingId === record.relation_id"
+                @click="triggerSnapshot(record)"
+              >
+                快照
+              </a-button>
+              <!-- 克隆/拉取：调 sync 接口，单行 loading，成功展示动作/分支数/head_sha/耗时 -->
+              <a-button
+                type="text"
+                size="small"
+                :loading="syncingId === record.relation_id"
+                @click="syncRepo(record)"
+              >
+                克隆/拉取
+              </a-button>
+            </a-space>
+          </template>
+        </a-table>
+      </a-card>
+    </div>
 
     <!-- 新增代码仓库弹窗 -->
     <a-modal

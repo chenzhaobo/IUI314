@@ -39,6 +39,37 @@ body {
         }
     }
 
+    // ── 表格行高统一：单元格一律不换行 ─────────────────────────────
+    //
+    // 痛点：长内容（Git URL、文件路径、AI 理由、备注）默认会折行，于是同一张表里
+    // 有的行 1 行高、有的 5 行高，视觉上参差不齐，扫读时很难对齐同一列。
+    //
+    // 为什么用全局 CSS 而不是逐列加 `ellipsis: true`：
+    // 全站 77 个表格、716 个列声明，其中只有 252 个（35%）设了 ellipsis ——
+    // 逐列补是 460 处改动，而且下一个新页面照旧会忘。行高统一属于视觉规范，
+    // 本来就该在样式层一次定死。
+    //
+    // 注意：CSS 只能做到"截断成一行"，**做不到 hover 出提示** ——
+    // 那需要 Arco 的 `tooltip: true`（列级）。所以配套提供了
+    // `withTableDefaults()`（见 @/hooks/util/useTableUtil）给列批量补
+    // ellipsis + tooltip；页面接上它之后就能 hover 查看完整内容，
+    // 没接上的页面至少行高是齐的、且可以拖宽列来看全。
+    .arco-table-td {
+        .arco-table-cell {
+            white-space: nowrap;
+        }
+        // 纯文本单元格才截断。带插槽的单元格（标签、按钮组、进度条）里的元素
+        // 有自己的布局，截断会把按钮切掉，所以只作用于文本节点容器。
+        .arco-table-cell-text {
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+    }
+    // 表头同样不换行，否则窄列的标题会把表头撑成两行、与数据行错位
+    .arco-table-th .arco-table-th-title {
+        white-space: nowrap;
+    }
+
     //调整modal-simple
     .arco-modal-simple{
         width: 300px !important;
