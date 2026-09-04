@@ -21,11 +21,33 @@ import { useUserStore } from '@/stores'
 const baseUrl = import.meta.env.VITE_API_BASE_URL
 const RequestTimeout = 1000 * 60 * 10
 
+/**
+ * 业务错误（HTTP 200 但响应体 `code` 非 200）。
+ *
+ * `afterFetch` 抛出它，让 vueuse 的 `.catch` 接手 —— 这是**唯一**能把 `error.value`
+ * 置上的途径，见下方 `afterFetch` 的注释。
+ */
+export class BizError extends Error {
+  constructor(
+    /** 后端响应体里的 code（401 / 403 / 500 …） */
+    readonly code: number,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'BizError'
+  }
+}
+
 export const useRequest = createFetch({
   baseUrl,
   options: {
     immediate: false,
     timeout: RequestTimeout,
+    // 失败路径也要允许写 data ——vueuse 的 catch 分支里是
+    // `if (options.updateDataOnError) data.value = responseData`，
+    // 不开这个开关，`onFetchError` 返回的 ErrorFlag 哨兵就进不到 data.value，
+    // 依赖哨兵判定的 postAction/isRequestFailed 会全部失效。
+    updateDataOnError: true,
     beforeFetch({ options }) {
       NProgress.start()
       //  添加token
@@ -35,13 +57,58 @@ export const useRequest = createFetch({
       })
       return { options }
     },
+    /**
+     * 业务成功时解包 `data.data`；业务失败时**抛异常**。
+     *
+     * ## 为什么必须抛
+     * `afterFetch` 的签名只允许返回 `{ data, response }`，**没有办法设置 `error`**。
+     * 原实现在这里把 `data` 换成 `ErrorFlag` 哨兵就返回，于是 `error.value` 永远为空，
+     * 而全站 26 个页面共 77 处用 `if (error.value)` 判成败 —— 那段分支永不进入，
+     * 后端明确拒绝时页面照样弹「保存成功」，把拦截器这条真实原因盖掉。
+     * （已逐页改用 postAction/isRequestFailed 哨兵判定，但那只是治标：
+     *  下一个人照旧会写出 `if (error.value)`，而它看起来完全合理。）
+     *
+     * vueuse 的 useFetch 实现（v14.3.0 dist/index.js）是这样的：
+     * ```js
+     * .then(async (fetchResponse) => {
+     *   if (options.afterFetch) ({ data: responseData } = await options.afterFetch({...}))
+     *   data.value = responseData
+     * }).catch(async (fetchError) => {
+     *   let errorData = fetchError.message || fetchError.name
+     *   if (options.onFetchError) ({ error: errorData, data: responseData } = await options.onFetchError({...}))
+     *   error.value = errorData                                    // ← 只有这条路能设 error
+     *   if (options.updateDataOnError) data.value = responseData
+     *   if (throwOnFailed) throw fetchError                        // throwOnFailed 默认 false
+     * })
+     * ```
+     * 所以 `afterFetch` 里 throw 会走进 `.catch` → 调用 `onFetchError` → 设置 `error.value`；
+     * 且 `throwOnFailed` 默认 false，`await execute()` **不会 reject**，
+     * 调用方不需要 try/catch，也不会产生 unhandled rejection。
+     *
+     * 结论：改造后两种判定**同时成立** ——
+     *   · `error.value` 有值（新代码可以放心用）
+     *   · `data.value === ErrorFlag`（既有 postAction/isRequestFailed 继续有效）
+     */
     async afterFetch({ data, response }) {
       const { isExpiredSoon } = useToken()
       const status = data?.code || 200
+
+      // token 快过期时刷新。放在分支之前，保证失败响应也会触发（与改造前一致）。
+      if (isExpiredSoon)
+        useUserStore().freshToken()
+
       if (status === 200) {
-        data = data.data || {}
+        NProgress.done()
+        // 刻意用 `|| {}` 而不是 `?? {}`：全站 26 个页面的 `if (!res) return` 都依赖
+        // 「成功一定拿到真值」这个不变量。若后端某个接口把 data 返回成 `false` / `0`
+        // / `''`，`??` 会让它原样透出，调用点就会把成功当失败。
+        // 代价是这类落地值被抹成 `{}` —— 但目前没有接口靠裸布尔/裸数字传递结果，
+        // 而破坏不变量的后果是静默误判，两者不对等。
+        return { data: data.data || {}, response }
       }
-      else if (status === 401) {
+
+      // ── 以下均为业务失败：先做副作用，再抛出让 error.value 生效 ──
+      if (status === 401) {
         // JWT未授权（token 缺失/失效/过期），跳转登录页
         await log_out()
       }
@@ -49,27 +116,28 @@ export const useRequest = createFetch({
         // 接口无权限：仅提示，不跳转、不登出。
         // 页面里的次要请求（如导航栏拉角色列表）没权限时不应影响整个会话
         no_permission(response?.url)
-        data = ErrorFlag
       }
       else {
         // 400/500/其他错误码：显示后端错误信息
         Message.error(data?.msg || `请求失败 (${status})`)
-        data = ErrorFlag
       }
-      if (isExpiredSoon) {
-        // 最后验证本地token效期,快过期时,刷新token
-        useUserStore().freshToken()
-      }
-      NProgress.done()
-      return { data, response }
+      throw new BizError(status, data?.msg || `请求失败 (${status})`)
     },
     async onFetchError({ data, response, error }) {
-      // 忽略请求被中止的错误（如重复请求时前一个被取消）
-      if (error?.name === 'AbortError') {
-        NProgress.done()
+      // NProgress 必须在这里收尾：afterFetch 抛出后它那侧的 done() 不会执行。
+      NProgress.done()
+
+      // 请求被中止（如重复请求时前一个被取消）不是失败。
+      // 刻意保持 error 为空：中止是我们自己发起的，不该让页面弹错或走失败分支的提示；
+      // data 仍给 ErrorFlag，让 postAction 返回 null，从而不弹「成功」。
+      if (error?.name === 'AbortError')
         return { data: ErrorFlag, error: undefined }
-      }
-      // 网络层错误（无响应）或后端返回非JSON错误体
+
+      // afterFetch 抛出的业务错误：提示已经弹过了，这里只负责把 error 传出去
+      if (error instanceof BizError)
+        return { data: ErrorFlag, error }
+
+      // ── 以下是真正的网络层错误（无响应）或后端返回非 JSON 错误体 ──
       if (response?.status === 401) {
         await log_out()
       }
@@ -86,8 +154,9 @@ export const useRequest = createFetch({
       else {
         Message.error(`请求失败 (${response?.status || '未知错误'})`)
       }
-      NProgress.done()
-      return { data: ErrorFlag, error: undefined }
+      // 网络层错误同样要把 error 传出去（原实现固定 undefined，是 error.value
+      // 永远为空的另一半原因）。data 仍是 ErrorFlag，两种判定都成立。
+      return { data: ErrorFlag, error: error ?? new Error(`请求失败 (${response?.status ?? '未知错误'})`) }
     },
   },
 })
@@ -225,15 +294,23 @@ export function useDelete<T = unknown>(
 /**
  * 判定一次请求是否失败（业务错误 / 网络错误）。
  *
- * ## 为什么不能用 `error.value`
- * `useFetch` 的 `afterFetch` 钩子**只能返回 `{ data, response }`**，没法设置 `error`。
- * 所以拦截器对后端业务错误（code 非 200）的处理是「弹一次 Message + 把 data 换成
- * `ErrorFlag` 哨兵」，`onFetchError` 里也显式 `return { error: undefined }`。
- * 结论：**`error.value` 永远是空的**，用它判断成败必然判成「成功」。
+ * ## 与 `error.value` 的关系
+ * 拦截器改造后（见 `afterFetch` 的长注释），业务失败会 **throw** 让 vueuse 走
+ * `.catch` → `onFetchError`，所以现在 **`error.value` 和 `data === ErrorFlag`
+ * 两种判定同时成立**，写哪种都对。
  *
- * 踩过的实例：代码仓库新增/编辑用 `if (error.value)` 判断，后端明确拒绝了
- * （唯一约束冲突等），前端却接着弹「绑定成功」把拦截器的红色提示覆盖掉，
- * 弹窗关闭、列表刷新，用户看到成功而库里没有数据。
+ * 保留这个哨兵判定的理由：
+ * 1. 请求被中止（AbortError）时 `error` 刻意为空（中止是我们自己发起的，不该弹错），
+ *    但 `data` 仍是 ErrorFlag —— 此时"没拿到数据"是真的，不该继续弹「成功」。
+ *    只看 `error.value` 会把被中止的请求当成功。
+ * 2. `postAction` 这套 helper 顺手把「失败」表达成 `null` 返回值，调用点一行
+ *    `if (!res) return` 就够，比解构 `{ data, execute, error }` 再各自判更难写错。
+ *
+ * ## 历史（别再犯）
+ * 改造前 `afterFetch` 只能返回 `{ data, response }`、设置不了 `error`，于是
+ * `error.value` 永远为空，而全站 26 个页面 77 处用 `if (error.value)` 判成败 ——
+ * 后端明确拒绝了，页面照样弹「保存成功」把真实原因盖掉。代码仓库新增/编辑、
+ * 平台配置管理保存、批量绑定的失败计数全中招。
  */
 export function isRequestFailed(data: unknown): boolean {
   return data === ErrorFlag || data === null || data === undefined
@@ -243,8 +320,7 @@ export function isRequestFailed(data: unknown): boolean {
  * POST 并返回业务数据；失败返回 `null`（拦截器已经弹过错误提示，无需重复提示）。
  *
  * 各页面此前各自实现了一份同名的 `postAction`（results / defects / runs /
- * waivers / campaigns / approvals / dispositions 七处），这里收敛成共享实现，
- * 新代码一律用它，避免又写出 `if (error.value)` 那种判不出失败的写法。
+ * waivers / campaigns / approvals / dispositions 七处），这里收敛成共享实现。
  */
 export async function postAction<T = unknown>(
   url: string,
