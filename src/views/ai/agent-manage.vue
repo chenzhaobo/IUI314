@@ -6,7 +6,7 @@ import { ApiAiAgent } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
 import { useDelete, useGet, usePost, usePut, useTableAutoHeight, withTableDefaults } from '@/hooks'
 
-defineOptions({ name: 'ai-agent-manage' })
+defineOptions({ name: 'agent-manage' })
 
 // ── 列表数据 ──────────────────────────────────
 const queryParams = ref({ agent_name: '', status: '', page_num: 1, page_size: 10 })

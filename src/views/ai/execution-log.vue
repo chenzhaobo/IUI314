@@ -4,7 +4,7 @@ import { Message, Modal } from '@arco-design/web-vue'
 import { postAction, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiAiExecution, type AiExecution, type AiExecutionStats, type AiListResult } from '@/api/aiApis'
 
-defineOptions({ name: 'ai-execution-log' })
+defineOptions({ name: 'execution-log' })
 
 // ── 统计数据 ──────────────────────────────────
 const { data: statsRaw } = useGet<AiExecutionStats>(ApiAiExecution.stats, {}, { immediate: true })

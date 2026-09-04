@@ -5,7 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ApiPerfAnalysisJob, ApiPerfAnalysisTask } from '@/api/perfApis'
 import { useGet, usePost } from '@/hooks'
 
-defineOptions({ name: 'AnalysisRuns' })
+defineOptions({ name: 'analysis-runs' })
 const route = useRoute()
 const router = useRouter()
 const query = ref<any>({ job_id: route.query.job_id, task_type: 'analysis_workflow', page_num: 1, page_size: 20 })

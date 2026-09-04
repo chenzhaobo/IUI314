@@ -8,7 +8,7 @@ import { useGet, usePost } from '@/hooks'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSecApproval } from '@/api/sechubApis'
 
-defineOptions({ name: 'StaticScanApprovals' })
+defineOptions({ name: 'approvals' })
 
 // ── 查询 ──────────────────────────────────────────
 const queryParams = ref<Record<string, any>>({

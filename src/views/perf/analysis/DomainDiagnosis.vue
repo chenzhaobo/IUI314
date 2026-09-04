@@ -234,7 +234,7 @@ import 'md-editor-v3/lib/preview.css'
 import { ApiPerfDiagnosis, ApiPerfReportV2, ApiPerfIssue } from '@/api/perfApis'
 import { useGet, usePost } from '@/hooks'
 
-defineOptions({ name: 'domain-diagnosis' })
+defineOptions({ name: 'diagnosis' })
 
 // ── 筛选条件 ──────────────────────────────────
 const filters = ref<any>({

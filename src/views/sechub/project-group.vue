@@ -147,43 +147,54 @@ async function handleImportSubmit() {
 }
 </script>
 <template>
-  <SecCrudPage :key="crudKey" title="项目组" :api-list="ApiSecProjectGroup.getList" :api-add="ApiSecProjectGroup.add" :api-edit="ApiSecProjectGroup.edit" :api-delete="ApiSecProjectGroup.delete" :columns="columns" :fields="fields" :filters="filters" id-field="id" name-field="name">
-    <template #extra-actions>
-      <a-button type="primary" status="normal" @click="openImportModal">
-        <template #icon><icon-upload /></template>
-        导入
-      </a-button>
-      <a-button type="text" @click="handleDownloadTemplate">
-        <template #icon><icon-download /></template>
-        下载模板
-      </a-button>
-    </template>
-  </SecCrudPage>
-
-  <a-modal v-model:visible="importVisible" title="导入项目组" @ok="handleImportSubmit" :ok-loading="importLoading" :width="460">
-    <a-alert type="info" :show-icon="true" style="margin-bottom: 12px">
-      请先下载模板，按模板格式填写后上传。编码重复的将更新，不会覆盖已有的产品领域和业务领域。
-    </a-alert>
-    <a-upload :auto-upload="false" :limit="1" accept=".csv" :show-file-list="true" @change="handleImportFileChange" />
-  </a-modal>
-
-  <a-modal v-model:visible="importResultVisible" title="导入结果" :footer="false" :width="480">
-    <a-result v-if="importResult" status="success" title="导入完成">
-      <template #extra>
-        <a-button type="primary" @click="importResultVisible = false">关闭</a-button>
+  <!--
+    单根包裹（不要拆回多根）：app-main 把 `class="app-main-content p-l-15px ..."`
+    传给路由组件，Vue 只能把它自动继承到**单个根元素**上。这个页面原本是
+    `<div> + <a-modal>` 两个根（fragment），于是 class 被静默丢弃 —— 页面没有
+    内边距和背景，控制台还会刷两条告警：
+      Extraneous non-props attributes (class) ... renders fragment
+      Component inside <Transition> renders non-element root node
+    后者更麻烦：app-main 的 <transition mode="out-in"> 拿不到可动画元素。
+  -->
+  <div>
+    <SecCrudPage :key="crudKey" title="项目组" :api-list="ApiSecProjectGroup.getList" :api-add="ApiSecProjectGroup.add" :api-edit="ApiSecProjectGroup.edit" :api-delete="ApiSecProjectGroup.delete" :columns="columns" :fields="fields" :filters="filters" id-field="id" name-field="name">
+      <template #extra-actions>
+        <a-button type="primary" status="normal" @click="openImportModal">
+          <template #icon><icon-upload /></template>
+          导入
+        </a-button>
+        <a-button type="text" @click="handleDownloadTemplate">
+          <template #icon><icon-download /></template>
+          下载模板
+        </a-button>
       </template>
-      <a-descriptions :column="2" layout="inline-horizontal" bordered size="small">
-        <a-descriptions-item label="总计">{{ importResult.total ?? 0 }}</a-descriptions-item>
-        <a-descriptions-item label="新增">{{ importResult.added ?? 0 }}</a-descriptions-item>
-        <a-descriptions-item label="更新">{{ importResult.updated ?? 0 }}</a-descriptions-item>
-        <a-descriptions-item label="跳过">{{ importResult.skipped ?? 0 }}</a-descriptions-item>
-      </a-descriptions>
-      <div v-if="importResult.errors?.length" style="margin-top: 8px">
-        <div style="font-weight: 600; margin-bottom: 4px; color: rgb(var(--red-6))">错误（{{ importResult.errors.length }}条）：</div>
-        <a-list :data="importResult.errors" size="small" :bordered="true" max-height="200">
-          <template #item="{ item }">{{ item }}</template>
-        </a-list>
-      </div>
-    </a-result>
-  </a-modal>
+    </SecCrudPage>
+
+    <a-modal v-model:visible="importVisible" title="导入项目组" @ok="handleImportSubmit" :ok-loading="importLoading" :width="460">
+      <a-alert type="info" :show-icon="true" style="margin-bottom: 12px">
+        请先下载模板，按模板格式填写后上传。编码重复的将更新，不会覆盖已有的产品领域和业务领域。
+      </a-alert>
+      <a-upload :auto-upload="false" :limit="1" accept=".csv" :show-file-list="true" @change="handleImportFileChange" />
+    </a-modal>
+
+    <a-modal v-model:visible="importResultVisible" title="导入结果" :footer="false" :width="480">
+      <a-result v-if="importResult" status="success" title="导入完成">
+        <template #extra>
+          <a-button type="primary" @click="importResultVisible = false">关闭</a-button>
+        </template>
+        <a-descriptions :column="2" layout="inline-horizontal" bordered size="small">
+          <a-descriptions-item label="总计">{{ importResult.total ?? 0 }}</a-descriptions-item>
+          <a-descriptions-item label="新增">{{ importResult.added ?? 0 }}</a-descriptions-item>
+          <a-descriptions-item label="更新">{{ importResult.updated ?? 0 }}</a-descriptions-item>
+          <a-descriptions-item label="跳过">{{ importResult.skipped ?? 0 }}</a-descriptions-item>
+        </a-descriptions>
+        <div v-if="importResult.errors?.length" style="margin-top: 8px">
+          <div style="font-weight: 600; margin-bottom: 4px; color: rgb(var(--red-6))">错误（{{ importResult.errors.length }}条）：</div>
+          <a-list :data="importResult.errors" size="small" :bordered="true" max-height="200">
+            <template #item="{ item }">{{ item }}</template>
+          </a-list>
+        </div>
+      </a-result>
+    </a-modal>
+  </div>
 </template>

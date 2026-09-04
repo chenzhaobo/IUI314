@@ -20,7 +20,7 @@ import {
   withTableDefaults,
 } from '@/hooks'
 
-defineOptions({ name: 'StaticScanRepositories' })
+defineOptions({ name: 'repositories' })
 
 // 加载已绑定仓库的模块列表
 const { data: listData, isFetching: loading, execute: loadList } = useGet<ModuleWithRepository[]>(

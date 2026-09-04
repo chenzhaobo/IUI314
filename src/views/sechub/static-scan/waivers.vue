@@ -8,7 +8,7 @@ import { Message, Modal } from '@arco-design/web-vue'
 import { useGet, usePost } from '@/hooks'
 import { ApiSecWaiver, ApiSecProjectGroup } from '@/api/sechubApis'
 
-defineOptions({ name: 'StaticScanWaivers' })
+defineOptions({ name: 'waivers' })
 
 // ── 查询 ──────────────────────────────────────────
 const queryParams = ref<Record<string, any>>({

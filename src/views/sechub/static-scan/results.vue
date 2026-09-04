@@ -20,7 +20,7 @@ import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import { applyColumnFilters, emptyFilter, isFilterActive, useFilterPersistence } from '@/hooks'
 import 'md-editor-v3/lib/style.css'
 
-defineOptions({ name: 'StaticScanResults' })
+defineOptions({ name: 'results' })
 
 const route = useRoute()
 

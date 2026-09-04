@@ -13,7 +13,7 @@ import { ApiSecModuleRepository, ApiSecPrescan } from '@/api/sechubApis'
 import { useGet, usePost } from '@/hooks'
 import { pendingSubLabel, pendingTooltip, runStatusLabels } from './labels'
 
-defineOptions({ name: 'StaticScanRuns' })
+defineOptions({ name: 'runs' })
 
 const router = useRouter()
 

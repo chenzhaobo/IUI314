@@ -7,7 +7,7 @@ import { Message, Modal } from '@arco-design/web-vue'
 import { useGet, usePost, usePut } from '@/hooks'
 import { ApiSecCampaign, ApiSecProjectGroup } from '@/api/sechubApis'
 
-defineOptions({ name: 'StaticScanCampaigns' })
+defineOptions({ name: 'campaigns' })
 
 // ── 查询 ──────────────────────────────────────────
 const queryParams = ref<Record<string, any>>({

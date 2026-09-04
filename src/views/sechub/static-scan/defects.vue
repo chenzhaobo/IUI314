@@ -694,436 +694,447 @@ function shortSha(sha: string | null | undefined): string {
 </script>
 
 <template>
-  <div class="static-scan-defects">
-    <!-- 筛选 -->
-    <a-card :bordered="false" class="m-b-12px">
-      <a-space wrap>
-        <a-select v-model="queryParams.project_group_id" allow-search allow-clear placeholder="项目组" style="width: 200px" @change="refresh">
-          <a-option v-for="pg in pgOptions" :key="pg.value" :value="pg.value">
-            {{ pg.label }}
-          </a-option>
-        </a-select>
-        <a-select v-model="queryParams.repository_id" allow-search allow-clear placeholder="应用" style="width: 280px" @change="refresh">
-          <a-option v-for="repo in repositories" :key="repo.repository_id" :value="repo.repository_id">
-            {{ repo.module_name }}（{{ repo.repository_name }}）
-          </a-option>
-        </a-select>
-        <a-select v-model="queryParams.domain" allow-clear placeholder="领域" style="width: 120px" @change="onDomainSelectChange">
-          <a-option value="security">
-            安全
-          </a-option>
-          <a-option value="performance">
-            性能
-          </a-option>
-        </a-select>
-        <a-select v-model="queryParams.status" allow-clear placeholder="状态" style="width: 130px" @change="onStatusChange">
-          <a-option value="open">
-            打开
-          </a-option>
-          <a-option value="reopened">
-            重新打开
-          </a-option>
-          <a-option value="fixing">
-            修复中
-          </a-option>
-          <a-option value="fixed">
-            已修复
-          </a-option>
-          <a-option value="verified">
-            已验证
-          </a-option>
-          <a-option value="wont_fix">
-            不处理
-          </a-option>
-          <a-option value="verification_failed">
-            验证失败
-          </a-option>
-        </a-select>
-        <!-- 风险等级多选：诉求是"优先处理高等级"，通常要 high 与 medium 一起看；
-               单选每次只能看一档、反复切换很别扭，所以做成 multiple -->
-        <a-select
-          v-model="riskLevels"
-          multiple
-          allow-clear
-          :max-tag-count="2"
-          placeholder="风险等级"
-          style="width: 190px"
-          @change="onRiskLevelChange"
-        >
-          <a-option value="high">
-            高
-          </a-option>
-          <a-option value="medium">
-            中
-          </a-option>
-          <a-option value="low">
-            低
-          </a-option>
-        </a-select>
-        <!-- DMP 编码过滤：模糊匹配（只记得单号一段也能找到）；
-               「未关联」是催办场景的主要用法 —— 找出确认了但还没提单的 -->
-        <a-input-group>
-          <a-input
-            v-model="queryParams.dmp_defect_code"
-            placeholder="DMP 编码"
-            allow-clear
-            style="width: 150px"
-            @press-enter="refresh"
-            @clear="refresh"
-          />
-          <a-tooltip content="只看还没关联 DMP 单的缺陷" mini>
-            <a-button
-              :type="queryParams.dmp_defect_code === '__none__' ? 'primary' : 'outline'"
-              @click="toggleDmpUnlinked"
-            >
-              未关联
-            </a-button>
-          </a-tooltip>
-        </a-input-group>
-        <a-button @click="refresh">
-          刷新
-        </a-button>
-      </a-space>
-    </a-card>
-
-    <!-- 左树右表（可拖拽分栏） -->
-    <div class="split-layout" :class="{ dragging: isDragging }">
-      <!-- 左树：规则分布 -->
-      <div class="split-left" :style="{ width: `${leftPanelWidth}px` }">
-        <a-card :bordered="false" size="small" class="split-card">
-          <template #title>
-            规则分布
-            <small class="card-sub">打开/修复中/已修复/总数</small>
-          </template>
-          <a-spin :loading="ruleStatsLoading" style="width: 100%">
-            <a-tree
-              v-if="ruleTree.length"
-              v-model:expanded-keys="expandedKeys"
-              :data="ruleTree"
-              :selected-keys="[selectedRuleId]"
-              @select="onTreeSelect"
-            >
-              <template #title="node">
-                <div class="rule-node">
-                  <span class="rule-name" :title="node.title">{{ node.title }}</span>
-                  <span v-if="node.rule" class="rule-stats">
-                    <span class="s-open">{{ node.rule.open }}</span>/<span class="s-fixing">{{ node.rule.fixing }}</span>/<span class="s-fixed">{{ node.rule.fixed }}</span>/<span class="s-total">{{ node.rule.total }}</span>
-                  </span>
-                  <span v-else-if="node.spStats" class="rule-stats">
-                    <span class="s-open">{{ node.spStats.open }}</span>/<span class="s-fixing">{{ node.spStats.fixing }}</span>/<span class="s-fixed">{{ node.spStats.fixed }}</span>/<span class="s-total">{{ node.spStats.total }}</span>
-                  </span>
-                </div>
-              </template>
-            </a-tree>
-            <a-empty v-else description="暂无缺陷" />
-          </a-spin>
-        </a-card>
-      </div>
-
-      <!-- 拖拽手柄 -->
-      <div class="split-handle" @mousedown="onDragStart" />
-
-      <!-- 右表：缺陷列表 -->
-      <div class="split-right">
-        <a-card :bordered="false" class="split-card">
-          <template #title>
-            缺陷列表
-            <small class="card-sub">勾选缺陷后通过上方工具栏批量处理：认领 → 标记修复 → 重新验证，或标记不处理（可同步白名单）</small>
-          </template>
-          <!-- 批量操作工具栏 -->
-          <a-row class="m-b-8px">
-            <a-space>
-              <!-- 补偿匹配白名单：拿白名单里的指纹回头匹配待处理缺陷，把漏标的补上。
-               白名单来源是「标记不处理」时勾选的「同步白名单」 -->
-              <a-tooltip content="用白名单里的指纹匹配待处理缺陷，命中的自动标记不处理" mini>
-                <a-button :loading="whitelistBusy" @click="compensateWhitelist">
-                  补偿匹配白名单
-                </a-button>
-              </a-tooltip>
-              <a-button type="primary" :disabled="!selectedIds.length" :loading="batchClaimLoading" @click="batchClaim">
-                认领
-              </a-button>
-              <a-button status="success" :disabled="!selectedIds.length" @click="openFixedModal">
-                标记已修复
-              </a-button>
-              <a-button status="warning" :disabled="!selectedIds.length" @click="openWontFixModal">
-                标记不处理
-              </a-button>
-              <a-button :disabled="!selectedIds.length" :loading="batchVerifyLoading" @click="openVerifyDialog">
-                重新验证
-              </a-button>
-              <a-tooltip content="把所选缺陷关联到 DMP 单号，可批量填同一个" mini>
-                <a-button :disabled="!selectedIds.length" @click="openDmpModal">
-                  DMP 编码
-                </a-button>
-              </a-tooltip>
-              <span v-if="selectedIds.length" class="selected-hint">已选 {{ selectedIds.length }} 条</span>
-            </a-space>
-          </a-row>
-          <a-table
-            :loading="isLoading"
-            :data="dataList"
-            :columns="columns"
-            :pagination="{
-              total,
-              current: queryParams.page_num,
-              pageSize: queryParams.page_size,
-              showTotal: true,
-              showPageSize: true,
-            }"
-            row-key="id"
-            size="small"
-            :row-selection="{ type: 'checkbox', showCheckedAll: true }"
-            :scroll="{ x: 1480, y: 'calc(100vh - 420px)' }"
-            @page-change="onPageChange"
-            @page-size-change="onPageSizeChange"
-            @selection-change="handleSelectionChange"
-            @filter-change="onWontFixReasonFilter"
-          >
-            <template #domain="{ record }">
-              <a-tag :color="domainLabels[record.domain]?.color ?? 'gray'" size="small">
-                {{ domainLabels[record.domain]?.label ?? record.domain }}
-              </a-tag>
-            </template>
-            <template #dmpCode="{ record }">
-              <a-typography-text v-if="record.dmp_defect_code" copyable :copy-text="record.dmp_defect_code">
-                {{ record.dmp_defect_code }}
-              </a-typography-text>
-              <span v-else class="dmp-empty">未关联</span>
-            </template>
-            <template #risk="{ record }">
-              <a-tag v-if="record.risk_level" :color="riskLabels[record.risk_level]?.color ?? 'gray'" size="small">
-                {{ riskLabels[record.risk_level]?.label ?? record.risk_level }}
-              </a-tag>
-              <span v-else class="text-muted">-</span>
-            </template>
-            <template #status="{ record }">
-              <a-tag :color="statusLabels[record.status]?.color ?? 'gray'" size="small">
-                {{ statusLabels[record.status]?.label ?? record.status }}
-              </a-tag>
-            </template>
-            <template #introducedAt="{ record }">
-              <!-- 引入时间列：为空时显示 -，悬浮展示完整 commit / 作者 / 时间 -->
-              <a-tooltip
-                :content="record.introduced_commit || record.introduced_author || record.introduced_at
-                  ? `Commit：${record.introduced_commit || '-'}\n引入者：${record.introduced_author || '-'}\n时间：${formatTime(record.introduced_at)}`
-                  : '非 git 仓库或该行未被版本控制，无法定位引入时间'"
-                position="top"
-                mini
-              >
-                <span>{{ formatTime(record.introduced_at) }}</span>
-              </a-tooltip>
-            </template>
-            <!-- 不处理原因列：展示字典 label，为空显示占位符，null 不渲染 -->
-            <template #wontFixReason="{ record }">
-              <span v-if="record.wont_fix_reason_code">
-                {{ wontFixReasonLabelMap[record.wont_fix_reason_code] ?? record.wont_fix_reason_code }}
-              </span>
-              <span v-else class="text-muted">-</span>
-            </template>
-            <template #ops="{ record }">
-              <a-space>
-                <a-button type="text" size="small" @click="viewInResults(record)">
-                  查看批次
-                </a-button>
-                <a-button type="text" size="small" :disabled="!record.ai_detail_report" @click="viewReport(record)">
-                  报告
-                </a-button>
-                <a-button type="text" size="small" @click="viewEvents(record)">
-                  流转
-                </a-button>
-              </a-space>
-            </template>
-          </a-table>
-        </a-card>
-      </div>
-    </div>
-
-    <!-- 标记已修复弹窗（批量） -->
-    <!-- DMP 缺陷编码：留空提交即清除关联 -->
-    <a-modal
-      v-model:visible="dmpVisible"
-      :title="`设置 DMP 缺陷编码（${dmpTargets.length} 条）`"
-      :ok-loading="dmpLoading"
-      @ok="submitDmpCode"
-    >
-      <a-form :model="{ dmpCode }" layout="vertical">
-        <a-form-item label="DMP 缺陷编码">
-          <a-input v-model="dmpCode" placeholder="如 DMP-2026-0001，留空则清除关联" allow-clear />
-        </a-form-item>
-        <a-alert v-if="!dmpCode.trim()" type="warning">
-          留空提交会清除所选 {{ dmpTargets.length }} 条缺陷的 DMP 编码
-        </a-alert>
-      </a-form>
-    </a-modal>
-
-    <a-modal v-model:visible="fixedVisible" :title="`标记已修复（${fixedTargets.length} 条）`" :ok-loading="fixedLoading" @ok="submitFixed" @cancel="fixedVisible = false">
-      <a-form layout="vertical" :model="layoutOnlyModel">
-        <a-alert type="info" class="m-b-12px">
-          将对 {{ fixedTargets.length }} 条「修复中」的缺陷统一标记为已修复
-        </a-alert>
-        <a-form-item label="修复说明（可选）">
-          <a-textarea v-model="fixedNote" placeholder="如：已在 commit abc123 中移除硬编码密钥" :max-length="200" show-word-limit />
-        </a-form-item>
-      </a-form>
-    </a-modal>
-
-    <!-- 标记不处理弹窗（批量） -->
-    <a-modal v-model:visible="wontFixVisible" :title="`标记不处理（${wontFixTargets.length} 条）`" width="560px" :ok-loading="wontFixLoading" @ok="submitWontFix" @cancel="wontFixVisible = false">
-      <a-form layout="vertical" :model="layoutOnlyModel">
-        <a-alert type="warning" class="m-b-12px">
-          将对 {{ wontFixTargets.length }} 条「打开/重新打开」的缺陷统一标记为不处理
-        </a-alert>
-        <!-- 不处理原因分类（必选，后续统计与过滤的依据） -->
-        <a-form-item label="原因分类" required>
-          <a-select
-            v-model="wontFixForm.reason_code"
-            placeholder="请选择原因分类（必选）"
-            allow-clear
-          >
-            <a-option
-              v-for="opt in wontFixReasonOptions"
-              :key="opt.value"
-              :value="opt.value"
-            >
-              {{ opt.label }}
+  <!--
+    单根包裹（不要拆回多根）：app-main 把 `class="app-main-content p-l-15px ..."`
+    传给路由组件，Vue 只能把它自动继承到**单个根元素**上。这个页面原本是
+    `<div> + <a-modal>` 两个根（fragment），于是 class 被静默丢弃 —— 页面没有
+    内边距和背景，控制台还会刷两条告警：
+      Extraneous non-props attributes (class) ... renders fragment
+      Component inside <Transition> renders non-element root node
+    后者更麻烦：app-main 的 <transition mode="out-in"> 拿不到可动画元素。
+  -->
+  <div>
+    <div class="static-scan-defects">
+      <!-- 筛选 -->
+      <a-card :bordered="false" class="m-b-12px">
+        <a-space wrap>
+          <a-select v-model="queryParams.project_group_id" allow-search allow-clear placeholder="项目组" style="width: 200px" @change="refresh">
+            <a-option v-for="pg in pgOptions" :key="pg.value" :value="pg.value">
+              {{ pg.label }}
             </a-option>
           </a-select>
+          <a-select v-model="queryParams.repository_id" allow-search allow-clear placeholder="应用" style="width: 280px" @change="refresh">
+            <a-option v-for="repo in repositories" :key="repo.repository_id" :value="repo.repository_id">
+              {{ repo.module_name }}（{{ repo.repository_name }}）
+            </a-option>
+          </a-select>
+          <a-select v-model="queryParams.domain" allow-clear placeholder="领域" style="width: 120px" @change="onDomainSelectChange">
+            <a-option value="security">
+              安全
+            </a-option>
+            <a-option value="performance">
+              性能
+            </a-option>
+          </a-select>
+          <a-select v-model="queryParams.status" allow-clear placeholder="状态" style="width: 130px" @change="onStatusChange">
+            <a-option value="open">
+              打开
+            </a-option>
+            <a-option value="reopened">
+              重新打开
+            </a-option>
+            <a-option value="fixing">
+              修复中
+            </a-option>
+            <a-option value="fixed">
+              已修复
+            </a-option>
+            <a-option value="verified">
+              已验证
+            </a-option>
+            <a-option value="wont_fix">
+              不处理
+            </a-option>
+            <a-option value="verification_failed">
+              验证失败
+            </a-option>
+          </a-select>
+          <!-- 风险等级多选：诉求是"优先处理高等级"，通常要 high 与 medium 一起看；
+                 单选每次只能看一档、反复切换很别扭，所以做成 multiple -->
+          <a-select
+            v-model="riskLevels"
+            multiple
+            allow-clear
+            :max-tag-count="2"
+            placeholder="风险等级"
+            style="width: 190px"
+            @change="onRiskLevelChange"
+          >
+            <a-option value="high">
+              高
+            </a-option>
+            <a-option value="medium">
+              中
+            </a-option>
+            <a-option value="low">
+              低
+            </a-option>
+          </a-select>
+          <!-- DMP 编码过滤：模糊匹配（只记得单号一段也能找到）；
+                 「未关联」是催办场景的主要用法 —— 找出确认了但还没提单的 -->
+          <a-input-group>
+            <a-input
+              v-model="queryParams.dmp_defect_code"
+              placeholder="DMP 编码"
+              allow-clear
+              style="width: 150px"
+              @press-enter="refresh"
+              @clear="refresh"
+            />
+            <a-tooltip content="只看还没关联 DMP 单的缺陷" mini>
+              <a-button
+                :type="queryParams.dmp_defect_code === '__none__' ? 'primary' : 'outline'"
+                @click="toggleDmpUnlinked"
+              >
+                未关联
+              </a-button>
+            </a-tooltip>
+          </a-input-group>
+          <a-button @click="refresh">
+            刷新
+          </a-button>
+        </a-space>
+      </a-card>
+
+      <!-- 左树右表（可拖拽分栏） -->
+      <div class="split-layout" :class="{ dragging: isDragging }">
+        <!-- 左树：规则分布 -->
+        <div class="split-left" :style="{ width: `${leftPanelWidth}px` }">
+          <a-card :bordered="false" size="small" class="split-card">
+            <template #title>
+              规则分布
+              <small class="card-sub">打开/修复中/已修复/总数</small>
+            </template>
+            <a-spin :loading="ruleStatsLoading" style="width: 100%">
+              <a-tree
+                v-if="ruleTree.length"
+                v-model:expanded-keys="expandedKeys"
+                :data="ruleTree"
+                :selected-keys="[selectedRuleId]"
+                @select="onTreeSelect"
+              >
+                <template #title="node">
+                  <div class="rule-node">
+                    <span class="rule-name" :title="node.title">{{ node.title }}</span>
+                    <span v-if="node.rule" class="rule-stats">
+                      <span class="s-open">{{ node.rule.open }}</span>/<span class="s-fixing">{{ node.rule.fixing }}</span>/<span class="s-fixed">{{ node.rule.fixed }}</span>/<span class="s-total">{{ node.rule.total }}</span>
+                    </span>
+                    <span v-else-if="node.spStats" class="rule-stats">
+                      <span class="s-open">{{ node.spStats.open }}</span>/<span class="s-fixing">{{ node.spStats.fixing }}</span>/<span class="s-fixed">{{ node.spStats.fixed }}</span>/<span class="s-total">{{ node.spStats.total }}</span>
+                    </span>
+                  </div>
+                </template>
+              </a-tree>
+              <a-empty v-else description="暂无缺陷" />
+            </a-spin>
+          </a-card>
+        </div>
+
+        <!-- 拖拽手柄 -->
+        <div class="split-handle" @mousedown="onDragStart" />
+
+        <!-- 右表：缺陷列表 -->
+        <div class="split-right">
+          <a-card :bordered="false" class="split-card">
+            <template #title>
+              缺陷列表
+              <small class="card-sub">勾选缺陷后通过上方工具栏批量处理：认领 → 标记修复 → 重新验证，或标记不处理（可同步白名单）</small>
+            </template>
+            <!-- 批量操作工具栏 -->
+            <a-row class="m-b-8px">
+              <a-space>
+                <!-- 补偿匹配白名单：拿白名单里的指纹回头匹配待处理缺陷，把漏标的补上。
+                 白名单来源是「标记不处理」时勾选的「同步白名单」 -->
+                <a-tooltip content="用白名单里的指纹匹配待处理缺陷，命中的自动标记不处理" mini>
+                  <a-button :loading="whitelistBusy" @click="compensateWhitelist">
+                    补偿匹配白名单
+                  </a-button>
+                </a-tooltip>
+                <a-button type="primary" :disabled="!selectedIds.length" :loading="batchClaimLoading" @click="batchClaim">
+                  认领
+                </a-button>
+                <a-button status="success" :disabled="!selectedIds.length" @click="openFixedModal">
+                  标记已修复
+                </a-button>
+                <a-button status="warning" :disabled="!selectedIds.length" @click="openWontFixModal">
+                  标记不处理
+                </a-button>
+                <a-button :disabled="!selectedIds.length" :loading="batchVerifyLoading" @click="openVerifyDialog">
+                  重新验证
+                </a-button>
+                <a-tooltip content="把所选缺陷关联到 DMP 单号，可批量填同一个" mini>
+                  <a-button :disabled="!selectedIds.length" @click="openDmpModal">
+                    DMP 编码
+                  </a-button>
+                </a-tooltip>
+                <span v-if="selectedIds.length" class="selected-hint">已选 {{ selectedIds.length }} 条</span>
+              </a-space>
+            </a-row>
+            <a-table
+              :loading="isLoading"
+              :data="dataList"
+              :columns="columns"
+              :pagination="{
+                total,
+                current: queryParams.page_num,
+                pageSize: queryParams.page_size,
+                showTotal: true,
+                showPageSize: true,
+              }"
+              row-key="id"
+              size="small"
+              :row-selection="{ type: 'checkbox', showCheckedAll: true }"
+              :scroll="{ x: 1480, y: 'calc(100vh - 420px)' }"
+              @page-change="onPageChange"
+              @page-size-change="onPageSizeChange"
+              @selection-change="handleSelectionChange"
+              @filter-change="onWontFixReasonFilter"
+            >
+              <template #domain="{ record }">
+                <a-tag :color="domainLabels[record.domain]?.color ?? 'gray'" size="small">
+                  {{ domainLabels[record.domain]?.label ?? record.domain }}
+                </a-tag>
+              </template>
+              <template #dmpCode="{ record }">
+                <a-typography-text v-if="record.dmp_defect_code" copyable :copy-text="record.dmp_defect_code">
+                  {{ record.dmp_defect_code }}
+                </a-typography-text>
+                <span v-else class="dmp-empty">未关联</span>
+              </template>
+              <template #risk="{ record }">
+                <a-tag v-if="record.risk_level" :color="riskLabels[record.risk_level]?.color ?? 'gray'" size="small">
+                  {{ riskLabels[record.risk_level]?.label ?? record.risk_level }}
+                </a-tag>
+                <span v-else class="text-muted">-</span>
+              </template>
+              <template #status="{ record }">
+                <a-tag :color="statusLabels[record.status]?.color ?? 'gray'" size="small">
+                  {{ statusLabels[record.status]?.label ?? record.status }}
+                </a-tag>
+              </template>
+              <template #introducedAt="{ record }">
+                <!-- 引入时间列：为空时显示 -，悬浮展示完整 commit / 作者 / 时间 -->
+                <a-tooltip
+                  :content="record.introduced_commit || record.introduced_author || record.introduced_at
+                    ? `Commit：${record.introduced_commit || '-'}\n引入者：${record.introduced_author || '-'}\n时间：${formatTime(record.introduced_at)}`
+                    : '非 git 仓库或该行未被版本控制，无法定位引入时间'"
+                  position="top"
+                  mini
+                >
+                  <span>{{ formatTime(record.introduced_at) }}</span>
+                </a-tooltip>
+              </template>
+              <!-- 不处理原因列：展示字典 label，为空显示占位符，null 不渲染 -->
+              <template #wontFixReason="{ record }">
+                <span v-if="record.wont_fix_reason_code">
+                  {{ wontFixReasonLabelMap[record.wont_fix_reason_code] ?? record.wont_fix_reason_code }}
+                </span>
+                <span v-else class="text-muted">-</span>
+              </template>
+              <template #ops="{ record }">
+                <a-space>
+                  <a-button type="text" size="small" @click="viewInResults(record)">
+                    查看批次
+                  </a-button>
+                  <a-button type="text" size="small" :disabled="!record.ai_detail_report" @click="viewReport(record)">
+                    报告
+                  </a-button>
+                  <a-button type="text" size="small" @click="viewEvents(record)">
+                    流转
+                  </a-button>
+                </a-space>
+              </template>
+            </a-table>
+          </a-card>
+        </div>
+      </div>
+
+      <!-- 标记已修复弹窗（批量） -->
+      <!-- DMP 缺陷编码：留空提交即清除关联 -->
+      <a-modal
+        v-model:visible="dmpVisible"
+        :title="`设置 DMP 缺陷编码（${dmpTargets.length} 条）`"
+        :ok-loading="dmpLoading"
+        @ok="submitDmpCode"
+      >
+        <a-form :model="{ dmpCode }" layout="vertical">
+          <a-form-item label="DMP 缺陷编码">
+            <a-input v-model="dmpCode" placeholder="如 DMP-2026-0001，留空则清除关联" allow-clear />
+          </a-form-item>
+          <a-alert v-if="!dmpCode.trim()" type="warning">
+            留空提交会清除所选 {{ dmpTargets.length }} 条缺陷的 DMP 编码
+          </a-alert>
+        </a-form>
+      </a-modal>
+
+      <a-modal v-model:visible="fixedVisible" :title="`标记已修复（${fixedTargets.length} 条）`" :ok-loading="fixedLoading" @ok="submitFixed" @cancel="fixedVisible = false">
+        <a-form layout="vertical" :model="layoutOnlyModel">
+          <a-alert type="info" class="m-b-12px">
+            将对 {{ fixedTargets.length }} 条「修复中」的缺陷统一标记为已修复
+          </a-alert>
+          <a-form-item label="修复说明（可选）">
+            <a-textarea v-model="fixedNote" placeholder="如：已在 commit abc123 中移除硬编码密钥" :max-length="200" show-word-limit />
+          </a-form-item>
+        </a-form>
+      </a-modal>
+
+      <!-- 标记不处理弹窗（批量） -->
+      <a-modal v-model:visible="wontFixVisible" :title="`标记不处理（${wontFixTargets.length} 条）`" width="560px" :ok-loading="wontFixLoading" @ok="submitWontFix" @cancel="wontFixVisible = false">
+        <a-form layout="vertical" :model="layoutOnlyModel">
+          <a-alert type="warning" class="m-b-12px">
+            将对 {{ wontFixTargets.length }} 条「打开/重新打开」的缺陷统一标记为不处理
+          </a-alert>
+          <!-- 不处理原因分类（必选，后续统计与过滤的依据） -->
+          <a-form-item label="原因分类" required>
+            <a-select
+              v-model="wontFixForm.reason_code"
+              placeholder="请选择原因分类（必选）"
+              allow-clear
+            >
+              <a-option
+                v-for="opt in wontFixReasonOptions"
+                :key="opt.value"
+                :value="opt.value"
+              >
+                {{ opt.label }}
+              </a-option>
+            </a-select>
+          </a-form-item>
+          <a-form-item label="不处理原因" required>
+            <a-textarea v-model="wontFixForm.reason" placeholder="如：测试环境专用配置，生产不启用" :max-length="200" show-word-limit />
+          </a-form-item>
+          <a-form-item label="影响说明">
+            <a-textarea v-model="wontFixForm.impact_note" placeholder="说明该问题不处理的影响范围" :max-length="200" show-word-limit />
+          </a-form-item>
+          <a-form-item label="同步白名单">
+            <a-checkbox v-model="wontFixForm.sync_whitelist">
+              同时创建白名单条目（后续扫描该 fingerprint 不再计入）
+            </a-checkbox>
+          </a-form-item>
+          <a-form-item v-if="wontFixForm.sync_whitelist" label="白名单过期时间（空=永久）">
+            <a-date-picker v-model="wontFixForm.expires_at" value-format="YYYY-MM-DD" style="width: 100%" />
+          </a-form-item>
+        </a-form>
+      </a-modal>
+
+      <!-- 流转记录抽屉 -->
+      <a-drawer
+        :visible="eventsVisible"
+        :width="520"
+        :title="`流转记录 · ${eventsRow?.title ?? ''}`"
+        :footer="false"
+        @cancel="eventsVisible = false"
+      >
+        <a-spin :loading="eventsLoading" style="width: 100%">
+          <a-timeline v-if="eventsList.length">
+            <a-timeline-item v-for="ev in eventsList" :key="ev.id" :label="formatTime(ev.created_at)">
+              <div class="event-item">
+                <a-tag :color="eventTypeLabels[ev.event_type]?.color ?? 'gray'" size="small">
+                  {{ eventTypeLabels[ev.event_type]?.label ?? ev.event_type }}
+                </a-tag>
+                <span v-if="ev.from_status || ev.to_status" class="event-transition">
+                  {{ statusLabels[ev.from_status ?? '']?.label ?? ev.from_status ?? '—' }}
+                  →
+                  {{ statusLabels[ev.to_status ?? '']?.label ?? ev.to_status ?? '—' }}
+                </span>
+              </div>
+              <div v-if="ev.reason" class="event-reason">
+                {{ ev.reason }}
+              </div>
+              <div v-if="ev.commit_sha" class="event-commit">
+                commit: {{ ev.commit_sha }}
+              </div>
+            </a-timeline-item>
+          </a-timeline>
+          <a-empty v-else description="暂无流转记录" />
+        </a-spin>
+      </a-drawer>
+
+      <!-- 查看报告弹窗（富文本渲染 Markdown，宽幅+可滚动，避免抽屉显示不全） -->
+      <a-modal
+        :visible="reportVisible"
+        width="85%"
+        :title="reportRow?.title ?? 'AI 详细报告'"
+        :footer="false"
+        :body-style="{ maxHeight: '78vh', overflowY: 'auto' }"
+        unmount-on-close
+        @cancel="reportVisible = false"
+      >
+        <a-descriptions :column="3" bordered size="small" class="m-b-12px">
+          <a-descriptions-item label="领域">
+            {{ domainLabels[reportRow?.domain ?? '']?.label ?? reportRow?.domain }}
+          </a-descriptions-item>
+          <a-descriptions-item label="风险">
+            {{ reportRow?.risk_level ?? '-' }}
+          </a-descriptions-item>
+          <a-descriptions-item label="状态">
+            {{ statusLabels[reportRow?.status ?? '']?.label ?? reportRow?.status }}
+          </a-descriptions-item>
+          <a-descriptions-item label="文件" :span="3">
+            {{ reportRow?.file_path }}{{ reportRow?.start_line ? `:${reportRow.start_line}` : '' }}
+          </a-descriptions-item>
+          <a-descriptions-item label="引入时间">
+            {{ formatTime(reportRow?.introduced_at) }}
+          </a-descriptions-item>
+          <a-descriptions-item label="引入者">
+            {{ reportRow?.introduced_author || '-' }}
+          </a-descriptions-item>
+          <a-descriptions-item label="引入 Commit">
+            <a-tooltip v-if="reportRow?.introduced_commit" :content="reportRow.introduced_commit" mini>
+              <span style="font-family: monospace">{{ shortSha(reportRow.introduced_commit) }}</span>
+            </a-tooltip>
+            <span v-else>-</span>
+          </a-descriptions-item>
+        </a-descriptions>
+        <!-- 下载原始 md：内容已在前端手里，本地存盘即可，不必再走后端 -->
+        <div v-if="reportRow?.ai_detail_report" class="report-toolbar">
+          <a-button size="small" @click="downloadReport">
+            <template #icon>
+              <icon-download />
+            </template>
+            下载 md
+          </a-button>
+        </div>
+        <MdPreview v-if="reportRow?.ai_detail_report" :model-value="reportRow.ai_detail_report" />
+        <a-empty v-else description="暂无详细报告" />
+      </a-modal>
+    </div>
+    <!-- 重新验证弹窗：指定分支与 commit -->
+    <a-modal
+      v-model:visible="verifyVisible"
+      title="重新验证缺陷"
+      :ok-loading="batchVerifyLoading"
+      @ok="batchVerify"
+      @cancel="verifyVisible = false"
+    >
+      <a-alert type="info" class="m-b-12px">
+        将对 <b>{{ verifyTargets.length }}</b> 条缺陷重新拉取代码并定向重扫（只扫问题文件 + 问题规则），
+        <b>不会创建扫描运行记录</b>，可以反复验证。
+        <template v-if="verifyRepoNames.length > 1">
+          <br>⚠️ 所选缺陷跨 {{ verifyRepoNames.length }} 个仓库（{{ verifyRepoNames.join('、') }}），
+          同一个分支名会套用到全部仓库，建议按仓库分批验证。
+        </template>
+      </a-alert>
+      <a-form :model="verifyForm" layout="vertical">
+        <a-form-item label="分支">
+          <a-input v-model="verifyForm.branch" placeholder="留空 = 该缺陷来源扫描轮次的分支（没有则用仓库默认分支）" allow-clear />
+          <template #extra>
+            开发把修复提在别的分支（如 patch 分支）时，在这里填那个分支名。
+          </template>
         </a-form-item>
-        <a-form-item label="不处理原因" required>
-          <a-textarea v-model="wontFixForm.reason" placeholder="如：测试环境专用配置，生产不启用" :max-length="200" show-word-limit />
+        <a-form-item label="Commit">
+          <a-input v-model="verifyForm.commit_sha" placeholder="留空 = 该分支最新 HEAD（常用）" allow-clear />
+          <template #extra>
+            留空即取最新提交。无论是否指定，实际验证的 commit 都会记进流转记录。
+          </template>
         </a-form-item>
-        <a-form-item label="影响说明">
-          <a-textarea v-model="wontFixForm.impact_note" placeholder="说明该问题不处理的影响范围" :max-length="200" show-word-limit />
-        </a-form-item>
-        <a-form-item label="同步白名单">
-          <a-checkbox v-model="wontFixForm.sync_whitelist">
-            同时创建白名单条目（后续扫描该 fingerprint 不再计入）
-          </a-checkbox>
-        </a-form-item>
-        <a-form-item v-if="wontFixForm.sync_whitelist" label="白名单过期时间（空=永久）">
-          <a-date-picker v-model="wontFixForm.expires_at" value-format="YYYY-MM-DD" style="width: 100%" />
-        </a-form-item>
+        <a-alert type="warning">
+          拉取远端失败时验证会<b>直接报错</b>，不会用本地陈旧代码给结论 ——
+          否则会把「3 号提交的修复」按「1 号的代码」判成仍存在。
+        </a-alert>
       </a-form>
     </a-modal>
-
-    <!-- 流转记录抽屉 -->
-    <a-drawer
-      :visible="eventsVisible"
-      :width="520"
-      :title="`流转记录 · ${eventsRow?.title ?? ''}`"
-      :footer="false"
-      @cancel="eventsVisible = false"
-    >
-      <a-spin :loading="eventsLoading" style="width: 100%">
-        <a-timeline v-if="eventsList.length">
-          <a-timeline-item v-for="ev in eventsList" :key="ev.id" :label="formatTime(ev.created_at)">
-            <div class="event-item">
-              <a-tag :color="eventTypeLabels[ev.event_type]?.color ?? 'gray'" size="small">
-                {{ eventTypeLabels[ev.event_type]?.label ?? ev.event_type }}
-              </a-tag>
-              <span v-if="ev.from_status || ev.to_status" class="event-transition">
-                {{ statusLabels[ev.from_status ?? '']?.label ?? ev.from_status ?? '—' }}
-                →
-                {{ statusLabels[ev.to_status ?? '']?.label ?? ev.to_status ?? '—' }}
-              </span>
-            </div>
-            <div v-if="ev.reason" class="event-reason">
-              {{ ev.reason }}
-            </div>
-            <div v-if="ev.commit_sha" class="event-commit">
-              commit: {{ ev.commit_sha }}
-            </div>
-          </a-timeline-item>
-        </a-timeline>
-        <a-empty v-else description="暂无流转记录" />
-      </a-spin>
-    </a-drawer>
-
-    <!-- 查看报告弹窗（富文本渲染 Markdown，宽幅+可滚动，避免抽屉显示不全） -->
-    <a-modal
-      :visible="reportVisible"
-      width="85%"
-      :title="reportRow?.title ?? 'AI 详细报告'"
-      :footer="false"
-      :body-style="{ maxHeight: '78vh', overflowY: 'auto' }"
-      unmount-on-close
-      @cancel="reportVisible = false"
-    >
-      <a-descriptions :column="3" bordered size="small" class="m-b-12px">
-        <a-descriptions-item label="领域">
-          {{ domainLabels[reportRow?.domain ?? '']?.label ?? reportRow?.domain }}
-        </a-descriptions-item>
-        <a-descriptions-item label="风险">
-          {{ reportRow?.risk_level ?? '-' }}
-        </a-descriptions-item>
-        <a-descriptions-item label="状态">
-          {{ statusLabels[reportRow?.status ?? '']?.label ?? reportRow?.status }}
-        </a-descriptions-item>
-        <a-descriptions-item label="文件" :span="3">
-          {{ reportRow?.file_path }}{{ reportRow?.start_line ? `:${reportRow.start_line}` : '' }}
-        </a-descriptions-item>
-        <a-descriptions-item label="引入时间">
-          {{ formatTime(reportRow?.introduced_at) }}
-        </a-descriptions-item>
-        <a-descriptions-item label="引入者">
-          {{ reportRow?.introduced_author || '-' }}
-        </a-descriptions-item>
-        <a-descriptions-item label="引入 Commit">
-          <a-tooltip v-if="reportRow?.introduced_commit" :content="reportRow.introduced_commit" mini>
-            <span style="font-family: monospace">{{ shortSha(reportRow.introduced_commit) }}</span>
-          </a-tooltip>
-          <span v-else>-</span>
-        </a-descriptions-item>
-      </a-descriptions>
-      <!-- 下载原始 md：内容已在前端手里，本地存盘即可，不必再走后端 -->
-      <div v-if="reportRow?.ai_detail_report" class="report-toolbar">
-        <a-button size="small" @click="downloadReport">
-          <template #icon>
-            <icon-download />
-          </template>
-          下载 md
-        </a-button>
-      </div>
-      <MdPreview v-if="reportRow?.ai_detail_report" :model-value="reportRow.ai_detail_report" />
-      <a-empty v-else description="暂无详细报告" />
-    </a-modal>
   </div>
-  <!-- 重新验证弹窗：指定分支与 commit -->
-  <a-modal
-    v-model:visible="verifyVisible"
-    title="重新验证缺陷"
-    :ok-loading="batchVerifyLoading"
-    @ok="batchVerify"
-    @cancel="verifyVisible = false"
-  >
-    <a-alert type="info" class="m-b-12px">
-      将对 <b>{{ verifyTargets.length }}</b> 条缺陷重新拉取代码并定向重扫（只扫问题文件 + 问题规则），
-      <b>不会创建扫描运行记录</b>，可以反复验证。
-      <template v-if="verifyRepoNames.length > 1">
-        <br>⚠️ 所选缺陷跨 {{ verifyRepoNames.length }} 个仓库（{{ verifyRepoNames.join('、') }}），
-        同一个分支名会套用到全部仓库，建议按仓库分批验证。
-      </template>
-    </a-alert>
-    <a-form :model="verifyForm" layout="vertical">
-      <a-form-item label="分支">
-        <a-input v-model="verifyForm.branch" placeholder="留空 = 该缺陷来源扫描轮次的分支（没有则用仓库默认分支）" allow-clear />
-        <template #extra>
-          开发把修复提在别的分支（如 patch 分支）时，在这里填那个分支名。
-        </template>
-      </a-form-item>
-      <a-form-item label="Commit">
-        <a-input v-model="verifyForm.commit_sha" placeholder="留空 = 该分支最新 HEAD（常用）" allow-clear />
-        <template #extra>
-          留空即取最新提交。无论是否指定，实际验证的 commit 都会记进流转记录。
-        </template>
-      </a-form-item>
-      <a-alert type="warning">
-        拉取远端失败时验证会<b>直接报错</b>，不会用本地陈旧代码给结论 ——
-        否则会把「3 号提交的修复」按「1 号的代码」判成仍存在。
-      </a-alert>
-    </a-form>
-  </a-modal>
 </template>
 
 <style scoped>

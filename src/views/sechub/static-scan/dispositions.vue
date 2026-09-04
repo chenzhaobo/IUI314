@@ -7,7 +7,7 @@ import { Message } from '@arco-design/web-vue'
 import { useGet, usePost } from '@/hooks'
 import { ApiSecDisposition, ApiSecFix } from '@/api/sechubApis'
 
-defineOptions({ name: 'StaticScanDispositions' })
+defineOptions({ name: 'dispositions' })
 
 // ── 查询 ──────────────────────────────────────────
 const queryParams = ref<Record<string, any>>({

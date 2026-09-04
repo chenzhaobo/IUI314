@@ -22,7 +22,7 @@ import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import StatusBadge from '@/components/static-scan/StatusBadge.vue'
 import { deleteAction, emptyFilter, isFilterActive, newIdempotencyKey, postAction, putAction, toServerFilters, useDicts, useFilterPersistence, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
 
-defineOptions({ name: 'ModuleMng' })
+defineOptions({ name: 'module-mng' })
 
 interface ProjectGroup {
   id: string

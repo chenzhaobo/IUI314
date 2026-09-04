@@ -13,7 +13,7 @@ import {
 } from '@/api/dmpApis'
 import { formatTime, useGet, usePost, usePut, useTableAutoHeight, withTableDefaults } from '@/hooks'
 
-defineOptions({ name: 'dmp-crawl' })
+defineOptions({ name: 'crawl' })
 
 function requestFailed(data: { value: unknown }, error: { value: unknown }) {
   return Boolean(error.value) || data.value === ErrorFlag
