@@ -184,3 +184,16 @@ export enum ApiSysScheduledTasksLog {
   delete = '/system/job_log/delete',
   clean = '/system/job_log/clean',
 }
+
+/**
+ * 数据库升级记录（本实例所连库的迁移执行情况）
+ *
+ * 放在 system 而不是 mc：seaql_migrations 与 sys_migration_log 都在被迁移的那个库里，
+ * 谁连了哪个库就看哪个库。
+ */
+export enum ApiSysMigration {
+  getList = '/system/migration/list',
+  getDetail = '/system/migration/detail',
+  reset = '/system/migration/reset',
+  purgeLog = '/system/migration/purge_log',
+}

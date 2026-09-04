@@ -25,10 +25,3 @@ export enum ApiMcEnvironment {
 export enum ApiMcAudit {
   getList = '/mc/audit/list',
 }
-
-// ── 迁移执行记录（只读；触发迁移不在 Web 上提供）──
-export enum ApiMcMigration {
-  runs = '/mc/migration/runs',
-  statements = '/mc/migration/statements',
-  applied = '/mc/migration/applied',
-}

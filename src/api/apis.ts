@@ -6,6 +6,7 @@ import type {
   ApiSysLogin,
   ApiSysLoginLog,
   ApiSysMenu,
+  ApiSysMigration,
   ApiSysOnlineUser,
   ApiSysOperateLog,
   ApiSysPost,
@@ -55,7 +56,7 @@ import type {
   ApiDmp
 } from './dmpApis'
 import type { ApiAiAgent, ApiAiSkill, ApiAiExecution, ApiAiInvoke } from './aiApis'
-import type { ApiMcArtifact, ApiMcAudit, ApiMcEnvironment, ApiMcMigration } from './mcApis'
+import type { ApiMcArtifact, ApiMcAudit, ApiMcEnvironment } from './mcApis'
 
 export type APIS =
   | ApiSysLogin
@@ -73,6 +74,7 @@ export type APIS =
   | ApiSysServiceMonitor
   | ApiSysScheduledTasks
   | ApiSysScheduledTasksLog
+  | ApiSysMigration
   | ApiSecScanTool
   | ApiSecScanRun
   | ApiSecFinding
@@ -111,7 +113,6 @@ export type APIS =
   | ApiMcArtifact
   | ApiMcEnvironment
   | ApiMcAudit
-  | ApiMcMigration
 
 export const ErrorFlag = '__________' // 错误标志
 export * from './sysApis'
