@@ -36,7 +36,7 @@ const cacheList = computed(() => tabBarStore.getCacheList)
 
 <template>
   <a-scrollbar :style="scrollbarStyle">
-    <div>
+    <div class="app-main-wrapper">
       <router-view v-slot="{ Component, route }">
         <!--
           刻意**不用** `mode="out-in"`。
@@ -69,9 +69,35 @@ const cacheList = computed(() => tabBarStore.getCacheList)
 </template>
 
 <style scoped lang="scss">
+/*
+  ── 高度链：为什么页面原来占不满 ────────────────────────────────
+  `.app-main-content` 一直写着 `min-height: 100%`，但它没生效 ——
+  百分比高度要求**父级有确定高度**，而它的父级（包裹 div）与
+  `.arco-scrollbar-container` 都是 auto 高度，百分比就退化成 auto。
+  所以内容少的页面（公有云性能那几个）白色卡片只有内容那么高，
+  下方露出灰色背景，看起来"没占满"。
+
+  a-scrollbar 根节点有确定高度（模板里的内联 style: calc(var(--vh)*100 - ...)），
+  从它往下逐层补齐即可：容器 height:100% → 包裹层 min-height:100% + flex 纵向
+  → 内容 flex:1。用 flex 而不是继续套百分比，是因为百分比对 `min-height` 的
+  父级同样不算"确定高度"，链条会在包裹层再断一次。
+*/
+:deep(.arco-scrollbar-container) {
+  height: 100%;
+}
+
+.app-main-wrapper {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
 .app-main-content {
+  flex: 1 1 auto;
+  /* min-height: 0 是 flex 子项能被内部滚动区正确压缩的前提；
+     缺了它，页面内的 overflow:auto 区域会把父级顶高而不是自己滚。 */
+  min-height: 0;
   background-color: var(--header-bar-bg-color);
   border-radius: 4px;
-  min-height: 100%;
 }
 </style>

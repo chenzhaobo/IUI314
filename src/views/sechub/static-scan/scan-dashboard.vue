@@ -229,7 +229,9 @@ const topAppsOption = computed(() => {
   const apps = [...(globalData.value?.top_apps ?? [])].reverse()
   return {
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-    grid: { left: 10, right: 40, top: 10, bottom: 10, containLabel: true },
+    // ECharts 6 弃用 grid.containLabel（会打 LegacyGridContainLabel 告警），
+    // 改用 outerBounds —— 语义正是"含轴标签的外边界"，原值平移即可。
+    grid: { outerBounds: { left: 10, right: 40, top: 10, bottom: 10 } },
     xAxis: { type: 'value', minInterval: 1 },
     yAxis: {
       type: 'category',

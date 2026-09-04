@@ -21,3 +21,34 @@
 .side-menu {
     height: calc(var(--vh) * 100 - var(--header-bar-height));
 }
+
+/*
+  ── 面板内部滚动工具类 ──────────────────────────────────────────
+  用于左树、长列表这类"内容可能比页面高"的侧栏面板：让**面板自己滚**，
+  而不是把整个页面顶高。
+
+  痛点：左树展开层级多时会一路把页面撑长，右侧表格被推到视口外，
+  用户得先滚很久才看到内容。
+
+  用法：
+    <div class="panel-scroll-y" :style="{ maxHeight: someHeight }"> ... </div>
+  或配合父级 flex 布局，不给 max-height 也能生效（靠 min-height:0 被压缩）。
+
+  两个关键点：
+  · `min-height: 0` —— flex 子项默认 min-height:auto，会拒绝被压缩到内容以下，
+    没有这一行 overflow 永远不触发（这是 flex 布局里最常见的"滚动条不出现"原因）。
+  · `overscroll-behavior: contain` —— 面板滚到底时不要把滚动继续传给页面，
+    否则用户滚树会意外把整页滚走。
+*/
+.panel-scroll-y {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* 纵向 flex 容器 + 可被压缩，供页面搭"表格/树占满剩余高度"的骨架 */
+.flex-col-fill {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}

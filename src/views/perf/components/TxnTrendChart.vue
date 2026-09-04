@@ -94,12 +94,15 @@ function buildOption(data: any[]): EChartsOption {
       data: ['最新结果', '比对值', '目标值'],
       top: 5,
     },
+    // ECharts 6 弃用 grid.containLabel（会打 LegacyGridContainLabel 告警），
+    // 改用 outerBounds —— 语义正是"含轴标签的外边界"，原值平移即可。
     grid: {
-      left: '3%',
-      right: '4%',
-      bottom: '15%',
-      top: '15%',
-      containLabel: true,
+      outerBounds: {
+        left: '3%',
+        right: '4%',
+        bottom: '15%',
+        top: '15%',
+      },
     },
     xAxis: {
       type: 'category',

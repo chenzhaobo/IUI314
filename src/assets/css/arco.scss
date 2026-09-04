@@ -89,6 +89,22 @@ body {
         white-space: nowrap;
     }
 
+    // ── 空数据时表格也占满可用高度 ─────────────────────────────────
+    //
+    // 设了 `:scroll.y` 之后有数据时表格体高度是确定的，但**没数据**时
+    // Arco 只渲染一行 `.arco-table-tr-empty`，表格塌成一条 —— 下面露出大片
+    // 灰色背景，和有数据时的观感完全不同。
+    //
+    // 类名核对自官方 `lib/table/style/index.less`（`&-empty` / `&-tr-empty`），
+    // 不是猜的 —— 本文件里已经栽过两次写出匹配不到的选择器（拖动手柄、cell-text）。
+    .arco-table.arco-table-empty {
+        .arco-table-tr-empty .arco-table-td {
+            height: 320px;
+            vertical-align: middle;
+            border-bottom: none;
+        }
+    }
+
     //调整modal-simple
     .arco-modal-simple{
         width: 300px !important;
