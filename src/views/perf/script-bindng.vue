@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed, watch } from 'vue'
 import { Message, type TreeNodeData } from '@arco-design/web-vue'
-import { formatTime, useGet, postAction, deleteAction, getAction } from '@/hooks'
+import { formatTime, useGet, postAction, deleteAction, getAction, useAutoHeight } from '@/hooks'
 import { ApiPerfScript, ApiPerfScriptMenu, ApiPerfMenu, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
 
 defineOptions({ name: 'script-bindng' })
@@ -35,6 +35,8 @@ const projectGroupOptions = computed(() => {
 const projectGroupName = ref('')
 
 // ── 左侧菜单树 ──────────────────────────────────
+const treePanel = ref<HTMLElement>()
+const { style: treeStyle } = useAutoHeight(treePanel)
 const treeData = ref<any[]>([])
 const selectedKeys = ref<string[]>([])
 const selectedMenuId = ref('')
@@ -326,16 +328,18 @@ async function handleAddSubmit() {
 
     <div v-else class="bind-layout">
       <!-- 左侧菜单树 -->
-      <a-card :bordered="false" class="tree-panel panel-scroll-y">
-        <template #title>云 / 应用 / 菜单</template>
-        <a-tree
-          :data="treeData"
-          v-model:selected-keys="selectedKeys"
-          :field-names="{ key: 'key', title: 'title', children: 'children' }"
-          block-node
-          @select="handleTreeSelect"
-        />
-      </a-card>
+      <div ref="treePanel" class="tree-panel panel-scroll-y" :style="treeStyle">
+        <a-card :bordered="false">
+          <template #title>云 / 应用 / 菜单</template>
+          <a-tree
+            :data="treeData"
+            v-model:selected-keys="selectedKeys"
+            :field-names="{ key: 'key', title: 'title', children: 'children' }"
+            block-node
+            @select="handleTreeSelect"
+          />
+        </a-card>
+      </div>
 
       <!-- 右侧脚本绑定列表 -->
       <a-card :bordered="false" class="table-panel">
@@ -432,8 +436,6 @@ async function handleAddSubmit() {
 .tree-panel {
   width: 320px;
   min-width: 320px;
-  max-height: calc(100vh - 220px);
-  overflow-y: auto;
 }
 .table-panel {
   flex: 1;

@@ -59,7 +59,8 @@
       </a-row>
 
       <!-- 左树右图：高度占满视口剩余空间，利用页面下方空白 -->
-      <div :style="{ display: 'flex', gap: '16px', minHeight: '480px', height: 'calc(100vh - 300px)' }">
+      <!-- 外层 flex 行定高：子项靠 flex 派生高度，需父级有确定 height（maxHeight 不算），故用实测 height -->
+      <div ref="layoutRow" :style="{ display: 'flex', gap: '16px', minHeight: '480px', height: layoutRowH + 'px' }">
         <!-- 左树 -->
         <!--
           左栏是纵向 flex：搜索框固定、只让树滚（与达标率看板一致）。
@@ -109,8 +110,8 @@
             </span>
           </div>
           <!--
-            原来图表高度写死 calc(100vh - 380px)，而外层行高是 calc(100vh - 300px) ——
-            两个偏移差 80px，底部就留出一段空白。改成 flex:1 由外层派生，天然对齐。
+            原来图表高度写死一个 calc 偏移，比外层行的偏移还多 80px ——
+            两者不一致，底部就留出一段空白。改成 flex:1 由外层派生，天然对齐。
             a-spin 是组件，需 :deep 才能让它的根节点参与 flex，故给它显式样式。
           -->
           <a-spin :loading="chartLoading" style="width: 100%; flex: 1; min-height: 0" class="chart-spin">
@@ -126,9 +127,13 @@
 import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { ApiPerfCompliance } from '@/api/perfApis'
-import { useGet, useRequest, getQueryUrl, useDownload } from '@/hooks'
+import { useGet, useRequest, getQueryUrl, useDownload, useAutoHeight } from '@/hooks'
 
 defineOptions({ name: 'compliance-trend' })
+
+// 左树右图外层 flex 行：实测顶边反推确定高度，供子项 flex:1 派生（详见模板注释）
+const layoutRow = ref<HTMLElement>()
+const { height: layoutRowH } = useAutoHeight(layoutRow)
 
 const chartRef = ref<HTMLElement>()
 let chart: echarts.ECharts | null = null

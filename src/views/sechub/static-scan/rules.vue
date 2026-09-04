@@ -4,7 +4,7 @@ import { computed, reactive, ref } from 'vue'
 import { Message, Modal, type TableColumnData } from '@arco-design/web-vue'
 import { ApiSecRuleVersion, ApiSecScanPoint } from '@/api/sechubApis'
 import StatusBadge from '@/components/static-scan/StatusBadge.vue'
-import { useDownload, useGet, usePost, useToken } from '@/hooks'
+import { useAutoHeight, useDownload, useGet, usePost, useToken } from '@/hooks'
 import { domainLabels, securityCategoryLabels } from './labels'
 
 defineOptions({ name: 'StaticScanRules' })
@@ -14,6 +14,10 @@ const { data: treeData } = useGet<ScanPointTreeNode[]>(ApiSecScanPoint.tree, {},
 const scanPointTree = computed(() => treeData.value ?? [])
 const expandedTreeKeys = ref<string[]>([])
 const selectedTreeKey = ref('')
+
+// 左树面板高度实测顶边反推，替代原先写死的视口偏移
+const treePanel = ref<HTMLElement>()
+const { style: treeStyle } = useAutoHeight(treePanel)
 
 function onTreeSelect(keys: (string | number)[]) {
   const key = keys.length ? String(keys[0]) : ''
@@ -495,7 +499,7 @@ function downloadTemplate() {
       <!-- 左树：扫描点树 -->
       <a-col :span="5">
         <a-card title="扫描点分类" :bordered="false" size="small">
-          <div class="panel-scroll-y" :style="{ maxHeight: 'calc(100vh - 220px)' }">
+          <div ref="treePanel" class="panel-scroll-y" :style="treeStyle">
             <a-tree
               v-if="arcoTreeData.length"
               :data="arcoTreeData"

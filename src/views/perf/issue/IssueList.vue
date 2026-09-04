@@ -98,7 +98,14 @@
           <a-button type="primary" status="success" @click="handleAdd">新增</a-button>
         </div>
 
-        <div class="scope-layout">
+        <!--
+        布局行必须有**确定高度**，不能只给 min-height：
+        IssueScopeTree 内部是 `flex:1; min-height:0; overflow:auto`（自己滚），
+        但那要求父级高度确定 —— 只有 min-height 时父级仍是 auto，
+        树会一路把页面撑长（反馈：左树太长导致出现页面滚动条）。
+        高度用实测而非写死 calc(100vh - N)：写死值只要与实际顶边不符就会超出视口。
+      -->
+      <div ref="layoutRow" class="scope-layout" :style="{ height: layoutRowH + 'px' }">
           <aside class="scope-panel panel-scroll-y">
             <IssueScopeTree :key="scopeTreeKey" :filters="scopeCountFilters" source="issue" @change="handleScopeChange" />
           </aside>
@@ -381,13 +388,17 @@ import { MdPreview } from 'md-editor-v3'
 // 必须导入样式，否则 MdPreview 渲染出来没有任何格式
 import 'md-editor-v3/lib/style.css'
 import { ApiPerfIssue, ApiPerfPatternLedger } from '@/api/perfApis'
-import { useDelete, useDownload, useGet, usePost, usePut, useTableAutoHeight } from '@/hooks'
+import { useDelete, useDownload, useGet, usePost, usePut, useTableAutoHeight, useAutoHeight } from '@/hooks'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
 import { useUserStore } from '@/stores'
 
 defineOptions({ name: 'issue-list' })
 
 // 表格高度自适应：滚动条落在表格内、表头固定
+// 布局行高度实测（左树靠它才能内部滚动，见模板处说明）
+const layoutRow = ref<HTMLElement>()
+const { height: layoutRowH } = useAutoHeight(layoutRow)
+
 const tableWrap = ref<HTMLElement>()
 const { tableHeight } = useTableAutoHeight(tableWrap)
 

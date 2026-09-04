@@ -15,7 +15,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
-import { downloadText, formatTime, useGet, usePost } from '@/hooks'
+import { downloadText, formatTime, useAutoHeight, useGet, usePost } from '@/hooks'
 import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import { applyColumnFilters, emptyFilter, isFilterActive, useFilterPersistence } from '@/hooks'
 import 'md-editor-v3/lib/style.css'
@@ -730,10 +730,14 @@ const filteredCandidates = computed(() =>
  * 表格滚动配置。数据少时不设 y —— 固定高度会让空白区留在滚动容器内，
  * 横向滚动条被推到底部压住最后几行数据。行数少就让表格自然收缩。
  */
+// 表格高度实测顶边反推，替代写死的表体高度偏移。ref 挂在表格外层原生 div 上
+// （不能挂 a-table 组件），useAutoHeight 的 height 是数字，正好给 :scroll.y。
+const candidateTableWrap = ref<HTMLElement>()
+const { height: candidateTableH } = useAutoHeight(candidateTableWrap)
 const candidateScroll = computed(() => {
   const base = { x: 1500 }
   return filteredCandidates.value.length > 12
-    ? { ...base, y: 'calc(100vh - 420px)' }
+    ? { ...base, y: candidateTableH.value }
     : base
 })
 
@@ -1021,6 +1025,7 @@ watch(() => route.query, (newQ, oldQ) => {
               :options="columnOptions"
             />
           </template>
+          <div ref="candidateTableWrap">
           <a-table
             v-model:selected-keys="selectedCandidateIds"
             :loading="candidateLoading"
@@ -1160,6 +1165,7 @@ watch(() => route.query, (newQ, oldQ) => {
               </div>
             </template>
           </a-table>
+          </div>
         </a-card>
       </div>
     </div>

@@ -49,7 +49,14 @@
         </a-col>
       </a-row>
 
-      <div class="scope-layout">
+      <!--
+        布局行必须有**确定高度**，不能只给 min-height：
+        IssueScopeTree 内部是 `flex:1; min-height:0; overflow:auto`（自己滚），
+        但那要求父级高度确定 —— 只有 min-height 时父级仍是 auto，
+        树会一路把页面撑长（反馈：左树太长导致出现页面滚动条）。
+        高度用实测而非写死 calc(100vh - N)：写死值只要与实际顶边不符就会超出视口。
+      -->
+      <div ref="layoutRow" class="scope-layout" :style="{ height: layoutRowH + 'px' }">
         <aside class="scope-panel">
           <IssueScopeTree :key="scopeTreeKey" :filters="scopeCountFilters" source="pattern" @change="handleScopeChange" />
         </aside>
@@ -275,13 +282,17 @@ import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message, Modal } from '@arco-design/web-vue'
 import { ApiPerfPatternLedger } from '@/api/perfApis'
-import { useDownload, useGet, usePost, useTableAutoHeight } from '@/hooks'
+import { useDownload, useGet, usePost, useTableAutoHeight, useAutoHeight } from '@/hooks'
 import { MdPreview } from 'md-editor-v3'
 // 必须导入样式，否则 MdPreview 渲染出来没有任何格式（表格无边框、标题不分级）
 import 'md-editor-v3/lib/style.css'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
 
 defineOptions({ name: 'pattern-ledger' })
+
+// 布局行高度实测（左树靠它才能内部滚动，见模板处说明）
+const layoutRow = ref<HTMLElement>()
+const { height: layoutRowH } = useAutoHeight(layoutRow)
 
 const router = useRouter()
 const pageNum = ref(1)
@@ -597,7 +608,8 @@ const handleLinkIssue = async () => {
   background: rgb(var(--arcoblue-5));
   border-radius: 1px;
 }
-.scope-layout { display: flex; gap: 16px; min-height: 520px; }
-.scope-panel { width: 280px; flex-shrink: 0; padding-right: 12px; border-right: 1px solid var(--color-border-2); }
-.scope-content { flex: 1; min-width: 0; }
+/* height 由模板实测给出；min-height 只作为极小窗口下的兜底 */
+.scope-layout { display: flex; gap: 16px; min-height: 420px; }
+.scope-panel { width: 280px; flex-shrink: 0; min-height: 0; padding-right: 12px; border-right: 1px solid var(--color-border-2); }
+.scope-content { flex: 1; min-width: 0; min-height: 0; overflow: auto; }
 </style>

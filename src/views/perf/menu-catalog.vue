@@ -9,7 +9,7 @@ interface CatalogTreeNode extends TreeNodeData {
   is_leaf?: boolean
   children?: CatalogTreeNode[]
 }
-import { formatTime, postAction, putAction, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
+import { formatTime, postAction, putAction, useGet, useAutoHeight, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiPerfEnv, ApiPerfApp, ApiPerfMenu, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
 import SyncMenuModal from './components/SyncMenuModal.vue'
 import AutoMatchModal from './components/AutoMatchModal.vue'
@@ -140,6 +140,8 @@ async function handleToggleScope(record: any) {
 const { data: statsData, isFetching: statsLoading, execute: fetchStats } = useGet<any>(ApiPerfMenu.stats, computed(() => ({ product_line: productLine.value, domain_code: menuQuery.value.domain_code || undefined, project_group_name: menuQuery.value.project_group_name || undefined })), { immediate: false })
 
 // ── 左侧树 ──────────────────────────────────
+const treePanel = ref<HTMLElement>()
+const { style: treeStyle } = useAutoHeight(treePanel)
 const treeData = ref<any[]>([])
 const selectedKeys = ref<string[]>([])
 const expandedKeys = ref<string[]>([])
@@ -521,21 +523,23 @@ const { tableHeight: buttonTableHeight } = useTableAutoHeight(buttonTableWrap)
 
     <div v-else class="catalog-layout">
       <!-- 左侧树 -->
-      <a-card :bordered="false" class="tree-panel panel-scroll-y">
-        <template #title>云 / 应用 / 菜单</template>
-        <a-spin :loading="treeLoading" style="width: 100%">
-          <a-tree
-            :data="treeData"
-            v-model:selected-keys="selectedKeys"
-            v-model:expanded-keys="expandedKeys"
-            :field-names="{ key: 'key', title: 'title', children: 'children' }"
-            block-node
-            :default-expand-all="false"
-            @select="handleTreeSelect"
-            @expand="handleTreeExpand"
-          />
-        </a-spin>
-      </a-card>
+      <div ref="treePanel" class="tree-panel panel-scroll-y" :style="treeStyle">
+        <a-card :bordered="false">
+          <template #title>云 / 应用 / 菜单</template>
+          <a-spin :loading="treeLoading" style="width: 100%">
+            <a-tree
+              :data="treeData"
+              v-model:selected-keys="selectedKeys"
+              v-model:expanded-keys="expandedKeys"
+              :field-names="{ key: 'key', title: 'title', children: 'children' }"
+              block-node
+              :default-expand-all="false"
+              @select="handleTreeSelect"
+              @expand="handleTreeExpand"
+            />
+          </a-spin>
+        </a-card>
+      </div>
 
       <!-- 右侧动态面板 -->
       <a-card :bordered="false" class="table-panel">
@@ -724,8 +728,6 @@ const { tableHeight: buttonTableHeight } = useTableAutoHeight(buttonTableWrap)
 .tree-panel {
   width: 320px;
   min-width: 320px;
-  max-height: calc(100vh - 280px);
-  overflow-y: auto;
 }
 :deep(.arco-tree-node-switcher) {
   width: 22px !important;

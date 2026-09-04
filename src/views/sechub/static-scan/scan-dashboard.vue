@@ -29,7 +29,7 @@ import VChart from 'vue-echarts'
 import { ApiSecModuleRepository, ApiSecPrescan } from '@/api/sechubApis'
 import { ApiAiAgent, ApiAiSkill, type AiAgent, type AiSkill } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
-import { formatTime, useGet, getAction, postAction } from '@/hooks'
+import { formatTime, useAutoHeight, useGet, getAction, postAction } from '@/hooks'
 import { domainLabels, securityCategoryLabels } from './labels'
 
 type SelectChangeValue = string | number | boolean | Record<string, unknown> | (string | number | boolean | Record<string, unknown>)[]
@@ -41,6 +41,19 @@ use([BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, Canva
 defineOptions({ name: 'scan-dashboard' })
 
 const router = useRouter()
+
+// 左树右表所在的 flex 行：实测顶边反推确定高度，替代原先写死的视口偏移。
+// 这里取 height（不是 maxHeight）：内部左树/右表靠 flex:1 派生高度，
+// 父级必须有确定高度，maxHeight 不算确定高度。
+const dashboardRow = ref<HTMLElement>()
+const { height: dashboardRowH } = useAutoHeight(dashboardRow, { min: 420 })
+
+// 两张明细表各自实测（顶边相同但分处两个分支，分别测量更稳），
+// 替代原先写死的表体高度偏移。给表格用 height 数字（:scroll.y）。
+const scanpointTableWrap = ref<HTMLElement>()
+const { height: scanpointTableH } = useAutoHeight(scanpointTableWrap)
+const fileTableWrap = ref<HTMLElement>()
+const { height: fileTableH } = useAutoHeight(fileTableWrap)
 
 // ===== 应用列表（模块+仓库+维度字段） =====
 const { data: repoList } = useGet<ModuleWithRepository[]>(ApiSecModuleRepository.listWithModule, {}, { immediate: true })
@@ -1219,7 +1232,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
 
     <!-- 主体：左树右表 -->
     <a-card :bordered="false" :body-style="{ padding: '16px' }">
-      <div style="display: flex; gap: 16px; height: calc(100vh - 300px); min-height: 420px">
+      <div ref="dashboardRow" style="display: flex; gap: 16px; min-height: 420px" :style="{ height: dashboardRowH + 'px' }">
         <!-- 左树：组织维度 -->
         <div style="width: 300px; flex-shrink: 0; border-right: 1px solid #e5e6eb; padding-right: 12px; display: flex; flex-direction: column; min-height: 0">
           <a-radio-group v-model="dimension" type="button" size="small" style="margin-bottom: 8px" @change="onDimensionChange">
@@ -1332,15 +1345,15 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
             </div>
 
             <!-- 按扫描点 -->
+            <div v-if="tableView === 'scanpoint'" ref="scanpointTableWrap" style="flex: 1; min-height: 0">
             <a-table
-              v-if="tableView === 'scanpoint'"
               :data="summaryRows"
               :columns="summaryColumns"
               :loading="loadingDashboard"
               :pagination="false"
               row-key="scan_point_id"
               size="small"
-              :scroll="{ x: 1100, y: 'calc(100vh - 430px)' }"
+              :scroll="{ x: 1100, y: scanpointTableH }"
             >
               <template #domain="{ record }">
                 <a-tag size="small" :color="record.domain === 'security' ? 'red' : 'blue'">
@@ -1356,17 +1369,18 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
                 </a-button>
               </template>
             </a-table>
+            </div>
 
             <!-- 按文件 -->
+            <div v-else ref="fileTableWrap" style="flex: 1; min-height: 0">
             <a-table
-              v-else
               :data="codeDetail?.list ?? []"
               :columns="fileCandidateColumns"
               :loading="codeLoading"
               :pagination="{ total: codeDetail?.total ?? 0, current: codePageNum, pageSize: 50 }"
               row-key="id"
               size="small"
-              :scroll="{ x: 1200, y: 'calc(100vh - 430px)' }"
+              :scroll="{ x: 1200, y: fileTableH }"
               @page-change="(page: number) => { codePageNum = page; loadCodeCandidates() }"
             >
               <template #domain="{ record }">
@@ -1395,6 +1409,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
                 <span v-else>-</span>
               </template>
             </a-table>
+            </div>
           </template>
         </div>
       </div>

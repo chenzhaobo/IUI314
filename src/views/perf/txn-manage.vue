@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed, watch, h } from 'vue'
 import { Message, type TableColumnData, type TreeNodeData } from '@arco-design/web-vue'
-import { formatTime, isRequestFailed, postAction, useGet, usePut, useTableAutoHeight, withTableDefaults } from '@/hooks'
+import { formatTime, isRequestFailed, postAction, useGet, usePut, useAutoHeight, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiPerfBenchmark, ApiPerfMenu, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
 import * as XLSX from 'xlsx'
 
@@ -90,6 +90,8 @@ const total = computed(() => rawListData.value?.total || 0)
 const { data: statsData, isFetching: statsLoading, execute: fetchStats } = useGet<any>(ApiPerfBenchmark.txnStats, queryParams, { immediate: false })
 
 // ── 左侧菜单树 ──────────────────────────────────
+const treePanel = ref<HTMLElement>()
+const { style: treeStyle } = useAutoHeight(treePanel)
 const treeData = ref<any[]>([])
 const selectedKeys = ref<string[]>([])
 const selectedMenuName = ref('')
@@ -663,16 +665,18 @@ const scriptColumns = [
 
     <div v-else class="txn-layout">
       <!-- 左侧菜单树 -->
-      <a-card :bordered="false" class="tree-panel panel-scroll-y">
-        <template #title>菜单目录</template>
-        <a-tree
-          :data="treeData"
-          v-model:selected-keys="selectedKeys"
-          :field-names="{ key: 'key', title: 'title', children: 'children' }"
-          block-node
-          @select="handleTreeSelect"
-        />
-      </a-card>
+      <div ref="treePanel" class="tree-panel panel-scroll-y" :style="treeStyle">
+        <a-card :bordered="false">
+          <template #title>菜单目录</template>
+          <a-tree
+            :data="treeData"
+            v-model:selected-keys="selectedKeys"
+            :field-names="{ key: 'key', title: 'title', children: 'children' }"
+            block-node
+            @select="handleTreeSelect"
+          />
+        </a-card>
+      </div>
 
       <!-- 右侧事务列表 -->
       <a-card :bordered="false" class="table-panel">
@@ -813,8 +817,6 @@ const scriptColumns = [
 .tree-panel {
   width: 300px;
   min-width: 300px;
-  max-height: calc(100vh - 280px);
-  overflow-y: auto;
 }
 :deep(.arco-tree-node-switcher) {
   width: 22px !important;

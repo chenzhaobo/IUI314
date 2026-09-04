@@ -72,7 +72,8 @@
       </a-row>
 
       <!-- 左树右表：高度占满视口剩余空间，随分辨率自适应 -->
-      <div style="display: flex; gap: 16px; height: calc(100vh - 250px); min-height: 420px">
+      <!-- 外层 flex 行定高：子项靠 flex 派生高度，需父级有确定 height（maxHeight 不算），故用实测 height -->
+      <div ref="layoutRow" :style="{ display: 'flex', gap: '16px', height: layoutRowH + 'px', minHeight: '420px' }">
         <!-- 左树 -->
         <div style="width: 280px; flex-shrink: 0; border-right: 1px solid #e5e6eb; padding-right: 12px; display: flex; flex-direction: column; min-height: 0">
           <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px">
@@ -189,11 +190,15 @@ import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { ApiPerfCompliance } from '@/api/perfApis'
-import { useGet, useDownload, useTableAutoHeight } from '@/hooks'
+import { useGet, useDownload, useTableAutoHeight, useAutoHeight } from '@/hooks'
 
 defineOptions({ name: 'compliance-dashboard' })
 
 const router = useRouter()
+
+// 左树右表外层 flex 行：实测顶边反推确定高度，供子项 flex:1 派生（详见模板注释）
+const layoutRow = ref<HTMLElement>()
+const { height: layoutRowH } = useAutoHeight(layoutRow)
 
 // 表格高度自适应（滚动条在表格内，表头固定）
 const tableWrap = ref<HTMLElement>()

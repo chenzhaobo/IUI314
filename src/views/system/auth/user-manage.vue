@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 
 import type { TreeInstance } from '@arco-design/web-vue'
 import { ApiSysDept } from '@/api/apis'
-import { emitter, useGet } from '@/hooks'
+import { emitter, useAutoHeight, useGet } from '@/hooks'
 import { systemMenus } from '@/router'
 import type { dept } from '@/types/system/dept'
 import UserManageForm from '@/views/system/auth/pages/user/user-manage-form.vue'
@@ -25,6 +25,10 @@ const fieldNames = {
 const searchKey = ref<string>('')
 const dept_ids = ref<string[]>()
 const deptTreeRef = ref<TreeInstance>()
+
+// 部门树面板高度实测顶边反推，替代原先写死的视口偏移
+const deptPanel = ref<HTMLElement>()
+const { style: deptTreeStyle } = useAutoHeight(deptPanel)
 
 const { data: deptTree } = useGet<dept[]>(
   ApiSysDept.getDeptTree,
@@ -112,16 +116,20 @@ watch(() => deptTree.value, () => {
             <icon-user />
           </template>
         </a-input>
-        <a-tree
+        <div
           v-if="treeData && treeData.length > 0"
-          ref="deptTreeRef"
-          :data="treeData"
-          :field-names="fieldNames"
-          show-line
+          ref="deptPanel"
           class="panel-scroll-y"
-          :style="{ maxHeight: 'calc(100vh - 180px)' }"
-          @select="handleSelect"
-        />
+          :style="deptTreeStyle"
+        >
+          <a-tree
+            ref="deptTreeRef"
+            :data="treeData"
+            :field-names="fieldNames"
+            show-line
+            @select="handleSelect"
+          />
+        </div>
       </a-grid-item>
 
       <a-grid-item :span="{ xs: 24, sm: 24, md: 24, lg: 24, xl: 20, xxl: 21 }">
