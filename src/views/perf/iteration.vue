@@ -1,7 +1,9 @@
 <script lang="ts" setup>
-import { ref, computed } from 'vue'
+import type { ColumnFilterState } from '@/hooks'
+import { ref, computed, onMounted } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { useGet, postAction, putAction, deleteAction } from '@/hooks'
+import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
+import { useGet, postAction, putAction, deleteAction, emptyFilter, isFilterActive, toServerFilters, useFilterPersistence, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiPerfIteration } from '@/api/apis'
 
 defineOptions({ name: 'iteration' })
@@ -17,11 +19,35 @@ const queryParams = ref({
   status: '',
   is_current: '',
   build_no: '',
+  filters: undefined as string | undefined,
 })
 
 const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<any>(ApiPerfIteration.getList, queryParams, { immediate: true })
 const dataList = computed(() => rawListData.value?.list || [])
 const total = computed(() => rawListData.value?.total || 0)
+
+// ── 列头筛选（服务端）──────────────────────────────
+// 服务端分页页面必须走后端筛，前端筛只筛当前页，搜靠后的记录会搜不到。
+const FILTERABLE_COLUMNS = ['code', 'name', 'project_name', 'build_no'] as const
+const columnFilters = ref<Record<string, ColumnFilterState>>(
+  Object.fromEntries(FILTERABLE_COLUMNS.map(k => [k, emptyFilter('text')])),
+)
+
+function filterableOf(key: string) {
+  return {
+    slotName: `filter-${key}`,
+    filteredValue: isFilterActive(columnFilters.value[key]) ? ['1'] : [],
+    filter: () => true,
+    hideButton: true,
+  }
+}
+
+function onColumnFilterChange() {
+  // 条件变了：把列筛选序列化成后端 filters 参数，复位到第一页再查
+  queryParams.value.filters = toServerFilters(columnFilters.value)
+  queryParams.value.page_num = 1
+  getList()
+}
 
 function handleSearch() {
   queryParams.value.page_num = 1
@@ -43,17 +69,34 @@ const currentOptions = [
   { label: '非当前', value: '0' },
 ]
 
-const columns = [
-  { title: '编码', dataIndex: 'code', width: 140 },
-  { title: '名称', dataIndex: 'name', width: 160, ellipsis: true, tooltip: true },
-  { title: '项目', dataIndex: 'project_name', width: 180, ellipsis: true, tooltip: true },
+const columns = computed(() => withTableDefaults([
+  { title: '编码', dataIndex: 'code', width: 140, filterable: filterableOf('code') },
+  { title: '名称', dataIndex: 'name', width: 160, filterable: filterableOf('name') },
+  { title: '项目', dataIndex: 'project_name', width: 180, filterable: filterableOf('project_name') },
   { title: '开始日期', dataIndex: 'start_date', width: 110 },
   { title: '结束日期', dataIndex: 'end_date', width: 110 },
-  { title: '构建号', dataIndex: 'build_no', width: 130, ellipsis: true, tooltip: true },
-  { title: '当前', dataIndex: 'is_current', width: 70, slot: 'is_current' },
-  { title: '状态', dataIndex: 'status', width: 60, slot: 'status' },
-  { title: '操作', dataIndex: 'operations', slot: 'operations', width: 200, fixed: 'right' as const },
-]
+  { title: '构建号', dataIndex: 'build_no', width: 130, filterable: filterableOf('build_no') },
+  { title: '当前', dataIndex: 'is_current', width: 70, slotName: 'is_current' },
+  { title: '状态', dataIndex: 'status', width: 60, slotName: 'status' },
+  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 200, fixed: 'right' as const },
+]))
+
+// ── 表格高度自适应（滚动条在表格内，表头固定）──────────
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
+
+// 列筛选条件按标签页暂存；恢复后（内部 onMounted 已 restore）同步到查询参数并重查一次
+useFilterPersistence('perf-iteration', {
+  columnFilters,
+})
+onMounted(() => {
+  const restored = toServerFilters(columnFilters.value)
+  if (restored) {
+    queryParams.value.filters = restored
+    queryParams.value.page_num = 1
+    getList()
+  }
+})
 
 // ── 新增/编辑弹窗 ──────────────────────────────────
 const modalVisible = ref(false)
@@ -157,6 +200,7 @@ async function handleSetCurrent(record: any) {
     </a-card>
 
     <!-- 表格 -->
+    <div ref="tableWrap">
     <a-card :bordered="false">
 <a-table
   column-resizable
@@ -165,8 +209,12 @@ async function handleSetCurrent(record: any) {
         :columns="columns"
         :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true, showPageSize: true }"
         row-key="id"
+        :scroll="{ y: tableHeight }"
         @page-change="handlePageChange"
       >
+        <template v-for="key in FILTERABLE_COLUMNS" #[`filter-${key}`] :key="key">
+          <ColumnFilterPanel v-model="columnFilters[key]" @change="onColumnFilterChange" />
+        </template>
         <template #is_current="{ record }">
           <a-tag :color="record.is_current === '1' ? 'green' : 'gray'">{{ record.is_current === '1' ? '当前' : '-' }}</a-tag>
         </template>
@@ -184,6 +232,7 @@ async function handleSetCurrent(record: any) {
         </template>
       </a-table>
     </a-card>
+    </div>
 
     <!-- 新增/编辑弹窗 -->
     <a-modal v-model:visible="modalVisible" :title="isEdit ? '编辑迭代' : '新增迭代'" :width="600" :ok-loading="submitting" @ok="handleSubmit">

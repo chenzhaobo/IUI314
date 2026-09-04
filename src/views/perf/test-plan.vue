@@ -1,7 +1,9 @@
 <script lang="ts" setup>
-import { ref, computed, watch } from 'vue'
+import type { ColumnFilterState } from '@/hooks'
+import { ref, computed, onMounted, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { deleteAction, formatTime, postAction, putAction, useGet } from '@/hooks'
+import { deleteAction, emptyFilter, formatTime, isFilterActive, postAction, putAction, toServerFilters, useFilterPersistence, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
+import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import { ApiPerfTestPlan, ApiPerfScript, ApiPerfEnv, ApiPerfIteration, ApiSysDictData, ApiPerfLoadNode } from '@/api/apis'
 
 defineOptions({ name: 'PerfTestPlan' })
@@ -10,7 +12,7 @@ defineOptions({ name: 'PerfTestPlan' })
 const viewMode = ref<'list' | 'edit'>('list')
 
 // ── 列表 ──────────────────────────────────
-const queryParams = ref({
+const queryParams = ref<Record<string, any>>({
   page_num: 1,
   page_size: 10,
   keyword: '',
@@ -29,16 +31,51 @@ function handlePageChange(page: number) {
   getList()
 }
 
+// ── 列筛选（服务端分页，走 toServerFilters 交后端） ──────────────
+const FILTERABLE_COLUMNS = ['name'] as const
+const columnFilters = ref<Record<string, ColumnFilterState>>(
+  Object.fromEntries(FILTERABLE_COLUMNS.map(k => [k, emptyFilter('text')])),
+)
+function filterableOf(key: string) {
+  return {
+    slotName: `filter-${key}`,
+    filteredValue: isFilterActive(columnFilters.value[key]) ? ['1'] : [],
+    filter: () => true,
+    hideButton: true,
+  }
+}
+function onColumnFilterChange() {
+  queryParams.value.page_num = 1
+  queryParams.value.filters = toServerFilters(columnFilters.value)
+  getList()
+}
 
-const columns = [
-  { title: '计划名称', dataIndex: 'name', width: 200, ellipsis: true, tooltip: true },
+// 表格高度自适应 + 筛选暂存
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
+useFilterPersistence('perf-test-plan', {
+  pageSize: computed({ get: () => queryParams.value.page_size, set: v => (queryParams.value.page_size = v) }),
+  columnFilters,
+})
+
+// 页内往返恢复列筛选后按恢复的条件重查（注册在持久化之后，故在其恢复之后执行）
+onMounted(() => {
+  if (FILTERABLE_COLUMNS.some(k => isFilterActive(columnFilters.value[k]))) {
+    queryParams.value.page_num = 1
+    queryParams.value.filters = toServerFilters(columnFilters.value)
+    getList()
+  }
+})
+
+const columns = computed(() => withTableDefaults([
+  { title: '计划名称', dataIndex: 'name', width: 200, filterable: filterableOf('name') },
   { title: '执行策略', dataIndex: 'task_type', width: 90, slotName: 'task_type' },
   { title: '并发数', dataIndex: 'max_concurrency', width: 80 },
   { title: '定时', dataIndex: 'schedule_enabled', width: 80, slotName: 'schedule' },
   { title: '状态', dataIndex: 'status', width: 80, slotName: 'status' },
   { title: '创建时间', dataIndex: 'created_at', width: 160, slotName: 'created_at' },
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 240, fixed: 'right' as const },
-]
+]))
 
 // ── 业务领域字典（sec_pg_business_area） ──────────────────────────────────
 const { data: domainDictRaw } = useGet<any>(ApiSysDictData.getByType, { dict_type: 'sec_pg_business_area' }, { immediate: true })
@@ -379,6 +416,7 @@ async function handleTriggerSubmit() {
         </a-row>
       </a-card>
 
+      <div ref="tableWrap">
       <a-card :bordered="false">
 <a-table
   column-resizable
@@ -387,8 +425,12 @@ async function handleTriggerSubmit() {
           :columns="columns"
           :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true, showPageSize: true }"
           row-key="id"
+          :scroll="{ y: tableHeight }"
           @page-change="handlePageChange"
         >
+          <template v-for="key in FILTERABLE_COLUMNS" #[`filter-${key}`] :key="key">
+            <ColumnFilterPanel v-model="columnFilters[key]" @change="onColumnFilterChange" />
+          </template>
           <template #task_type="{ record }">
             <a-tag :color="record.task_type === 'parallel' ? 'blue' : 'gray'">
               {{ record.task_type === 'parallel' ? '并行' : '串行' }}
@@ -417,6 +459,7 @@ async function handleTriggerSubmit() {
           </template>
         </a-table>
       </a-card>
+      </div>
     </template>
 
     <!-- 编辑视图 -->

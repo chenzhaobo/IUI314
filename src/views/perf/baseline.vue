@@ -1,8 +1,10 @@
 <script lang="ts" setup>
-import { ref, computed } from 'vue'
+import type { ColumnFilterState } from '@/hooks'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
-import { deleteAction, formatTime, postAction, useGet } from '@/hooks'
+import { deleteAction, emptyFilter, formatTime, isFilterActive, postAction, toServerFilters, useFilterPersistence, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
+import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import { ApiPerfBaseline, ApiPerfRun, ApiPerfScript } from '@/api/apis'
 
 const router = useRouter()
@@ -10,13 +12,49 @@ const router = useRouter()
 defineOptions({ name: 'baseline' })
 
 // ── 基线列表 ──────────────────────────────────
-const queryParams = ref({ page_num: 1, page_size: 10, keyword: '', script_id: '' })
+const queryParams = ref<Record<string, any>>({ page_num: 1, page_size: 10, keyword: '', script_id: '' })
 const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<any>(ApiPerfBaseline.getList, queryParams, { immediate: true })
 const dataList = computed(() => rawListData.value?.list || [])
 const total = computed(() => rawListData.value?.total || 0)
 
 function handleSearch() { queryParams.value.page_num = 1; getList() }
 function handlePageChange(page: number) { queryParams.value.page_num = page; getList() }
+
+// ── 列筛选（服务端分页，走 toServerFilters 交后端） ──────────────
+const FILTERABLE_COLUMNS = ['name', 'version_label'] as const
+const columnFilters = ref<Record<string, ColumnFilterState>>(
+  Object.fromEntries(FILTERABLE_COLUMNS.map(k => [k, emptyFilter('text')])),
+)
+function filterableOf(key: string) {
+  return {
+    slotName: `filter-${key}`,
+    filteredValue: isFilterActive(columnFilters.value[key]) ? ['1'] : [],
+    filter: () => true,
+    hideButton: true,
+  }
+}
+function onColumnFilterChange() {
+  queryParams.value.page_num = 1
+  queryParams.value.filters = toServerFilters(columnFilters.value)
+  getList()
+}
+
+// 表格高度自适应 + 筛选暂存
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
+useFilterPersistence('perf-baseline', {
+  pageSize: computed({ get: () => queryParams.value.page_size, set: v => (queryParams.value.page_size = v) }),
+  columnFilters,
+})
+
+// 页内往返恢复列筛选后按恢复的条件重查（注册在持久化之后，故在其恢复之后执行）
+onMounted(() => {
+  if (FILTERABLE_COLUMNS.some(k => isFilterActive(columnFilters.value[k]))) {
+    queryParams.value.page_num = 1
+    queryParams.value.filters = toServerFilters(columnFilters.value)
+    getList()
+  }
+})
 
 // 脚本列表
 const { data: scriptData } = useGet<any>(ApiPerfScript.getList, { page_num: 1, page_size: 100 }, { immediate: true })
@@ -42,16 +80,16 @@ const runOptions = computed(() =>
     .map((r: any) => ({ label: `${formatTime(r.started_at)} | ${scriptMap.value[r.script_id] || r.script_id.slice(0, 8)}`, value: r.id }))
 )
 
-const columns = [
-  { title: '基线名称', dataIndex: 'name', width: 160 },
-  { title: '版本标签', dataIndex: 'version_label', width: 120 },
+const columns = computed(() => withTableDefaults([
+  { title: '基线名称', dataIndex: 'name', width: 160, filterable: filterableOf('name') },
+  { title: '版本标签', dataIndex: 'version_label', width: 120, filterable: filterableOf('version_label') },
   { title: '类型', dataIndex: 'baseline_type', width: 80 },
-  { title: '脚本名称', dataIndex: 'script_id', width: 140, slotName: 'script_name', ellipsis: true, tooltip: true },
-  { title: '执行记录', dataIndex: 'run_id', width: 140, slotName: 'run_info', ellipsis: true, tooltip: true },
+  { title: '脚本名称', dataIndex: 'script_id', width: 140, slotName: 'script_name' },
+  { title: '执行记录', dataIndex: 'run_id', width: 140, slotName: 'run_info' },
   { title: '状态', dataIndex: 'status', width: 60, slotName: 'status' },
   { title: '创建时间', dataIndex: 'created_at', width: 160, slotName: 'created_at' },
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 200, fixed: 'right' as const },
-]
+]))
 
 // ── 新增基线弹窗 ──────────────────────────────────
 const addVisible = ref(false)
@@ -170,10 +208,14 @@ function deltaText(delta: number, digits = 2): string {
       </a-row>
     </a-card>
 
+    <div ref="tableWrap">
     <a-card :bordered="false">
       <a-table column-resizable :loading="isLoading" :data="dataList" :columns="columns"
         :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true, showPageSize: true }"
-        row-key="id" @page-change="handlePageChange">
+        row-key="id" :scroll="{ y: tableHeight }" @page-change="handlePageChange">
+        <template v-for="key in FILTERABLE_COLUMNS" #[`filter-${key}`] :key="key">
+          <ColumnFilterPanel v-model="columnFilters[key]" @change="onColumnFilterChange" />
+        </template>
         <template #created_at="{ record }">{{ formatTime(record.created_at) }}</template>
         <template #script_name="{ record }">
           {{ scriptMap[record.script_id] || record.script_id?.substring(0, 8) || '-' }}
@@ -193,6 +235,7 @@ function deltaText(delta: number, digits = 2): string {
         </template>
       </a-table>
     </a-card>
+    </div>
 
     <!-- 新增基线弹窗 -->
     <a-modal v-model:visible="addVisible" title="新增性能基线" :width="520" @ok="handleAddSubmit">

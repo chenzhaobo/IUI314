@@ -1,24 +1,51 @@
 <script lang="ts" setup>
+import type { ColumnFilterState } from '@/hooks'
 import { computed, ref } from 'vue'
 import { Message } from '@arco-design/web-vue'
+import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import { ApiSecFinding } from '@/api/apis'
-import { useGet, postAction, putAction } from '@/hooks'
+import { useGet, postAction, putAction, emptyFilter, isFilterActive, toServerFilters, useFilterPersistence, useTableAutoHeight, withTableDefaults } from '@/hooks'
 
 defineOptions({ name: 'finding' })
 
 // ── 查询 ──────────────────────────────────────────
-const queryParams = ref({
+const queryParams = ref<Record<string, any>>({
   page_num: 1,
   page_size: 10,
   keyword: '',
   severity: '',
   finding_status: '',
   tool_code: '',
+  filters: undefined as string | undefined,
 })
 
 const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<any>(ApiSecFinding.getList, queryParams, { immediate: true })
 const dataList = computed(() => rawListData.value?.list || [])
 const total = computed(() => rawListData.value?.total || 0)
+
+// ── 列筛选（服务端）：文本主键列走后端 filters ──
+const FILTERABLE_COLUMNS = ['title', 'vuln_type', 'assignee_names'] as const
+const columnFilters = ref<Record<string, ColumnFilterState>>(
+  Object.fromEntries(FILTERABLE_COLUMNS.map(k => [k, emptyFilter('text')])),
+)
+function filterableOf(key: string) {
+  return {
+    slotName: `filter-${key}`,
+    filteredValue: isFilterActive(columnFilters.value[key]) ? ['1'] : [],
+    filter: () => true,
+    hideButton: true,
+  }
+}
+function onColumnFilterChange() {
+  queryParams.value.filters = toServerFilters(columnFilters.value)
+  queryParams.value.page_num = 1
+  getList()
+}
+useFilterPersistence('sechub-finding', { columnFilters })
+
+// ── 表格高度自适应（滚动条在表格内，表头固定）──
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 
 function handleSearch() {
   queryParams.value.page_num = 1
@@ -90,18 +117,18 @@ const statusOptions = [
   { label: '已重开', value: 'reopened' },
 ]
 
-const columns = [
+const columns = computed(() => withTableDefaults([
   { title: '工具', dataIndex: 'tool_code', width: 80 },
   { title: '严重程度', dataIndex: 'severity', width: 80 },
-  { title: '标题', dataIndex: 'title', width: 200, ellipsis: true, tooltip: true },
-  { title: '漏洞类型', dataIndex: 'vuln_type', width: 120 },
+  { title: '标题', dataIndex: 'title', width: 200, filterable: filterableOf('title') },
+  { title: '漏洞类型', dataIndex: 'vuln_type', width: 120, filterable: filterableOf('vuln_type') },
   { title: '状态', dataIndex: 'finding_status', width: 80 },
   { title: '命中次数', dataIndex: 'hit_count', width: 80 },
   { title: '首次发现', dataIndex: 'first_seen_at', width: 160 },
   { title: '最近发现', dataIndex: 'last_seen_at', width: 160 },
-  { title: '负责人', dataIndex: 'assignee_names', width: 100 },
+  { title: '负责人', dataIndex: 'assignee_names', width: 100, filterable: filterableOf('assignee_names') },
   { title: '操作', slotName: 'operations', width: 200, fixed: 'right' as const },
-]
+]))
 </script>
 <template>
   <div>
@@ -129,6 +156,7 @@ const columns = [
       </a-row>
     </a-card>
     <!-- 表格 -->
+    <div ref="tableWrap">
     <a-card :bordered="false">
 <a-table
   column-resizable
@@ -137,8 +165,12 @@ const columns = [
         :columns="columns"
         :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true }"
         row-key="id"
+        :scroll="{ y: tableHeight }"
         @page-change="(p: number) => { queryParams.page_num = p; getList() }"
       >
+        <template v-for="key in FILTERABLE_COLUMNS" #[`filter-${key}`] :key="key">
+          <ColumnFilterPanel v-model="columnFilters[key]" @change="onColumnFilterChange" />
+        </template>
         <template #operations="{ record }">
           <a-space>
             <a-button type="text" size="small" @click="openTriage(record)">Triage</a-button>
@@ -147,6 +179,7 @@ const columns = [
         </template>
       </a-table>
     </a-card>
+    </div>
     <!-- Triage 弹窗 -->
     <a-modal v-model:visible="triageVisible" title="Triage 人工判定" @ok="handleTriage">
       <a-form :model="triageForm" layout="vertical">

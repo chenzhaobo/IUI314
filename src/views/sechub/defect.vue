@@ -1,9 +1,11 @@
 <script lang="ts" setup>
+import type { ColumnFilterState } from '@/hooks'
 import { computed, ref } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { ApiSecDefect } from '@/api/apis'
 import { ApiSecApproval, ApiSecDisposition } from '@/api/sechubApis'
-import { useGet, postAction, putAction, deleteAction, getAction } from '@/hooks'
+import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
+import { useGet, postAction, putAction, deleteAction, getAction, emptyFilter, isFilterActive, toServerFilters, useFilterPersistence, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { useUserStore } from '@/stores'
 
 defineOptions({ name: 'defect' })
@@ -12,10 +14,35 @@ const userStore = useUserStore()
 // 负责人写入的是展示名，优先用昵称（扫码登录用户的账号是 kd_<金蝶uid>）
 const currentUser = computed(() => userStore.user.nickname || userStore.user.name || userStore.user.uid || 'admin')
 
-const queryParams = ref({ page_num: 1, page_size: 10, keyword: '', project_group_id: '' })
+const queryParams = ref<Record<string, any>>({ page_num: 1, page_size: 10, keyword: '', project_group_id: '', filters: undefined as string | undefined })
 const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<any>(ApiSecDefect.getList, queryParams, { immediate: true })
 const dataList = computed(() => rawListData.value?.list || [])
 const total = computed(() => rawListData.value?.total || 0)
+
+// ── 列筛选（服务端）：文本主键列走后端 filters，避免只筛当前页 ──
+const FILTERABLE_COLUMNS = ['defect_code', 'defect_title', 'module_path', 'assignee_names', 'discoverer_names'] as const
+const columnFilters = ref<Record<string, ColumnFilterState>>(
+  Object.fromEntries(FILTERABLE_COLUMNS.map(k => [k, emptyFilter('text')])),
+)
+function filterableOf(key: string) {
+  return {
+    slotName: `filter-${key}`,
+    filteredValue: isFilterActive(columnFilters.value[key]) ? ['1'] : [],
+    filter: () => true,
+    hideButton: true,
+  }
+}
+// 条件变化 → 复位到第 1 页并带上 filters 重新请求（前端筛只筛当前页，语义错误）
+function onColumnFilterChange() {
+  queryParams.value.filters = toServerFilters(columnFilters.value)
+  queryParams.value.page_num = 1
+  getList()
+}
+useFilterPersistence('sechub-defect', { columnFilters })
+
+// ── 表格高度自适应（滚动条在表格内，表头固定）──
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 
 // ── 新增/编辑 ──────────────────────────────────────
 const modalVisible = ref(false)
@@ -141,18 +168,18 @@ async function submitNofix() {
   }
 }
 
-const columns = [
-  { title: '缺陷代码', dataIndex: 'defect_code', width: 120 },
-  { title: '缺陷标题', dataIndex: 'defect_title', width: 200, ellipsis: true, tooltip: true },
+const columns = computed(() => withTableDefaults([
+  { title: '缺陷代码', dataIndex: 'defect_code', width: 120, filterable: filterableOf('defect_code') },
+  { title: '缺陷标题', dataIndex: 'defect_title', width: 200, filterable: filterableOf('defect_title') },
   { title: '状态', dataIndex: 'defect_status', width: 80 },
   { title: '优先级', dataIndex: 'priority', width: 80 },
   { title: '项目组', dataIndex: 'project_group_name', width: 120 },
-  { title: '模块路径', dataIndex: 'module_path', width: 160, ellipsis: true, tooltip: true },
-  { title: '负责人', dataIndex: 'assignee_names', width: 100 },
-  { title: '发现人', dataIndex: 'discoverer_names', width: 100 },
+  { title: '模块路径', dataIndex: 'module_path', width: 160, filterable: filterableOf('module_path') },
+  { title: '负责人', dataIndex: 'assignee_names', width: 100, filterable: filterableOf('assignee_names') },
+  { title: '发现人', dataIndex: 'discoverer_names', width: 100, filterable: filterableOf('discoverer_names') },
   { title: '安全缺陷', dataIndex: 'is_security', width: 80 },
   { title: '操作', slotName: 'operations', width: 240, fixed: 'right' as const },
-]
+]))
 </script>
 <template>
   <div>
@@ -169,21 +196,26 @@ const columns = [
         </a-col>
       </a-row>
     </a-card>
-    <a-card :bordered="false">
-      <a-table column-resizable :loading="isLoading" :data="dataList" :columns="columns" :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true }" row-key="id" @page-change="(p: number) => { queryParams.page_num = p; getList() }">
-        <template #operations="{ record }">
-          <a-space>
-            <a-button type="text" size="small" @click="handleDetail(record)">详情</a-button>
-            <a-button v-if="!record.assignee_names" type="text" size="small" status="success" @click="handleClaim(record)">认领</a-button>
-            <a-button type="text" size="small" status="warning" @click="openNofix(record)">不处理</a-button>
-            <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
-            <a-popconfirm content="确认删除？" @ok="handleDelete(record)">
-              <a-button type="text" size="small" status="danger">删除</a-button>
-            </a-popconfirm>
-          </a-space>
-        </template>
-      </a-table>
-    </a-card>
+    <div ref="tableWrap">
+      <a-card :bordered="false">
+        <a-table column-resizable :loading="isLoading" :data="dataList" :columns="columns" :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true }" row-key="id" :scroll="{ y: tableHeight }" @page-change="(p: number) => { queryParams.page_num = p; getList() }">
+          <template v-for="key in FILTERABLE_COLUMNS" #[`filter-${key}`] :key="key">
+            <ColumnFilterPanel v-model="columnFilters[key]" @change="onColumnFilterChange" />
+          </template>
+          <template #operations="{ record }">
+            <a-space>
+              <a-button type="text" size="small" @click="handleDetail(record)">详情</a-button>
+              <a-button v-if="!record.assignee_names" type="text" size="small" status="success" @click="handleClaim(record)">认领</a-button>
+              <a-button type="text" size="small" status="warning" @click="openNofix(record)">不处理</a-button>
+              <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
+              <a-popconfirm content="确认删除？" @ok="handleDelete(record)">
+                <a-button type="text" size="small" status="danger">删除</a-button>
+              </a-popconfirm>
+            </a-space>
+          </template>
+        </a-table>
+      </a-card>
+    </div>
     <!-- 新增/编辑弹窗 -->
     <a-modal v-model:visible="modalVisible" :title="modalTitle" :width="640" @ok="handleSubmit">
       <a-form :model="formData" layout="vertical">

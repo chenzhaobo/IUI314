@@ -1,7 +1,9 @@
 <script lang="ts" setup>
-import { ref, computed, watch } from 'vue'
+import type { ColumnFilterState } from '@/hooks'
+import { ref, computed, watch, onMounted } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { formatTime, useGet, useToken, postAction, putAction, deleteAction } from '@/hooks'
+import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
+import { formatTime, useGet, useToken, postAction, putAction, deleteAction, emptyFilter, isFilterActive, toServerFilters, useFilterPersistence, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiPerfEnv, ApiSysDictData } from '@/api/apis'
 
 defineOptions({ name: 'env-manage' })
@@ -14,6 +16,7 @@ const queryParams = ref({
   env_type: '',
   status: '',
   product_line: '',
+  filters: undefined as string | undefined,
 })
 
 // ── 产品线字典 ──────────────────────────────────
@@ -44,6 +47,28 @@ function handlePageChange(page: number) {
   getList()
 }
 
+// ── 列头筛选（服务端）──────────────────────────────
+// 服务端分页页面必须走后端筛：前端筛只筛当前页，搜靠后的记录会搜不到。
+const FILTERABLE_COLUMNS = ['env_name', 'env_code', 'db_host', 'meta_db_name', 'db_prefix'] as const
+const columnFilters = ref<Record<string, ColumnFilterState>>(
+  Object.fromEntries(FILTERABLE_COLUMNS.map(k => [k, emptyFilter('text')])),
+)
+
+function filterableOf(key: string) {
+  return {
+    slotName: `filter-${key}`,
+    filteredValue: isFilterActive(columnFilters.value[key]) ? ['1'] : [],
+    filter: () => true,
+    hideButton: true,
+  }
+}
+
+function onColumnFilterChange() {
+  queryParams.value.filters = toServerFilters(columnFilters.value)
+  queryParams.value.page_num = 1
+  getList()
+}
+
 // ── 环境类型字典 ──────────────────────────────
 const { data: envTypeDictRaw } = useGet<any>(ApiSysDictData.getByType, { dict_type: 'perf_env_type' }, { immediate: true })
 const envTypeOptions = computed(() => {
@@ -52,20 +77,35 @@ const envTypeOptions = computed(() => {
 })
 const envTypeFormOptions = computed(() => (Array.isArray(envTypeDictRaw.value) ? envTypeDictRaw.value : []).map((d: any) => ({ label: d.dict_label, value: d.dict_value })))
 
-const columns = [
-  { title: '环境名称', dataIndex: 'env_name', width: 160, ellipsis: true, tooltip: true },
-  { title: '编码', dataIndex: 'env_code', width: 100 },
+const columns = computed(() => withTableDefaults([
+  { title: '环境名称', dataIndex: 'env_name', width: 160, filterable: filterableOf('env_name') },
+  { title: '编码', dataIndex: 'env_code', width: 100, filterable: filterableOf('env_code') },
   { title: '产品线', dataIndex: 'product_line', width: 80 },
   { title: '类型', dataIndex: 'env_type', width: 70, slotName: 'env_type' },
-  { title: 'DB地址', dataIndex: 'db_host', width: 130 },
+  { title: 'DB地址', dataIndex: 'db_host', width: 130, filterable: filterableOf('db_host') },
   { title: '端口', dataIndex: 'db_port', width: 60 },
-  { title: 'Meta库', dataIndex: 'meta_db_name', width: 140 },
-  { title: 'DB前缀', dataIndex: 'db_prefix', width: 110 },
+  { title: 'Meta库', dataIndex: 'meta_db_name', width: 140, filterable: filterableOf('meta_db_name') },
+  { title: 'DB前缀', dataIndex: 'db_prefix', width: 110, filterable: filterableOf('db_prefix') },
   { title: '同步状态', dataIndex: 'sync_status', width: 80, slotName: 'sync_status' },
   { title: '最后同步', dataIndex: 'last_sync_at', width: 160, slotName: 'last_sync' },
   { title: '状态', dataIndex: 'status', width: 60, slotName: 'status' },
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 200, fixed: 'right' as const },
-]
+]))
+
+// ── 表格高度自适应（滚动条在表格内，表头固定）──────────
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
+
+// 列筛选条件按标签页暂存；恢复后同步到查询参数并重查一次
+useFilterPersistence('perf-env-manage', { columnFilters })
+onMounted(() => {
+  const restored = toServerFilters(columnFilters.value)
+  if (restored) {
+    queryParams.value.filters = restored
+    queryParams.value.page_num = 1
+    getList()
+  }
+})
 
 // ── 新增/编辑弹窗 ──────────────────────────────────
 const modalVisible = ref(false)
@@ -181,6 +221,7 @@ async function handleHealthCheck(record: any) {
     </a-card>
 
     <a-card :bordered="false">
+    <div ref="tableWrap">
 <a-table
   column-resizable
         :loading="isLoading"
@@ -188,8 +229,12 @@ async function handleHealthCheck(record: any) {
         :columns="columns"
         :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true, showPageSize: true }"
         row-key="id"
+        :scroll="{ y: tableHeight }"
         @page-change="handlePageChange"
       >
+        <template v-for="key in FILTERABLE_COLUMNS" #[`filter-${key}`] :key="key">
+          <ColumnFilterPanel v-model="columnFilters[key]" @change="onColumnFilterChange" />
+        </template>
         <template #env_type="{ record }">
           <a-tag>{{ record.env_type }}</a-tag>
         </template>
@@ -214,6 +259,7 @@ async function handleHealthCheck(record: any) {
           </a-space>
         </template>
       </a-table>
+    </div>
     </a-card>
 
     <!-- 新增/编辑弹窗 -->

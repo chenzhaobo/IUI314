@@ -12,13 +12,15 @@ import type {
   SourceSnapshotRequest,
   WorkerJobReceipt,
 } from '@/types/static-scan'
+import type { ColumnFilterState } from '@/hooks'
 import { Message } from '@arco-design/web-vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import * as XLSX from 'xlsx'
 import { ApiPerfModule } from '@/api/perfApis'
 import { ApiSecModuleRepository, ApiSecProjectGroup } from '@/api/sechubApis'
+import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import StatusBadge from '@/components/static-scan/StatusBadge.vue'
-import { deleteAction, newIdempotencyKey, postAction, putAction, useDicts, useGet } from '@/hooks'
+import { deleteAction, emptyFilter, isFilterActive, newIdempotencyKey, postAction, putAction, toServerFilters, useDicts, useFilterPersistence, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
 
 defineOptions({ name: 'ModuleMng' })
 
@@ -148,6 +150,7 @@ const queryParams = ref({
   status: '',
   project_group_id: '',
   parent_cloud: '',
+  filters: undefined as string | undefined,
 })
 
 const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<PageResult<ModuleSummary>>(
@@ -157,6 +160,28 @@ const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<Pa
 )
 const dataList = computed(() => rawListData.value?.list ?? [])
 const total = computed(() => rawListData.value?.total ?? 0)
+
+// ── 列头筛选（服务端）──────────────────────────────
+// 服务端分页页面必须走后端筛：前端筛只筛当前页，搜靠后的记录会搜不到。
+const FILTERABLE_COLUMNS = ['name', 'code', 'module_code', 'material_short_code', 'owner'] as const
+const columnFilters = ref<Record<string, ColumnFilterState>>(
+  Object.fromEntries(FILTERABLE_COLUMNS.map(k => [k, emptyFilter('text')])),
+)
+
+function filterableOf(key: string) {
+  return {
+    slotName: `filter-${key}`,
+    filteredValue: isFilterActive(columnFilters.value[key]) ? ['1'] : [],
+    filter: () => true,
+    hideButton: true,
+  }
+}
+
+function onColumnFilterChange() {
+  queryParams.value.filters = toServerFilters(columnFilters.value)
+  queryParams.value.page_num = 1
+  void getList()
+}
 
 function handleSearch() {
   queryParams.value.page_num = 1
@@ -186,18 +211,33 @@ const statusOptions = computed<DictOption[]>(() => {
 })
 const statusTagColor: Readonly<Record<string, string>> = { 可用: 'green', 禁用: 'red' }
 
-const columns = [
-  { title: '名称', dataIndex: 'name', width: 180, ellipsis: true, tooltip: true },
-  { title: '编码', dataIndex: 'code', width: 130, ellipsis: true, tooltip: true },
+const columns = computed(() => withTableDefaults([
+  { title: '名称', dataIndex: 'name', width: 180, filterable: filterableOf('name') },
+  { title: '编码', dataIndex: 'code', width: 130, filterable: filterableOf('code') },
   { title: '状态', dataIndex: 'status', width: 80, slotName: 'status' },
-  { title: '模块简码', dataIndex: 'module_code', width: 120, ellipsis: true, tooltip: true },
+  { title: '模块简码', dataIndex: 'module_code', width: 120, filterable: filterableOf('module_code') },
   { title: '关联项目组', dataIndex: 'scrum_team', width: 140, ellipsis: true, tooltip: true, slotName: 'scrum_team' },
-  { title: '物料简码', dataIndex: 'material_short_code', width: 120, ellipsis: true, tooltip: true },
-  { title: '物料类型', dataIndex: 'material_type', width: 100, ellipsis: true, tooltip: true },
-  { title: '所属云', dataIndex: 'parent_cloud', width: 120, ellipsis: true, tooltip: true },
-  { title: '负责人', dataIndex: 'owner', width: 90, ellipsis: true, tooltip: true },
+  { title: '物料简码', dataIndex: 'material_short_code', width: 120, filterable: filterableOf('material_short_code') },
+  { title: '物料类型', dataIndex: 'material_type', width: 100 },
+  { title: '所属云', dataIndex: 'parent_cloud', width: 120 },
+  { title: '负责人', dataIndex: 'owner', width: 90, filterable: filterableOf('owner') },
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 200, fixed: 'right' as const },
-]
+]))
+
+// ── 表格高度自适应（滚动条在表格内，表头固定）──────────
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
+
+// 列筛选条件按标签页暂存；恢复后同步到查询参数并重查一次
+useFilterPersistence('perf-module-mng', { columnFilters })
+onMounted(() => {
+  const restored = toServerFilters(columnFilters.value)
+  if (restored) {
+    queryParams.value.filters = restored
+    queryParams.value.page_num = 1
+    void getList()
+  }
+})
 
 // ── 新增/编辑 ─────────────────────────────────────
 const modalVisible = ref(false)
@@ -677,6 +717,7 @@ watch(selectedRelationId, () => void loadBranches())
     </a-card>
 
     <a-card :bordered="false">
+      <div ref="tableWrap">
       <a-table
         column-resizable
         :loading="isLoading"
@@ -684,8 +725,12 @@ watch(selectedRelationId, () => void loadBranches())
         :columns="columns"
         :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true, showPageSize: true }"
         row-key="id"
+        :scroll="{ y: tableHeight }"
         @page-change="handlePageChange"
       >
+        <template v-for="key in FILTERABLE_COLUMNS" #[`filter-${key}`] :key="key">
+          <ColumnFilterPanel v-model="columnFilters[key]" @change="onColumnFilterChange" />
+        </template>
         <template #status="{ record }">
           <a-tag :color="statusTagColor[record.status] || 'gray'">
             {{ record.status }}
@@ -710,6 +755,7 @@ watch(selectedRelationId, () => void loadBranches())
           </a-space>
         </template>
       </a-table>
+      </div>
     </a-card>
 
     <a-modal v-model:visible="modalVisible" :title="isEdit ? '编辑模块' : '新增模块'" :width="720" :ok-loading="submitting" @ok="handleSubmit">

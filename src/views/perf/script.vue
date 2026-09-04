@@ -1,7 +1,9 @@
 <script lang="ts" setup>
-import { ref, computed, watch } from 'vue'
+import type { ColumnFilterState } from '@/hooks'
+import { ref, computed, onMounted, watch } from 'vue'
 import { Message, Modal } from '@arco-design/web-vue'
-import { deleteAction, formatTime, postAction, putAction, useGet, useToken } from '@/hooks'
+import { deleteAction, emptyFilter, formatTime, isFilterActive, postAction, putAction, toServerFilters, useFilterPersistence, useGet, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
+import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import { ApiPerfScript, ApiSecProjectGroup, ApiSysDictData, ApiPerfAttachment } from '@/api/apis'
 
 defineOptions({ name: 'script' })
@@ -20,6 +22,24 @@ const queryParams = ref({
   owner: '',
 })
 
+// 列筛选：只给文本主键字段加（服务端分页，必须走 toServerFilters 交后端）
+const FILTERABLE_COLUMNS = ['name', 'code', 'owner', 'jmx_file_name'] as const
+const columnFilters = ref<Record<string, ColumnFilterState>>(
+  Object.fromEntries(FILTERABLE_COLUMNS.map(k => [k, emptyFilter('text')])),
+)
+function filterableOf(key: string) {
+  return {
+    slotName: `filter-${key}`,
+    filteredValue: isFilterActive(columnFilters.value[key]) ? ['1'] : [],
+    filter: () => true,
+    hideButton: true,
+  }
+}
+function onColumnFilterChange() {
+  queryParams.value.page_num = 1
+  getList()
+}
+
 // 动态构建请求参数，空值不传后端
 const listParams = computed(() => {
   const p: Record<string, any> = { page_num: queryParams.value.page_num, page_size: queryParams.value.page_size }
@@ -27,6 +47,8 @@ const listParams = computed(() => {
   if (queryParams.value.project_group_id) p.project_group_id = queryParams.value.project_group_id
   if (queryParams.value.bind_status) p.bind_status = queryParams.value.bind_status
   if (queryParams.value.owner) p.owner = queryParams.value.owner
+  const filters = toServerFilters(columnFilters.value)
+  if (filters) p.filters = filters
   return p
 })
 
@@ -71,26 +93,26 @@ function formatDuration(ms?: number | null) {
   return `${s}s`
 }
 
-const columns = [
-  { title: '脚本名称', dataIndex: 'name', width: 160, ellipsis: true, tooltip: true },
-  { title: '编码', dataIndex: 'code', width: 120 },
-  { title: '项目组', dataIndex: 'project_group_name', width: 120, ellipsis: true, tooltip: true },
-  { title: '测试类型', dataIndex: 'test_type', width: 80, ellipsis: true, tooltip: true },
-  { title: '责任人', dataIndex: 'owner', width: 80, ellipsis: true, tooltip: true },
+const columns = computed(() => withTableDefaults([
+  { title: '脚本名称', dataIndex: 'name', width: 160, filterable: filterableOf('name') },
+  { title: '编码', dataIndex: 'code', width: 120, filterable: filterableOf('code') },
+  { title: '项目组', dataIndex: 'project_group_name', width: 120 },
+  { title: '测试类型', dataIndex: 'test_type', width: 80 },
+  { title: '责任人', dataIndex: 'owner', width: 80, filterable: filterableOf('owner') },
   { title: '绑定数', dataIndex: 'bind_count', width: 70 },
   { title: '附件数', dataIndex: 'attachment_count', width: 70 },
   { title: '关联状态', dataIndex: 'bind_status', width: 90, slotName: 'bindStatus' },
   { title: '事务', dataIndex: 'txn_summary', width: 100, slotName: 'txnSummary' },
   { title: '版本', dataIndex: 'version', width: 60, slotName: 'version' },
-  { title: '文件名', dataIndex: 'jmx_file_name', width: 180, ellipsis: true, tooltip: true },
+  { title: '文件名', dataIndex: 'jmx_file_name', width: 180, filterable: filterableOf('jmx_file_name') },
   { title: '运行次数', dataIndex: 'run_count', width: 80 },
   { title: '最近耗时', dataIndex: 'last_duration_ms', width: 110, slotName: 'lastDuration' },
-  { title: '创建时间', dataIndex: 'created_at', width: 170, slotName: 'created_at', ellipsis: true, tooltip: true },
-  { title: '更新时间', dataIndex: 'updated_at', width: 170, slotName: 'updated_at', ellipsis: true, tooltip: true },
-  { title: '更新人', dataIndex: 'update_by', width: 100, ellipsis: true, tooltip: true },
+  { title: '创建时间', dataIndex: 'created_at', width: 170, slotName: 'created_at' },
+  { title: '更新时间', dataIndex: 'updated_at', width: 170, slotName: 'updated_at' },
+  { title: '更新人', dataIndex: 'update_by', width: 100 },
   { title: '状态', dataIndex: 'status', width: 60, slotName: 'status' },
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 140, fixed: 'right' as const },
-]
+]))
 
 // ── 上传弹窗 ──────────────────────────────────
 const uploadVisible = ref(false)
@@ -809,6 +831,25 @@ function handleSelectionChange(keys: string[]) {
   selectedIds.value = keys
 }
 
+// 表格高度自适应（滚动条在表格内、表头固定）
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
+
+// 每页条数与列筛选按标签页暂存
+useFilterPersistence('perf-script', {
+  pageSize: computed({ get: () => queryParams.value.page_size, set: v => (queryParams.value.page_size = v) }),
+  columnFilters,
+})
+
+// 页内往返时 useFilterPersistence 会在 onMounted 恢复列筛选，但首个请求已发出，
+// 恢复后需要按恢复的条件重查一次（此 onMounted 注册在持久化之后，故在其恢复之后执行）
+onMounted(() => {
+  if (FILTERABLE_COLUMNS.some(k => isFilterActive(columnFilters.value[k]))) {
+    queryParams.value.page_num = 1
+    getList()
+  }
+})
+
 // 这些 a-form 只用来做纵向布局，不做校验，但 arco 的 model 是必填 prop。
 // 用一个模块级常量而不是在模板里写 :model="{}"，避免每次渲染都新建对象。
 const layoutOnlyModel = {}
@@ -862,6 +903,7 @@ const layoutOnlyModel = {}
       </a-row>
     </a-card>
 
+    <div ref="tableWrap">
     <a-card :bordered="false">
 <a-table
   column-resizable
@@ -872,8 +914,12 @@ const layoutOnlyModel = {}
         row-key="id"
         :row-selection="{ type: 'checkbox', showCheckedAll: true }"
         v-model:selectedKeys="selectedIds"
+        :scroll="{ y: tableHeight }"
         @page-change="handlePageChange"
       >
+        <template v-for="key in FILTERABLE_COLUMNS" #[`filter-${key}`] :key="key">
+          <ColumnFilterPanel v-model="columnFilters[key]" @change="onColumnFilterChange" />
+        </template>
         <template #created_at="{ record }">{{ formatTime(record.created_at) }}</template>
         <template #updated_at="{ record }">{{ formatTime(record.updated_at) }}</template>
         <template #lastDuration="{ record }">{{ formatDuration(record.last_duration_ms) }}</template>
@@ -912,6 +958,7 @@ const layoutOnlyModel = {}
         </template>
       </a-table>
     </a-card>
+    </div>
 
     <!-- 上传弹窗（单文件/批量） -->
     <a-modal v-model:visible="uploadVisible" title="上传JMX脚本" :width="580" :ok-loading="uploadTab === 'single' ? uploading : batchUploading" @ok="handleUploadOk">

@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import SecCrudPage from './components/SecCrudPage.vue'
-import { useGet, postAction } from '@/hooks'
+import { useGet, postAction, withTableDefaults } from '@/hooks'
 import { ApiSecProjectGroup, ApiSysDictData } from '@/api/apis'
 
 defineOptions({ name: 'project-group' })
@@ -14,8 +14,8 @@ const { data: areaDict } = useGet<any>(ApiSysDictData.getByType, { dict_type: 's
 const domainOptions = computed(() => (Array.isArray(domainDict.value) ? domainDict.value : []).map((d: any) => ({ label: d.dict_label, value: d.dict_value })))
 const areaOptions = computed(() => (Array.isArray(areaDict.value) ? areaDict.value : []).map((d: any) => ({ label: d.dict_label, value: d.dict_value })))
 
-const columns = [
-  { title: '名称', dataIndex: 'name', width: 160, ellipsis: true, tooltip: true },
+const columns = withTableDefaults([
+  { title: '名称', dataIndex: 'name', width: 160 },
   { title: '代码', dataIndex: 'code', width: 120 },
   { title: '产品领域', dataIndex: 'product_group_name', width: 120 },
   { title: 'Scrum团队', dataIndex: 'scrum_team_name', width: 120 },
@@ -28,7 +28,7 @@ const columns = [
   { title: '排序', dataIndex: 'order_num', width: 60 },
   { title: '状态', dataIndex: 'status', width: 60 },
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 120, fixed: 'right' as const },
-]
+])
 
 const filters = computed(() => [
   { label: '产品领域', field: 'product_group_name', type: 'select' as const, options: domainOptions.value, placeholder: '选择产品领域' },

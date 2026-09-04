@@ -1,39 +1,12 @@
 <script lang="ts" setup>
+import { Message } from '@arco-design/web-vue'
 /**
  * 通用 CRUD 页面组件
  * 通过配置驱动：列定义、表单字段、API 端点
  */
-import { computed, ref, watch } from 'vue'
-import { Message } from '@arco-design/web-vue'
-import { useGet, usePost, usePut, useDelete } from '@/hooks'
+import { computed, ref } from 'vue'
 import { ErrorFlag } from '@/api/apis'
-
-export interface SecField {
-  label: string
-  field: string
-  type?: 'text' | 'textarea' | 'number' | 'select' | 'date'
-  options?: { label: string; value: string }[]
-  required?: boolean
-  span?: number
-}
-
-export interface SecColumn {
-  title: string
-  dataIndex?: string
-  width?: number
-  ellipsis?: boolean
-  tooltip?: boolean
-  slotName?: string
-  fixed?: 'left' | 'right'
-}
-
-export interface SecFilter {
-  label: string
-  field: string
-  type?: 'select'
-  options?: { label: string; value: string }[]
-  placeholder?: string
-}
+import { useDelete, useGet, usePost, usePut, useTableAutoHeight } from '@/hooks'
 
 const props = withDefaults(
   defineProps<{
@@ -56,6 +29,39 @@ const props = withDefaults(
     extraActions: false,
   },
 )
+// 表格高度自适应：滚动条出现在表格内、表头固定，页面本身不产生长滚动条。
+// 放在这个共享组件里，7 个使用 SecCrudPage 的页面（org / project-group /
+// release-window / scan-task / scan-tool / test-env / user-story）一次都拿到。
+// ref 必须挂在原生 div 上 —— 挂组件上拿到的是实例、没有 getBoundingClientRect。
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
+
+export interface SecField {
+  label: string
+  field: string
+  type?: 'text' | 'textarea' | 'number' | 'select' | 'date'
+  options?: { label: string, value: string }[]
+  required?: boolean
+  span?: number
+}
+
+export interface SecColumn {
+  title: string
+  dataIndex?: string
+  width?: number
+  ellipsis?: boolean
+  tooltip?: boolean
+  slotName?: string
+  fixed?: 'left' | 'right'
+}
+
+export interface SecFilter {
+  label: string
+  field: string
+  type?: 'select'
+  options?: { label: string, value: string }[]
+  placeholder?: string
+}
 
 // ── 查询 ──────────────────────────────────────────
 const queryParams = ref<Record<string, any>>({
@@ -92,7 +98,8 @@ function handleAdd() {
   formData.value = {}
   // 初始化默认值
   props.fields.forEach((f) => {
-    if (f.type === 'number') formData.value[f.field] = 0
+    if (f.type === 'number')
+      formData.value[f.field] = 0
     else if (f.type === 'select' && f.options?.length)
       formData.value[f.field] = f.options[0].value
     else formData.value[f.field] = ''
@@ -123,7 +130,8 @@ async function handleSubmit() {
       return
     }
     Message.success('编辑成功')
-  } else if (props.apiAdd) {
+  }
+  else if (props.apiAdd) {
     const { execute, data, error } = usePost(props.apiAdd, formData)
     await execute()
     if (error.value || data.value === ErrorFlag) {
@@ -149,7 +157,8 @@ async function handleDelete(record?: any) {
     return
   }
 
-  if (!props.apiDelete) return
+  if (!props.apiDelete)
+    return
 
   const { execute, data, error } = useDelete(props.apiDelete, { ids })
   await execute()
@@ -211,14 +220,20 @@ function handlePageSizeChange(size: number) {
               allow-clear
               @change="handleSearch"
             >
-              <a-option v-for="opt in f.options" :key="opt.value" :value="opt.value">{{ opt.label }}</a-option>
+              <a-option v-for="opt in f.options" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </a-option>
             </a-select>
           </a-col>
         </template>
         <a-col :span="4">
           <a-space>
-            <a-button type="primary" @click="handleSearch">搜索</a-button>
-            <a-button @click="handleReset">重置</a-button>
+            <a-button type="primary" @click="handleSearch">
+              搜索
+            </a-button>
+            <a-button @click="handleReset">
+              重置
+            </a-button>
           </a-space>
         </a-col>
       </a-row>
@@ -234,7 +249,9 @@ function handlePageSizeChange(size: number) {
             status="success"
             @click="handleAdd"
           >
-            <template #icon><icon-plus /></template>
+            <template #icon>
+              <icon-plus />
+            </template>
             新增
           </a-button>
           <a-button
@@ -243,54 +260,59 @@ function handlePageSizeChange(size: number) {
             :disabled="!selectedIds.length"
             @click="handleDelete()"
           >
-            <template #icon><icon-delete /></template>
+            <template #icon>
+              <icon-delete />
+            </template>
             批量删除
           </a-button>
           <slot name="extra-actions" />
         </a-space>
       </a-row>
 
-<a-table
-  column-resizable
-        :loading="isLoading"
-        :data="dataList"
-        :columns="columns"
-        :pagination="{
-          total,
-          current: queryParams.page_num,
-          pageSize: queryParams.page_size,
-          showTotal: true,
-          showPageSize: true,
-        }"
-        :row-key="idField"
-        :row-selection="{ type: 'checkbox', showCheckedAll: true }"
-        @page-change="handlePageChange"
-        @page-size-change="handlePageSizeChange"
-        @selection-change="handleSelectionChange"
-      >
-        <template #operations="{ record }">
-          <a-space>
-            <a-button
-              v-if="apiEdit"
-              type="text"
-              size="small"
-              @click="handleEdit(record)"
-            >
-              编辑
-            </a-button>
-            <a-popconfirm content="确认删除？" @ok="handleDelete(record)">
+      <div ref="tableWrap">
+        <a-table
+          column-resizable
+          :scroll="{ y: tableHeight }"
+          :loading="isLoading"
+          :data="dataList"
+          :columns="columns"
+          :pagination="{
+            total,
+            current: queryParams.page_num,
+            pageSize: queryParams.page_size,
+            showTotal: true,
+            showPageSize: true,
+          }"
+          :row-key="idField"
+          :row-selection="{ type: 'checkbox', showCheckedAll: true }"
+          @page-change="handlePageChange"
+          @page-size-change="handlePageSizeChange"
+          @selection-change="handleSelectionChange"
+        >
+          <template #operations="{ record }">
+            <a-space>
               <a-button
-                v-if="apiDelete"
+                v-if="apiEdit"
                 type="text"
                 size="small"
-                status="danger"
+                @click="handleEdit(record)"
               >
-                删除
+                编辑
               </a-button>
-            </a-popconfirm>
-          </a-space>
-        </template>
-      </a-table>
+              <a-popconfirm content="确认删除？" @ok="handleDelete(record)">
+                <a-button
+                  v-if="apiDelete"
+                  type="text"
+                  size="small"
+                  status="danger"
+                >
+                  删除
+                </a-button>
+              </a-popconfirm>
+            </a-space>
+          </template>
+        </a-table>
+      </div>
     </a-card>
 
     <!-- 新增/编辑弹窗 -->
