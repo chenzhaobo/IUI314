@@ -1,344 +1,346 @@
 <template>
-  <div class="container">
-    <a-card :bordered="false">
-      <!-- 搜索栏 -->
-      <a-row :gutter="16" style="margin-bottom: 16px">
-        <a-col :span="5">
-          <a-input v-model="searchForm.keyword" placeholder="标题/编号/表单" allow-clear @press-enter="handleSearch" />
-        </a-col>
-        <a-col :span="3">
-          <a-select v-model="searchForm.process_status" placeholder="处理进度" allow-clear @change="handleSearch">
-            <a-option v-for="s in PROCESS_FLOW" :key="s.value" :value="s.value">{{ s.label }}</a-option>
-            <a-option value="__none__">未认领</a-option>
-          </a-select>
-          <a-input-group>
-            <a-input
-              v-model="searchForm.dmp_defect_code"
-              placeholder="DMP 编码"
-              allow-clear
-              style="width: 140px"
-              @press-enter="handleSearch"
-              @clear="handleSearch"
-            />
-            <a-tooltip content="只看还没关联 DMP 单的" mini>
-              <a-button :type="searchForm.dmp_defect_code === '__none__' ? 'primary' : 'outline'" @click="toggleDmpUnlinked">
-                未关联
-              </a-button>
-            </a-tooltip>
-          </a-input-group>
-          <a-select v-model="searchForm.status" placeholder="状态" allow-clear>
-            <a-option value="pending">待确认</a-option>
-            <a-option value="confirmed">已确认</a-option>
-            <a-option value="fixing">处理中</a-option>
-            <a-option value="fixed">已修复</a-option>
-            <a-option value="verified">已验证</a-option>
-            <a-option value="closed">已关闭</a-option>
-            <a-option value="wontfix">不修复</a-option>
-          </a-select>
-        </a-col>
-        <a-col :span="3">
-          <a-select v-model="searchForm.severity" placeholder="严重度" allow-clear>
-            <a-option value="critical">严重</a-option>
-            <a-option value="major">重要</a-option>
-            <a-option value="minor">一般</a-option>
-          </a-select>
-        </a-col>
-        <a-col :span="3">
-          <a-select v-model="searchForm.category" placeholder="分类" allow-clear>
-            <a-option value="standard">标品</a-option>
-            <a-option value="custom">二开</a-option>
-          </a-select>
-        </a-col>
-        <a-col :span="3">
-          <a-select v-model="searchForm.source" placeholder="来源" allow-clear>
-            <a-option value="manual">手动</a-option>
-            <a-option value="diagnosis">诊断</a-option>
-            <a-option value="trace_ai">AI分析</a-option>
-          </a-select>
-        </a-col>
-        <a-col :span="3">
-          <a-input v-model="searchForm.app_number" placeholder="应用编码" allow-clear />
-        </a-col>
-        <a-col :span="4">
-          <a-space>
-            <a-button type="primary" @click="handleSearch">查询</a-button>
-            <a-button @click="handleReset">重置</a-button>
-            <!-- 内部处理流程：工具栏按钮，勾选后点。
-                 与「状态」列（生产复现状态）是两个维度，不会互相覆盖 -->
-            <a-button type="primary" :disabled="!selectedIds.length" @click="openClaim">认领</a-button>
-            <a-dropdown :disabled="!selectedIds.length" @select="(v) => transition(String(v))">
-              <a-button :disabled="!selectedIds.length" :loading="transitionLoading">
-                处理状态
-                <template #icon><icon-down /></template>
-              </a-button>
-              <template #content>
-                <a-doption v-for="s in PROCESS_FLOW" :key="s.value" :value="s.value">
-                  {{ s.label }}
-                </a-doption>
-              </template>
-            </a-dropdown>
-            <a-button :disabled="!selectedIds.length" @click="openDmp">DMP 编码</a-button>
-            <span v-if="selectedIds.length" class="sel-hint">已选 {{ selectedIds.length }} 条</span>
-            <a-button status="success" @click="handleExport">导出 Excel</a-button>
-            <a-button type="primary" status="success" @click="handleAdd">新增</a-button>
-          </a-space>
-        </a-col>
-      </a-row>
-
-      <div class="scope-layout">
-        <aside class="scope-panel">
-          <IssueScopeTree :key="scopeTreeKey" :filters="scopeCountFilters" source="issue" @change="handleScopeChange" />
-        </aside>
-        <div class="scope-content">
-          <!-- 表格 -->
-          <a-table :data="tableData" :loading="loading" :pagination="pagination" :row-selection="{ type: 'checkbox', showCheckedAll: true }" :selected-keys="selectedIds" @selection-change="onSelectionChange" @page-change="handlePageChange" row-key="id">
-            <template #columns>
-              <a-table-column title="编号" data-index="issue_no" :width="130" />
-              <a-table-column title="标题" data-index="title" :width="250" ellipsis />
-              <a-table-column title="严重度" data-index="severity" :width="80">
-                <template #cell="{ record }">
-                  <a-tag :color="severityColor(record.severity)">{{ severityText(record.severity) }}</a-tag>
+  <div>
+    <div class="container">
+      <a-card :bordered="false">
+    
+        <a-row :gutter="16" style="margin-bottom: 16px">
+          <a-col :span="5">
+            <a-input v-model="searchForm.keyword" placeholder="标题/编号/表单" allow-clear @press-enter="handleSearch" />
+          </a-col>
+          <a-col :span="3">
+            <a-select v-model="searchForm.process_status" placeholder="处理进度" allow-clear @change="handleSearch">
+              <a-option v-for="s in PROCESS_FLOW" :key="s.value" :value="s.value">{{ s.label }}</a-option>
+              <a-option value="__none__">未认领</a-option>
+            </a-select>
+            <a-input-group>
+              <a-input
+                v-model="searchForm.dmp_defect_code"
+                placeholder="DMP 编码"
+                allow-clear
+                style="width: 140px"
+                @press-enter="handleSearch"
+                @clear="handleSearch"
+              />
+              <a-tooltip content="只看还没关联 DMP 单的" mini>
+                <a-button :type="searchForm.dmp_defect_code === '__none__' ? 'primary' : 'outline'" @click="toggleDmpUnlinked">
+                  未关联
+                </a-button>
+              </a-tooltip>
+            </a-input-group>
+            <a-select v-model="searchForm.status" placeholder="状态" allow-clear>
+              <a-option value="pending">待确认</a-option>
+              <a-option value="confirmed">已确认</a-option>
+              <a-option value="fixing">处理中</a-option>
+              <a-option value="fixed">已修复</a-option>
+              <a-option value="verified">已验证</a-option>
+              <a-option value="closed">已关闭</a-option>
+              <a-option value="wontfix">不修复</a-option>
+            </a-select>
+          </a-col>
+          <a-col :span="3">
+            <a-select v-model="searchForm.severity" placeholder="严重度" allow-clear>
+              <a-option value="critical">严重</a-option>
+              <a-option value="major">重要</a-option>
+              <a-option value="minor">一般</a-option>
+            </a-select>
+          </a-col>
+          <a-col :span="3">
+            <a-select v-model="searchForm.category" placeholder="分类" allow-clear>
+              <a-option value="standard">标品</a-option>
+              <a-option value="custom">二开</a-option>
+            </a-select>
+          </a-col>
+          <a-col :span="3">
+            <a-select v-model="searchForm.source" placeholder="来源" allow-clear>
+              <a-option value="manual">手动</a-option>
+              <a-option value="diagnosis">诊断</a-option>
+              <a-option value="trace_ai">AI分析</a-option>
+            </a-select>
+          </a-col>
+          <a-col :span="3">
+            <a-input v-model="searchForm.app_number" placeholder="应用编码" allow-clear />
+          </a-col>
+          <a-col :span="4">
+            <a-space>
+              <a-button type="primary" @click="handleSearch">查询</a-button>
+              <a-button @click="handleReset">重置</a-button>
+              <!-- 内部处理流程：工具栏按钮，勾选后点。
+                   与「状态」列（生产复现状态）是两个维度，不会互相覆盖 -->
+              <a-button type="primary" :disabled="!selectedIds.length" @click="openClaim">认领</a-button>
+              <a-dropdown :disabled="!selectedIds.length" @select="(v) => transition(String(v))">
+                <a-button :disabled="!selectedIds.length" :loading="transitionLoading">
+                  处理状态
+                  <template #icon><icon-down /></template>
+                </a-button>
+                <template #content>
+                  <a-doption v-for="s in PROCESS_FLOW" :key="s.value" :value="s.value">
+                    {{ s.label }}
+                  </a-doption>
                 </template>
-              </a-table-column>
-              <a-table-column title="类型" data-index="issue_type" :width="100">
-                <template #cell="{ record }">{{ issueTypeText(record.issue_type) }}</template>
-              </a-table-column>
-              <a-table-column title="应用" data-index="app_number" :width="80" />
-              <a-table-column title="表单" data-index="form_name" :width="150" ellipsis />
-              <a-table-column title="客户" data-index="customer_name" :width="120" ellipsis />
-              <a-table-column title="状态" data-index="status" :width="90">
-                <template #cell="{ record }">
-                  <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
-                </template>
-              </a-table-column>
-              <!-- 内部处理进度：与上面的「状态」不是一回事，那个是生产复现状态 -->
-              <a-table-column title="处理进度" data-index="process_status" :width="90">
-                <template #cell="{ record }">
-                  <a-tooltip v-if="record.process_status" :content="`处理人：${record.process_owner || '-'}${record.process_prev_status ? ` ← ${processLabel(record.process_prev_status)}` : ''}`" mini>
-                    <a-tag :color="processColor(record.process_status)" size="small">{{ processLabel(record.process_status) }}</a-tag>
-                  </a-tooltip>
-                  <span v-else class="dmp-empty">未认领</span>
-                </template>
-              </a-table-column>
-              <a-table-column title="处理人" data-index="process_owner" :width="85" ellipsis tooltip />
-              <a-table-column title="DMP 编码" data-index="dmp_defect_code" :width="130" ellipsis>
-                <template #cell="{ record }">
-                  <a-typography-text v-if="record.dmp_defect_code" copyable :copy-text="record.dmp_defect_code">
-                    {{ record.dmp_defect_code }}
-                  </a-typography-text>
-                  <span v-else class="dmp-empty">未关联</span>
-                </template>
-              </a-table-column>
-              <a-table-column title="来源" data-index="source" :width="80">
-                <template #cell="{ record }">
-                  <a-tag :color="sourceColor(record.source)" size="small">{{ sourceText(record.source) }}</a-tag>
-                </template>
-              </a-table-column>
-              <a-table-column title="发现日期" data-index="found_date" :width="100" />
-              <a-table-column title="创建时间" data-index="created_at" :width="150" ellipsis tooltip />
-              <a-table-column title="更新时间" data-index="updated_at" :width="150" ellipsis tooltip />
-              <a-table-column title="操作" :width="180" fixed="right">
-                <template #cell="{ record }">
-                  <a-space>
-                    <a-link @click="handleDetail(record)">详情</a-link>
-                    <a-dropdown>
-                      <a-link>状态</a-link>
-                      <template #content>
-                        <a-doption v-for="s in getNextStatuses(record.status)" :key="s" @click="handleChangeStatus(record, s)">
-                          {{ statusText(s) }}
-                        </a-doption>
-                      </template>
-                    </a-dropdown>
-                    <a-popconfirm content="确定删除？" @ok="handleDelete(record)">
-                      <a-link status="danger">删除</a-link>
-                    </a-popconfirm>
-                  </a-space>
-                </template>
-              </a-table-column>
-            </template>
-          </a-table>
-        </div>
-      </div>
-    </a-card>
-
-    <!-- 详情抽屉 -->
-    <a-drawer
-      v-model:visible="drawerVisible"
-      :width="'82vw'"
-      title="问题详情"
-      :body-style="{ maxHeight: 'calc(100vh - 120px)', overflow: 'auto' }"
-    >
-      <a-descriptions :column="2" bordered size="small">
-        <a-descriptions-item label="编号">{{ currentRecord?.issue_no }}</a-descriptions-item>
-        <a-descriptions-item label="状态">
-          <a-tag :color="statusColor(currentRecord?.status)">{{ statusText(currentRecord?.status) }}</a-tag>
-        </a-descriptions-item>
-        <a-descriptions-item label="标题" :span="2">{{ currentRecord?.title }}</a-descriptions-item>
-        <a-descriptions-item label="严重度">{{ severityText(currentRecord?.severity) }}</a-descriptions-item>
-        <a-descriptions-item label="类型">{{ issueTypeText(currentRecord?.issue_type) }}</a-descriptions-item>
-        <a-descriptions-item label="应用">{{ currentRecord?.app_number }} - {{ currentRecord?.app_name }}</a-descriptions-item>
-        <a-descriptions-item label="表单">{{ currentRecord?.form_name }}</a-descriptions-item>
-        <a-descriptions-item label="按钮">{{ currentRecord?.control_name }}</a-descriptions-item>
-        <a-descriptions-item label="客户">{{ currentRecord?.customer_name }}</a-descriptions-item>
-        <a-descriptions-item label="项目组">{{ currentRecord?.project_group_name }}</a-descriptions-item>
-        <a-descriptions-item label="负责人">{{ currentRecord?.assignee }}</a-descriptions-item>
-        <a-descriptions-item label="发现日期">{{ currentRecord?.found_date }}</a-descriptions-item>
-        <a-descriptions-item label="修复日期">{{ currentRecord?.fixed_date }}</a-descriptions-item>
-        <a-descriptions-item label="来源">{{ sourceText(currentRecord?.source) }}</a-descriptions-item>
-        <a-descriptions-item label="出现次数">{{ currentRecord?.recurrence_count || 1 }}</a-descriptions-item>
-        <a-descriptions-item label="归因标签">{{ currentRecord?.attribution_tag || '--' }}</a-descriptions-item>
-        <a-descriptions-item label="产品线">{{ currentRecord?.product_line || '--' }}</a-descriptions-item>
-        <a-descriptions-item v-if="currentRecord?.related_issue_id" label="关联问题" :span="2">
-          <a-link @click="openRelatedIssue(currentRecord.related_issue_id)">{{ currentRecord.related_issue_id }}</a-link>
-        </a-descriptions-item>
-      </a-descriptions>
-      <!-- 这三段都是 Markdown（归因产出带列表、代码块、表格）。
-           原来 class 叫 markdown-content 却用 {{ }} 纯文本插值，名字骗人：
-           实际看到的是带 # 与 | 的原文。 -->
-      <a-divider>问题描述</a-divider>
-      <MdPreview v-if="currentRecord?.description" :modelValue="currentRecord.description" />
-      <div v-else class="markdown-content">暂无</div>
-      <a-divider>根因分析</a-divider>
-      <MdPreview v-if="currentRecord?.root_cause" :modelValue="currentRecord.root_cause" />
-      <div v-else class="markdown-content">暂无</div>
-      <a-divider>修复建议</a-divider>
-      <MdPreview v-if="currentRecord?.fix_suggestion" :modelValue="currentRecord.fix_suggestion" />
-      <div v-else class="markdown-content">暂无</div>
-      <a-divider>样本 Trace IDs</a-divider>
-      <div v-if="traceIdList(currentRecord?.trace_ids).length" class="markdown-content">
-        <a-typography-paragraph v-for="traceId in traceIdList(currentRecord?.trace_ids)" :key="traceId" copyable style="margin: 0 0 4px">{{ traceId }}</a-typography-paragraph>
-      </div>
-      <div v-else class="markdown-content">暂无</div>
-      <!-- 与问题台账详情保持一致：同一份缺陷报告 md，同样的渲染方式。
-           两者是不同的表（perf_issue 是跟踪单、perf_issue_pattern 是归因台账），
-           但面向的是同一个问题，展示应当一致 —— 差异只在流程字段上。 -->
-      <a-divider>缺陷报告</a-divider>
-      <a-spin :loading="mdLoading" style="display: block; min-height: 60px">
-        <MdPreview v-if="mdContent" :modelValue="mdContent" />
-        <a-alert v-else-if="mdReason" type="info">{{ mdReason }}</a-alert>
-        <a-empty v-else description="暂无缺陷报告" />
-      </a-spin>
-      <div v-if="mdMeta" style="margin-top: 6px; color: #86909c; font-size: 12px">
-        来源：{{ mdMeta.run_date }} / {{ mdMeta.file }}（{{ Math.round((mdMeta.bytes || 0) / 1024) }} KB{{ mdMeta.truncated ? '，已截断' : '' }}）
-      </div>
-
-      <a-divider>技术签名</a-divider>
-      <pre class="json-content">{{ prettyJson(currentRecord?.tech_signature) }}</pre>
-
-      <template #footer>
-        <a-space>
-          <a-button @click="drawerVisible = false">关闭</a-button>
-          <!-- 归因产物（原始日志 + 缺陷报告 md）打一个 zip。
-               接口按 issue_no 反查台账，所以这里不需要台账 id。 -->
-          <!-- tooltip 包在 span 上：disabled 的按钮不派发鼠标事件，
-               否则禁用态下提示不出来。 -->
-          <a-tooltip :content="bundleTip(currentRecord)">
-            <span style="display: inline-block">
-              <a-button
-                type="primary"
-                status="success"
-                :loading="bundleDownloading"
-                :disabled="!hasBundle(currentRecord)"
-                @click="handleBundleDownload()"
-              >下载关联文件</a-button>
-            </span>
-          </a-tooltip>
-        </a-space>
-      </template>
-    </a-drawer>
-
-    <!-- 新增弹窗 -->
-    <a-modal v-model:visible="modalVisible" title="新增问题" :width="700" @ok="handleSubmit">
-      <a-form :model="formData" layout="vertical">
-        <a-row :gutter="16">
-          <a-col :span="24">
-            <a-form-item label="标题" required>
-              <a-input v-model="formData.title" placeholder="问题标题" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
-            <a-form-item label="严重度">
-              <a-select v-model="formData.severity">
-                <a-option value="critical">严重</a-option>
-                <a-option value="major">重要</a-option>
-                <a-option value="minor">一般</a-option>
-              </a-select>
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
-            <a-form-item label="问题类型">
-              <a-select v-model="formData.issue_type">
-                <a-option value="slow_sql">慢SQL</a-option>
-                <a-option value="index_loop">索引循环</a-option>
-                <a-option value="rpc_slow">RPC慢调用</a-option>
-                <a-option value="accumulated">累积耗时</a-option>
-                <a-option value="other">其他</a-option>
-              </a-select>
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
-            <a-form-item label="分类">
-              <a-select v-model="formData.category">
-                <a-option value="standard">标品</a-option>
-                <a-option value="custom">二开</a-option>
-              </a-select>
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
-            <a-form-item label="应用编码">
-              <a-input v-model="formData.app_number" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
-            <a-form-item label="表单ID">
-              <a-input v-model="formData.form_id" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
-            <a-form-item label="表单名称">
-              <a-input v-model="formData.form_name" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="12">
-            <a-form-item label="客户编码">
-              <a-input v-model="formData.tenant_code" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="12">
-            <a-form-item label="客户名称">
-              <a-input v-model="formData.customer_name" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="24">
-            <a-form-item label="问题描述">
-              <a-textarea v-model="formData.description" :auto-size="{ minRows: 3 }" />
-            </a-form-item>
+              </a-dropdown>
+              <a-button :disabled="!selectedIds.length" @click="openDmp">DMP 编码</a-button>
+              <span v-if="selectedIds.length" class="sel-hint">已选 {{ selectedIds.length }} 条</span>
+              <a-button status="success" @click="handleExport">导出 Excel</a-button>
+              <a-button type="primary" status="success" @click="handleAdd">新增</a-button>
+            </a-space>
           </a-col>
         </a-row>
-      </a-form>
-    </a-modal>
+
+        <div class="scope-layout">
+          <aside class="scope-panel">
+            <IssueScopeTree :key="scopeTreeKey" :filters="scopeCountFilters" source="issue" @change="handleScopeChange" />
+          </aside>
+          <div class="scope-content">
+            <!-- 表格 -->
+            <a-table :data="tableData" :loading="loading" :pagination="pagination" :row-selection="{ type: 'checkbox', showCheckedAll: true }" :selected-keys="selectedIds" @selection-change="onSelectionChange" @page-change="handlePageChange" row-key="id">
+              <template #columns>
+                <a-table-column title="编号" data-index="issue_no" :width="130" />
+                <a-table-column title="标题" data-index="title" :width="250" ellipsis />
+                <a-table-column title="严重度" data-index="severity" :width="80">
+                  <template #cell="{ record }">
+                    <a-tag :color="severityColor(record.severity)">{{ severityText(record.severity) }}</a-tag>
+                  </template>
+                </a-table-column>
+                <a-table-column title="类型" data-index="issue_type" :width="100">
+                  <template #cell="{ record }">{{ issueTypeText(record.issue_type) }}</template>
+                </a-table-column>
+                <a-table-column title="应用" data-index="app_number" :width="80" />
+                <a-table-column title="表单" data-index="form_name" :width="150" ellipsis />
+                <a-table-column title="客户" data-index="customer_name" :width="120" ellipsis />
+                <a-table-column title="状态" data-index="status" :width="90">
+                  <template #cell="{ record }">
+                    <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
+                  </template>
+                </a-table-column>
+                <!-- 内部处理进度：与上面的「状态」不是一回事，那个是生产复现状态 -->
+                <a-table-column title="处理进度" data-index="process_status" :width="90">
+                  <template #cell="{ record }">
+                    <a-tooltip v-if="record.process_status" :content="`处理人：${record.process_owner || '-'}${record.process_prev_status ? ` ← ${processLabel(record.process_prev_status)}` : ''}`" mini>
+                      <a-tag :color="processColor(record.process_status)" size="small">{{ processLabel(record.process_status) }}</a-tag>
+                    </a-tooltip>
+                    <span v-else class="dmp-empty">未认领</span>
+                  </template>
+                </a-table-column>
+                <a-table-column title="处理人" data-index="process_owner" :width="85" ellipsis tooltip />
+                <a-table-column title="DMP 编码" data-index="dmp_defect_code" :width="130" ellipsis>
+                  <template #cell="{ record }">
+                    <a-typography-text v-if="record.dmp_defect_code" copyable :copy-text="record.dmp_defect_code">
+                      {{ record.dmp_defect_code }}
+                    </a-typography-text>
+                    <span v-else class="dmp-empty">未关联</span>
+                  </template>
+                </a-table-column>
+                <a-table-column title="来源" data-index="source" :width="80">
+                  <template #cell="{ record }">
+                    <a-tag :color="sourceColor(record.source)" size="small">{{ sourceText(record.source) }}</a-tag>
+                  </template>
+                </a-table-column>
+                <a-table-column title="发现日期" data-index="found_date" :width="100" />
+                <a-table-column title="创建时间" data-index="created_at" :width="150" ellipsis tooltip />
+                <a-table-column title="更新时间" data-index="updated_at" :width="150" ellipsis tooltip />
+                <a-table-column title="操作" :width="180" fixed="right">
+                  <template #cell="{ record }">
+                    <a-space>
+                      <a-link @click="handleDetail(record)">详情</a-link>
+                      <a-dropdown>
+                        <a-link>状态</a-link>
+                        <template #content>
+                          <a-doption v-for="s in getNextStatuses(record.status)" :key="s" @click="handleChangeStatus(record, s)">
+                            {{ statusText(s) }}
+                          </a-doption>
+                        </template>
+                      </a-dropdown>
+                      <a-popconfirm content="确定删除？" @ok="handleDelete(record)">
+                        <a-link status="danger">删除</a-link>
+                      </a-popconfirm>
+                    </a-space>
+                  </template>
+                </a-table-column>
+              </template>
+            </a-table>
+          </div>
+        </div>
+      </a-card>
+
+      <!-- 详情抽屉 -->
+      <a-drawer
+        v-model:visible="drawerVisible"
+        :width="'82vw'"
+        title="问题详情"
+        :body-style="{ maxHeight: 'calc(100vh - 120px)', overflow: 'auto' }"
+      >
+        <a-descriptions :column="2" bordered size="small">
+          <a-descriptions-item label="编号">{{ currentRecord?.issue_no }}</a-descriptions-item>
+          <a-descriptions-item label="状态">
+            <a-tag :color="statusColor(currentRecord?.status)">{{ statusText(currentRecord?.status) }}</a-tag>
+          </a-descriptions-item>
+          <a-descriptions-item label="标题" :span="2">{{ currentRecord?.title }}</a-descriptions-item>
+          <a-descriptions-item label="严重度">{{ severityText(currentRecord?.severity) }}</a-descriptions-item>
+          <a-descriptions-item label="类型">{{ issueTypeText(currentRecord?.issue_type) }}</a-descriptions-item>
+          <a-descriptions-item label="应用">{{ currentRecord?.app_number }} - {{ currentRecord?.app_name }}</a-descriptions-item>
+          <a-descriptions-item label="表单">{{ currentRecord?.form_name }}</a-descriptions-item>
+          <a-descriptions-item label="按钮">{{ currentRecord?.control_name }}</a-descriptions-item>
+          <a-descriptions-item label="客户">{{ currentRecord?.customer_name }}</a-descriptions-item>
+          <a-descriptions-item label="项目组">{{ currentRecord?.project_group_name }}</a-descriptions-item>
+          <a-descriptions-item label="负责人">{{ currentRecord?.assignee }}</a-descriptions-item>
+          <a-descriptions-item label="发现日期">{{ currentRecord?.found_date }}</a-descriptions-item>
+          <a-descriptions-item label="修复日期">{{ currentRecord?.fixed_date }}</a-descriptions-item>
+          <a-descriptions-item label="来源">{{ sourceText(currentRecord?.source) }}</a-descriptions-item>
+          <a-descriptions-item label="出现次数">{{ currentRecord?.recurrence_count || 1 }}</a-descriptions-item>
+          <a-descriptions-item label="归因标签">{{ currentRecord?.attribution_tag || '--' }}</a-descriptions-item>
+          <a-descriptions-item label="产品线">{{ currentRecord?.product_line || '--' }}</a-descriptions-item>
+          <a-descriptions-item v-if="currentRecord?.related_issue_id" label="关联问题" :span="2">
+            <a-link @click="openRelatedIssue(currentRecord.related_issue_id)">{{ currentRecord.related_issue_id }}</a-link>
+          </a-descriptions-item>
+        </a-descriptions>
+        <!-- 这三段都是 Markdown（归因产出带列表、代码块、表格）。
+             原来 class 叫 markdown-content 却用 {{ }} 纯文本插值，名字骗人：
+             实际看到的是带 # 与 | 的原文。 -->
+        <a-divider>问题描述</a-divider>
+        <MdPreview v-if="currentRecord?.description" :modelValue="currentRecord.description" />
+        <div v-else class="markdown-content">暂无</div>
+        <a-divider>根因分析</a-divider>
+        <MdPreview v-if="currentRecord?.root_cause" :modelValue="currentRecord.root_cause" />
+        <div v-else class="markdown-content">暂无</div>
+        <a-divider>修复建议</a-divider>
+        <MdPreview v-if="currentRecord?.fix_suggestion" :modelValue="currentRecord.fix_suggestion" />
+        <div v-else class="markdown-content">暂无</div>
+        <a-divider>样本 Trace IDs</a-divider>
+        <div v-if="traceIdList(currentRecord?.trace_ids).length" class="markdown-content">
+          <a-typography-paragraph v-for="traceId in traceIdList(currentRecord?.trace_ids)" :key="traceId" copyable style="margin: 0 0 4px">{{ traceId }}</a-typography-paragraph>
+        </div>
+        <div v-else class="markdown-content">暂无</div>
+        <!-- 与问题台账详情保持一致：同一份缺陷报告 md，同样的渲染方式。
+             两者是不同的表（perf_issue 是跟踪单、perf_issue_pattern 是归因台账），
+             但面向的是同一个问题，展示应当一致 —— 差异只在流程字段上。 -->
+        <a-divider>缺陷报告</a-divider>
+        <a-spin :loading="mdLoading" style="display: block; min-height: 60px">
+          <MdPreview v-if="mdContent" :modelValue="mdContent" />
+          <a-alert v-else-if="mdReason" type="info">{{ mdReason }}</a-alert>
+          <a-empty v-else description="暂无缺陷报告" />
+        </a-spin>
+        <div v-if="mdMeta" style="margin-top: 6px; color: #86909c; font-size: 12px">
+          来源：{{ mdMeta.run_date }} / {{ mdMeta.file }}（{{ Math.round((mdMeta.bytes || 0) / 1024) }} KB{{ mdMeta.truncated ? '，已截断' : '' }}）
+        </div>
+
+        <a-divider>技术签名</a-divider>
+        <pre class="json-content">{{ prettyJson(currentRecord?.tech_signature) }}</pre>
+
+        <template #footer>
+          <a-space>
+            <a-button @click="drawerVisible = false">关闭</a-button>
+            <!-- 归因产物（原始日志 + 缺陷报告 md）打一个 zip。
+                 接口按 issue_no 反查台账，所以这里不需要台账 id。 -->
+            <!-- tooltip 包在 span 上：disabled 的按钮不派发鼠标事件，
+                 否则禁用态下提示不出来。 -->
+            <a-tooltip :content="bundleTip(currentRecord)">
+              <span style="display: inline-block">
+                <a-button
+                  type="primary"
+                  status="success"
+                  :loading="bundleDownloading"
+                  :disabled="!hasBundle(currentRecord)"
+                  @click="handleBundleDownload()"
+                >下载关联文件</a-button>
+              </span>
+            </a-tooltip>
+          </a-space>
+        </template>
+      </a-drawer>
+
+      <!-- 新增弹窗 -->
+      <a-modal v-model:visible="modalVisible" title="新增问题" :width="700" @ok="handleSubmit">
+        <a-form :model="formData" layout="vertical">
+          <a-row :gutter="16">
+            <a-col :span="24">
+              <a-form-item label="标题" required>
+                <a-input v-model="formData.title" placeholder="问题标题" />
+              </a-form-item>
+            </a-col>
+            <a-col :span="8">
+              <a-form-item label="严重度">
+                <a-select v-model="formData.severity">
+                  <a-option value="critical">严重</a-option>
+                  <a-option value="major">重要</a-option>
+                  <a-option value="minor">一般</a-option>
+                </a-select>
+              </a-form-item>
+            </a-col>
+            <a-col :span="8">
+              <a-form-item label="问题类型">
+                <a-select v-model="formData.issue_type">
+                  <a-option value="slow_sql">慢SQL</a-option>
+                  <a-option value="index_loop">索引循环</a-option>
+                  <a-option value="rpc_slow">RPC慢调用</a-option>
+                  <a-option value="accumulated">累积耗时</a-option>
+                  <a-option value="other">其他</a-option>
+                </a-select>
+              </a-form-item>
+            </a-col>
+            <a-col :span="8">
+              <a-form-item label="分类">
+                <a-select v-model="formData.category">
+                  <a-option value="standard">标品</a-option>
+                  <a-option value="custom">二开</a-option>
+                </a-select>
+              </a-form-item>
+            </a-col>
+            <a-col :span="8">
+              <a-form-item label="应用编码">
+                <a-input v-model="formData.app_number" />
+              </a-form-item>
+            </a-col>
+            <a-col :span="8">
+              <a-form-item label="表单ID">
+                <a-input v-model="formData.form_id" />
+              </a-form-item>
+            </a-col>
+            <a-col :span="8">
+              <a-form-item label="表单名称">
+                <a-input v-model="formData.form_name" />
+              </a-form-item>
+            </a-col>
+            <a-col :span="12">
+              <a-form-item label="客户编码">
+                <a-input v-model="formData.tenant_code" />
+              </a-form-item>
+            </a-col>
+            <a-col :span="12">
+              <a-form-item label="客户名称">
+                <a-input v-model="formData.customer_name" />
+              </a-form-item>
+            </a-col>
+            <a-col :span="24">
+              <a-form-item label="问题描述">
+                <a-textarea v-model="formData.description" :auto-size="{ minRows: 3 }" />
+              </a-form-item>
+            </a-col>
+          </a-row>
+        </a-form>
+      </a-modal>
+    </div>
+
+      <!-- 认领：必须有处理人 —— 认领的全部意义就是把责任落到人头上 -->
+      <a-modal v-model:visible="claimVisible" :title="`认领缺陷（${selectedIds.length} 条）`" :ok-loading="claimLoading" @ok="submitClaim">
+        <a-form :model="{ claimOwner }" layout="vertical">
+          <a-form-item label="处理人" required>
+            <a-input v-model="claimOwner" placeholder="默认为当前登录人" allow-clear />
+          </a-form-item>
+        </a-form>
+      </a-modal>
+
+      <!-- DMP 编码：留空提交即清除关联 -->
+      <a-modal v-model:visible="dmpVisible" :title="`设置 DMP 缺陷编码（${selectedIds.length} 条）`" :ok-loading="dmpLoading" @ok="submitDmp">
+        <a-form :model="{ dmpCode }" layout="vertical">
+          <a-form-item label="DMP 缺陷编码">
+            <a-input v-model="dmpCode" placeholder="如 DMP-2026-0001，留空则清除关联" allow-clear />
+          </a-form-item>
+          <a-alert v-if="!dmpCode.trim()" type="warning">
+            留空提交会清除所选 {{ selectedIds.length }} 条缺陷的 DMP 编码
+          </a-alert>
+        </a-form>
+      </a-modal>
   </div>
-
-    <!-- 认领：必须有处理人 —— 认领的全部意义就是把责任落到人头上 -->
-    <a-modal v-model:visible="claimVisible" :title="`认领缺陷（${selectedIds.length} 条）`" :ok-loading="claimLoading" @ok="submitClaim">
-      <a-form :model="{ claimOwner }" layout="vertical">
-        <a-form-item label="处理人" required>
-          <a-input v-model="claimOwner" placeholder="默认为当前登录人" allow-clear />
-        </a-form-item>
-      </a-form>
-    </a-modal>
-
-    <!-- DMP 编码：留空提交即清除关联 -->
-    <a-modal v-model:visible="dmpVisible" :title="`设置 DMP 缺陷编码（${selectedIds.length} 条）`" :ok-loading="dmpLoading" @ok="submitDmp">
-      <a-form :model="{ dmpCode }" layout="vertical">
-        <a-form-item label="DMP 缺陷编码">
-          <a-input v-model="dmpCode" placeholder="如 DMP-2026-0001，留空则清除关联" allow-clear />
-        </a-form-item>
-        <a-alert v-if="!dmpCode.trim()" type="warning">
-          留空提交会清除所选 {{ selectedIds.length }} 条缺陷的 DMP 编码
-        </a-alert>
-      </a-form>
-    </a-modal>
 </template>
 
 <script setup lang="ts">

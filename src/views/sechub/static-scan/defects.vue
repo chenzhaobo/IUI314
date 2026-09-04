@@ -698,16 +698,7 @@ function shortSha(sha: string | null | undefined): string {
 </script>
 
 <template>
-  <!--
-    单根包裹（不要拆回多根）：app-main 把 `class="app-main-content p-l-15px ..."`
-    传给路由组件，Vue 只能把它自动继承到**单个根元素**上。这个页面原本是
-    `<div> + <a-modal>` 两个根（fragment），于是 class 被静默丢弃 —— 页面没有
-    内边距和背景，控制台还会刷两条告警：
-      Extraneous non-props attributes (class) ... renders fragment
-      Component inside <Transition> renders non-element root node
-    后者更麻烦：app-main 的 <transition mode="out-in"> 拿不到可动画元素。
-  -->
-  <div>
+<div>
     <div class="static-scan-defects">
       <!-- 筛选 -->
       <a-card :bordered="false" class="m-b-12px">
