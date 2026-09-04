@@ -114,3 +114,48 @@ export function emptyFilter(kind: ColumnFilterKind): ColumnFilterState {
     return { kind, range: ['', ''] }
   return { kind, op: kind === 'number' ? 'gt' : 'contains', value: '' }
 }
+
+/** 后端 `db::common::dyn_filter::FieldFilter` 的线上形态 */
+interface ServerFieldFilter {
+  field: string
+  op: string
+  value?: string
+}
+
+/**
+ * 把列过滤条件序列化成后端 `filters` 参数（JSON 数组字符串）。
+ *
+ * ## 什么时候该用它，什么时候用 `applyColumnFilters`
+ * - **服务端分页**的页面（把 `page_num` 传后端）→ **必须**用这个，把条件交给后端。
+ *   在这种页面上用 `applyColumnFilters` 只会筛当前页 —— 用户搜一个明明存在的记录
+ *   却搜不到（它在第 3 页），比没有筛选更糟。
+ * - **一次拉全量**的页面 → 用 `applyColumnFilters` 前端筛即可，不必给后端加参数。
+ *
+ * ## 时间区间的表达
+ * 后端没有单独的 between 运算符，拆成 `gte` + `lte` 两条（多条之间是 AND）。
+ * 上界补 ` 23:59:59`：用户选的是日期，而列多为 timestamptz，
+ * 不补的话 `<= '2026-09-04'` 会把当天 00:00 之后的记录全排除掉。
+ *
+ * 返回 `undefined` 表示没有任何生效条件 —— 调用方据此**不要**带上该参数，
+ * 免得后端收到 `filters=[]` 还去解析一遍。
+ */
+export function toServerFilters(
+  filters: Record<string, ColumnFilterState>,
+): string | undefined {
+  const out: ServerFieldFilter[] = []
+  for (const [field, f] of Object.entries(filters)) {
+    if (!isFilterActive(f))
+      continue
+    if (f.kind === 'date') {
+      const [from, to] = f.range ?? ['', '']
+      if (from)
+        out.push({ field, op: 'gte', value: from })
+      if (to)
+        out.push({ field, op: 'lte', value: `${to} 23:59:59` })
+      continue
+    }
+    // 文本与数字的运算符名与后端 FilterOp 的 camelCase 完全一致，直接透传
+    out.push({ field, op: f.op ?? 'contains', value: (f.value ?? '').trim() })
+  }
+  return out.length > 0 ? JSON.stringify(out) : undefined
+}
