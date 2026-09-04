@@ -361,6 +361,8 @@ onBeforeUnmount(() => {
 .chat-body {
   flex: 1;
   overflow-y: auto;
+  /* 只写 overflow-y 时横向会被计算成 auto（CSS 规范），a-row 的 gutter 负外边距会因此长出横向滚动条 */
+  overflow-x: hidden;
   padding: 16px;
   display: flex;
   flex-direction: column;

@@ -732,8 +732,14 @@ const filteredCandidates = computed(() =>
  */
 // 表格高度实测顶边反推，替代写死的表体高度偏移。ref 挂在表格外层原生 div 上
 // （不能挂 a-table 组件），useAutoHeight 的 height 是数字，正好给 :scroll.y。
+// 布局行实测定高：左右两栏由它派生高度
+const layoutRow = ref<HTMLElement>()
+const { height: layoutRowH } = useAutoHeight(layoutRow)
+
 const candidateTableWrap = ref<HTMLElement>()
-const { height: candidateTableH } = useAutoHeight(candidateTableWrap)
+// fillParent：容器在定高 flex 列里、高度已确定；从视口反推会差一截，
+// 表格溢出后分页条被顶出视口。
+const { height: candidateTableH } = useAutoHeight(candidateTableWrap, { fillParent: true })
 const candidateScroll = computed(() => {
   const base = { x: 1500 }
   return filteredCandidates.value.length > 12
@@ -913,10 +919,15 @@ watch(() => route.query, (newQ, oldQ) => {
     </a-alert>
 
     <!-- 左树右表（可拖拽分栏） -->
-    <div v-if="currentRun" class="split-layout" :class="{ dragging: isDragging }">
+      <!--
+        布局行必须有**确定高度**：原来只写 `flex: 1`，但父级不是 flex 容器，
+        `flex: 1` 无效，整行高度由内容决定 —— 左树越展开页面越长，
+        右表又各自从视口反推，两边加起来超出视口。
+      -->
+    <div v-if="currentRun" ref="layoutRow" class="split-layout" :class="{ dragging: isDragging }" :style="{ height: layoutRowH + 'px' }">
       <!-- 左树：规则统计 -->
       <div class="split-left" :style="{ width: `${leftPanelWidth}px` }">
-        <a-card :bordered="false" size="small" class="split-card panel-scroll-y">
+        <a-card :bordered="false" size="small" class="split-card scroll-body">
           <template #title>
             规则分布
             <small class="card-sub">确认/待确认/已排除/总数</small>
@@ -951,7 +962,7 @@ watch(() => route.query, (newQ, oldQ) => {
 
       <!-- 右表：候选明细 -->
       <div class="split-right">
-        <a-card :bordered="false" class="split-card">
+        <a-card :bordered="false" class="split-card fill-body">
           <template #title>
             候选明细
             <small class="card-sub">
@@ -1025,7 +1036,7 @@ watch(() => route.query, (newQ, oldQ) => {
               :options="columnOptions"
             />
           </template>
-          <div ref="candidateTableWrap">
+          <div ref="candidateTableWrap" class="table-fill">
           <a-table
             v-model:selected-keys="selectedCandidateIds"
             :loading="candidateLoading"
@@ -1268,7 +1279,26 @@ watch(() => route.query, (newQ, oldQ) => {
 .split-layout { display: flex; gap: 0; align-items: stretch; flex: 1; min-height: 0; }
 .split-layout.dragging { user-select: none; cursor: col-resize; }
 .split-left { flex-shrink: 0; overflow: hidden; }
-.split-card { height: 100%; min-height: 0; overflow-y: auto; }
+/* 卡片撑满栏高但**自己不滚**；滚不滚由下面两个修饰类决定 */
+.split-card { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+
+/* 左树卡片：标题固定，内容区滚动（原来整卡滚动，标题会跟着滚走） */
+.scroll-body :deep(.arco-card-body) {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* 只写 overflow-y 时横向会被计算成 auto，探出的子元素会长出横向滚动条 */
+  overflow-x: hidden;
+}
+
+/* 右侧卡片：内容区做纵向 flex，让表格容器吃掉剩余高度，滚动落在表格体内部 */
+.fill-body :deep(.arco-card-body) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.table-fill { flex: 1; min-height: 0; }
 .split-handle {
   width: 6px; flex-shrink: 0; cursor: col-resize; border-radius: 3px; margin: 0 3px;
   background: transparent; transition: background 0.2s;

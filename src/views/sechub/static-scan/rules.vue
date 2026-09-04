@@ -4,7 +4,7 @@ import { computed, reactive, ref } from 'vue'
 import { Message, Modal, type TableColumnData } from '@arco-design/web-vue'
 import { ApiSecRuleVersion, ApiSecScanPoint } from '@/api/sechubApis'
 import StatusBadge from '@/components/static-scan/StatusBadge.vue'
-import { useAutoHeight, useDownload, useGet, usePost, useToken } from '@/hooks'
+import { useAutoHeight, useDownload, useGet, usePost, useTableAutoHeight, useToken } from '@/hooks'
 import { domainLabels, securityCategoryLabels } from './labels'
 
 defineOptions({ name: 'StaticScanRules' })
@@ -16,8 +16,18 @@ const expandedTreeKeys = ref<string[]>([])
 const selectedTreeKey = ref('')
 
 // 左树面板高度实测顶边反推，替代原先写死的视口偏移
+const tableWrap = ref<HTMLElement>()
+
+// 布局行实测定高：左右两栏由它派生高度，各自内部滚动
+const layoutRow = ref<HTMLElement>()
+const { height: layoutRowH } = useAutoHeight(layoutRow)
+
+// 树容器现在由 flex 派生高度，不再需要自己算 maxHeight
 const treePanel = ref<HTMLElement>()
-const { style: treeStyle } = useAutoHeight(treePanel)
+
+// fillParent：容器是定高 flex 列里的 flex:1 子项，高度已确定；
+// 从视口反推会与这块空间差一截，表格溢出就会把整栏顶出外层滚动条。
+const { tableHeight } = useTableAutoHeight(tableWrap, { fillParent: true })
 
 function onTreeSelect(keys: (string | number)[]) {
   const key = keys.length ? String(keys[0]) : ''
@@ -495,11 +505,21 @@ function downloadTemplate() {
     </a-collapse>
 
     <!-- 左树右表布局 -->
-    <a-row :gutter="12">
+    <!--
+      外层从 a-row/a-col 换成实测定高的 flex 行，两个原因：
+
+      1. **没有确定高度**：a-col 高度由内容决定，左树越展开整页越长；右表的高度又
+         各自从视口反推，两边加起来必然超出视口 → 页面同时出现纵横滚动条。
+         给这一行一个实测的确定高度后，左右两栏才有共同的高度基准，
+         内部各自滚（树在树里滚、表格在表格体里滚）。
+      2. **a-row 的 gutter 用负外边距**（左右各 -6px）实现列间距，天生探出容器 ——
+         只要有祖先开了 overflow 就会长出一条横向滚动条。flex + gap 没有这个问题。
+    -->
+    <div ref="layoutRow" class="rules-layout" :style="{ height: layoutRowH + 'px' }">
       <!-- 左树：扫描点树 -->
-      <a-col :span="5">
-        <a-card title="扫描点分类" :bordered="false" size="small">
-          <div ref="treePanel" class="panel-scroll-y" :style="treeStyle">
+      <div class="rules-tree-col">
+        <a-card title="扫描点分类" :bordered="false" size="small" class="fill-card">
+          <div ref="treePanel" class="panel-scroll-y tree-fill">
             <a-tree
               v-if="arcoTreeData.length"
               :data="arcoTreeData"
@@ -510,10 +530,10 @@ function downloadTemplate() {
             <a-empty v-else description="加载中..." />
           </div>
         </a-card>
-      </a-col>
+      </div>
 
       <!-- 右表 -->
-      <a-col :span="19">
+      <div class="rules-main-col">
         <a-row :gutter="12" class="m-b-12px">
           <a-col :span="12">
             <a-card :bordered="false">
@@ -585,6 +605,8 @@ function downloadTemplate() {
       </a-space>
     </a-card>
     <a-card :bordered="false">
+      <!-- ref 只包表格：包到含筛选区的外层会把它们的高度算进可用高度 -->
+      <div ref="tableWrap" class="table-fill">
       <a-table
         :loading="isFetching"
         :data="rows"
@@ -653,9 +675,10 @@ function downloadTemplate() {
           </a-space>
         </template>
       </a-table>
+      </div>
     </a-card>
-      </a-col>
-    </a-row>
+      </div>
+    </div>
 
     <a-drawer v-model:visible="detailVisible" title="规则详情" :width="720" :footer="false" unmount-on-close>
       <template v-if="detailRecord">
@@ -885,6 +908,49 @@ function downloadTemplate() {
 </template>
 
 <style scoped>
+/* 左树右表：flex + gap（不用 a-row 的 gutter 负外边距，那会探出容器长出横向滚动条） */
+.rules-layout {
+  display: flex;
+  gap: 12px;
+  min-height: 360px;
+}
+.rules-tree-col {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 240px;
+  /* min-height:0 是子项能被压缩到内容以下的前提，缺了它树会撑高整行 */
+  min-height: 0;
+}
+.rules-main-col {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+/* 卡片撑满栏高，树在卡片内部滚 */
+.fill-card {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.fill-card :deep(.arco-card-body) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.tree-fill {
+  flex: 1;
+}
+/* 表格容器吃掉右栏剩余高度，滚动落在表格体内部 */
+.table-fill {
+  flex: 1;
+  min-height: 0;
+}
+
 .static-scan-rules { padding: 0; }
 .category { margin-top: 4px; color: var(--color-text-3); }
 .detail-title { font-size: 16px; font-weight: 600; }

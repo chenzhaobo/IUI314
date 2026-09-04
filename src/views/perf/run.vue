@@ -419,7 +419,7 @@ async function handleBatchSubmit() {
 
     <!-- 静态日志弹窗 -->
     <a-modal v-model:visible="logVisible" title="执行日志" :width="800" :footer="false">
-      <a-typography-text style="white-space: pre-wrap; font-family: monospace; font-size: 12px; max-height: 500px; overflow-y: auto; display: block;">
+      <a-typography-text style="white-space: pre-wrap; font-family: monospace; font-size: 12px; max-height: 500px; overflow-y: auto; overflow-x: hidden; display: block;">
         {{ logContent }}
       </a-typography-text>
     </a-modal>
@@ -430,7 +430,7 @@ async function handleBatchSubmit() {
         实时执行日志
         <a-tag v-if="sseRunStatus" :color="sseRunStatus === 'success' ? 'green' : sseRunStatus === 'failed' ? 'red' : 'blue'" size="small" style="margin-left: 8px">{{ sseRunStatus }}</a-tag>
       </template>
-      <div ref="logAreaRef" style="white-space: pre-wrap; font-family: monospace; font-size: 12px; max-height: 500px; overflow-y: auto; background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 4px;">
+      <div ref="logAreaRef" style="white-space: pre-wrap; font-family: monospace; font-size: 12px; max-height: 500px; overflow-y: auto; overflow-x: hidden; background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 4px;">
         {{ sseLogContent || '等待日志输出...' }}
       </div>
       <div style="text-align: right; margin-top: 8px;">

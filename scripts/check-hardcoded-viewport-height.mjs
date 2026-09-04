@@ -92,8 +92,25 @@ function markCommentLines(lines) {
   return isComment
 }
 
-const files = globSync('src/**/*.vue')
+/**
+ * 第二项检查：只写 `overflow-y: auto/scroll` 而不写 `overflow-x`。
+ *
+ * CSS 规范规定，`overflow` 两轴中一个是 auto/scroll 而另一个是 visible 时，
+ * **visible 会被计算成 auto**。所以只写纵向等于同时开了横向滚动。
+ *
+ * 而 Arco 的 `<a-row :gutter="N">` 靠**负外边距**（左右各 -N/2）做列间距，
+ * 天生探出容器 —— 于是这类容器普遍多出一条横向滚动条。
+ * 这个坑在本项目里出现了十几处、被用户反复反馈，所以一并拦住。
+ *
+ * 弹窗/抽屉的 body-style 放行：它们有内边距，gutter 的负外边距探不出去。
+ */
+const OVERFLOW_Y = /overflow-y:\s*(auto|scroll)|overflowY:\s*['"](auto|scroll)['"]/
+const HAS_OVERFLOW_X = /overflow-x|overflowX/
+
+// 也扫 scss —— 共享工具类里同样栽过这个坑（`.panel-scroll-y` 只写了 overflow-y）
+const files = [...globSync('src/**/*.vue'), ...globSync('src/**/*.scss')]
 const offenders = []
+const overflowOffenders = []
 
 for (const file of files) {
   const rel = file.replace(/\\/g, '/')
@@ -103,10 +120,30 @@ for (const file of files) {
   const anchored = markViewportAnchoredLines(lines)
   const comments = markCommentLines(lines)
   lines.forEach((line, idx) => {
-    if (!PATTERN.test(line) || anchored[idx] || comments[idx])
+    if (comments[idx])
       return
-    offenders.push(`${rel}:${idx + 1}\n    ${line.trim()}`)
+    if (PATTERN.test(line) && !anchored[idx])
+      offenders.push(`${rel}:${idx + 1}\n    ${line.trim()}`)
+    if (OVERFLOW_Y.test(line) && !anchored[idx]) {
+      // overflow-x 可能写在相邻行（多行 CSS 块），前后各看 3 行
+      const near = lines.slice(Math.max(0, idx - 3), idx + 4).join('\n')
+      if (!HAS_OVERFLOW_X.test(near))
+        overflowOffenders.push(`${rel}:${idx + 1}\n    ${line.trim()}`)
+    }
   })
+}
+
+if (overflowOffenders.length) {
+  console.error(
+    `\n✗ 发现 ${overflowOffenders.length} 处只写了纵向 overflow：\n\n${overflowOffenders.map(o => `  ${o}`).join('\n\n')}\n`
+    + '\n  CSS 规范：overflow 两轴一个是 auto/scroll、另一个是 visible 时，'
+    + '\n  visible 会被**计算成 auto** —— 只写 overflow-y 等于同时开了横向滚动。'
+    + '\n  而 Arco 的 <a-row :gutter="N"> 用负外边距做列间距，天生探出容器，'
+    + '\n  于是这类容器会凭空多一条横向滚动条。'
+    + '\n\n  显式补上 `overflow-x: hidden`（容器内真需要横向滚动的表格自己有滚动容器）。'
+    + '\n  弹窗/抽屉的 body-style 本护栏自动放行。\n',
+  )
+  process.exit(1)
 }
 
 if (offenders.length) {
@@ -120,4 +157,4 @@ if (offenders.length) {
   process.exit(1)
 }
 
-console.log('✔ 未发现写死的视口高度偏移')
+console.log('✔ 未发现写死的视口高度偏移，也未发现只写纵向 overflow 的容器')

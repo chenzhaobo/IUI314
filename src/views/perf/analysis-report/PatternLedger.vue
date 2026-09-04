@@ -77,7 +77,7 @@
           </div>
 
           <!-- 表格 -->
-          <div ref="tableWrap">
+          <div ref="tableWrap" class="table-fill">
           <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange" row-key="id" column-resizable :scroll="{ minWidth: 1600, y: tableHeight }">
             <template #columns>
               <a-table-column title="编号" data-index="pattern_no" :width="100" ellipsis tooltip />
@@ -334,7 +334,9 @@ const logsDownloading = ref(false)
 
 // 表格高度自适应：滚动条落在表格内，表头固定。容器必须是原生 div。
 const tableWrap = ref<HTMLElement>()
-const { tableHeight } = useTableAutoHeight(tableWrap)
+// fillParent：容器是定高 flex 列里的 flex:1 子项，高度已确定。
+// 从视口反推会与这块空间差出一截，表格就会溢出、把整栏顶出一条外层滚动条（表现为"新发现"那行跟着滚）。
+const { tableHeight } = useTableAutoHeight(tableWrap, { fillParent: true })
 
 // ── 映射 ──────────────────────────────────────
 
@@ -630,5 +632,32 @@ const handleLinkIssue = async () => {
 .scope-panel { width: 280px; flex-shrink: 0; min-height: 0; padding-right: 12px; border-right: 1px solid var(--color-border-2); }
 /* overflow-x 显式 hidden：只开 overflow-y 时横向会被计算成 auto，
    而 a-row 的 gutter 用负外边距探出容器，会凭空多一条横向滚动条 */
-.scope-content { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+/*
+  右栏做纵向 flex，**自己不滚**。
+
+  之前给它 overflow-y:auto，结果整栏（统计行 + 表格）一起滚 ——
+  统计行会跟着滚走，而且表头也一起离开视口。
+  正确的分工是：统计行固定、表格吃掉剩余高度、滚动发生在**表格体内部**
+  （Arco 的 .arco-table-body 自带 overflow:auto，表头固定不动）。
+*/
+.scope-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  /* min-height:0 是子项能被压缩到内容以下的前提，缺了它表格撑高整栏 */
+  min-height: 0;
+}
+
+/* 统计行固定不滚 */
+.stats-line {
+  flex-shrink: 0;
+}
+
+/* 表格容器吃掉剩余高度；配合 fillParent 让表格体高度正好等于这块空间 */
+.scope-content > div[ref],
+.table-fill {
+  flex: 1;
+  min-height: 0;
+}
 </style>

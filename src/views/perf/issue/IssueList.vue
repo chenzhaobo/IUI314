@@ -114,7 +114,7 @@
           <aside class="scope-panel panel-scroll-y">
             <IssueScopeTree :key="scopeTreeKey" :filters="scopeCountFilters" source="issue" @change="handleScopeChange" />
           </aside>
-          <div ref="tableWrap" class="scope-content">
+          <div class="scope-content">
             <!--
               对表格记录的操作按钮放在**表格正上方**、与选中提示同一行。
               这样按钮紧邻它作用的对象；也不再和筛选字段抢同一行的宽度。
@@ -147,6 +147,9 @@
               16 个列宽合计 1965px，取整设为 scroll.x；容器更宽时 Arco 会自动拉伸，
               不会因此凭空多出横向滚动条。
             -->
+            <!-- ref 挂在只包表格的这一层：挂到含工具行的外层会把工具行高度
+                 也算进可用高度，表格就会超出而把整栏顶出外层滚动条 -->
+            <div ref="tableWrap" class="table-fill">
             <a-table
               column-resizable
               :data="tableData"
@@ -224,6 +227,7 @@
                 </a-table-column>
               </template>
             </a-table>
+            </div>
           </div>
         </div>
       </a-card>
@@ -429,7 +433,10 @@ const layoutRow = ref<HTMLElement>()
 const { height: layoutRowH } = useAutoHeight(layoutRow)
 
 const tableWrap = ref<HTMLElement>()
-const { tableHeight } = useTableAutoHeight(tableWrap)
+// fillParent：容器是定高 flex 列里的 flex:1 子项，高度已确定。
+// 从视口反推会与这块空间差出一截，表格溢出后会把整栏顶出外层滚动条，
+// 表现为工具行跟着一起滚。
+const { tableHeight } = useTableAutoHeight(tableWrap, { fillParent: true })
 
 const route = useRoute()
 const initialKeyword = typeof route.query.keyword === 'string' ? route.query.keyword : ''
@@ -814,7 +821,18 @@ const handleDelete = async (record: any) => {
 /* min-height:0 让两栏可被压缩，内部 overflow 才会触发（flex 默认 min-height:auto 会拒绝压缩） */
 .scope-layout { display: flex; gap: 16px; min-height: 520px; align-items: stretch; }
 .scope-panel { width: 280px; flex-shrink: 0; min-height: 0; padding-right: 12px; border-right: 1px solid var(--color-border-2); }
-.scope-content { flex: 1; min-width: 0; min-height: 0; }
+/*
+  右栏纵向 flex 且**自己不滚**：工具行固定，滚动发生在表格体内部
+  （Arco 的 .arco-table-body 自带 overflow:auto，表头固定）。
+  给它 overflow 会让工具行跟着滚走、表头也离开视口。
+*/
+.scope-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
 .markdown-content { white-space: pre-wrap; background: var(--color-fill-1); padding: 12px; border-radius: 4px; }
 .json-content { margin: 0; max-height: 360px; overflow: auto; white-space: pre-wrap; word-break: break-all; background: var(--color-fill-1); padding: 12px; border-radius: 4px; }
 

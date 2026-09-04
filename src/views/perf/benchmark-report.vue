@@ -458,7 +458,7 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
           <a-popover v-model:popup-visible="columnSettingVisible" trigger="click" position="bottom">
             <a-button>列设置</a-button>
             <template #content>
-              <div style="width: 260px; max-height: 420px; overflow-y: auto">
+              <div style="width: 260px; max-height: 420px; overflow-y: auto; overflow-x: hidden">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px">
                   <span style="font-weight: 600">列顺序与显示</span>
                   <a-button type="text" size="mini" @click="resetColumns">重置</a-button>

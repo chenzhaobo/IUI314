@@ -1246,7 +1246,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
               编码
             </a-button>
           </div>
-          <div style="flex: 1; overflow-y: auto; min-height: 0">
+          <div style="flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0">
             <a-tree
               v-if="displayTree.length"
               :data="displayTree"
@@ -1277,7 +1277,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
         <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0">
           <template v-if="!selectedRepoId">
             <!-- 全局视图：统计卡片 + TOP10 排名 + 域分布 -->
-            <a-spin :loading="globalLoading" style="width: 100%; overflow-y: auto">
+            <a-spin :loading="globalLoading" style="width: 100%; overflow-y: auto; overflow-x: hidden">
               <a-row v-if="globalData" :gutter="12" style="margin-bottom: 12px">
                 <a-col :span="4">
                   <a-statistic title="已扫应用" :value="globalData.scanned_apps">

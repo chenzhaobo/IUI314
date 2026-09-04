@@ -6,7 +6,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
-import { downloadText, formatTime, useDicts, useGet, usePost, useTableAutoHeight, withTableDefaults } from '@/hooks'
+import { downloadText, formatTime, useAutoHeight, useDicts, useGet, usePost, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import 'md-editor-v3/lib/style.css'
 
 defineOptions({ name: 'StaticScanDefects' })
@@ -676,8 +676,14 @@ onMounted(() => {
 })
 
 // ===== 表格高度自适应（滚动条出现在表格内，表头固定）=====
+// 布局行实测定高：左右两栏由它派生高度
+const layoutRow = ref<HTMLElement>()
+const { height: layoutRowH } = useAutoHeight(layoutRow)
+
 const tableWrap = ref<HTMLElement>()
-const { tableHeight } = useTableAutoHeight(tableWrap)
+// fillParent：容器是定高 flex 列里的 flex:1 子项，高度已确定；从视口反推会差一截，
+// 表格溢出后分页条会被顶出视口，翻页就点不到了。
+const { tableHeight } = useTableAutoHeight(tableWrap, { fillParent: true })
 
 // 这些 a-form 只用来做纵向布局，不做校验，但 arco 的 model 是必填 prop。
 // 用一个模块级常量而不是在模板里写 :model="{}"，避免每次渲染都新建对象。
@@ -792,10 +798,17 @@ function shortSha(sha: string | null | undefined): string {
       </a-card>
 
       <!-- 左树右表（可拖拽分栏） -->
-      <div class="split-layout" :class="{ dragging: isDragging }">
+      <!--
+        布局行必须有**确定高度**。原来只写 `flex: 1`，但它的父级
+        `.static-scan-defects` 不是 flex 容器 —— `flex: 1` 无效，整行高度由内容决定，
+        于是左树越展开页面越长（还会因祖先的 overflow 长出横向滚动条），
+        右表又各自从视口反推高度，两边加起来超出视口。
+        给这一行实测的确定高度后，左右两栏才有共同基准，各自内部滚动。
+      -->
+      <div ref="layoutRow" class="split-layout" :class="{ dragging: isDragging }" :style="{ height: layoutRowH + 'px' }">
         <!-- 左树：规则分布 -->
         <div class="split-left" :style="{ width: `${leftPanelWidth}px` }">
-          <a-card :bordered="false" size="small" class="split-card panel-scroll-y">
+          <a-card :bordered="false" size="small" class="split-card scroll-body">
             <template #title>
               规则分布
               <small class="card-sub">打开/修复中/已修复/总数</small>
@@ -830,7 +843,7 @@ function shortSha(sha: string | null | undefined): string {
 
         <!-- 右表：缺陷列表 -->
         <div class="split-right">
-          <a-card :bordered="false" class="split-card">
+          <a-card :bordered="false" class="split-card fill-body">
             <template #title>
               缺陷列表
               <small class="card-sub">勾选缺陷后通过上方工具栏批量处理：认领 → 标记修复 → 重新验证，或标记不处理（可同步白名单）</small>
@@ -865,7 +878,8 @@ function shortSha(sha: string | null | undefined): string {
                 <span v-if="selectedIds.length" class="selected-hint">已选 {{ selectedIds.length }} 条</span>
               </a-space>
             </a-row>
-            <div ref="tableWrap">
+            <!-- 吃掉右栏剩余高度；配合 fillParent 让表格体正好等于这块空间 -->
+            <div ref="tableWrap" class="table-fill">
               <a-table
                 :loading="isLoading"
                 :data="dataList"
@@ -1143,7 +1157,26 @@ function shortSha(sha: string | null | undefined): string {
 .split-layout { display: flex; gap: 0; align-items: stretch; flex: 1; min-height: 0; }
 .split-layout.dragging { user-select: none; cursor: col-resize; }
 .split-left { flex-shrink: 0; overflow: hidden; }
-.split-card { height: 100%; min-height: 0; overflow-y: auto; }
+/* 卡片撑满栏高但**自己不滚**；滚不滚由下面两个修饰类决定 */
+.split-card { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+
+/* 左树卡片：标题固定，内容区滚动（原来整卡滚动，标题会跟着滚走） */
+.scroll-body :deep(.arco-card-body) {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* 只写 overflow-y 时横向会被计算成 auto，探出的子元素会长出横向滚动条 */
+  overflow-x: hidden;
+}
+
+/* 右侧卡片：内容区做纵向 flex，让表格容器吃掉剩余高度，滚动落在表格体内部 */
+.fill-body :deep(.arco-card-body) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.table-fill { flex: 1; min-height: 0; }
 .split-handle {
   width: 6px; flex-shrink: 0; cursor: col-resize; border-radius: 3px; margin: 0 3px;
   background: transparent; transition: background 0.2s;

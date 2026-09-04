@@ -156,8 +156,27 @@ export function useTableAutoHeight(
       total += r.height
       sib = sib.nextElementSibling
     }
-    // 兄弟之间与容器底部的间距无法逐一测量，留一点固定余量
-    return total > 0 ? total + 12 : 0
+    if (total > 0)
+      total += 12 // 兄弟之间与容器底部的间距无法逐一测量，留一点余量
+
+    /*
+      分页条要单独找：Arco 把它渲染在 `<a-table>` **内部**
+      （`.arco-table-pagination` 与 `.arco-table-container` 同级），
+      所以它不是本容器的兄弟节点，上面那圈遍历看不到它。
+
+      漏掉它的后果是可用高度多算一个分页条的高度（约 56px + 16px 上外边距），
+      表格体撑到分页条被顶出视口 —— 翻页按钮就点不到了。
+      早期版本靠 `reserve = 96` 这个常量把它包含进去，但常量对"没有分页的表"
+      又会多减，所以这里改成按实际存在与否去测。
+    */
+    const pager = el.querySelector('.arco-table-pagination')
+    if (pager) {
+      const r = pager.getBoundingClientRect()
+      const cs = window.getComputedStyle(pager)
+      total += r.height + Number.parseFloat(cs.marginTop || '0') + Number.parseFloat(cs.marginBottom || '0')
+    }
+
+    return total
   }
 
   function measure() {
@@ -238,6 +257,11 @@ export function useTableAutoHeight(
     // fillParent 模式下容器高度由外层 flex 决定、不随表格变化，观察它是安全的
     if (options?.fillParent)
       observer.observe(el)
+    // 分页条在数据回来后才渲染，出现/消失都会改变可用高度。
+    // 观察它是安全的：分页条高度固定，不随表格体高度变化。
+    const pager = el.querySelector('.arco-table-pagination')
+    if (pager)
+      observer.observe(pager)
   }
 
   /**
