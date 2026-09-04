@@ -22,20 +22,45 @@ body {
         position: relative !important;
     }
 
-    // 表格列宽拖拽手柄样式
+    // ── 表格列宽拖拽手柄 ────────────────────────────────────────────
+    //
+    // ⚠️ 选择器是 `.arco-table-column-handle`，**不是** `col-resize-handle`。
+    // 本文件此前写的 `.arco-table-col-resize-handle` 在 Arco 2.58 里根本不存在
+    // （官方 `lib/table/style/index.less:86` 是 `&-column-handle`），
+    // 所以那段样式一直匹配不到任何元素 —— 这正是"能拖动的位置不明显"的原因：
+    // 手柄只有 Arco 默认的 8px 透明热区，从来没有任何可见提示。
+    //
+    // Arco 原生手柄：`position:absolute; top:0; right:-4px; width:8px;
+    // height:100%; cursor:col-resize` —— 热区本来够用，缺的只是"看得见"。
     .arco-table-th {
         position: relative;
-        .arco-table-col-resize-handle {
-            width: 3px !important;
-            right: -1px !important;
-            background-color: var(--color-border-2);
-            transition: background-color 0.2s;
-            &:hover {
+
+        .arco-table-column-handle {
+            // 常态就画一条浅色竖线，明确"这里是列边界、可以拖"
+            &::after {
+                position: absolute;
+                top: 25%;
+                left: 50%;
+                width: 2px;
+                height: 50%;
+                content: '';
+                background-color: var(--color-border-3);
+                border-radius: 1px;
+                transform: translateX(-50%);
+                transition: background-color 0.15s, height 0.15s, top 0.15s;
+            }
+            // 悬到手柄上：竖线拉满整格并转主色，"现在按下就能拖"
+            &:hover::after {
+                top: 0;
+                height: 100%;
                 background-color: rgb(var(--primary-6));
             }
         }
-        &:hover .arco-table-col-resize-handle {
-            background-color: rgb(var(--primary-5));
+
+        // 悬到表头单元格任意位置，边界线先提亮 —— 鼠标扫过表头就能发现可拖，
+        // 不需要先精准找到那 8px
+        &:hover .arco-table-column-handle::after {
+            background-color: rgb(var(--primary-4));
         }
     }
 
