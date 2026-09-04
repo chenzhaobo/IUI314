@@ -64,33 +64,27 @@ body {
         }
     }
 
-    // ── 表格行高统一：单元格一律不换行 ─────────────────────────────
+    // ── 表格行高统一：为什么这里**没有**全局 nowrap ───────────────────
     //
-    // 痛点：长内容（Git URL、文件路径、AI 理由、备注）默认会折行，于是同一张表里
-    // 有的行 1 行高、有的 5 行高，视觉上参差不齐，扫读时很难对齐同一列。
+    // 曾经在这里写过：
+    //     .arco-table-td .arco-table-cell      { white-space: nowrap; }
+    //     .arco-table-td .arco-table-cell-text { overflow: hidden; text-overflow: ellipsis; }
+    // 两条都是错的，实测后果是**按钮列错位**（公有云性能问题列表）：
     //
-    // 为什么用全局 CSS 而不是逐列加 `ellipsis: true`：
-    // 全站 77 个表格、716 个列声明，其中只有 252 个（35%）设了 ellipsis ——
-    // 逐列补是 460 处改动，而且下一个新页面照旧会忘。行高统一属于视觉规范，
-    // 本来就该在样式层一次定死。
+    // 1. `.arco-table-cell-text` 在 Arco 2.58 **不存在** —— `table-td.js` 只渲染
+    //    `.arco-table-cell`；真正的省略类是 `.arco-table-cell-text-ellipsis`，
+    //    由列级 `ellipsis: true` 触发。所以那条规则匹配不到任何元素，
+    //    等于只留下了 nowrap 而没有省略号。
+    // 2. `.arco-table-cell` 包的是**整个单元格内容**，包括插槽渲染的按钮组、
+    //    标签、进度条。给它加 nowrap 会让原本可以折行的操作列被强行挤成一行，
+    //    列宽不够时溢出、看起来就是"按钮错位"。
     //
-    // 注意：CSS 只能做到"截断成一行"，**做不到 hover 出提示** ——
-    // 那需要 Arco 的 `tooltip: true`（列级）。所以配套提供了
-    // `withTableDefaults()`（见 @/hooks/util/useTableUtil）给列批量补
-    // ellipsis + tooltip；页面接上它之后就能 hover 查看完整内容，
-    // 没接上的页面至少行高是齐的、且可以拖宽列来看全。
-    .arco-table-td {
-        .arco-table-cell {
-            white-space: nowrap;
-        }
-        // 纯文本单元格才截断。带插槽的单元格（标签、按钮组、进度条）里的元素
-        // 有自己的布局，截断会把按钮切掉，所以只作用于文本节点容器。
-        .arco-table-cell-text {
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-    }
-    // 表头同样不换行，否则窄列的标题会把表头撑成两行、与数据行错位
+    // 正确做法是用 Arco 自己的机制：列级 `ellipsis: true` + `tooltip: true`，
+    // 由 `withTableDefaults()`（见 @/hooks/util/useTableLayout）批量补给
+    // **纯文本列**（有 dataIndex 且无 slotName），插槽列一律不碰。
+    // 代价是还没接上该 helper 的页面行高仍可能参差 —— 但那远好过全站按钮被挤坏。
+    //
+    // 表头不换行是安全的：表头没有插槽按钮，窄列标题折成两行会与数据行错位。
     .arco-table-th .arco-table-th-title {
         white-space: nowrap;
     }
