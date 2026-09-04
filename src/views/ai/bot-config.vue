@@ -177,7 +177,7 @@ const accessModeLabel = computed(() => {
             </a-tag>
             <a-button type="primary" size="small" @click="handleAddAccess">添加用户</a-button>
           </div>
-          <a-table :data="accessList" :loading="accessLoading" :pagination="false" row-key="id" size="small">
+          <a-table :data="accessList" :loading="accessLoading" :pagination="false" row-key="id" size="small" column-resizable>
             <template #columns>
               <a-table-column title="用户标识" data-index="user_identifier" />
               <a-table-column title="用户名" data-index="user_name">

@@ -2,7 +2,7 @@
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
-import { deleteAction, formatTime, postAction, putAction, useGet, usePost } from '@/hooks'
+import { deleteAction, formatTime, postAction, putAction, useGet, usePost, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiPerfTask, ApiPerfScript, ApiPerfIteration, ApiPerfDomain, ApiPerfLoadNode } from '@/api/apis'
 
 defineOptions({ name: 'task' })
@@ -42,10 +42,10 @@ const statusTextMap: Record<string, string> = {
   partial_failed: '部分失败', failed: '全部失败', cancelled: '已取消',
 }
 
-const columns = [
-  { title: '任务名称', dataIndex: 'name', width: 180, ellipsis: true, tooltip: true },
-  { title: '领域', dataIndex: 'domain', width: 120, ellipsis: true, tooltip: true },
-  { title: '迭代', dataIndex: 'iteration_name', width: 140, ellipsis: true, tooltip: true },
+const columns = withTableDefaults([
+  { title: '任务名称', dataIndex: 'name', width: 180 },
+  { title: '领域', dataIndex: 'domain', width: 120 },
+  { title: '迭代', dataIndex: 'iteration_name', width: 140 },
   { title: '执行策略', dataIndex: 'task_type', width: 90, slotName: 'task_type' },
   { title: '进度', dataIndex: 'progress', width: 200, slotName: 'progress' },
   { title: '成功/失败/待执行', dataIndex: 'counts', width: 140, slotName: 'counts' },
@@ -53,7 +53,11 @@ const columns = [
   { title: '开始时间', dataIndex: 'started_at', width: 160, slotName: 'started_at' },
   { title: '完成时间', dataIndex: 'finished_at', width: 160, slotName: 'finished_at' },
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 200, fixed: 'right' as const },
-]
+])
+
+// ── 表格高度自适应（滚动条在表格内，表头固定）──────────
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 
 // ── 脚本列表（用于触发任务时选择） ──────────────────────────────────
 const { data: scriptData } = useGet<any>(ApiPerfScript.getList, { page_num: 1, page_size: 200 }, { immediate: true })
@@ -332,6 +336,7 @@ function getProgress(record: any): number {
       </a-row>
     </a-card>
 
+    <div ref="tableWrap">
     <a-card :bordered="false">
 <a-table
   column-resizable
@@ -340,6 +345,7 @@ function getProgress(record: any): number {
         :columns="columns"
         :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true, showPageSize: true }"
         row-key="id"
+        :scroll="{ y: tableHeight }"
         @page-change="handlePageChange"
       >
         <template #started_at="{ record }">{{ formatTime(record.started_at) }}</template>
@@ -374,6 +380,7 @@ function getProgress(record: any): number {
         </template>
       </a-table>
     </a-card>
+    </div>
 
     <!-- 触发任务弹窗 -->
     <a-modal v-model:visible="triggerVisible" title="触发执行任务" :width="640" :ok-loading="triggerSubmitting" @ok="handleTriggerSubmit">

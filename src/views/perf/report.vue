@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
-import { formatTime, getAction, useGet, useToken } from '@/hooks'
+import { formatTime, getAction, useGet, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
 import { ApiPerfReport, ApiPerfScript, ApiPerfIteration, ApiPerfRun } from '@/api/apis'
 
 defineOptions({ name: 'report' })
@@ -33,9 +33,9 @@ const iterMap = computed(() => {
   return m
 })
 
-const columns = [
-  { title: '脚本名称', dataIndex: 'script_name', width: 200, ellipsis: true, tooltip: true, fixed: 'left' as const },
-  { title: '迭代', dataIndex: 'iteration_id', width: 140, slotName: 'iteration', ellipsis: true, tooltip: true },
+const columns = withTableDefaults([
+  { title: '脚本名称', dataIndex: 'script_name', width: 200, fixed: 'left' as const },
+  { title: '迭代', dataIndex: 'iteration_id', width: 140, slotName: 'iteration' },
   { title: '触发方式', dataIndex: 'trigger_type', width: 80, slotName: 'trigger_type' },
   { title: '样本数', dataIndex: 'summary_json.sample_count', width: 80, slotName: 'sample_count' },
   { title: '平均(ms)', dataIndex: 'summary_json.average_ms', width: 90, slotName: 'avg_ms' },
@@ -48,15 +48,15 @@ const columns = [
   { title: '结束时间', dataIndex: 'finished_at', width: 160, slotName: 'finished_at' },
   { title: '耗时(秒)', dataIndex: 'duration_ms', width: 90, slotName: 'duration' },
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 280, fixed: 'right' as const },
-]
+])
 
 // ── 聚合报告明细（页签展示） ──────────────────────────────────
 const detailLoading = ref(false)
 const detailList = ref<any[]>([])
 const detailScriptName = ref('')
 
-const detailColumns = [
-  { title: 'Label', dataIndex: 'label', width: 250, ellipsis: true, tooltip: true, fixed: 'left' as const },
+const detailColumns = withTableDefaults([
+  { title: 'Label', dataIndex: 'label', width: 250, fixed: 'left' as const },
   { title: '# Samples', dataIndex: 'sample_count', width: 90 },
   { title: 'Average(ms)', dataIndex: 'average_ms', width: 100, slotName: 'd_avg' },
   { title: 'Median(ms)', dataIndex: 'median_ms', width: 100, slotName: 'd_median' },
@@ -69,7 +69,14 @@ const detailColumns = [
   { title: 'Throughput', dataIndex: 'throughput', width: 100, slotName: 'd_thr' },
   { title: 'Received KB/s', dataIndex: 'received_kbps', width: 110, slotName: 'd_rcv' },
   { title: 'Sent KB/s', dataIndex: 'sent_kbps', width: 100, slotName: 'd_snt' },
-]
+])
+
+// ── 表格高度自适应（滚动条在表格内，表头固定）──────────
+// 列表页与明细页在不同 tab-pane，各用一个容器 ref 独立测算
+const listWrap = ref<HTMLElement>()
+const { tableHeight: listTableHeight } = useTableAutoHeight(listWrap)
+const detailWrap = ref<HTMLElement>()
+const { tableHeight: detailTableHeight } = useTableAutoHeight(detailWrap)
 
 async function handleViewDetail(record: any) {
   detailScriptName.value = record.script_name || ''
@@ -212,6 +219,7 @@ async function handleDownloadJmx(record: any) {
         </a-card>
 
         <!-- 报告列表 -->
+        <div ref="listWrap">
         <a-card :bordered="false" title="压测报告列表">
 <a-table
   column-resizable
@@ -219,7 +227,7 @@ async function handleDownloadJmx(record: any) {
             :data="dataList"
             :columns="columns"
             row-key="id"
-            :scroll="{ x: 1900 }"
+            :scroll="{ x: 1900, y: listTableHeight }"
             :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true, showPageSize: true }"
             @page-change="handlePageChange"
           >
@@ -252,10 +260,12 @@ async function handleDownloadJmx(record: any) {
             </template>
           </a-table>
         </a-card>
+        </div>
       </a-tab-pane>
 
       <!-- 聚合报告明细 -->
       <a-tab-pane key="detail" :title="`聚合报告明细${detailScriptName ? ' — ' + detailScriptName : ''}`">
+        <div ref="detailWrap">
         <a-card :bordered="false">
 <a-table
   column-resizable
@@ -263,7 +273,7 @@ async function handleDownloadJmx(record: any) {
             :data="detailList"
             :columns="detailColumns"
             row-key="id"
-            :scroll="{ x: 1700 }"
+            :scroll="{ x: 1700, y: detailTableHeight }"
             :pagination="false"
             :row-class="(record: any) => record.is_total === '1' ? 'total-row' : ''"
           >
@@ -280,6 +290,7 @@ async function handleDownloadJmx(record: any) {
             <template #d_snt="{ record }">{{ fmt(record.sent_kbps) }}</template>
           </a-table>
         </a-card>
+        </div>
       </a-tab-pane>
     </a-tabs>
 

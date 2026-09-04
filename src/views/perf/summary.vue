@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed } from 'vue'
 import { Message, type TableColumnData } from '@arco-design/web-vue'
-import { useGet, usePost } from '@/hooks'
+import { useGet, usePost, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiPerfSummary, ApiPerfIteration } from '@/api/apis'
 
 defineOptions({ name: 'summary' })
@@ -65,9 +65,9 @@ const statusMap: Record<string, { color: string; text: string }> = {
   fail: { color: 'red', text: '失败' },
 }
 
-const columns: TableColumnData[] = [
-  { title: '迭代', dataIndex: 'iteration_name', width: 160, ellipsis: true, tooltip: true },
-  { title: '领域', dataIndex: 'domain_name', width: 120, ellipsis: true, tooltip: true },
+const columns: TableColumnData[] = withTableDefaults([
+  { title: '迭代', dataIndex: 'iteration_name', width: 160 },
+  { title: '领域', dataIndex: 'domain_name', width: 120 },
   { title: '脚本总数', dataIndex: 'total_scripts', width: 90, align: 'center' },
   { title: '成功', dataIndex: 'success_count', width: 70, align: 'center' },
   { title: '失败', dataIndex: 'failed_count', width: 70, align: 'center' },
@@ -78,7 +78,11 @@ const columns: TableColumnData[] = [
   { title: '错误率(%)', dataIndex: 'avg_error_pct', width: 100, align: 'right', render: ({ record }: any) => record.avg_error_pct?.toFixed(2) || '-' },
   { title: '吞吐量', dataIndex: 'avg_throughput', width: 100, align: 'right', render: ({ record }: any) => record.avg_throughput?.toFixed(2) || '-' },
   { title: '操作', width: 80, align: 'center', slotName: 'action' },
-]
+])
+
+// ── 表格高度自适应（滚动条在表格内，表头固定）──────────
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 
 const txnColumns: TableColumnData[] = [
   { title: '事务编码', dataIndex: 'txn_code', width: 180, ellipsis: true, tooltip: true },
@@ -114,6 +118,7 @@ const txnColumns: TableColumnData[] = [
     </a-card>
 
     <!-- 列表 -->
+    <div ref="tableWrap">
     <a-card :bordered="false">
 <a-table
   column-resizable
@@ -127,6 +132,7 @@ const txnColumns: TableColumnData[] = [
           showTotal: true,
         }"
         row-key="id"
+        :scroll="{ y: tableHeight }"
         @page-change="handlePageChange"
       >
         <template #txn="{ record }">
@@ -140,6 +146,7 @@ const txnColumns: TableColumnData[] = [
         </template>
       </a-table>
     </a-card>
+    </div>
 
     <!-- 生成汇总弹窗 -->
     <a-modal v-model:visible="genVisible" title="生成迭代汇总" @ok="handleGenerate" :ok-loading="genLoading">

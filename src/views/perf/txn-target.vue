@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { formatTime, useGet, usePut } from '@/hooks'
+import { formatTime, useGet, usePut, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiPerfBenchmark } from '@/api/apis'
 
 defineOptions({ name: 'txn-target' })
@@ -86,20 +86,24 @@ function fmtSec(ms?: number | null): string {
   return (ms / 1000).toFixed(1)
 }
 
-const columns = [
-  { title: '事务编码', dataIndex: 'txn_code', width: 150, ellipsis: true, tooltip: true, fixed: 'left' as const },
-  { title: '事务全称', dataIndex: 'txn_name', width: 250, ellipsis: true, tooltip: true },
-  { title: '云', dataIndex: 'cloud', width: 100, ellipsis: true, tooltip: true },
-  { title: '应用', dataIndex: 'app', width: 100, ellipsis: true, tooltip: true },
-  { title: '领域', dataIndex: 'domain', width: 100, ellipsis: true, tooltip: true },
-  { title: '菜单', dataIndex: 'menu', width: 120, ellipsis: true, tooltip: true },
+const columns = withTableDefaults([
+  { title: '事务编码', dataIndex: 'txn_code', width: 150, fixed: 'left' as const },
+  { title: '事务全称', dataIndex: 'txn_name', width: 250 },
+  { title: '云', dataIndex: 'cloud', width: 100 },
+  { title: '应用', dataIndex: 'app', width: 100 },
+  { title: '领域', dataIndex: 'domain', width: 100 },
+  { title: '菜单', dataIndex: 'menu', width: 120 },
   { title: '目标值(秒)', dataIndex: 'target_value_ms', width: 100, align: 'center' as const, slotName: 'target_value' },
   { title: '比对值(秒)', dataIndex: 'baseline_value_ms', width: 100, align: 'center' as const, slotName: 'baseline_value' },
-  { title: '比对值更新迭代', dataIndex: 'baseline_iteration_name', width: 140, ellipsis: true, tooltip: true },
+  { title: '比对值更新迭代', dataIndex: 'baseline_iteration_name', width: 140 },
   { title: '比对值更新时间', dataIndex: 'baseline_updated_at', width: 160, slotName: 'baseline_updated_at' },
   { title: '来源', dataIndex: 'source', width: 80, align: 'center' as const },
   { title: '操作', key: 'action', width: 80, align: 'center' as const, slotName: 'action', fixed: 'right' as const },
-]
+])
+
+// ── 表格高度自适应（滚动条在表格内，表头固定）──────────
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 </script>
 
 <template>
@@ -128,6 +132,7 @@ const columns = [
     </a-card>
 
     <!-- 列表 -->
+    <div ref="tableWrap">
     <a-card :bordered="false">
 <a-table
   column-resizable
@@ -141,6 +146,7 @@ const columns = [
           showTotal: true,
         }"
         row-key="id"
+        :scroll="{ y: tableHeight }"
         @page-change="handlePageChange"
       >
         <template #target_value="{ record }">{{ fmtSec(record.target_value_ms) }}</template>
@@ -151,6 +157,7 @@ const columns = [
         </template>
       </a-table>
     </a-card>
+    </div>
 
     <!-- 编辑目标值弹窗 -->
     <a-modal v-model:visible="editVisible" title="编辑目标值" @ok="handleSaveEdit" :ok-loading="updating">

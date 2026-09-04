@@ -4,7 +4,7 @@ import { Message, Modal } from '@arco-design/web-vue'
 import { computed, ref } from 'vue'
 import { ApiAiAgent } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
-import { useDelete, useGet, usePost, usePut } from '@/hooks'
+import { useDelete, useGet, usePost, usePut, useTableAutoHeight, withTableDefaults } from '@/hooks'
 
 defineOptions({ name: 'ai-agent-manage' })
 
@@ -147,16 +147,20 @@ async function syncAgentModels(record: AiAgent, applyRecommendedTemplate = false
 }
 
 // ── 表格列 ──────────────────────────────────
-const columns = [
+const columns = withTableDefaults([
   { title: 'Agent Code', dataIndex: 'agent_code', width: 120 },
   { title: '名称', dataIndex: 'agent_name', width: 120 },
-  { title: '可执行路径', dataIndex: 'executable_path', width: 260, ellipsis: true, tooltip: true },
+  { title: '可执行路径', dataIndex: 'executable_path', width: 260 },
   { title: '默认模型', dataIndex: 'default_model', width: 100 },
   { title: '最大并发', dataIndex: 'max_concurrent', width: 80 },
   { title: '超时(s)', dataIndex: 'max_timeout_secs', width: 80 },
   { title: '状态', dataIndex: 'status', width: 80, slotName: 'status' },
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 300, fixed: 'right' as const },
-]
+])
+
+// ── 表格高度自适应（表头固定，滚动条落在表格内）──────────────
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 </script>
 
 <template>
@@ -186,31 +190,34 @@ const columns = [
     </a-card>
 
     <!-- 表格 -->
-    <a-card :bordered="false">
-      <a-table
-        :loading="loading"
-        :data="list"
-        :columns="columns"
-        row-key="id"
-        :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true }"
-        @page-change="handlePageChange"
-        :scroll="{ x: 1100 }"
-      >
-        <template #status="{ record }">
-          <a-tag :color="record.status === 'active' ? 'green' : 'red'">{{ record.status === 'active' ? '启用' : '禁用' }}</a-tag>
-        </template>
-        <template #operations="{ record }">
-          <a-space>
-            <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
-            <a-button type="text" size="small" :loading="healthCheckingAgentId === record.id" @click="handleHealthCheck(record)">健康检查</a-button>
-            <a-button type="text" size="small" :disabled="syncingAgentId === record.id" :loading="syncingAgentId === record.id" @click="syncAgentModels(record)">同步模型</a-button>
-            <a-popconfirm content="确认删除该 Agent？" @ok="handleDelete(record)">
-              <a-button type="text" size="small" status="danger">删除</a-button>
-            </a-popconfirm>
-          </a-space>
-        </template>
-      </a-table>
-    </a-card>
+    <div ref="tableWrap">
+      <a-card :bordered="false">
+        <a-table
+          :loading="loading"
+          :data="list"
+          :columns="columns"
+          row-key="id"
+          :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true }"
+          column-resizable
+          @page-change="handlePageChange"
+          :scroll="{ x: 1100, y: tableHeight }"
+        >
+          <template #status="{ record }">
+            <a-tag :color="record.status === 'active' ? 'green' : 'red'">{{ record.status === 'active' ? '启用' : '禁用' }}</a-tag>
+          </template>
+          <template #operations="{ record }">
+            <a-space>
+              <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
+              <a-button type="text" size="small" :loading="healthCheckingAgentId === record.id" @click="handleHealthCheck(record)">健康检查</a-button>
+              <a-button type="text" size="small" :disabled="syncingAgentId === record.id" :loading="syncingAgentId === record.id" @click="syncAgentModels(record)">同步模型</a-button>
+              <a-popconfirm content="确认删除该 Agent？" @ok="handleDelete(record)">
+                <a-button type="text" size="small" status="danger">删除</a-button>
+              </a-popconfirm>
+            </a-space>
+          </template>
+        </a-table>
+      </a-card>
+    </div>
 
     <!-- 健康检查结果 -->
     <a-card v-if="healthResult" :bordered="false" class="m-t-8px" title="健康检查结果">

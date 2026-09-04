@@ -6,7 +6,7 @@ import { Message, Modal } from '@arco-design/web-vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { ApiAiAgent } from '@/api/aiApis'
 import { ApiSecModuleRepository, ApiSecPrescan } from '@/api/sechubApis'
-import { formatTime, useGet, postAction } from '@/hooks'
+import { formatTime, postAction, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
 
 defineOptions({ name: 'StaticScanTasks' })
 
@@ -315,7 +315,8 @@ async function handleSave() {
       isEdit.value ? ApiSecPrescan.taskEdit : ApiSecPrescan.taskAdd,
       savePayload.value,
     )
-    if (!res) return
+    if (!res)
+      return
     Message.success(isEdit.value ? '已保存' : '任务创建成功')
     modalVisible.value = false
     await loadList()
@@ -342,7 +343,8 @@ function handleDelete(record: PrescanTaskRow) {
       deletingId.value = record.id
       try {
         const res = await postAction<string>(ApiSecPrescan.taskDelete, { id: record.id })
-        if (!res) return
+        if (!res)
+          return
         // 后端 delete_task 软删，返回被删除的任务 id 字符串
         const msg = String(res)
         Message.success(msg.includes(record.id) ? `任务「${record.name}」已删除` : msg)
@@ -364,7 +366,8 @@ async function handleTrigger(record: PrescanTaskRow) {
   triggeringId.value = record.id
   try {
     const res = await postAction<PrescanTaskTriggerResponse>(ApiSecPrescan.taskTrigger, { id: record.id })
-    if (!res) return
+    if (!res)
+      return
     // 后端对每个成功处理的仓库都会返回一个 run_id；代码未变更的仓库会复用既有
     // succeeded run（记录里标记为「已跳过」），同样计入返回值。空数组说明全部失败。
     const runIds = Array.isArray(res) ? res : []
@@ -463,7 +466,11 @@ const recordColumns = [
 // ═══════════════════════════════════════════════════════════
 //  列表表格列定义
 // ═══════════════════════════════════════════════════════════
-const columns = [
+// 表格高度自适应：滚动条出现在表格内、表头固定
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
+
+const columns = withTableDefaults([
   { title: '任务名称', dataIndex: 'name', width: 160, ellipsis: true, tooltip: true },
   { title: '代码仓库', dataIndex: 'repository_names', slotName: 'repos', width: 200 },
   { title: '领域', dataIndex: 'domains', slotName: 'domains', width: 100 },
@@ -479,7 +486,7 @@ const columns = [
   { title: '启用调度', dataIndex: 'schedule_enabled', slotName: 'schedule_enabled', width: 90 },
   { title: '状态', dataIndex: 'status', slotName: 'status', width: 70 },
   { title: '操作', slotName: 'operations', width: 220, fixed: 'right' as const },
-]
+])
 </script>
 
 <template>
@@ -506,162 +513,165 @@ const columns = [
     </a-card>
 
     <!-- 任务列表 -->
-    <a-card :bordered="false">
-      <a-table
-        :data="rows"
-        :columns="columns"
-        :loading="listLoading"
-        :pagination="false"
-        row-key="id"
-        :scroll="{ x: 1800 }"
-        size="small"
-      >
-        <!-- 代码仓库：多 tag + 超出折叠 tooltip -->
-        <template #repos="{ record }">
-          <template v-if="record.repository_names && record.repository_names.length > 0">
-            <a-tooltip
-              v-if="record.repository_names.length > 2"
-              :content="record.repository_names.join('\n')"
-            >
-              <a-space wrap size="mini">
+    <div ref="tableWrap">
+      <a-card :bordered="false">
+        <a-table
+          column-resizable
+          :data="rows"
+          :columns="columns"
+          :loading="listLoading"
+          :pagination="false"
+          row-key="id"
+          :scroll="{ x: 1800, y: tableHeight }"
+          size="small"
+        >
+          <!-- 代码仓库：多 tag + 超出折叠 tooltip -->
+          <template #repos="{ record }">
+            <template v-if="record.repository_names && record.repository_names.length > 0">
+              <a-tooltip
+                v-if="record.repository_names.length > 2"
+                :content="record.repository_names.join('\n')"
+              >
+                <a-space wrap size="mini">
+                  <a-tag
+                    v-for="name in record.repository_names.slice(0, 2)"
+                    :key="name"
+                    size="small"
+                    color="arcoblue"
+                  >
+                    {{ name }}
+                  </a-tag>
+                  <a-tag size="small" color="gray">
+                    +{{ record.repository_names.length - 2 }}
+                  </a-tag>
+                </a-space>
+              </a-tooltip>
+              <a-space v-else wrap size="mini">
                 <a-tag
-                  v-for="name in record.repository_names.slice(0, 2)"
+                  v-for="name in record.repository_names"
                   :key="name"
                   size="small"
                   color="arcoblue"
                 >
                   {{ name }}
                 </a-tag>
-                <a-tag size="small" color="gray">
-                  +{{ record.repository_names.length - 2 }}
-                </a-tag>
               </a-space>
-            </a-tooltip>
-            <a-space v-else wrap size="mini">
+            </template>
+            <span v-else class="placeholder">-</span>
+          </template>
+
+          <!-- 领域 -->
+          <template #domains="{ record }">
+            <a-space v-if="domainLabels(record.domains).length > 0" wrap size="mini">
               <a-tag
-                v-for="name in record.repository_names"
-                :key="name"
+                v-for="label in domainLabels(record.domains)"
+                :key="label"
                 size="small"
-                color="arcoblue"
+                color="purple"
               >
-                {{ name }}
+                {{ label }}
               </a-tag>
             </a-space>
+            <span v-else class="placeholder">全部</span>
           </template>
-          <span v-else class="placeholder">-</span>
-        </template>
 
-        <!-- 领域 -->
-        <template #domains="{ record }">
-          <a-space v-if="domainLabels(record.domains).length > 0" wrap size="mini">
+          <!-- 扫描策略 -->
+          <template #scan_mode="{ record }">
             <a-tag
-              v-for="label in domainLabels(record.domains)"
-              :key="label"
+              :color="record.scan_mode === 'diff' ? 'orange' : 'blue'"
               size="small"
-              color="purple"
             >
-              {{ label }}
+              {{ scanModeLabel(record.scan_mode) }}
             </a-tag>
-          </a-space>
-          <span v-else class="placeholder">全部</span>
-        </template>
+          </template>
 
-        <!-- 扫描策略 -->
-        <template #scan_mode="{ record }">
-          <a-tag
-            :color="record.scan_mode === 'diff' ? 'orange' : 'blue'"
-            size="small"
-          >
-            {{ scanModeLabel(record.scan_mode) }}
-          </a-tag>
-        </template>
+          <!-- 下次执行 -->
+          <template #next_run_at="{ record }">
+            {{ formatTime(record.next_run_at) }}
+          </template>
 
-        <!-- 下次执行 -->
-        <template #next_run_at="{ record }">
-          {{ formatTime(record.next_run_at) }}
-        </template>
+          <!-- 上次执行 -->
+          <template #last_scheduled_at="{ record }">
+            {{ formatTime(record.last_scheduled_at) }}
+          </template>
 
-        <!-- 上次执行 -->
-        <template #last_scheduled_at="{ record }">
-          {{ formatTime(record.last_scheduled_at) }}
-        </template>
-
-        <!-- AI 模式 -->
-        <template #ai_mode="{ record }">
-          <a-tag
-            :color="record.ai_mode === 'agent' ? 'green' : 'arcoblue'"
-            size="small"
-          >
-            {{ aiModeLabel(record.ai_mode) }}
-          </a-tag>
-        </template>
-
-        <!-- Agent：未指定时显示后端按模式兜底的实际 Agent，避免让人以为"没配就不跑" -->
-        <template #ai_agent_code="{ record }">
-          <span v-if="record.ai_agent_code">{{ record.ai_agent_code }}</span>
-          <a-tooltip v-else content="任务未指定 Agent，执行时按 AI 模式使用默认 Agent">
-            <span class="agent-default">{{ rowFallbackAgent(record) }}（默认）</span>
-          </a-tooltip>
-        </template>
-
-        <!-- 自动确认 -->
-        <template #auto_confirm="{ record }">
-          <a-tag :color="record.auto_confirm === '1' ? 'green' : 'gray'" size="small">
-            {{ record.auto_confirm === '1' ? '自动' : '手动' }}
-          </a-tag>
-        </template>
-
-        <!-- 启用调度开关 -->
-        <template #schedule_enabled="{ record }">
-          <a-switch
-            :model-value="record.schedule_enabled === '1'"
-            :loading="togglingId === record.id"
-            size="small"
-            @change="(v: string | number | boolean) => handleScheduleToggle(record, Boolean(v))"
-          />
-        </template>
-
-        <!-- 状态 -->
-        <template #status="{ record }">
-          <a-tag :color="record.status === '1' ? 'green' : 'gray'" size="small">
-            {{ record.status === '1' ? '启用' : '停用' }}
-          </a-tag>
-        </template>
-
-        <!-- 操作列 -->
-        <template #operations="{ record }">
-          <a-space>
-            <a-button type="text" size="small" @click="openEditModal(record)">
-              编辑
-            </a-button>
-            <a-button
-              type="text"
+          <!-- AI 模式 -->
+          <template #ai_mode="{ record }">
+            <a-tag
+              :color="record.ai_mode === 'agent' ? 'green' : 'arcoblue'"
               size="small"
-              :loading="triggeringId === record.id"
-              @click="handleTrigger(record)"
             >
-              立即执行
-            </a-button>
-            <a-button
-              type="text"
+              {{ aiModeLabel(record.ai_mode) }}
+            </a-tag>
+          </template>
+
+          <!-- Agent：未指定时显示后端按模式兜底的实际 Agent，避免让人以为"没配就不跑" -->
+          <template #ai_agent_code="{ record }">
+            <span v-if="record.ai_agent_code">{{ record.ai_agent_code }}</span>
+            <a-tooltip v-else content="任务未指定 Agent，执行时按 AI 模式使用默认 Agent">
+              <span class="agent-default">{{ rowFallbackAgent(record) }}（默认）</span>
+            </a-tooltip>
+          </template>
+
+          <!-- 自动确认 -->
+          <template #auto_confirm="{ record }">
+            <a-tag :color="record.auto_confirm === '1' ? 'green' : 'gray'" size="small">
+              {{ record.auto_confirm === '1' ? '自动' : '手动' }}
+            </a-tag>
+          </template>
+
+          <!-- 启用调度开关 -->
+          <template #schedule_enabled="{ record }">
+            <a-switch
+              :model-value="record.schedule_enabled === '1'"
+              :loading="togglingId === record.id"
               size="small"
-              @click="openRecordDrawer(record)"
-            >
-              执行记录
-            </a-button>
-            <a-button
-              type="text"
-              size="small"
-              status="danger"
-              :loading="deletingId === record.id"
-              @click="handleDelete(record)"
-            >
-              删除
-            </a-button>
-          </a-space>
-        </template>
-      </a-table>
-    </a-card>
+              @change="(v: string | number | boolean) => handleScheduleToggle(record, Boolean(v))"
+            />
+          </template>
+
+          <!-- 状态 -->
+          <template #status="{ record }">
+            <a-tag :color="record.status === '1' ? 'green' : 'gray'" size="small">
+              {{ record.status === '1' ? '启用' : '停用' }}
+            </a-tag>
+          </template>
+
+          <!-- 操作列 -->
+          <template #operations="{ record }">
+            <a-space>
+              <a-button type="text" size="small" @click="openEditModal(record)">
+                编辑
+              </a-button>
+              <a-button
+                type="text"
+                size="small"
+                :loading="triggeringId === record.id"
+                @click="handleTrigger(record)"
+              >
+                立即执行
+              </a-button>
+              <a-button
+                type="text"
+                size="small"
+                @click="openRecordDrawer(record)"
+              >
+                执行记录
+              </a-button>
+              <a-button
+                type="text"
+                size="small"
+                status="danger"
+                :loading="deletingId === record.id"
+                @click="handleDelete(record)"
+              >
+                删除
+              </a-button>
+            </a-space>
+          </template>
+        </a-table>
+      </a-card>
+    </div>
 
     <!-- ═══ 新增/编辑弹窗 ═══ -->
     <a-modal

@@ -2,7 +2,7 @@
 import { Message, Modal } from '@arco-design/web-vue'
 import { computed, ref } from 'vue'
 import { ApiMcArtifact, ApiMcAudit } from '@/api/apis'
-import { formatTime, useDelete, useGet, useToken } from '@/hooks'
+import { formatTime, useDelete, useGet, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
 
 defineOptions({ name: 'McArtifact' })
 
@@ -28,17 +28,21 @@ function fmtSize(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-const columns = [
+const columns = withTableDefaults([
   { title: '版本', dataIndex: 'version', width: 150 },
   { title: '种类', dataIndex: 'kind', width: 130, slotName: 'kind' },
   { title: '大小', dataIndex: 'size_bytes', width: 100, slotName: 'size' },
   { title: 'SHA256', dataIndex: 'sha256', width: 200, slotName: 'sha256' },
   { title: '迁移条目', dataIndex: 'migrations_count', width: 100, slotName: 'migrations' },
   { title: '构建', dataIndex: 'build_meta', width: 220, slotName: 'build' },
-  { title: '说明', dataIndex: 'notes', ellipsis: true, tooltip: true },
+  { title: '说明', dataIndex: 'notes' },
   { title: '上传时间', dataIndex: 'created_at', width: 170, slotName: 'created' },
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 90, fixed: 'right' as const },
-]
+])
+
+// ── 表格高度自适应（表头固定，滚动条落在表格内）──────────────
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 
 const auditColumns = [
   { title: '时间', dataIndex: 'created_at', width: 170, slotName: 'created' },
@@ -166,49 +170,52 @@ function handleDelete(row: any) {
         </a-descriptions-item>
       </a-descriptions>
 
-      <a-table
-        :loading="isFetching"
-        :columns="columns"
-        :data="artifacts"
-        :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true }"
-        row-key="id"
-        size="small"
-        :scroll="{ x: 1500 }"
-        @page-change="(p: number) => { queryParams.page_num = p; fetchList() }"
-      >
-        <template #kind="{ record }">
-          <a-tag :color="record.kind === 'linux_artifact' ? 'blue' : 'purple'">
-            {{ record.kind === 'linux_artifact' ? 'Linux' : 'Windows' }}
-          </a-tag>
-        </template>
-        <template #size="{ record }">
-          {{ fmtSize(record.size_bytes) }}
-        </template>
-        <template #sha256="{ record }">
-          <a-tooltip :content="record.sha256">
-            <span class="font-mono text-xs">{{ record.sha256?.slice(0, 16) }}…</span>
-          </a-tooltip>
-        </template>
-        <template #migrations="{ record }">
-          <a-tooltip content="制品内 sql/ 目录数（sql_dir 型迁移条目数），用于与其他制品比对是否需要跑迁移">
-            {{ record.migrations_count ?? '-' }}
-          </a-tooltip>
-        </template>
-        <template #build="{ record }">
-          <span class="text-xs">
-            {{ record.build_meta?.git_sha || '-' }}
-            <span class="text-gray-400">{{ record.build_meta?.build_time || '' }}</span>
-          </span>
-        </template>
-        <template #created="{ record }">
-          {{ formatTime(record.created_at) }}
-        </template>
-        <template #operations="{ record }">
-          <a-button type="text" status="danger" size="mini" @click="handleDelete(record)">
-            删除
-          </a-button>
-        </template>
-      </a-table>
+      <div ref="tableWrap">
+        <a-table
+          :loading="isFetching"
+          :columns="columns"
+          :data="artifacts"
+          :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true }"
+          row-key="id"
+          size="small"
+          column-resizable
+          :scroll="{ x: 1500, y: tableHeight }"
+          @page-change="(p: number) => { queryParams.page_num = p; fetchList() }"
+        >
+          <template #kind="{ record }">
+            <a-tag :color="record.kind === 'linux_artifact' ? 'blue' : 'purple'">
+              {{ record.kind === 'linux_artifact' ? 'Linux' : 'Windows' }}
+            </a-tag>
+          </template>
+          <template #size="{ record }">
+            {{ fmtSize(record.size_bytes) }}
+          </template>
+          <template #sha256="{ record }">
+            <a-tooltip :content="record.sha256">
+              <span class="font-mono text-xs">{{ record.sha256?.slice(0, 16) }}…</span>
+            </a-tooltip>
+          </template>
+          <template #migrations="{ record }">
+            <a-tooltip content="制品内 sql/ 目录数（sql_dir 型迁移条目数），用于与其他制品比对是否需要跑迁移">
+              {{ record.migrations_count ?? '-' }}
+            </a-tooltip>
+          </template>
+          <template #build="{ record }">
+            <span class="text-xs">
+              {{ record.build_meta?.git_sha || '-' }}
+              <span class="text-gray-400">{{ record.build_meta?.build_time || '' }}</span>
+            </span>
+          </template>
+          <template #created="{ record }">
+            {{ formatTime(record.created_at) }}
+          </template>
+          <template #operations="{ record }">
+            <a-button type="text" status="danger" size="mini" @click="handleDelete(record)">
+              删除
+            </a-button>
+          </template>
+        </a-table>
+      </div>
     </a-card>
 
     <a-card title="操作审计" :bordered="false" class="mt-4">

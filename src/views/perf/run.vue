@@ -3,7 +3,7 @@ import { ref, computed, watch, onUnmounted, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { EventSourcePolyfill, type Event as SseEvent, type MessageEvent as SseMessageEvent } from 'event-source-polyfill'
-import { formatTime, getAction, postAction, putAction, useGet } from '@/hooks'
+import { formatTime, getAction, postAction, putAction, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiPerfRun, ApiPerfScript, ApiPerfIteration, ApiPerfTask, ApiPerfLoadNode } from '@/api/apis'
 import { useToken } from '@/hooks/app'
 
@@ -28,10 +28,10 @@ const statusColorMap: Record<string, string> = {
   pending: 'gray', running: 'blue', success: 'green', failed: 'red', timeout: 'orange', cancelled: 'gray',
 }
 
-const columns = [
-  { title: '任务名称', dataIndex: 'task_id', width: 140, slotName: 'task_name', ellipsis: true, tooltip: true },
-  { title: '脚本名称', dataIndex: 'script_id', width: 160, slotName: 'script_name', ellipsis: true, tooltip: true },
-  { title: '迭代', dataIndex: 'iteration_id', width: 140, slotName: 'iteration', ellipsis: true, tooltip: true },
+const columns = withTableDefaults([
+  { title: '任务名称', dataIndex: 'task_id', width: 140, slotName: 'task_name' },
+  { title: '脚本名称', dataIndex: 'script_id', width: 160, slotName: 'script_name' },
+  { title: '迭代', dataIndex: 'iteration_id', width: 140, slotName: 'iteration' },
   { title: '触发方式', dataIndex: 'trigger_type', width: 80, slotName: 'trigger_type' },
   { title: '状态', dataIndex: 'run_status', width: 90, slotName: 'status' },
   { title: '样本数', dataIndex: 'summary_json.sample_count', width: 80, slotName: 'sample_count' },
@@ -43,7 +43,11 @@ const columns = [
   { title: '结束时间', dataIndex: 'finished_at', width: 160, slotName: 'finished_at' },
   { title: '耗时(秒)', dataIndex: 'duration_ms', width: 90, slotName: 'duration' },
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 280, fixed: 'right' as const },
-]
+])
+
+// ── 表格高度自适应（滚动条在表格内，表头固定）──────────
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 
 // ── 触发执行弹窗 ──────────────────────────────────
 const triggerVisible = ref(false)
@@ -337,10 +341,11 @@ async function handleBatchSubmit() {
       </a-row>
     </a-card>
 
+    <div ref="tableWrap">
     <a-card :bordered="false">
       <a-table column-resizable :loading="isLoading" :data="dataList" :columns="columns"
         :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true, showPageSize: true }"
-        row-key="id" @page-change="handlePageChange">
+        row-key="id" :scroll="{ y: tableHeight }" @page-change="handlePageChange">
         <template #task_name="{ record }">{{ record.task_name || record.task_id || '-' }}</template>
         <template #started_at="{ record }">{{ formatTime(record.started_at) }}</template>
         <template #finished_at="{ record }">{{ formatTime(record.finished_at) }}</template>
@@ -377,6 +382,7 @@ async function handleBatchSubmit() {
         </template>
       </a-table>
     </a-card>
+    </div>
 
     <!-- 触发执行弹窗 -->
     <a-modal v-model:visible="triggerVisible" title="触发执行" :width="520" @ok="handleTriggerSubmit">

@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { computed, ref, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { useGet, usePost, usePut, useDelete, useToken } from '@/hooks'
+import { useGet, usePost, usePut, useDelete, useToken, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiAiSkill, ApiAiAgent, type AiSkill, type AiAgent, type AiSkillFile, type AiListResult, type AiSkillDeployStatus } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
 
@@ -198,7 +198,7 @@ watch(modalVisible, (v) => {
 })
 
 // ── 表格列 ──────────────────────────────────
-const columns = [
+const columns = withTableDefaults([
   { title: 'Skill Code', dataIndex: 'skill_code', width: 140 },
   { title: '名称', dataIndex: 'skill_name', width: 140 },
   { title: '关联 Agent', dataIndex: 'agent_id', width: 120, slotName: 'agent' },
@@ -207,7 +207,11 @@ const columns = [
   { title: '状态', dataIndex: 'status', width: 80, slotName: 'status' },
   { title: '部署状态', dataIndex: 'deploy', width: 100, slotName: 'deploy' },
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 190, fixed: 'right' as const },
-]
+])
+
+// ── 表格高度自适应（表头固定，滚动条落在表格内）──────────────
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 </script>
 
 <template>
@@ -243,40 +247,43 @@ const columns = [
     </a-card>
 
     <!-- 表格 -->
-    <a-card :bordered="false">
-      <a-table
-        :loading="loading"
-        :data="list"
-        :columns="columns"
-        row-key="id"
-        :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true }"
-        @page-change="handlePageChange"
-        :scroll="{ x: 900 }"
-      >
-        <template #agent="{ record }">{{ getAgentName(record.agent_id) }}</template>
-        <template #status="{ record }">
-          <a-tag :color="record.status === 'active' ? 'green' : record.status === 'draft' ? 'orange' : 'red'">
-            {{ record.status === 'active' ? '启用' : record.status === 'draft' ? '草稿' : '禁用' }}
-          </a-tag>
-        </template>
-        <template #deploy="{ record }">
-          <a-tooltip :content="deployStatusMap[record.id]?.deployed_dir || ''" position="top">
-            <a-tag :color="deployStateTag(deployStatusMap[record.id]?.state).color">
-              {{ deployStateTag(deployStatusMap[record.id]?.state).label }}
+    <div ref="tableWrap">
+      <a-card :bordered="false">
+        <a-table
+          :loading="loading"
+          :data="list"
+          :columns="columns"
+          row-key="id"
+          :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true }"
+          column-resizable
+          @page-change="handlePageChange"
+          :scroll="{ x: 900, y: tableHeight }"
+        >
+          <template #agent="{ record }">{{ getAgentName(record.agent_id) }}</template>
+          <template #status="{ record }">
+            <a-tag :color="record.status === 'active' ? 'green' : record.status === 'draft' ? 'orange' : 'red'">
+              {{ record.status === 'active' ? '启用' : record.status === 'draft' ? '草稿' : '禁用' }}
             </a-tag>
-          </a-tooltip>
-        </template>
-        <template #operations="{ record }">
-          <a-space>
-            <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
-            <a-button type="text" size="small" :loading="deployLoadingId === record.id" @click="handleDeploy(record)">部署</a-button>
-            <a-popconfirm content="确认删除该 Skill？" @ok="handleDelete(record)">
-              <a-button type="text" size="small" status="danger">删除</a-button>
-            </a-popconfirm>
-          </a-space>
-        </template>
-      </a-table>
-    </a-card>
+          </template>
+          <template #deploy="{ record }">
+            <a-tooltip :content="deployStatusMap[record.id]?.deployed_dir || ''" position="top">
+              <a-tag :color="deployStateTag(deployStatusMap[record.id]?.state).color">
+                {{ deployStateTag(deployStatusMap[record.id]?.state).label }}
+              </a-tag>
+            </a-tooltip>
+          </template>
+          <template #operations="{ record }">
+            <a-space>
+              <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
+              <a-button type="text" size="small" :loading="deployLoadingId === record.id" @click="handleDeploy(record)">部署</a-button>
+              <a-popconfirm content="确认删除该 Skill？" @ok="handleDelete(record)">
+                <a-button type="text" size="small" status="danger">删除</a-button>
+              </a-popconfirm>
+            </a-space>
+          </template>
+        </a-table>
+      </a-card>
+    </div>
 
     <!-- 新增/编辑弹窗 -->
     <a-modal v-model:visible="modalVisible" :title="isEdit ? '编辑 Skill' : '新增 Skill'" :width="820" :ok-loading="submitting" @ok="handleSubmit">

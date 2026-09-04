@@ -11,7 +11,7 @@ import {
   type DmpListResult,
   type DmpTokenStatus,
 } from '@/api/dmpApis'
-import { formatTime, useGet, usePost, usePut } from '@/hooks'
+import { formatTime, useGet, usePost, usePut, useTableAutoHeight, withTableDefaults } from '@/hooks'
 
 defineOptions({ name: 'dmp-crawl' })
 
@@ -90,16 +90,16 @@ const { data: taskListRaw, execute: loadTasks, isFetching: taskLoading } = useGe
 )
 const taskList = computed(() => taskListRaw.value || [])
 
-const taskColumns = [
+const taskColumns = withTableDefaults([
   { title: '任务名称', dataIndex: 'name', width: 140 },
-  { title: '目标标识', dataIndex: 'target_key', width: 130, ellipsis: true, tooltip: true },
-  { title: '菜单路径', dataIndex: 'menu_path_display', width: 220, ellipsis: true, tooltip: true, slotName: 'menu_path' },
+  { title: '目标标识', dataIndex: 'target_key', width: 130 },
+  { title: '菜单路径', dataIndex: 'menu_path_display', width: 220, slotName: 'menu_path' },
   { title: '同步模式', dataIndex: 'sync_mode', width: 80, slotName: 'sync_mode' },
   { title: 'ETL', dataIndex: 'etl_enabled', width: 100, slotName: 'etl_status' },
   { title: '定时', dataIndex: 'schedule_enabled', width: 80, slotName: 'schedule' },
   { title: '状态', dataIndex: 'status', width: 70, slotName: 'task_status' },
   { title: '操作', dataIndex: 'ops', slotName: 'task_ops', width: 200, fixed: 'right' as const },
-]
+])
 
 function getMenuPath(record: DmpCrawlTask): string {
   const parts = [record.cloud, record.app, record.menu1, record.menu2].filter(Boolean)
@@ -257,15 +257,19 @@ function handleBatchPageChange(page: number) {
   getBatches()
 }
 
-const batchColumns = [
-  { title: '批次ID', dataIndex: 'id', width: 180, ellipsis: true, tooltip: true },
-  { title: '菜单路径', dataIndex: 'menu_path', width: 240, ellipsis: true, tooltip: true },
+const batchColumns = withTableDefaults([
+  { title: '批次ID', dataIndex: 'id', width: 180 },
+  { title: '菜单路径', dataIndex: 'menu_path', width: 240 },
   { title: '状态', dataIndex: 'status', width: 90, slotName: 'status' },
   { title: '数据量', dataIndex: 'total_count', width: 80, align: 'right' as const },
-  { title: '错误信息', dataIndex: 'error_msg', width: 200, ellipsis: true, tooltip: true },
+  { title: '错误信息', dataIndex: 'error_msg', width: 200 },
   { title: '创建时间', dataIndex: 'created_at', width: 160, slotName: 'created_at' },
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 90, fixed: 'right' as const },
-]
+])
+
+// ── 执行记录表格高度自适应（表头固定，滚动条落在表格内）──────────────
+const batchTableWrap = ref<HTMLElement>()
+const { tableHeight: batchTableHeight } = useTableAutoHeight(batchTableWrap)
 
 const statusMap: Record<string, { label: string, color: string }> = {
   running: { label: '爬取中', color: 'blue' },
@@ -406,6 +410,7 @@ function formatCell(val: unknown): string {
         :pagination="false"
         row-key="id"
         size="small"
+        column-resizable
       >
         <template #menu_path="{ record }">{{ getMenuPath(record) }}</template>
         <template #sync_mode="{ record }">
@@ -445,27 +450,31 @@ function formatCell(val: unknown): string {
       <template #extra>
         <a-button size="small" @click="() => getBatches()">刷新</a-button>
       </template>
-      <a-table
-        :loading="batchLoading"
-        :data="batchList"
-        :columns="batchColumns"
-        :pagination="{ total: batchTotal, current: batchQuery.page_num, pageSize: batchQuery.page_size, showTotal: true }"
-        row-key="id"
-        size="small"
-        @page-change="handleBatchPageChange"
-      >
-        <template #status="{ record }">
-          <a-tag :color="statusMap[record.status]?.color || 'gray'" size="small">
-            {{ statusMap[record.status]?.label || record.status }}
-          </a-tag>
-        </template>
-        <template #created_at="{ record }">{{ formatTime(record.created_at) }}</template>
-        <template #operations="{ record }">
-          <a-button type="text" size="small" :disabled="record.status !== 'success'" @click="handleViewData(record)">
-            查看数据
-          </a-button>
-        </template>
-      </a-table>
+      <div ref="batchTableWrap">
+        <a-table
+          :loading="batchLoading"
+          :data="batchList"
+          :columns="batchColumns"
+          :pagination="{ total: batchTotal, current: batchQuery.page_num, pageSize: batchQuery.page_size, showTotal: true }"
+          row-key="id"
+          size="small"
+          column-resizable
+          :scroll="{ y: batchTableHeight }"
+          @page-change="handleBatchPageChange"
+        >
+          <template #status="{ record }">
+            <a-tag :color="statusMap[record.status]?.color || 'gray'" size="small">
+              {{ statusMap[record.status]?.label || record.status }}
+            </a-tag>
+          </template>
+          <template #created_at="{ record }">{{ formatTime(record.created_at) }}</template>
+          <template #operations="{ record }">
+            <a-button type="text" size="small" :disabled="record.status !== 'success'" @click="handleViewData(record)">
+              查看数据
+            </a-button>
+          </template>
+        </a-table>
+      </div>
     </a-card>
 
     <!-- 更新 Token 弹框 -->

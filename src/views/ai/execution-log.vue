@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { computed, ref } from 'vue'
 import { Message, Modal } from '@arco-design/web-vue'
-import { postAction, useGet } from '@/hooks'
+import { postAction, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiAiExecution, type AiExecution, type AiExecutionStats, type AiListResult } from '@/api/aiApis'
 
 defineOptions({ name: 'ai-execution-log' })
@@ -125,8 +125,8 @@ function statusColor(status: string) {
 }
 
 // ── 表格列 ──────────────────────────────────
-const columns = [
-  { title: 'ID', dataIndex: 'id', width: 200, ellipsis: true, tooltip: true },
+const columns = withTableDefaults([
+  { title: 'ID', dataIndex: 'id', width: 200 },
   { title: '调用人', dataIndex: 'created_by', width: 100 },
   { title: '调用模块', dataIndex: 'caller_module', width: 100 },
   { title: '状态', dataIndex: 'status', width: 90, slotName: 'status' },
@@ -134,7 +134,11 @@ const columns = [
   { title: 'Exit Code', dataIndex: 'exit_code', width: 80 },
   { title: '创建时间', dataIndex: 'created_at', width: 170 },
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 80, fixed: 'right' as const },
-]
+])
+
+// ── 表格高度自适应（表头固定，滚动条落在表格内）──────────────
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 </script>
 
 <template>
@@ -187,26 +191,29 @@ const columns = [
     </a-card>
 
     <!-- 表格 -->
-    <a-card :bordered="false">
-      <a-table
-        :loading="loading"
-        :data="list"
-        :columns="columns"
-        row-key="id"
-        v-model:selectedKeys="selectedKeys"
-        :row-selection="{ type: 'checkbox', showCheckedAll: true }"
-        :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true }"
-        @page-change="handlePageChange"
-        :scroll="{ x: 900 }"
-      >
-        <template #status="{ record }">
-          <a-tag :color="statusColor(record.status)">{{ record.status }}</a-tag>
-        </template>
-        <template #operations="{ record }">
-          <a-button type="text" size="small" @click="showDetail(record)">详情</a-button>
-        </template>
-      </a-table>
-    </a-card>
+    <div ref="tableWrap">
+      <a-card :bordered="false">
+        <a-table
+          :loading="loading"
+          :data="list"
+          :columns="columns"
+          row-key="id"
+          v-model:selectedKeys="selectedKeys"
+          :row-selection="{ type: 'checkbox', showCheckedAll: true }"
+          :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true }"
+          column-resizable
+          @page-change="handlePageChange"
+          :scroll="{ x: 900, y: tableHeight }"
+        >
+          <template #status="{ record }">
+            <a-tag :color="statusColor(record.status)">{{ record.status }}</a-tag>
+          </template>
+          <template #operations="{ record }">
+            <a-button type="text" size="small" @click="showDetail(record)">详情</a-button>
+          </template>
+        </a-table>
+      </a-card>
+    </div>
 
     <!-- 详情抽屉 -->
     <a-drawer v-model:visible="drawerVisible" title="执行详情" :width="680" :footer="false">
