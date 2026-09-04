@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { formatTime, useGet, usePost } from '@/hooks'
+import { formatTime, useGet, usePost, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiPerfComparison, ApiPerfIteration } from '@/api/apis'
 
 defineOptions({ name: 'comparison' })
@@ -97,7 +97,7 @@ function fmtPct(v?: number | null) {
   return s + v.toFixed(1) + '%'
 }
 
-const columns = [
+const columns = withTableDefaults([
   { title: '领域', dataIndex: 'domain_code', width: 100 },
   { title: '基线迭代', dataIndex: 'baseline_iteration_id', width: 160, slotName: 'baseline_iter', ellipsis: true, tooltip: true },
   { title: '当前迭代', dataIndex: 'current_iteration_id', width: 160, slotName: 'current_iter', ellipsis: true, tooltip: true },
@@ -109,11 +109,11 @@ const columns = [
   { title: '总体状态', dataIndex: 'overall_status', width: 100, align: 'center' as const, slotName: 'overall_status' },
   { title: '创建时间', dataIndex: 'created_at', width: 160, slotName: 'created_at' },
   { title: '操作', key: 'action', width: 80, align: 'center' as const, slotName: 'action' },
-]
+])
 
-const txnColumns = [
-  { title: '事务编码', dataIndex: 'txn_code', width: 180, ellipsis: true, tooltip: true },
-  { title: '事务名称', dataIndex: 'txn_name', width: 200, ellipsis: true, tooltip: true },
+const txnColumns = withTableDefaults([
+  { title: '事务编码', dataIndex: 'txn_code', width: 180 },
+  { title: '事务名称', dataIndex: 'txn_name', width: 200 },
   { title: '基线Avg(ms)', dataIndex: 'baseline_avg', width: 110, align: 'right' as const, render: ({ record }: any) => fmtNum(record.baseline_avg) },
   { title: '当前Avg(ms)', dataIndex: 'current_avg', width: 110, align: 'right' as const, render: ({ record }: any) => fmtNum(record.current_avg) },
   { title: 'ΔAvg(ms)', dataIndex: 'delta_avg', width: 90, align: 'right' as const, slotName: 'delta_avg' },
@@ -124,7 +124,11 @@ const txnColumns = [
   { title: '基线错误率(%)', dataIndex: 'baseline_error_pct', width: 120, align: 'right' as const, render: ({ record }: any) => fmtNum(record.baseline_error_pct, 2) },
   { title: '当前错误率(%)', dataIndex: 'current_error_pct', width: 120, align: 'right' as const, render: ({ record }: any) => fmtNum(record.current_error_pct, 2) },
   { title: '状态', key: 'status', width: 80, align: 'center' as const, slotName: 'status' },
-]
+])
+
+// 表格高度自适应（滚动条在表格内、表头固定）；明细表在弹窗内不做，容器高度算不准
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 </script>
 
 <template>
@@ -151,6 +155,7 @@ const txnColumns = [
     </a-card>
 
     <!-- 列表 -->
+    <div ref="tableWrap">
     <a-card :bordered="false">
 <a-table
   column-resizable
@@ -164,6 +169,7 @@ const txnColumns = [
           showTotal: true,
         }"
         row-key="id"
+        :scroll="{ y: tableHeight }"
         @page-change="handlePageChange"
       >
         <template #baseline_iter="{ record }">{{ iterMap[record.baseline_iteration_id]?.name || record.baseline_iteration_id?.substring(0, 8) }}</template>
@@ -179,6 +185,7 @@ const txnColumns = [
         </template>
       </a-table>
     </a-card>
+    </div>
 
     <!-- 发起比对弹窗 -->
     <a-modal v-model:visible="cmpVisible" title="跨迭代比对" @ok="handleCompare" :ok-loading="cmpLoading">

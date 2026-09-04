@@ -13,9 +13,10 @@
         每次执行按“收集慢请求 → 下载 Ops 日志 → AI 分析 → 生成报告”顺序运行；结果与阶段进度请进入任务运行页查看。
       </a-alert>
 
-      <a-table :data="jobs" :loading="loading" :pagination="pagination" row-key="id" @page-change="changePage">
+      <div ref="tableWrap">
+      <a-table :data="jobs" :loading="loading" :pagination="pagination" row-key="id" column-resizable :scroll="{ y: tableHeight }" @page-change="changePage">
         <template #columns>
-          <a-table-column title="任务名称" data-index="task_name" :width="190" ellipsis />
+          <a-table-column title="任务名称" data-index="task_name" :width="190" ellipsis tooltip />
           <a-table-column title="分析范围" :width="230">
             <template #cell="{ record }">
               <div>{{ record.product_line }} / {{ record.app_number || '全部应用' }}</div>
@@ -34,7 +35,7 @@
           <a-table-column title="Agent" :width="150">
             <template #cell="{ record }">{{ agentDisplayName(record.agent_code) }}</template>
           </a-table-column>
-          <a-table-column title="模型" data-index="model" :width="160" />
+          <a-table-column title="模型" data-index="model" :width="160" ellipsis tooltip />
           <a-table-column title="流程" :width="210">
             <template #cell>
               <a-space size="mini">
@@ -45,7 +46,7 @@
           <a-table-column title="状态" :width="80">
             <template #cell="{ record }"><a-tag :color="record.enabled ? 'green' : 'gray'">{{ record.enabled ? '启用' : '停用' }}</a-tag></template>
           </a-table-column>
-          <a-table-column title="更新时间" data-index="updated_at" :width="170" />
+          <a-table-column title="更新时间" data-index="updated_at" :width="170" ellipsis tooltip />
           <a-table-column title="操作" :width="250" fixed="right">
             <template #cell="{ record }">
               <a-space>
@@ -58,6 +59,7 @@
           </a-table-column>
         </template>
       </a-table>
+      </div>
     </a-card>
 
     <a-modal v-model:visible="editorVisible" :title="form.id ? '编辑分析任务' : '新增分析任务'" :ok-loading="saving" width="720px" @ok="saveJob">
@@ -117,7 +119,7 @@ import { useRouter } from 'vue-router'
 import { Message, Modal } from '@arco-design/web-vue'
 import { ApiAiAgent, type AiAgent, type AiListResult } from '@/api/aiApis'
 import { ApiPerfAnalysisJob, ApiPerfCompliance } from '@/api/perfApis'
-import { useGet, usePost } from '@/hooks'
+import { useGet, usePost, useTableAutoHeight } from '@/hooks'
 
 defineOptions({ name: 'analysis-center' })
 
@@ -127,6 +129,10 @@ const { data, isFetching: loading, execute: fetchJobs } = useGet<any>(ApiPerfAna
 const jobs = computed(() => data.value?.list || [])
 const pagination = computed(() => ({ current: data.value?.page_num || 1, total: data.value?.total || 0, pageSize: 20, showTotal: true }))
 const changePage = (page: number) => { query.value = { ...query.value, page_num: page }; fetchJobs() }
+
+// 表格高度自适应：滚动条落在表格内，表头固定。容器必须是原生 div（组件 ref 是实例，没有 getBoundingClientRect）
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 
 const appOptions = ref<any[]>([])
 const appPayload = ref<any>({ level: 'app', product_line: '星瀚' })

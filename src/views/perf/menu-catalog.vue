@@ -9,7 +9,7 @@ interface CatalogTreeNode extends TreeNodeData {
   is_leaf?: boolean
   children?: CatalogTreeNode[]
 }
-import { formatTime, postAction, putAction, useGet } from '@/hooks'
+import { formatTime, postAction, putAction, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiPerfEnv, ApiPerfApp, ApiPerfMenu, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
 import SyncMenuModal from './components/SyncMenuModal.vue'
 import AutoMatchModal from './components/AutoMatchModal.vue'
@@ -95,19 +95,19 @@ function handleMenuPageChange(page: number) {
   getMenuList()
 }
 
-const menuColumns = [
-  { title: '菜单名称', dataIndex: 'menu_name', width: 180, ellipsis: true, tooltip: true },
-  { title: '完整路径', dataIndex: 'full_path', width: 200, ellipsis: true, tooltip: true },
-  { title: '领域', dataIndex: 'domain_name', width: 100, ellipsis: true, tooltip: true },
-  { title: '表单ID', dataIndex: 'form_id', width: 100, ellipsis: true, tooltip: true },
-  { title: '实体ID', dataIndex: 'entity_id', width: 100, ellipsis: true, tooltip: true },
-  { title: '项目组', dataIndex: 'project_group_name', width: 130, ellipsis: true, tooltip: true },
-  { title: '来源环境', dataIndex: 'source_env_name', width: 90, ellipsis: true, tooltip: true },
+const menuColumns = withTableDefaults([
+  { title: '菜单名称', dataIndex: 'menu_name', width: 180 },
+  { title: '完整路径', dataIndex: 'full_path', width: 200 },
+  { title: '领域', dataIndex: 'domain_name', width: 100 },
+  { title: '表单ID', dataIndex: 'form_id', width: 100 },
+  { title: '实体ID', dataIndex: 'entity_id', width: 100 },
+  { title: '项目组', dataIndex: 'project_group_name', width: 130 },
+  { title: '来源环境', dataIndex: 'source_env_name', width: 90 },
   { title: '同步时间', dataIndex: 'synced_at', width: 140, slotName: 'synced_at' },
-  { title: '同步人', dataIndex: 'synced_by_name', width: 70, ellipsis: true, tooltip: true },
+  { title: '同步人', dataIndex: 'synced_by_name', width: 70 },
   { title: '测试范围', dataIndex: 'in_test_scope', width: 90, slotName: 'in_test_scope' },
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 90, fixed: 'right' as const },
-]
+])
 
 // ── 批量选择 ──────────────────────────────────
 const selectedMenuIds = ref<string[]>([])
@@ -399,13 +399,13 @@ const { isFetching: buttonLoading, data: buttonRawData, execute: getButtonList }
 
 const buttonList = computed(() => Array.isArray(buttonRawData.value) ? buttonRawData.value : [])
 
-const buttonColumns = [
-  { title: '按钮名称', dataIndex: 'button_name', width: 120, ellipsis: true, tooltip: true },
-  { title: 'Button Key', dataIndex: 'button_key', width: 120, ellipsis: true, tooltip: true },
-  { title: '类型', dataIndex: 'button_type', width: 80, ellipsis: true, tooltip: true },
+const buttonColumns = withTableDefaults([
+  { title: '按钮名称', dataIndex: 'button_name', width: 120 },
+  { title: 'Button Key', dataIndex: 'button_key', width: 120 },
+  { title: '类型', dataIndex: 'button_type', width: 80 },
   { title: '关键按钮', dataIndex: 'is_important', width: 80, slotName: 'is_important' },
   { title: '排序', dataIndex: 'sort_seq', width: 50 },
-]
+])
 
 function handleButtonSearch() { getButtonList() }
 
@@ -448,6 +448,13 @@ watch([sourceEnvId, currentFormNumber], () => {
     tableInfo.value = null
   }
 }, { immediate: false })
+
+// 表格高度自适应（滚动条在表格内、表头固定）；右侧按钮面板与菜单列表面板各一个容器，
+// 因为两者上方的信息条/操作栏高度不同，分别测量才准
+const menuTableWrap = ref<HTMLElement>()
+const { tableHeight: menuTableHeight } = useTableAutoHeight(menuTableWrap)
+const buttonTableWrap = ref<HTMLElement>()
+const { tableHeight: buttonTableHeight } = useTableAutoHeight(buttonTableWrap)
 </script>
 
 <template>
@@ -564,13 +571,14 @@ watch([sourceEnvId, currentFormNumber], () => {
             </a-col>
           </a-row>
 
+          <div ref="buttonTableWrap">
 <a-table
   column-resizable
             :loading="buttonLoading"
             :data="buttonList"
             :columns="buttonColumns"
             :pagination="false"
-            :scroll="{ y: 'calc(100vh - 420px)' }"
+            :scroll="{ y: buttonTableHeight }"
             row-key="id"
             :row-selection="{ type: 'checkbox', showCheckedAll: true, selectedRowKeys: selectedButtonIds }"
             @selection-change="handleButtonSelectionChange"
@@ -583,6 +591,7 @@ watch([sourceEnvId, currentFormNumber], () => {
               />
             </template>
           </a-table>
+          </div>
         </template>
 
         <!-- 菜单列表面板（非叶子节点选中时）-->
@@ -617,13 +626,14 @@ watch([sourceEnvId, currentFormNumber], () => {
             </a-button>
           </div>
 
+          <div ref="menuTableWrap">
 <a-table
   column-resizable
             :loading="menuLoading"
             :data="menuList"
             :columns="menuColumns"
             :pagination="{ total: menuTotal, current: menuQuery.page_num, pageSize: menuQuery.page_size, showTotal: true, showPageSize: true }"
-            :scroll="{ y: 'calc(100vh - 400px)', x: 1430 }"
+            :scroll="{ y: menuTableHeight, x: 1430 }"
             row-key="id"
             :row-selection="{ type: 'checkbox', showCheckedAll: true, selectedRowKeys: selectedMenuIds }"
             @selection-change="handleSelectionChange"
@@ -643,6 +653,7 @@ watch([sourceEnvId, currentFormNumber], () => {
               </a-button>
             </template>
           </a-table>
+          </div>
         </template>
       </a-card>
     </div>

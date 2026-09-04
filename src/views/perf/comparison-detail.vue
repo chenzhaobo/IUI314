@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { useRouter, useRoute } from 'vue-router'
-import { useGet, usePut } from '@/hooks'
+import { useGet, usePut, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiPerfComparison } from '@/api/apis'
 import TxnTrendChart from './components/TxnTrendChart.vue'
 
@@ -172,10 +172,10 @@ function fmtPct(v?: number | null): string {
   return v.toFixed(2) + '%'
 }
 
-const detailColumns = [
-  { title: '事务编码', dataIndex: 'txn_code', width: 140, ellipsis: true, tooltip: true, fixed: 'left' as const },
-  { title: '事务名称', dataIndex: 'txn_name', width: 200, ellipsis: true, tooltip: true },
-  { title: '脚本名称', dataIndex: 'script_name', width: 150, ellipsis: true, tooltip: true },
+const detailColumns = withTableDefaults([
+  { title: '事务编码', dataIndex: 'txn_code', width: 140, fixed: 'left' as const },
+  { title: '事务名称', dataIndex: 'txn_name', width: 200 },
+  { title: '脚本名称', dataIndex: 'script_name', width: 150 },
   { title: '基线Avg(秒)', dataIndex: 'baseline_avg', width: 100, align: 'center' as const, slotName: 'baseline_avg' },
   { title: '当前Avg(秒)', dataIndex: 'current_avg', width: 100, align: 'center' as const, slotName: 'current_avg' },
   { title: 'Avg变化(%)', dataIndex: 'delta_avg_pct', width: 100, align: 'center' as const, slotName: 'delta_avg_pct' },
@@ -184,9 +184,13 @@ const detailColumns = [
   { title: 'P95变化(%)', dataIndex: 'delta_p95_pct', width: 100, align: 'center' as const, slotName: 'delta_p95_pct' },
   { title: '比对状态', dataIndex: 'status', width: 90, align: 'center' as const, slotName: 'status' },
   { title: '分析状态', dataIndex: 'analysis_status', width: 90, align: 'center' as const, slotName: 'analysis_status' },
-  { title: '分析备注', dataIndex: 'analysis_remark', width: 150, ellipsis: true, tooltip: true },
+  { title: '分析备注', dataIndex: 'analysis_remark', width: 150 },
   { title: '操作', key: 'action', width: 180, align: 'center' as const, slotName: 'action', fixed: 'right' as const },
-]
+])
+
+// 表格高度自适应（滚动条在表格内、表头固定）
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 </script>
 
 <template>
@@ -255,6 +259,7 @@ const detailColumns = [
         </a-form-item>
       </a-form>
 
+      <div ref="tableWrap">
 <a-table
   column-resizable
         :columns="detailColumns"
@@ -268,7 +273,7 @@ const detailColumns = [
           showPageSize: true,
         }"
         row-key="id"
-        :scroll="{ x: 1700 }"
+        :scroll="{ x: 1700, y: tableHeight }"
         @page-change="handlePageChange"
         @page-size-change="handlePageSizeChange"
       >
@@ -304,6 +309,7 @@ const detailColumns = [
           </a-space>
         </template>
       </a-table>
+      </div>
     </a-card>
 
     <!-- 分析状态弹窗 -->

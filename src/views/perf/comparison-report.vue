@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { useRouter } from 'vue-router'
-import { deleteAction, formatTime, useGet } from '@/hooks'
+import { deleteAction, formatTime, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiPerfComparison, ApiSysDictData, ApiPerfModule } from '@/api/apis'
 
 defineOptions({ name: 'comparison-report' })
@@ -78,12 +78,12 @@ const overallStatusMap: Record<string, { color: string; text: string }> = {
   warn: { color: 'red', text: '有劣化' },
 }
 
-const columns = [
-  { title: '产品领域', dataIndex: 'domain_code', width: 100, ellipsis: true, tooltip: true },
-  { title: '业务领域', dataIndex: 'business_domain', width: 100, ellipsis: true, tooltip: true },
-  { title: '云', dataIndex: 'cloud', width: 80, ellipsis: true, tooltip: true },
-  { title: '基线迭代', dataIndex: 'baseline_iteration_name', width: 160, ellipsis: true, tooltip: true },
-  { title: '当前迭代', dataIndex: 'current_iteration_name', width: 160, ellipsis: true, tooltip: true },
+const columns = withTableDefaults([
+  { title: '产品领域', dataIndex: 'domain_code', width: 100 },
+  { title: '业务领域', dataIndex: 'business_domain', width: 100 },
+  { title: '云', dataIndex: 'cloud', width: 80 },
+  { title: '基线迭代', dataIndex: 'baseline_iteration_name', width: 160 },
+  { title: '当前迭代', dataIndex: 'current_iteration_name', width: 160 },
   { title: '劣化', dataIndex: 'txn_regression_count', width: 70, align: 'center' as const },
   { title: '改善', dataIndex: 'txn_improvement_count', width: 70, align: 'center' as const },
   { title: '持平', dataIndex: 'txn_unchanged_count', width: 70, align: 'center' as const },
@@ -92,7 +92,11 @@ const columns = [
   { title: '总体状态', dataIndex: 'overall_status', width: 100, align: 'center' as const, slotName: 'overall_status' },
   { title: '创建时间', dataIndex: 'created_at', width: 160, slotName: 'created_at' },
   { title: '操作', key: 'action', width: 140, align: 'center' as const, slotName: 'action', fixed: 'right' as const },
-]
+])
+
+// 表格高度自适应（滚动条在表格内、表头固定）
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 </script>
 
 <template>
@@ -119,6 +123,7 @@ const columns = [
     </a-card>
 
     <!-- 列表 -->
+    <div ref="tableWrap">
     <a-card :bordered="false">
 <a-table
   column-resizable
@@ -132,7 +137,7 @@ const columns = [
           showTotal: true,
         }"
         row-key="id"
-        :scroll="{ x: 1500 }"
+        :scroll="{ x: 1500, y: tableHeight }"
         @page-change="handlePageChange"
       >
         <template #overall_status="{ record }">
@@ -151,5 +156,6 @@ const columns = [
         </template>
       </a-table>
     </a-card>
+    </div>
   </div>
 </template>

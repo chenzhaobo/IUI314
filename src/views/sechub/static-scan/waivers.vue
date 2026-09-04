@@ -5,10 +5,10 @@
 import type { WaiverRuleStatRow } from '@/types/static-scan'
 import { computed, onMounted, ref } from 'vue'
 import { Message, Modal } from '@arco-design/web-vue'
-import { useGet, usePost } from '@/hooks'
+import { useGet, usePost, useTableAutoHeight } from '@/hooks'
 import { ApiSecWaiver, ApiSecProjectGroup } from '@/api/sechubApis'
 
-defineOptions({ name: 'waivers' })
+defineOptions({ name: 'StaticScanWaivers' })
 
 // ── 查询 ──────────────────────────────────────────
 const queryParams = ref<Record<string, any>>({
@@ -275,6 +275,10 @@ function onSearch() {
   reloadAll()
 }
 
+// ── 表格高度自适应（滚动条出现在表格内，表头固定）──
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
+
 onMounted(() => {
   void loadRuleStats()
 })
@@ -340,9 +344,10 @@ onMounted(() => {
       <div class="split-right">
         <a-card :bordered="false" class="split-card">
           <!-- 表格 -->
-          <a-table :data="dataList" :loading="loading" :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size }" row-key="id" @page-change="onPageChange">
+          <div ref="tableWrap">
+          <a-table :data="dataList" :loading="loading" :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size }" row-key="id" column-resizable :scroll="{ y: tableHeight }" @page-change="onPageChange">
         <template #columns>
-          <a-table-column title="规则代码" data-index="rule_code" :width="140" ellipsis />
+          <a-table-column title="规则代码" data-index="rule_code" :width="140" ellipsis tooltip />
           <a-table-column title="原因" data-index="reason" :width="200" ellipsis tooltip />
           <a-table-column title="状态" data-index="status" :width="100">
             <template #cell="{ record }">
@@ -351,10 +356,10 @@ onMounted(() => {
               </a-tag>
             </template>
           </a-table-column>
-          <a-table-column title="申请人" data-index="requester_id" :width="120" ellipsis />
-          <a-table-column title="审批人" data-index="approver_id" :width="120" ellipsis />
-          <a-table-column title="生效时间" data-index="effective_from" :width="160" />
-          <a-table-column title="过期时间" data-index="effective_to" :width="160" />
+          <a-table-column title="申请人" data-index="requester_id" :width="120" ellipsis tooltip />
+          <a-table-column title="审批人" data-index="approver_id" :width="120" ellipsis tooltip />
+          <a-table-column title="生效时间" data-index="effective_from" :width="160" ellipsis tooltip />
+          <a-table-column title="过期时间" data-index="effective_to" :width="160" ellipsis tooltip />
           <a-table-column title="操作" :width="160" fixed="right">
             <template #cell="{ record }">
               <a-space>
@@ -369,6 +374,7 @@ onMounted(() => {
           </a-table-column>
         </template>
           </a-table>
+          </div>
         </a-card>
       </div>
     </div>

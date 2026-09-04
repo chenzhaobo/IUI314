@@ -2,7 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import * as XLSX from 'xlsx'
-import { formatTime, useGet, usePost, usePut, useToken } from '@/hooks'
+import { formatTime, useGet, usePost, usePut, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
 import { ApiPerfBenchmark, ApiPerfIteration, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
 import TxnTrendChart from './components/TxnTrendChart.vue'
 
@@ -273,26 +273,26 @@ async function handleRebuild() {
   }
 }
 
-const allColumns = [
-  { key: 'cloud', title: '云', dataIndex: 'cloud', width: 120, ellipsis: true, tooltip: true, fixed: 'left' as const },
-  { key: 'app', title: '应用', dataIndex: 'app', width: 120, ellipsis: true, tooltip: true },
-  { key: 'domain', title: '领域', dataIndex: 'domain', width: 100, ellipsis: true, tooltip: true },
-  { key: 'menu', title: '菜单', dataIndex: 'menu', width: 120, ellipsis: true, tooltip: true },
-  { key: 'txn_code', title: '事务编码', dataIndex: 'txn_code', width: 140, ellipsis: true, tooltip: true },
+const allColumns = withTableDefaults([
+  { key: 'cloud', title: '云', dataIndex: 'cloud', width: 120, fixed: 'left' as const },
+  { key: 'app', title: '应用', dataIndex: 'app', width: 120 },
+  { key: 'domain', title: '领域', dataIndex: 'domain', width: 100 },
+  { key: 'menu', title: '菜单', dataIndex: 'menu', width: 120 },
+  { key: 'txn_code', title: '事务编码', dataIndex: 'txn_code', width: 140 },
   { key: 'txn_type', title: '事务类型', dataIndex: 'txn_type', width: 100, align: 'center' as const, slotName: 'txn_type' },
-  { key: 'txn_name', title: '事务名称', dataIndex: 'txn_name', width: 200, ellipsis: true, tooltip: true },
+  { key: 'txn_name', title: '事务名称', dataIndex: 'txn_name', width: 200 },
   { key: 'target_value_ms', title: '目标值', dataIndex: 'target_value_ms', width: 90, align: 'center' as const, slotName: 'target_value' },
   { key: 'baseline_value_ms', title: '比对值', dataIndex: 'baseline_value_ms', width: 90, align: 'center' as const, slotName: 'baseline_value' },
   { key: 'average_ms', title: '最新结果', dataIndex: 'average_ms', width: 100, align: 'center' as const, slotName: 'avg_value' },
-  { key: 'iteration_name', title: '最新结果迭代', dataIndex: 'iteration_name', width: 140, ellipsis: true, tooltip: true },
+  { key: 'iteration_name', title: '最新结果迭代', dataIndex: 'iteration_name', width: 140 },
   { key: 'created_at', title: '最新结果时间', dataIndex: 'created_at', width: 160, slotName: 'created_at' },
   { key: 'error_pct', title: '成功率', dataIndex: 'error_pct', width: 100, align: 'center' as const, slotName: 'error_pct' },
   { key: 'pass_status', title: '达标状态', dataIndex: 'pass_status', width: 90, align: 'center' as const, slotName: 'pass_status' },
   { key: 'compare_status', title: '比对状态', dataIndex: 'compare_status', width: 90, align: 'center' as const, slotName: 'compare_status' },
   { key: 'baseline_updated_at', title: '比对值更新时间', dataIndex: 'baseline_updated_at', width: 160, slotName: 'baseline_updated_at' },
-  { key: 'baseline_iteration_name', title: '比对值更新迭代', dataIndex: 'baseline_iteration_name', width: 140, ellipsis: true, tooltip: true },
+  { key: 'baseline_iteration_name', title: '比对值更新迭代', dataIndex: 'baseline_iteration_name', width: 140 },
   { title: '操作', key: 'action', width: 150, align: 'center' as const, slotName: 'action', fixed: 'right' as const },
-]
+])
 
 // ── 列配置（拖拽排序 + 显示/隐藏） ──────────────────────────────────
 const STORAGE_KEY = 'benchmark_report_columns'
@@ -350,6 +350,10 @@ function resetColumns() {
 function saveColumnConfig() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(columnConfig.value))
 }
+
+// 表格高度自适应（滚动条在表格内、表头固定）
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 </script>
 
 <template>
@@ -439,6 +443,7 @@ function saveColumnConfig() {
     </a-card>
 
     <!-- 列表 -->
+    <div ref="tableWrap">
     <a-card :bordered="false">
       <div style="margin-bottom: 12px">
         <a-space>
@@ -486,7 +491,7 @@ function saveColumnConfig() {
           pageSizeOptions: [10, 20, 50, 100],
         }"
         row-key="txn_code"
-        :scroll="{ x: 2000 }"
+        :scroll="{ x: 2000, y: tableHeight }"
         @page-change="handlePageChange"
         @page-size-change="handlePageSizeChange"
       >
@@ -526,6 +531,7 @@ function saveColumnConfig() {
         </template>
       </a-table>
     </a-card>
+    </div>
 
     <!-- 趋势图弹窗 -->
     <TxnTrendChart

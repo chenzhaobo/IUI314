@@ -4,10 +4,10 @@
  */
 import { computed, ref } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { useGet, usePost } from '@/hooks'
+import { useGet, usePost, useTableAutoHeight } from '@/hooks'
 import { ApiSecDisposition, ApiSecFix } from '@/api/sechubApis'
 
-defineOptions({ name: 'dispositions' })
+defineOptions({ name: 'StaticScanDispositions' })
 
 // ── 查询 ──────────────────────────────────────────
 const queryParams = ref<Record<string, any>>({
@@ -151,6 +151,10 @@ function onSearch() {
   queryParams.value.page_num = 1
   refresh()
 }
+
+// ── 表格高度自适应（滚动条出现在表格内，表头固定）──
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 </script>
 
 <template>
@@ -174,9 +178,10 @@ function onSearch() {
       </div>
 
       <!-- 表格 -->
-      <a-table :data="dataList" :loading="loading" :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size }" row-key="id" @page-change="onPageChange">
+      <div ref="tableWrap">
+        <a-table :data="dataList" :loading="loading" :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size }" row-key="id" column-resizable :scroll="{ y: tableHeight }" @page-change="onPageChange">
         <template #columns>
-          <a-table-column title="Finding ID" data-index="finding_id" :width="140" ellipsis />
+          <a-table-column title="Finding ID" data-index="finding_id" :width="140" ellipsis tooltip />
           <a-table-column title="类型" data-index="kind" :width="110">
             <template #cell="{ record }">
               {{ kindOptions.find(k => k.value === record.kind)?.label || record.kind }}
@@ -189,8 +194,8 @@ function onSearch() {
               </a-tag>
             </template>
           </a-table-column>
-          <a-table-column title="责任人" data-index="assignee_id" :width="120" ellipsis />
-          <a-table-column title="期限" data-index="due_at" :width="160" />
+          <a-table-column title="责任人" data-index="assignee_id" :width="120" ellipsis tooltip />
+          <a-table-column title="期限" data-index="due_at" :width="160" ellipsis tooltip />
           <a-table-column title="操作" :width="260" fixed="right">
             <template #cell="{ record }">
               <a-space>
@@ -213,7 +218,8 @@ function onSearch() {
             </template>
           </a-table-column>
         </template>
-      </a-table>
+        </a-table>
+      </div>
     </a-card>
 
     <!-- 创建处置弹窗 -->

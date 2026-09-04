@@ -92,9 +92,10 @@
         </a-col>
       </a-row>
 
-      <a-table :data="packages" :loading="packagesLoading" :pagination="packagePagination" row-key="id" @page-change="changePackagePage">
+      <div ref="packageTableWrap">
+        <a-table :data="packages" :loading="packagesLoading" :pagination="packagePagination" row-key="id" column-resizable :scroll="{ y: packageTableHeight }" @page-change="changePackagePage">
         <template #columns>
-          <a-table-column title="包名" data-index="package_name" :width="200" />
+          <a-table-column title="包名" data-index="package_name" :width="200" ellipsis tooltip />
           <a-table-column title="状态" :width="100">
             <template #cell="{ record }">
               <a-tag :color="record.status === 'ok' ? 'green' : 'gray'">{{ record.status }}</a-tag>
@@ -120,7 +121,7 @@
               <a-tag :color="record.repository_id ? 'green' : 'gray'">{{ record.repository_id ? '已登记' : '未登记' }}</a-tag>
             </template>
           </a-table-column>
-          <a-table-column title="更新时间" data-index="decompiled_at" :width="170" />
+          <a-table-column title="更新时间" data-index="decompiled_at" :width="170" ellipsis tooltip />
           <a-table-column title="操作" :width="150" fixed="right">
             <template #cell="{ record }">
               <a-space>
@@ -130,7 +131,8 @@
             </template>
           </a-table-column>
         </template>
-      </a-table>
+        </a-table>
+      </div>
     </a-card>
 
     <!-- className 反查 -->
@@ -216,7 +218,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { Message, Modal } from '@arco-design/web-vue'
 import { ApiSecDecompile } from '@/api/sechubApis'
-import { useGet, usePost } from '@/hooks'
+import { useGet, usePost, useTableAutoHeight } from '@/hooks'
 
 defineOptions({ name: 'decompile-library' })
 
@@ -419,6 +421,10 @@ const changePackagePage = (page: number) => {
   packageQuery.page_num = page
   fetchPackages()
 }
+
+// 包清单表格高度自适应（滚动条出现在表格内，表头固定）
+const packageTableWrap = ref<HTMLElement>()
+const { tableHeight: packageTableHeight } = useTableAutoHeight(packageTableWrap)
 
 const packageDrawerVisible = ref(false)
 const currentPackage = ref<any>(null)

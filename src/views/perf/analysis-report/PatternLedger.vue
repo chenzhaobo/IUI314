@@ -62,10 +62,11 @@
           </a-row>
 
           <!-- 表格 -->
-          <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange" row-key="id" :scroll="{ x: 1600 }">
+          <div ref="tableWrap">
+          <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange" row-key="id" column-resizable :scroll="{ x: 1600, y: tableHeight }">
             <template #columns>
-              <a-table-column title="编号" data-index="pattern_no" :width="100" />
-              <a-table-column title="标题" data-index="title" :width="250" ellipsis />
+              <a-table-column title="编号" data-index="pattern_no" :width="100" ellipsis tooltip />
+              <a-table-column title="标题" data-index="title" :width="250" ellipsis tooltip />
               <a-table-column title="归因标签" data-index="attribution_tag" :width="150">
                 <template #cell="{ record }">
                   <template v-if="record.attribution_tag">
@@ -101,9 +102,9 @@
                   {{ record.app_number || '--' }}
                 </template>
               </a-table-column>
-              <a-table-column title="产品线" data-index="product_line" :width="80" />
-              <a-table-column title="首次出现" data-index="first_found_week" :width="100" />
-              <a-table-column title="最近出现" data-index="last_found_week" :width="100" />
+              <a-table-column title="产品线" data-index="product_line" :width="80" ellipsis tooltip />
+              <a-table-column title="首次出现" data-index="first_found_week" :width="100" ellipsis tooltip />
+              <a-table-column title="最近出现" data-index="last_found_week" :width="100" ellipsis tooltip />
               <a-table-column title="周趋势" :width="160">
                 <template #cell="{ record }">
                   <span v-if="record.weekly_stats" class="weekly-bar">
@@ -158,6 +159,7 @@
               </a-table-column>
             </template>
           </a-table>
+          </div>
         </div>
       </div>
     </a-card>
@@ -273,7 +275,7 @@ import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message, Modal } from '@arco-design/web-vue'
 import { ApiPerfPatternLedger } from '@/api/perfApis'
-import { useDownload, useGet, usePost } from '@/hooks'
+import { useDownload, useGet, usePost, useTableAutoHeight } from '@/hooks'
 import { MdPreview } from 'md-editor-v3'
 // 必须导入样式，否则 MdPreview 渲染出来没有任何格式（表格无边框、标题不分级）
 import 'md-editor-v3/lib/style.css'
@@ -310,6 +312,10 @@ const drawerVisible = ref(false)
 const currentRecord = ref<any>(null)
 const detailExporting = ref(false)
 const logsDownloading = ref(false)
+
+// 表格高度自适应：滚动条落在表格内，表头固定。容器必须是原生 div。
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 
 // ── 映射 ──────────────────────────────────────
 

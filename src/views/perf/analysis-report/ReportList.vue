@@ -44,9 +44,10 @@
         </a-col>
       </a-row>
 
-      <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange">
+      <div ref="tableWrap">
+      <a-table :data="tableData" :loading="loading" :pagination="pagination" column-resizable :scroll="{ y: tableHeight }" @page-change="handlePageChange">
         <template #columns>
-          <a-table-column title="标题" data-index="title" :width="250" ellipsis />
+          <a-table-column title="标题" data-index="title" :width="250" ellipsis tooltip />
           <a-table-column title="类型" data-index="analysis_type" :width="80">
             <template #cell="{ record }">{{ typeText(record.analysis_type) }}</template>
           </a-table-column>
@@ -59,14 +60,14 @@
           <a-table-column title="周期" :width="180">
             <template #cell="{ record }">{{ record.period_start }} ~ {{ record.period_end }}</template>
           </a-table-column>
-          <a-table-column title="问题数" data-index="issue_count" :width="80" />
-          <a-table-column title="应用数" data-index="app_count" :width="80" />
+          <a-table-column title="问题数" data-index="issue_count" :width="80" ellipsis tooltip />
+          <a-table-column title="应用数" data-index="app_count" :width="80" ellipsis tooltip />
           <a-table-column title="状态" data-index="status" :width="90">
             <template #cell="{ record }">
               <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
             </template>
           </a-table-column>
-          <a-table-column title="创建时间" data-index="created_at" :width="180" />
+          <a-table-column title="创建时间" data-index="created_at" :width="180" ellipsis tooltip />
           <a-table-column title="操作" :width="180" fixed="right">
             <template #cell="{ record }">
               <a-space>
@@ -88,6 +89,7 @@
           </a-table-column>
         </template>
       </a-table>
+      </div>
     </a-card>
 
     <!-- 详情抽屉 -->
@@ -221,7 +223,7 @@ import { Message, Modal } from '@arco-design/web-vue'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { ApiPerfReportV2 } from '@/api/perfApis'
-import { useDelete, useDownload, useGet, usePost, usePut } from '@/hooks'
+import { useDelete, useDownload, useGet, usePost, usePut, useTableAutoHeight } from '@/hooks'
 
 defineOptions({ name: 'report-list' })
 
@@ -233,6 +235,10 @@ const detailLoading = ref(false)
 const modalVisible = ref(false)
 const currentRecord = ref<any>(null)
 const formData = reactive<any>({ title: '', analysis_type: 'monthly', period_start: '', period_end: '', summary: '', content: '' })
+
+// 表格高度自适应：滚动条落在表格内，表头固定。容器必须是原生 div。
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 
 const typeText = (t: string) => ({ daily_report: '日报', weekly_report: '周报', monthly_report: '月报', monthly: '月度', weekly: '周度', adhoc: '专项', domain_diagnosis: '领域诊断', app_diagnosis: '应用诊断', root_cause: '根因分析' }[t] || t)
 const dimensionTypeText = (t: string) => ({ product_domain: '产品领域', business_area: '业务领域', project_group: '项目组' }[t] || t)

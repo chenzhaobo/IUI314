@@ -6,7 +6,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
-import { downloadText, formatTime, useDicts, useGet, usePost } from '@/hooks'
+import { downloadText, formatTime, useDicts, useGet, usePost, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import 'md-editor-v3/lib/style.css'
 
 defineOptions({ name: 'StaticScanDefects' })
@@ -641,14 +641,14 @@ const wontFixReasonFilters = computed(() =>
   wontFixReasonOptions.value.map(opt => ({ text: opt.label, value: opt.value })),
 )
 
-const columns = computed(() => [
-  { title: '缺陷标题', dataIndex: 'title', width: 240, ellipsis: true, tooltip: true },
+const columns = computed(() => withTableDefaults([
+  { title: '缺陷标题', dataIndex: 'title', width: 240 },
   { title: '领域', dataIndex: 'domain', slotName: 'domain', width: 70 },
-  { title: '分类', dataIndex: 'category', width: 100, ellipsis: true, tooltip: true },
+  { title: '分类', dataIndex: 'category', width: 100 },
   { title: '风险', dataIndex: 'risk_level', slotName: 'risk', width: 65 },
   { title: '状态', dataIndex: 'status', slotName: 'status', width: 90 },
-  { title: '负责人', dataIndex: 'assignee', width: 75, ellipsis: true, tooltip: true },
-  { title: '文件', dataIndex: 'file_path', width: 180, ellipsis: true, tooltip: true },
+  { title: '负责人', dataIndex: 'assignee', width: 75 },
+  { title: '文件', dataIndex: 'file_path', width: 180 },
   { title: '命中', dataIndex: 'hit_count', width: 50 },
   { title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 140 },
   { title: 'DMP 编码', dataIndex: 'dmp_defect_code', slotName: 'dmpCode', width: 130, ellipsis: true, tooltip: true },
@@ -669,11 +669,15 @@ const columns = computed(() => [
     },
   },
   { title: '操作', slotName: 'ops', width: 105, fixed: 'right' as const },
-])
+]))
 
 onMounted(() => {
   void loadRuleStats()
 })
+
+// ===== 表格高度自适应（滚动条出现在表格内，表头固定）=====
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 
 // 这些 a-form 只用来做纵向布局，不做校验，但 arco 的 model 是必填 prop。
 // 用一个模块级常量而不是在模板里写 :model="{}"，避免每次渲染都新建对象。
@@ -870,26 +874,28 @@ function shortSha(sha: string | null | undefined): string {
                 <span v-if="selectedIds.length" class="selected-hint">已选 {{ selectedIds.length }} 条</span>
               </a-space>
             </a-row>
-            <a-table
-              :loading="isLoading"
-              :data="dataList"
-              :columns="columns"
-              :pagination="{
-                total,
-                current: queryParams.page_num,
-                pageSize: queryParams.page_size,
-                showTotal: true,
-                showPageSize: true,
-              }"
-              row-key="id"
-              size="small"
-              :row-selection="{ type: 'checkbox', showCheckedAll: true }"
-              :scroll="{ x: 1480, y: 'calc(100vh - 420px)' }"
-              @page-change="onPageChange"
-              @page-size-change="onPageSizeChange"
-              @selection-change="handleSelectionChange"
-              @filter-change="onWontFixReasonFilter"
-            >
+            <div ref="tableWrap">
+              <a-table
+                :loading="isLoading"
+                :data="dataList"
+                :columns="columns"
+                :pagination="{
+                  total,
+                  current: queryParams.page_num,
+                  pageSize: queryParams.page_size,
+                  showTotal: true,
+                  showPageSize: true,
+                }"
+                row-key="id"
+                size="small"
+                column-resizable
+                :row-selection="{ type: 'checkbox', showCheckedAll: true }"
+                :scroll="{ x: 1480, y: tableHeight }"
+                @page-change="onPageChange"
+                @page-size-change="onPageSizeChange"
+                @selection-change="handleSelectionChange"
+                @filter-change="onWontFixReasonFilter"
+              >
               <template #domain="{ record }">
                 <a-tag :color="domainLabels[record.domain]?.color ?? 'gray'" size="small">
                   {{ domainLabels[record.domain]?.label ?? record.domain }}
@@ -945,6 +951,7 @@ function shortSha(sha: string | null | undefined): string {
                 </a-space>
               </template>
             </a-table>
+            </div>
           </a-card>
         </div>
       </div>

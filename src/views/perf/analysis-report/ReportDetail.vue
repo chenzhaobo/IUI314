@@ -48,10 +48,10 @@
 
       <!-- 关联问题列表 -->
       <a-card title="关联问题" size="small" v-if="relatedIssues.length > 0">
-        <a-table :data="relatedIssues" :pagination="false" size="small">
+        <a-table :data="relatedIssues" :pagination="false" size="small" column-resizable>
           <template #columns>
-            <a-table-column title="编号" data-index="issue_no" :width="140" />
-            <a-table-column title="标题" data-index="title" ellipsis />
+            <a-table-column title="编号" data-index="issue_no" :width="140" ellipsis tooltip />
+            <a-table-column title="标题" data-index="title" ellipsis tooltip />
             <a-table-column title="严重程度" data-index="severity" :width="90">
               <template #cell="{ record }">
                 <a-tag size="small" :color="severityColor(record.severity)">{{ severityText(record.severity) }}</a-tag>
@@ -62,7 +62,7 @@
                 <a-tag size="small" :color="issueStatusColor(record.status)">{{ issueStatusText(record.status) }}</a-tag>
               </template>
             </a-table-column>
-            <a-table-column title="项目组" data-index="project_group_name" :width="120" />
+            <a-table-column title="项目组" data-index="project_group_name" :width="120" ellipsis tooltip />
           </template>
         </a-table>
       </a-card>

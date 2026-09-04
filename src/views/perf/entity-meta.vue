@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { Message, type TableColumnData } from '@arco-design/web-vue'
-import { formatTime, getAction, postAction, useGet } from '@/hooks'
+import { formatTime, getAction, postAction, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiPerfEnv, ApiPerfTableStats, ApiSysDictData } from '@/api/apis'
 
 defineOptions({ name: 'entity-meta' })
@@ -99,16 +99,16 @@ function handleStatsPageSizeChange(size: number) {
   fetchTableStatsList()
 }
 
-const statsColumns: TableColumnData[] = [
-  { title: '数据库', dataIndex: 'db_route_key', width: 100, ellipsis: true, tooltip: true },
-  { title: 'Schema', dataIndex: 'schema_name', width: 90, ellipsis: true, tooltip: true },
-  { title: '表名', dataIndex: 'table_name', width: 220, ellipsis: true, tooltip: true },
+const statsColumns: TableColumnData[] = withTableDefaults([
+  { title: '数据库', dataIndex: 'db_route_key', width: 100 },
+  { title: 'Schema', dataIndex: 'schema_name', width: 90 },
+  { title: '表名', dataIndex: 'table_name', width: 220 },
   { title: '行数', dataIndex: 'row_count', width: 120, align: 'right' as const, sortable: { sortDirections: ['descend', 'ascend'] }, render: ({ record }: any) => formatNumber(record.row_count) },
   { title: '字段数', dataIndex: 'column_count', width: 80, align: 'right' as const, sortable: { sortDirections: ['descend', 'ascend'] }, render: ({ record }: any) => formatNumber(record.column_count) },
   { title: '类型', dataIndex: 'row_count_type', width: 80, slotName: 'row_count_type' },
-  { title: '空间大小', dataIndex: 'total_size_human', width: 100, ellipsis: true, tooltip: true, sortable: { sortDirections: ['descend', 'ascend'], sorter: (a: any, b: any) => (a.total_size_bytes || 0) - (b.total_size_bytes || 0) }},
+  { title: '空间大小', dataIndex: 'total_size_human', width: 100, sortable: { sortDirections: ['descend', 'ascend'], sorter: (a: any, b: any) => (a.total_size_bytes || 0) - (b.total_size_bytes || 0) }},
   { title: '同步时间', dataIndex: 'synced_at', width: 160, slotName: 'synced_at' },
-]
+])
 
 // ── 实体元数据列表（次 Tab，分页）──────────────────────────
 const entityQuery = ref({
@@ -149,19 +149,19 @@ function handleEntityPageSizeChange(size: number) {
   getEntityList()
 }
 
-const entityColumns: TableColumnData[] = [
-  { title: '元数据编码', dataIndex: 'form_number', width: 160, ellipsis: true, tooltip: true },
-  { title: '名称', dataIndex: 'entity_name', width: 150, ellipsis: true, tooltip: true },
+const entityColumns: TableColumnData[] = withTableDefaults([
+  { title: '元数据编码', dataIndex: 'form_number', width: 160 },
+  { title: '名称', dataIndex: 'entity_name', width: 150 },
   { title: '类型', dataIndex: 'entity_type', width: 100, slotName: 'entity_type' },
   { title: '模型类型', dataIndex: 'model_type', width: 120, slotName: 'model_type' },
-  { title: 'DB路由键', dataIndex: 'db_route_key', width: 120, ellipsis: true, tooltip: true },
-  { title: '主表名', dataIndex: 'main_table', width: 200, ellipsis: true, tooltip: true },
+  { title: 'DB路由键', dataIndex: 'db_route_key', width: 120 },
+  { title: '主表名', dataIndex: 'main_table', width: 200 },
   { title: '行数', dataIndex: 'row_count', width: 120, align: 'right' as const, sortable: { sortDirections: ['descend', 'ascend'] }, render: ({ record }: any) => formatNumber(record.row_count) },
   { title: '行数类型', dataIndex: 'row_count_type', width: 80, slotName: 'entity_row_count_type' },
-  { title: '空间大小', dataIndex: 'total_size_human', width: 100, ellipsis: true, tooltip: true },
+  { title: '空间大小', dataIndex: 'total_size_human', width: 100 },
   { title: '表统计同步时间', dataIndex: 'stats_synced_at', width: 160, slotName: 'stats_synced_at' },
   { title: '实体同步时间', dataIndex: 'entity_synced_at', width: 160, slotName: 'entity_synced_at' },
-]
+])
 
 watch(activeTab, (val) => {
   if (val === 'entity' && entityList.value.length === 0 && sourceEnvId.value) {
@@ -183,12 +183,12 @@ const dbSizesTotalBytes = computed(() => dbSizesList.value.reduce((sum: number, 
 const dbSizesTotalHuman = computed(() => formatBytes(dbSizesTotalBytes.value))
 const dbSizesTableTotal = computed(() => dbSizesList.value.reduce((sum: number, d: any) => sum + (d.table_count || 0), 0))
 
-const dbSizesColumns: TableColumnData[] = [
-  { title: '数据库名', dataIndex: 'db_name', width: 250, ellipsis: true, tooltip: true },
-  { title: '路由键', dataIndex: 'db_route_key', width: 120, ellipsis: true, tooltip: true },
+const dbSizesColumns: TableColumnData[] = withTableDefaults([
+  { title: '数据库名', dataIndex: 'db_name', width: 250 },
+  { title: '路由键', dataIndex: 'db_route_key', width: 120 },
   { title: '空间大小', dataIndex: 'size_human', width: 120, align: 'right' as const, sortable: { sortDirections: ['descend', 'ascend'], sorter: (a: any, b: any) => (a.size_bytes || 0) - (b.size_bytes || 0) }},
   { title: '表数量', dataIndex: 'table_count', width: 100, align: 'right' as const, sortable: { sortDirections: ['descend', 'ascend'], sorter: (a: any, b: any) => (a.table_count || 0) - (b.table_count || 0) }, render: ({ record }: any) => formatNumber(record.table_count) },
-]
+])
 
 watch(sourceEnvId, () => {
   statsPage.value = 1
@@ -339,6 +339,15 @@ function fetchSyncStatusIfNeeded() {
   }
 }
 
+// 表格高度自适应（滚动条在表格内、表头固定）；三张表分属不同 tab，同一时刻只显示一张，
+// 共用一个容器 ref 即可，容器 top 由当前显示的那张表决定
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
+
+// 数据库概览表上方还有一行统计（数据库总数/总空间/表总数），单独一个容器测量即可精确扣除
+const dbSizesWrap = ref<HTMLElement>()
+const { tableHeight: dbSizesTableHeight } = useTableAutoHeight(dbSizesWrap)
+
 onUnmounted(() => {
   stopPolling()
 })
@@ -443,6 +452,7 @@ onUnmounted(() => {
         </a-tabs>
       </div>
 
+      <div ref="tableWrap">
       <!-- 表统计列表 -->
 <a-table
   column-resizable
@@ -459,7 +469,7 @@ onUnmounted(() => {
         }"
         @page-change="handleStatsPageChange"
         @page-size-change="handleStatsPageSizeChange"
-        :scroll="{ y: 'calc(100vh - 420px)', x: 1050 }"
+        :scroll="{ y: tableHeight, x: 1050 }"
         row-key="id"
       >
         <template #row_count_type="{ record }">
@@ -485,7 +495,7 @@ onUnmounted(() => {
         }"
         @page-change="handleEntityPageChange"
         @page-size-change="handleEntityPageSizeChange"
-        :scroll="{ y: 'calc(100vh - 420px)', x: 1570 }"
+        :scroll="{ y: tableHeight, x: 1570 }"
         row-key="id"
       >
         <template #entity_type="{ record }">
@@ -529,15 +539,18 @@ onUnmounted(() => {
           <a-divider direction="vertical" />
           <a-statistic title="表总数" :value="dbSizesTableTotal" show-group-separator />
         </div>
+        <div ref="dbSizesWrap">
 <a-table
   column-resizable
           :loading="dbSizesLoading"
           :data="dbSizesList"
           :columns="dbSizesColumns"
           :pagination="false"
-          :scroll="{ y: 'calc(100vh - 480px)' }"
+          :scroll="{ y: dbSizesTableHeight }"
           row-key="db_name"
         />
+        </div>
+      </div>
       </div>
     </a-card>
 
