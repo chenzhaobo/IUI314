@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { useGet, usePut } from '@/hooks'
+import { putAction, useGet } from '@/hooks'
 import { ApiPerfConfig } from '@/api/apis'
 
 defineOptions({ name: 'config-manage' })
@@ -157,12 +157,15 @@ async function handleSave() {
 
   saving.value = true
   try {
-    const { execute, error } = usePut(ApiPerfConfig.save, { configs: configList.value })
-    await execute()
-    if (error.value) {
-      Message.error('保存失败')
+    // 失败判定必须用 putAction（失败返回 null），不能用 error.value ——
+    // 拦截器的 afterFetch 钩子只能返回 { data, response }，设置不了 error，
+    // 所以后端业务错误的处理是「弹一次 Message + 把 data 换成 ErrorFlag 哨兵」，
+    // error.value 永远是空的。原实现 `if (error.value)` 判不出失败，于是后端拒绝
+    // （例如路径类配置填了 Windows 盘符被 validate_path_configs 挡下）时，
+    // 用户会先看到红色真实原因、紧接着被绿色「保存成功」盖掉。
+    const ok = await putAction(ApiPerfConfig.save, { configs: configList.value })
+    if (!ok)
       return
-    }
     Message.success('保存成功')
     getList()
   } finally {
