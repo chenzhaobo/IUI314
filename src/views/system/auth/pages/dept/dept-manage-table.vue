@@ -1,10 +1,10 @@
 <script lang="ts" setup>
 import type { TableColumnData } from '@arco-design/web-vue'
-import { type PropType, computed, h } from 'vue'
+import { type PropType, computed, h, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ApiSysDept } from '@/api/sysApis'
 import DictTag from '@/components/common/dict-tag.vue'
-import { hasPermission, parseTime } from '@/hooks'
+import { hasPermission, parseTime, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { dictKey, type dictUse } from '@/types/system/dict'
 import type { userInformation } from '@/types/system/userInformation'
 
@@ -30,7 +30,7 @@ const { t } = useI18n({ useScope: 'global' })
 const tableData = defineModel<userInformation[] | null>('tableData', { required: true })
 
 // 表格列属性
-const columns = computed<TableColumnData[]>(() => [
+const columns = computed<TableColumnData[]>(() => withTableDefaults([
   {
     title: t('sys.deptName'),
     dataIndex: 'dept_name',
@@ -63,7 +63,11 @@ const columns = computed<TableColumnData[]>(() => [
     fixed: 'right',
     align: 'center',
   },
-])
+]))
+
+// 表格高度自适应：滚动条出现在表格内、表头固定
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 </script>
 
 <template>
@@ -72,16 +76,16 @@ const columns = computed<TableColumnData[]>(() => [
       <a-skeleton-line :rows="10" />
     </a-space>
   </a-skeleton>
-<a-table
-  column-resizable
-    v-if="tableData && tableData?.length > 0"
-    :columns="columns"
-    :data="tableData"
-    row-key="dept_id"
-    :scroll="{ minWidth: 800 }"
-    :pagination="false"
-    default-expand-all-rows
-  >
+  <div ref="tableWrap" v-if="tableData && tableData?.length > 0">
+    <a-table
+      column-resizable
+      :columns="columns"
+      :data="tableData"
+      row-key="dept_id"
+      :scroll="{ minWidth: 800, y: tableHeight }"
+      :pagination="false"
+      default-expand-all-rows
+    >
     <template #operation="{ record }">
       <a-button
         v-if="hasPermission(ApiSysDept.edit)"
@@ -115,5 +119,6 @@ const columns = computed<TableColumnData[]>(() => [
         </template>
       </a-button>
     </template>
-  </a-table>
+    </a-table>
+  </div>
 </template>

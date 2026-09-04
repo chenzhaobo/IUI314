@@ -663,7 +663,7 @@ const scriptColumns = [
 
     <div v-else class="txn-layout">
       <!-- 左侧菜单树 -->
-      <a-card :bordered="false" class="tree-panel">
+      <a-card :bordered="false" class="tree-panel panel-scroll-y">
         <template #title>菜单目录</template>
         <a-tree
           :data="treeData"
@@ -831,5 +831,6 @@ const scriptColumns = [
 .table-panel {
   flex: 1;
   min-width: 0;
+  min-height: 0;
 }
 </style>

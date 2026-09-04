@@ -6,7 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSysUser } from '@/api/sysApis'
 import DictTag from '@/components/common/dict-tag.vue'
-import { hasPermission, parseTime, usePut } from '@/hooks'
+import { hasPermission, parseTime, usePut, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { dictKey, type dictUse } from '@/types/system/dict'
 import type { resetUserPwd, userInformation } from '@/types/system/userInformation'
 import ResetPwd from '@/views/system/auth/pages/user/resetPwd.vue'
@@ -44,12 +44,10 @@ const rowSelection = ref<TableRowSelection>({
 })
 
 // 表格列属性
-const columns = computed<TableColumnData[]>(() => [
+const columns = computed<TableColumnData[]>(() => withTableDefaults([
   {
     title: 'ID',
     dataIndex: 'id',
-    ellipsis: true,
-    tooltip: true,
     width: 200,
     align: 'center',
   },
@@ -64,24 +62,18 @@ const columns = computed<TableColumnData[]>(() => [
     dataIndex: 'user_nickname',
     align: 'center',
     width: 150,
-    ellipsis: true,
-    tooltip: true,
   },
   {
     title: t('sys.dept'),
     dataIndex: 'dept.dept_name',
     align: 'center',
     width: 100,
-    ellipsis: true,
-    tooltip: true,
   },
   {
     title: '手机号码',
     dataIndex: 'phone_num',
     align: 'center',
     width: 100,
-    ellipsis: true,
-    tooltip: true,
   },
   {
     title: '状态',
@@ -105,7 +97,7 @@ const columns = computed<TableColumnData[]>(() => [
     // fixed: 'right',
     align: 'center',
   },
-])
+]))
 
 // 密码重置
 const resetPwd = ref({
@@ -140,6 +132,10 @@ function handleResetPwd(row: userInformation) {
 function handleSelectionChange(keys: (string | number)[]) {
   return emits('handleSelectionChangeFn', keys, tableData.value, 'id', 'user_name')
 }
+
+// 表格高度自适应：滚动条出现在表格内、表头固定
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 </script>
 
 <template>
@@ -148,17 +144,17 @@ function handleSelectionChange(keys: (string | number)[]) {
       <a-skeleton-line :rows="10" />
     </a-space>
   </a-skeleton>
-<a-table
-  column-resizable
-    v-else
-    :columns="columns"
-    :data="tableData || []"
-    :row-selection="rowSelection"
-    row-key="id"
-    :scroll="{ minWidth: 800 }"
-    :pagination="false"
-    @selection-change="handleSelectionChange"
-  >
+  <div ref="tableWrap" v-else>
+    <a-table
+      column-resizable
+      :columns="columns"
+      :data="tableData || []"
+      :row-selection="rowSelection"
+      row-key="id"
+      :scroll="{ minWidth: 800, y: tableHeight }"
+      :pagination="false"
+      @selection-change="handleSelectionChange"
+    >
     <template #operation="{ record }">
       <a-button
         v-if="hasPermission(ApiSysUser.edit)"
@@ -193,5 +189,6 @@ function handleSelectionChange(keys: (string | number)[]) {
         </template>
       </a-button>
     </template>
-  </a-table>
+    </a-table>
+  </div>
 </template>

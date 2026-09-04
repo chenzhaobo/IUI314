@@ -61,7 +61,7 @@
       <!-- 左树右图：高度占满视口剩余空间，利用页面下方空白 -->
       <div :style="{ display: 'flex', gap: '16px', minHeight: '480px', height: 'calc(100vh - 300px)' }">
         <!-- 左树 -->
-        <div style="width: 280px; flex-shrink: 0; border-right: 1px solid #e5e6eb; padding-right: 12px; overflow-y: auto">
+        <div class="panel-scroll-y" style="width: 280px; flex-shrink: 0; border-right: 1px solid #e5e6eb; padding-right: 12px">
           <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px">
             <a-input-search v-model="treeSearch" placeholder="搜索节点" allow-clear style="flex: 1" />
             <a-switch v-model="showCode" size="small" />

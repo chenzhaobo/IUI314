@@ -912,7 +912,7 @@ watch(() => route.query, (newQ, oldQ) => {
     <div v-if="currentRun" class="split-layout" :class="{ dragging: isDragging }">
       <!-- 左树：规则统计 -->
       <div class="split-left" :style="{ width: `${leftPanelWidth}px` }">
-        <a-card :bordered="false" size="small" class="split-card">
+        <a-card :bordered="false" size="small" class="split-card panel-scroll-y">
           <template #title>
             规则分布
             <small class="card-sub">确认/待确认/已排除/总数</small>
@@ -1252,23 +1252,23 @@ watch(() => route.query, (newQ, oldQ) => {
 </template>
 
 <style scoped>
-.static-scan-results { padding: 0; }
+.static-scan-results { padding: 0; display: flex; flex-direction: column; min-height: 0; }
 .selector-label { color: var(--color-text-2); }
 .card-sub { margin-left: 12px; color: var(--color-text-3); font-weight: normal; font-size: 12px; }
 .text-muted { color: var(--color-text-4); }
 .verdict-panel { padding: 8px 12px; background: var(--color-fill-1); }
 .verdict-hint { margin-bottom: 8px; color: var(--color-text-3); font-size: 12px; }
 .verdict-warn { margin-left: 8px; color: rgb(var(--warning-6)); font-weight: 600; }
-.split-layout { display: flex; gap: 0; align-items: stretch; }
+.split-layout { display: flex; gap: 0; align-items: stretch; flex: 1; min-height: 0; }
 .split-layout.dragging { user-select: none; cursor: col-resize; }
 .split-left { flex-shrink: 0; overflow: hidden; }
-.split-card { height: 100%; overflow-y: auto; }
+.split-card { height: 100%; min-height: 0; overflow-y: auto; }
 .split-handle {
   width: 6px; flex-shrink: 0; cursor: col-resize; border-radius: 3px; margin: 0 3px;
   background: transparent; transition: background 0.2s;
 }
 .split-handle:hover, .split-layout.dragging .split-handle { background: rgb(var(--primary-6)); }
-.split-right { flex: 1; min-width: 0; }
+.split-right { flex: 1; min-width: 0; min-height: 0; }
 .rule-node { display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; }
 .rule-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rule-stats { flex-shrink: 0; font-size: 12px; color: var(--color-text-3); }

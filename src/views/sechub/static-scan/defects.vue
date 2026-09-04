@@ -698,7 +698,7 @@ function shortSha(sha: string | null | undefined): string {
 </script>
 
 <template>
-<div>
+<div style="display: flex; flex-direction: column; min-height: 0">
     <div class="static-scan-defects">
       <!-- 筛选 -->
       <a-card :bordered="false" class="m-b-12px">
@@ -795,7 +795,7 @@ function shortSha(sha: string | null | undefined): string {
       <div class="split-layout" :class="{ dragging: isDragging }">
         <!-- 左树：规则分布 -->
         <div class="split-left" :style="{ width: `${leftPanelWidth}px` }">
-          <a-card :bordered="false" size="small" class="split-card">
+          <a-card :bordered="false" size="small" class="split-card panel-scroll-y">
             <template #title>
               规则分布
               <small class="card-sub">打开/修复中/已修复/总数</small>
@@ -1136,20 +1136,20 @@ function shortSha(sha: string | null | undefined): string {
 </template>
 
 <style scoped>
-.static-scan-defects { padding: 0; }
+.static-scan-defects { padding: 0; display: flex; flex-direction: column; min-height: 0; flex: 1; }
 .card-sub { margin-left: 12px; color: var(--color-text-3); font-weight: normal; font-size: 12px; }
 .selected-hint { color: var(--color-text-2); font-size: 13px; }
 .text-muted { color: var(--color-text-4); }
-.split-layout { display: flex; gap: 0; align-items: stretch; }
+.split-layout { display: flex; gap: 0; align-items: stretch; flex: 1; min-height: 0; }
 .split-layout.dragging { user-select: none; cursor: col-resize; }
 .split-left { flex-shrink: 0; overflow: hidden; }
-.split-card { height: 100%; overflow-y: auto; }
+.split-card { height: 100%; min-height: 0; overflow-y: auto; }
 .split-handle {
   width: 6px; flex-shrink: 0; cursor: col-resize; border-radius: 3px; margin: 0 3px;
   background: transparent; transition: background 0.2s;
 }
 .split-handle:hover, .split-layout.dragging .split-handle { background: rgb(var(--primary-6)); }
-.split-right { flex: 1; min-width: 0; }
+.split-right { flex: 1; min-width: 0; min-height: 0; }
 .rule-node { display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; }
 .rule-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rule-stats { flex-shrink: 0; font-size: 12px; color: var(--color-text-3); }

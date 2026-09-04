@@ -118,6 +118,8 @@ watch(() => deptTree.value, () => {
           :data="treeData"
           :field-names="fieldNames"
           show-line
+          class="panel-scroll-y"
+          :style="{ maxHeight: 'calc(100vh - 180px)' }"
           @select="handleSelect"
         />
       </a-grid-item>

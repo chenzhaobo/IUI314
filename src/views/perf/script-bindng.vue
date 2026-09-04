@@ -326,7 +326,7 @@ async function handleAddSubmit() {
 
     <div v-else class="bind-layout">
       <!-- 左侧菜单树 -->
-      <a-card :bordered="false" class="tree-panel">
+      <a-card :bordered="false" class="tree-panel panel-scroll-y">
         <template #title>云 / 应用 / 菜单</template>
         <a-tree
           :data="treeData"
@@ -438,5 +438,6 @@ async function handleAddSubmit() {
 .table-panel {
   flex: 1;
   min-width: 0;
+  min-height: 0;
 }
 </style>

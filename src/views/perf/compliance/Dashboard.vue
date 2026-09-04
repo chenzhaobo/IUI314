@@ -80,7 +80,7 @@
             <a-switch v-model="showCode" size="small" />
             <span style="font-size: 12px; color: #86909c; white-space: nowrap">显示编码</span>
           </div>
-          <div style="flex: 1; overflow-y: auto; min-height: 0">
+          <div class="panel-scroll-y" style="flex: 1">
             <a-spin :loading="treeLoading" style="width: 100%">
               <a-tree
                 v-if="displayTree.length"

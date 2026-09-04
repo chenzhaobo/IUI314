@@ -495,14 +495,16 @@ function downloadTemplate() {
       <!-- 左树：扫描点树 -->
       <a-col :span="5">
         <a-card title="扫描点分类" :bordered="false" size="small">
-          <a-tree
-            v-if="arcoTreeData.length"
-            :data="arcoTreeData"
-            v-model:expanded-keys="expandedTreeKeys"
-            :selected-keys="selectedTreeKey ? [selectedTreeKey] : []"
-            @select="onTreeSelect"
-          />
-          <a-empty v-else description="加载中..." />
+          <div class="panel-scroll-y" :style="{ maxHeight: 'calc(100vh - 220px)' }">
+            <a-tree
+              v-if="arcoTreeData.length"
+              :data="arcoTreeData"
+              v-model:expanded-keys="expandedTreeKeys"
+              :selected-keys="selectedTreeKey ? [selectedTreeKey] : []"
+              @select="onTreeSelect"
+            />
+            <a-empty v-else description="加载中..." />
+          </div>
         </a-card>
       </a-col>
 

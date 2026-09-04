@@ -285,7 +285,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="p-4">
+  <div class="p-4" style="display: flex; flex-direction: column; min-height: 0">
     <a-card title="白名单管理" class="mb-4">
       <template #extra>
         <a-button type="primary" size="small" data-testid="btn-create-waiver" @click="openCreate">
@@ -307,7 +307,7 @@ onMounted(() => {
     <div class="split-layout" :class="{ dragging: isDragging }">
       <!-- 左树：规则分布 -->
       <div class="split-left" :style="{ width: `${leftPanelWidth}px` }">
-        <a-card :bordered="false" size="small" class="split-card">
+        <a-card :bordered="false" size="small" class="split-card panel-scroll-y">
           <template #title>
             规则分布
             <small class="card-sub">生效/待审批/总数</small>
@@ -432,16 +432,16 @@ onMounted(() => {
 
 <style scoped>
 .card-sub { margin-left: 12px; color: var(--color-text-3); font-weight: normal; font-size: 12px; }
-.split-layout { display: flex; gap: 0; align-items: stretch; }
+.split-layout { display: flex; gap: 0; align-items: stretch; flex: 1; min-height: 0; }
 .split-layout.dragging { user-select: none; cursor: col-resize; }
 .split-left { flex-shrink: 0; overflow: hidden; }
-.split-card { height: 100%; overflow-y: auto; }
+.split-card { height: 100%; min-height: 0; overflow-y: auto; }
 .split-handle {
   width: 6px; flex-shrink: 0; cursor: col-resize; border-radius: 3px; margin: 0 3px;
   background: transparent; transition: background 0.2s;
 }
 .split-handle:hover, .split-layout.dragging .split-handle { background: rgb(var(--primary-6)); }
-.split-right { flex: 1; min-width: 0; }
+.split-right { flex: 1; min-width: 0; min-height: 0; }
 .rule-node { display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; }
 .rule-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rule-stats { flex-shrink: 0; font-size: 12px; color: var(--color-text-3); }

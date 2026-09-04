@@ -4,7 +4,7 @@ import { computed, h, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSysRole } from '@/api/sysApis'
-import { hasPermission, parseTime, usePut } from '@/hooks'
+import { hasPermission, parseTime, usePut, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import type { dictUse } from '@/types/system/dict'
 import type { role } from '@/types/system/role'
 
@@ -34,12 +34,10 @@ const rowSelection = ref<TableRowSelection>({
 })
 
 // 表格列属性
-const columns = computed<TableColumnData[]>(() => [
+const columns = computed<TableColumnData[]>(() => withTableDefaults([
   {
     title: t('sys.roleName'),
     dataIndex: 'role_name',
-    ellipsis: true,
-    tooltip: true,
     width: 150,
     align: 'center',
   },
@@ -54,8 +52,6 @@ const columns = computed<TableColumnData[]>(() => [
     dataIndex: 'list_order',
     align: 'center',
     width: 100,
-    ellipsis: true,
-    tooltip: true,
   },
   {
     title: t('sys.status'),
@@ -82,7 +78,7 @@ const columns = computed<TableColumnData[]>(() => [
     fixed: 'right',
     align: 'center',
   },
-])
+]))
 
 async function handleStatusChange(row: role) {
   const text = row.status === '1' ? t('app.disable') : t('app.enable')
@@ -117,6 +113,10 @@ async function handleStatusChange(row: role) {
 function handleSelectionChange(keys: (string | number)[]) {
   return emits('handleSelectionChangeFn', keys, tableData.value, 'role_id', 'role_name')
 }
+
+// 表格高度自适应：滚动条出现在表格内、表头固定
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 </script>
 
 <template>
@@ -125,17 +125,17 @@ function handleSelectionChange(keys: (string | number)[]) {
       <a-skeleton-line :rows="10" />
     </a-space>
   </a-skeleton>
-<a-table
-  column-resizable
-    v-else
-    :columns="columns"
-    :data="tableData || []"
-    :row-selection="rowSelection"
-    row-key="role_id"
-    :scroll="{ minWidth: 800 }"
-    :pagination="false"
-    @selection-change="handleSelectionChange"
-  >
+  <div ref="tableWrap" v-else>
+    <a-table
+      column-resizable
+      :columns="columns"
+      :data="tableData || []"
+      :row-selection="rowSelection"
+      row-key="role_id"
+      :scroll="{ minWidth: 800, y: tableHeight }"
+      :pagination="false"
+      @selection-change="handleSelectionChange"
+    >
     <template #operation="{ record }">
       <a-button
         v-if="hasPermission(ApiSysRole.edit)"
@@ -173,5 +173,6 @@ function handleSelectionChange(keys: (string | number)[]) {
         </template>
       </a-button>
     </template>
-  </a-table>
+    </a-table>
+  </div>
 </template>

@@ -2,7 +2,7 @@
 import { type PropType, computed, h, ref } from 'vue'
 import type { TableColumnData, TableRowSelection } from '@arco-design/web-vue'
 import { dictKey, type dictType, type dictUse } from '@/types/system/dict'
-import { hasPermission, parseTime } from '@/hooks'
+import { hasPermission, parseTime, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiSysPost } from '@/api/sysApis'
 import type { userInformation } from '@/types/system/userInformation'
 import DictTag from '@/components/common/dict-tag.vue'
@@ -35,12 +35,10 @@ const rowSelection = ref<TableRowSelection>({
 })
 
 // 表格列属性
-const columns = computed<TableColumnData[]>(() => [
+const columns = computed<TableColumnData[]>(() => withTableDefaults([
   {
     title: '字典Id',
     dataIndex: 'dict_type_id',
-    ellipsis: true,
-    tooltip: true,
     width: 200,
     align: 'center',
   },
@@ -72,8 +70,6 @@ const columns = computed<TableColumnData[]>(() => [
     dataIndex: 'remark',
     align: 'center',
     width: 100,
-    ellipsis: true,
-    tooltip: true,
   },
   {
     title: '创建时间',
@@ -88,7 +84,7 @@ const columns = computed<TableColumnData[]>(() => [
     fixed: 'right',
     align: 'center',
   },
-])
+]))
 
 function handleSelectionChange(keys: (string | number)[]) {
   return emits('handleSelectionChangeFn', keys, tableData.value, 'dict_type_id', 'dict_name')
@@ -99,6 +95,10 @@ function goto_data(row: dictType) {
     query: { dict: row.dict_type_id, dict_type: row.dict_type },
   })
 }
+
+// 表格高度自适应：滚动条出现在表格内、表头固定
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 </script>
 
 <template>
@@ -107,17 +107,17 @@ function goto_data(row: dictType) {
       <a-skeleton-line :rows="10" />
     </a-space>
   </a-skeleton>
-<a-table
-  column-resizable
-    v-else
-    :columns="columns"
-    :data="tableData || []"
-    :row-selection="rowSelection"
-    row-key="dict_type_id"
-    :scroll="{ minWidth: 800 }"
-    :pagination="false"
-    @selection-change="handleSelectionChange"
-  >
+  <div ref="tableWrap" v-else>
+    <a-table
+      column-resizable
+      :columns="columns"
+      :data="tableData || []"
+      :row-selection="rowSelection"
+      row-key="dict_type_id"
+      :scroll="{ minWidth: 800, y: tableHeight }"
+      :pagination="false"
+      @selection-change="handleSelectionChange"
+    >
     <template #dict_type="{ record }">
       <a-link type="primary" @click="goto_data(record)">
         {{ record.dict_type }}
@@ -148,5 +148,6 @@ function goto_data(row: dictType) {
         </template>
       </a-button>
     </template>
-  </a-table>
+    </a-table>
+  </div>
 </template>

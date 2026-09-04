@@ -521,7 +521,7 @@ const { tableHeight: buttonTableHeight } = useTableAutoHeight(buttonTableWrap)
 
     <div v-else class="catalog-layout">
       <!-- 左侧树 -->
-      <a-card :bordered="false" class="tree-panel">
+      <a-card :bordered="false" class="tree-panel panel-scroll-y">
         <template #title>云 / 应用 / 菜单</template>
         <a-spin :loading="treeLoading" style="width: 100%">
           <a-tree
@@ -742,5 +742,6 @@ const { tableHeight: buttonTableHeight } = useTableAutoHeight(buttonTableWrap)
 .table-panel {
   flex: 1;
   min-width: 0;
+  min-height: 0;
 }
 </style>
