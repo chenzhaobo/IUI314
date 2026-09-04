@@ -172,3 +172,43 @@ export function useTableAutoHeight(
 
   return { tableHeight, measure }
 }
+
+/**
+ * 通用「量出可用高度」——[`useTableAutoHeight`] 的非表格版本，给左树、侧栏、图表用。
+ *
+ * ## 为什么需要它（写死 `calc(100vh - Npx)` 为什么必然出错）
+ * 这些面板此前一律写 `max-height: calc(100vh - 220px)` 之类的**写死偏移**。
+ * 只要面板实际顶边不在 220px 处，高度就是错的：
+ *
+ *     面板底边 = 顶边 + (100vh - 220)
+ *
+ * 顶边 > 220 时底边就超出视口 → **整页多出一条滚动条**，而这正是
+ * 「规则版本」「问题台账」两页反馈的现象。写死值还会随面包屑有无、
+ * 筛选区展开收起、浏览器缩放而失准 —— 属于必然出错的写法，不是调参数能修好的。
+ *
+ * 这里改成和表格一样**实测顶边**再反推，从根上消掉这一类问题。
+ *
+ * @example
+ * const treePanel = ref<HTMLElement>()
+ * const { style: treeStyle } = useAutoHeight(treePanel)
+ * // <div ref="treePanel" class="panel-scroll-y" :style="treeStyle">…树…</div>
+ */
+export function useAutoHeight(
+  container: Ref<HTMLElement | undefined | null>,
+  options?: TableAutoHeightOptions,
+) {
+  // 复用表格那套测量：同样只在挂载后 / resize / keep-alive 激活时取值，
+  // 同样带 2px 阈值断开自激回路（原因见 useTableAutoHeight 的文档）。
+  const { tableHeight: height, measure } = useTableAutoHeight(container, {
+    // 面板下方一般没有分页条，留白比表格少
+    reserve: options?.reserve ?? 24,
+    min: options?.min ?? 160,
+    disabled: options?.disabled,
+  })
+
+  // 给 maxHeight 而不是 height：内容不足时面板按内容收缩，不会撑出一大片空白。
+  // 配合 `.panel-scroll-y`（内含 min-height:0 + overflow-y:auto）即可内部滚动。
+  const style = computed(() => (height.value == null ? {} : { maxHeight: `${height.value}px` }))
+
+  return { height, style, measure }
+}

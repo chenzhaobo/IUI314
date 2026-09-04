@@ -98,7 +98,8 @@
         </div>
 
         <!-- 右侧图表 -->
-        <div style="flex: 1; min-width: 0; min-height: 0">
+        <!-- 纵向 flex：节点信息条固定，图表吃掉剩余高度，不再写死 calc 留出空白 -->
+        <div style="flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column">
           <!-- 当前节点信息 -->
           <div v-if="selectedNode" style="margin-bottom: 12px; padding: 8px 12px; background: #f7f8fa; border-radius: 4px">
             <span style="font-weight: 500">{{ selectedNode.title }}</span>
@@ -107,8 +108,13 @@
               {{ selectedNode.compliance_rate?.toFixed(2) }}%
             </span>
           </div>
-          <a-spin :loading="chartLoading" style="width: 100%">
-            <div ref="chartRef" :style="{ height: 'calc(100vh - 380px)', minHeight: '420px' }"></div>
+          <!--
+            原来图表高度写死 calc(100vh - 380px)，而外层行高是 calc(100vh - 300px) ——
+            两个偏移差 80px，底部就留出一段空白。改成 flex:1 由外层派生，天然对齐。
+            a-spin 是组件，需 :deep 才能让它的根节点参与 flex，故给它显式样式。
+          -->
+          <a-spin :loading="chartLoading" style="width: 100%; flex: 1; min-height: 0" class="chart-spin">
+            <div ref="chartRef" style="height: 100%; min-height: 320px"></div>
           </a-spin>
         </div>
       </div>
@@ -175,7 +181,14 @@ const onPeriodChange = (period: ArcoSelectionValue) => {
   if (typeof period !== 'string') return
   selectedKeys.value = []
   selectedNode.value = null
-  if (period) reloadTree()
+  if (period) {
+    reloadTree()
+    // 必须显式拉一次趋势：`watch(selectedNode)` 只在**值发生变化**时触发，
+    // 而进页面时 selectedNode 本来就是 null、上面又赋成 null，watch 不会响应 ——
+    // 结果是进来一片空白，必须先点一个树节点才出图。
+    // 未选节点时 buildTrendParams 返回根级参数，正是「整体趋势」，语义正确。
+    fetchChildTrends()
+  }
 }
 
 const onDimensionChange = () => {

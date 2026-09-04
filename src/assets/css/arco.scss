@@ -195,3 +195,20 @@ body[arco-theme='dark'] {
 .arco-table-body .arco-table-body {
   min-height: auto;
 }
+
+/**
+ * 表头与数据区做出视觉区分。
+ *
+ * Arco 默认表头底色是 `--color-fill-1`，与卡片白底对比很弱，滚动看到第 20 行时
+ * 分不清哪里是表头（反馈：「表头字段没有区分样式」）。
+ * 这里只加底色、字重与一条下边框 —— 不动字号行高，避免影响已算好的表格高度。
+ */
+.arco-table-th {
+  font-weight: 600;
+  background-color: var(--color-fill-2) !important;
+}
+
+.arco-table-header,
+.arco-table-th {
+  border-bottom: 1px solid var(--color-neutral-4);
+}

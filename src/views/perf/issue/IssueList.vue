@@ -3,88 +3,100 @@
     <div class="page-container">
       <a-card :bordered="false">
     
-        <a-row :gutter="16" style="margin-bottom: 16px">
-          <a-col :span="5">
-            <a-input v-model="searchForm.keyword" placeholder="标题/编号/表单" allow-clear @press-enter="handleSearch" />
-          </a-col>
-          <a-col :span="3">
-            <a-select v-model="searchForm.process_status" placeholder="处理进度" allow-clear @change="handleSearch">
-              <a-option v-for="s in PROCESS_FLOW" :key="s.value" :value="s.value">{{ s.label }}</a-option>
-              <a-option value="__none__">未认领</a-option>
-            </a-select>
-            <a-input-group>
-              <a-input
-                v-model="searchForm.dmp_defect_code"
-                placeholder="DMP 编码"
-                allow-clear
-                style="width: 140px"
-                @press-enter="handleSearch"
-                @clear="handleSearch"
-              />
-              <a-tooltip content="只看还没关联 DMP 单的" mini>
-                <a-button :type="searchForm.dmp_defect_code === '__none__' ? 'primary' : 'outline'" @click="toggleDmpUnlinked">
-                  未关联
-                </a-button>
-              </a-tooltip>
-            </a-input-group>
-            <a-select v-model="searchForm.status" placeholder="状态" allow-clear>
-              <a-option value="pending">待确认</a-option>
-              <a-option value="confirmed">已确认</a-option>
-              <a-option value="fixing">处理中</a-option>
-              <a-option value="fixed">已修复</a-option>
-              <a-option value="verified">已验证</a-option>
-              <a-option value="closed">已关闭</a-option>
-              <a-option value="wontfix">不修复</a-option>
-            </a-select>
-          </a-col>
-          <a-col :span="3">
-            <a-select v-model="searchForm.severity" placeholder="严重度" allow-clear>
-              <a-option value="critical">严重</a-option>
-              <a-option value="major">重要</a-option>
-              <a-option value="minor">一般</a-option>
-            </a-select>
-          </a-col>
-          <a-col :span="3">
-            <a-select v-model="searchForm.category" placeholder="分类" allow-clear>
-              <a-option value="standard">标品</a-option>
-              <a-option value="custom">二开</a-option>
-            </a-select>
-          </a-col>
-          <a-col :span="3">
-            <a-select v-model="searchForm.source" placeholder="来源" allow-clear>
-              <a-option value="manual">手动</a-option>
-              <a-option value="diagnosis">诊断</a-option>
-              <a-option value="trace_ai">AI分析</a-option>
-            </a-select>
-          </a-col>
-          <a-col :span="3">
-            <a-input v-model="searchForm.app_number" placeholder="应用编码" allow-clear />
-          </a-col>
-          <a-col :span="4">
-            <a-space>
-              <a-button type="primary" @click="handleSearch">查询</a-button>
-              <a-button @click="handleReset">重置</a-button>
-              <!-- 内部处理流程：工具栏按钮，勾选后点。
-                   与「状态」列（生产复现状态）是两个维度，不会互相覆盖 -->
-              <a-button type="primary" :disabled="!selectedIds.length" @click="openClaim">认领</a-button>
-              <a-dropdown :disabled="!selectedIds.length" @select="(v) => transition(String(v))">
-                <a-button :disabled="!selectedIds.length" :loading="transitionLoading">
-                  处理状态
-                  <template #icon><icon-down /></template>
-                </a-button>
-                <template #content>
-                  <a-doption v-for="s in PROCESS_FLOW" :key="s.value" :value="s.value">
-                    {{ s.label }}
-                  </a-doption>
-                </template>
-              </a-dropdown>
-              <a-button :disabled="!selectedIds.length" @click="openDmp">DMP 编码</a-button>
-              <span v-if="selectedIds.length" class="sel-hint">已选 {{ selectedIds.length }} 条</span>
-              <a-button status="success" @click="handleExport">导出 Excel</a-button>
-              <a-button type="primary" status="success" @click="handleAdd">新增</a-button>
-            </a-space>
-          </a-col>
-        </a-row>
+        <!--
+          筛选区改为换行 flex + 按钮独立成行。
+
+          原来用 a-row/a-col 的 span 分配，出了三个问题：
+          1. 一个 `span="3"` 的列里**竖着塞了三个控件**（处理进度、DMP 编码组、状态），
+             那一列因此有三倍高，旁边单行高的字段下方就空出一大片（反馈的"明显空白"）；
+             DMP 编码组里 140px 输入框 + "未关联"按钮又塞不进 span=3 的宽度，按钮压到了输入框上。
+          2. 各 col 的 span 加起来正好 24，按钮那一列（span="4"）只能跟在"应用编码"后面同一行，
+             而里面有 10 个按钮，远超 4/24 的宽度 → 直接溢出到画面外。
+          3. span 是按 24 等分算的，字段实际需要的宽度各不相同（下拉窄、关键词宽），
+             等分必然有的挤有的空。
+
+          换成 flex-wrap 后每个字段按自己需要的宽度占位、放不下自动换行，
+          不再需要凑 24；按钮单独一行，数量再增加也不会挤到字段里。
+        -->
+        <div class="filter-bar">
+          <a-input v-model="searchForm.keyword" placeholder="标题/编号/表单" allow-clear class="f-wide" @press-enter="handleSearch" />
+
+          <a-select v-model="searchForm.process_status" placeholder="处理进度" allow-clear class="f-mid" @change="handleSearch">
+            <a-option v-for="s in PROCESS_FLOW" :key="s.value" :value="s.value">{{ s.label }}</a-option>
+            <a-option value="__none__">未认领</a-option>
+          </a-select>
+
+          <!-- 输入框与按钮同组：给组一个足够的固定宽度，按钮不再压到输入框上 -->
+          <a-input-group class="f-dmp">
+            <a-input
+              v-model="searchForm.dmp_defect_code"
+              placeholder="DMP 编码"
+              allow-clear
+              @press-enter="handleSearch"
+              @clear="handleSearch"
+            />
+            <a-tooltip content="只看还没关联 DMP 单的" mini>
+              <a-button :type="searchForm.dmp_defect_code === '__none__' ? 'primary' : 'outline'" @click="toggleDmpUnlinked">
+                未关联
+              </a-button>
+            </a-tooltip>
+          </a-input-group>
+
+          <a-select v-model="searchForm.status" placeholder="状态" allow-clear class="f-mid">
+            <a-option value="pending">待确认</a-option>
+            <a-option value="confirmed">已确认</a-option>
+            <a-option value="fixing">处理中</a-option>
+            <a-option value="fixed">已修复</a-option>
+            <a-option value="verified">已验证</a-option>
+            <a-option value="closed">已关闭</a-option>
+            <a-option value="wontfix">不修复</a-option>
+          </a-select>
+
+          <a-select v-model="searchForm.severity" placeholder="严重度" allow-clear class="f-narrow">
+            <a-option value="critical">严重</a-option>
+            <a-option value="major">重要</a-option>
+            <a-option value="minor">一般</a-option>
+          </a-select>
+
+          <a-select v-model="searchForm.category" placeholder="分类" allow-clear class="f-narrow">
+            <a-option value="standard">标品</a-option>
+            <a-option value="custom">二开</a-option>
+          </a-select>
+
+          <a-select v-model="searchForm.source" placeholder="来源" allow-clear class="f-mid">
+            <a-option value="manual">手动</a-option>
+            <a-option value="diagnosis">诊断</a-option>
+            <a-option value="trace_ai">AI分析</a-option>
+          </a-select>
+
+          <a-input v-model="searchForm.app_number" placeholder="应用编码" allow-clear class="f-mid" />
+        </div>
+
+        <!-- 按钮独立成行：数量多且会随功能增加，混在字段里必然溢出 -->
+        <div class="toolbar">
+          <a-button type="primary" @click="handleSearch">查询</a-button>
+          <a-button @click="handleReset">重置</a-button>
+          <a-divider direction="vertical" />
+          <!-- 内部处理流程：工具栏按钮，勾选后点。
+               与「状态」列（生产复现状态）是两个维度，不会互相覆盖 -->
+          <a-button type="primary" :disabled="!selectedIds.length" @click="openClaim">认领</a-button>
+          <a-dropdown :disabled="!selectedIds.length" @select="(v) => transition(String(v))">
+            <a-button :disabled="!selectedIds.length" :loading="transitionLoading">
+              处理状态
+              <template #icon><icon-down /></template>
+            </a-button>
+            <template #content>
+              <a-doption v-for="s in PROCESS_FLOW" :key="s.value" :value="s.value">
+                {{ s.label }}
+              </a-doption>
+            </template>
+          </a-dropdown>
+          <a-button :disabled="!selectedIds.length" @click="openDmp">DMP 编码</a-button>
+          <span v-if="selectedIds.length" class="sel-hint">已选 {{ selectedIds.length }} 条</span>
+          <a-divider direction="vertical" />
+          <a-button status="success" @click="handleExport">导出 Excel</a-button>
+          <a-button type="primary" status="success" @click="handleAdd">新增</a-button>
+        </div>
 
         <div class="scope-layout">
           <aside class="scope-panel panel-scroll-y">
@@ -728,6 +740,37 @@ const handleDelete = async (record: any) => {
 </script>
 
 <style scoped>
+/* 筛选区：按需宽度 + 放不下自动换行，不再用 24 等分的 span 硬凑 */
+.filter-bar,
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.filter-bar {
+  margin-bottom: 8px;
+}
+.toolbar {
+  margin-bottom: 16px;
+}
+.f-wide {
+  width: 240px;
+}
+.f-mid {
+  width: 150px;
+}
+.f-narrow {
+  width: 120px;
+}
+/* DMP 编码 = 输入框 + 未关联按钮，整组要够宽，否则按钮会压到输入框上 */
+.f-dmp {
+  width: 240px;
+}
+.f-dmp :deep(.arco-input-wrapper) {
+  flex: 1;
+}
+
 /* min-height:0 让两栏可被压缩，内部 overflow 才会触发（flex 默认 min-height:auto 会拒绝压缩） */
 .scope-layout { display: flex; gap: 16px; min-height: 520px; align-items: stretch; }
 .scope-panel { width: 280px; flex-shrink: 0; min-height: 0; padding-right: 12px; border-right: 1px solid var(--color-border-2); }
