@@ -197,3 +197,14 @@ export enum ApiSysMigration {
   reset = '/system/migration/reset',
   purgeLog = '/system/migration/purge_log',
 }
+
+/**
+ * API 令牌（机器客户端凭据）
+ *
+ * 人走「口令 + 验证码」，机器走令牌。令牌权限 = 所绑定用户的角色权限。
+ */
+export enum ApiSysApiToken {
+  getList = '/system/api-token/list',
+  add = '/system/api-token/add',
+  revoke = '/system/api-token/revoke',
+}

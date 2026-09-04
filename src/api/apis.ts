@@ -6,6 +6,7 @@ import type {
   ApiSysLogin,
   ApiSysLoginLog,
   ApiSysMenu,
+  ApiSysApiToken,
   ApiSysMigration,
   ApiSysOnlineUser,
   ApiSysOperateLog,
@@ -75,6 +76,7 @@ export type APIS =
   | ApiSysScheduledTasks
   | ApiSysScheduledTasksLog
   | ApiSysMigration
+  | ApiSysApiToken
   | ApiSecScanTool
   | ApiSecScanRun
   | ApiSecFinding
