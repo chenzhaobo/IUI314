@@ -45,7 +45,11 @@ const captchaOnOff = computed(() => captchaData.value?.captcha_on_off ?? true)
 const loginRules = ref<{ [key: string]: FieldRule[] }>({
   user_name: [
     { required: true, message: t('sys.loginUserNameValidateTipA') },
-    { minLength: 4, maxLength: 20, message: t('sys.loginUserNameValidateTipB') },
+    // 只保留与数据库列宽一致的上界（sys_user.user_name 是 VARCHAR(60)）。
+    // 原来这里写着 minLength: 4 —— 那是前端自己拍的下界，后端并没有这条约束，
+    // 结果是像 `mc` 这种两个字母的账号在库里存在、能登录，却连表单都提交不了。
+    // 登录框的职责是把凭据交给后端校验，不是替后端定义什么账号合法。
+    { maxLength: 60, message: t('sys.loginUserNameValidateTipB') },
   ],
   user_password: [
     { required: true, message: t('sys.loginUserPasswordValidateTipA') },
