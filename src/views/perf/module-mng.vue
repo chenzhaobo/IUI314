@@ -192,6 +192,13 @@ function handlePageChange(page: number) {
   queryParams.value.page_num = page
   void getList()
 }
+// 改每页条数必须同时回到第 1 页：原本停在第 5 页、条数从 10 改成 50 时，
+// 第 5 页往往已超出新的总页数，后端返回空列表，看起来像"数据没了"。
+function handlePageSizeChange(size: number) {
+  queryParams.value.page_size = size
+  queryParams.value.page_num = 1
+  getList()
+}
 
 // ── 字典：状态 ────────────────────────────────────
 const dicts = useDicts('perf_module_status')
@@ -727,6 +734,7 @@ watch(selectedRelationId, () => void loadBranches())
         row-key="id"
         :scroll="{ y: tableHeight }"
         @page-change="handlePageChange"
+        @page-size-change="handlePageSizeChange"
       >
         <template v-for="key in FILTERABLE_COLUMNS" #[`filter-${key}`] :key="key">
           <ColumnFilterPanel v-model="columnFilters[key]" @change="onColumnFilterChange" />
@@ -869,7 +877,7 @@ watch(selectedRelationId, () => void loadBranches())
               刷新
             </a-button>
           </a-space>
-          <a-table :loading="repositoryLoading" :data="repositories" :columns="repositoryColumns" :pagination="false" row-key="relation_id" :scroll="{ x: 1280 }" size="small">
+          <a-table :loading="repositoryLoading" :data="repositories" :columns="repositoryColumns" :pagination="false" row-key="relation_id" :scroll="{ minWidth: 1280 }" size="small">
             <template #repository="{ record }">
               <div>
                 <strong>{{ record.name }}</strong> <a-tag v-if="record.git_url.startsWith('local-test:')" color="orangered">

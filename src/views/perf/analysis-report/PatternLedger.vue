@@ -62,15 +62,23 @@
         </aside>
         <div class="scope-content">
           <!-- 状态统计 -->
-          <a-row v-if="statsData" :gutter="8" style="margin-bottom: 12px">
-            <a-col v-for="(val, key) in statsData" :key="key">
-              <a-tag :color="statusColor(String(key))">{{ statusText(String(key)) }}: {{ val }}</a-tag>
-            </a-col>
-          </a-row>
+          <!--
+            统计标签改用 flex 换行，不再用 a-row/a-col。
+
+            `<a-col>` **不写 span 时默认 span=24**（占满 24 格 = 一整行），
+            所以原写法每个标签独占一行 —— 状态一多整块就撑得很高
+            （反馈："新发现：5 这一行……会换行，都显示到一行吧"）。
+            flex + wrap 是标签这种不定宽内容的正确容器：按内容宽度排布、放不下才换行。
+          -->
+          <div v-if="statsData" class="stats-line">
+            <a-tag v-for="(val, key) in statsData" :key="key" :color="statusColor(String(key))">
+              {{ statusText(String(key)) }}: {{ val }}
+            </a-tag>
+          </div>
 
           <!-- 表格 -->
           <div ref="tableWrap">
-          <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange" row-key="id" column-resizable :scroll="{ x: 1600, y: tableHeight }">
+          <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange" row-key="id" column-resizable :scroll="{ minWidth: 1600, y: tableHeight }">
             <template #columns>
               <a-table-column title="编号" data-index="pattern_no" :width="100" ellipsis tooltip />
               <a-table-column title="标题" data-index="title" :width="250" ellipsis tooltip />
@@ -588,6 +596,15 @@ const handleLinkIssue = async () => {
 </script>
 
 <style scoped>
+/* 统计标签按内容排布、放不下才换行（原来用 a-col 无 span，每个占满一行） */
+.stats-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
 /* 归属查不到时的占位。用弱化色而不是留空：留空看不出是「没查到」还是「渲染漏了」。 */
 .muted { color: var(--color-text-4); }
 
@@ -611,5 +628,7 @@ const handleLinkIssue = async () => {
 /* height 由模板实测给出；min-height 只作为极小窗口下的兜底 */
 .scope-layout { display: flex; gap: 16px; min-height: 420px; }
 .scope-panel { width: 280px; flex-shrink: 0; min-height: 0; padding-right: 12px; border-right: 1px solid var(--color-border-2); }
-.scope-content { flex: 1; min-width: 0; min-height: 0; overflow: auto; }
+/* overflow-x 显式 hidden：只开 overflow-y 时横向会被计算成 auto，
+   而 a-row 的 gutter 用负外边距探出容器，会凭空多一条横向滚动条 */
+.scope-content { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 </style>

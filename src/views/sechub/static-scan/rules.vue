@@ -592,7 +592,7 @@ function downloadTemplate() {
         :pagination="{ total, current: query.page_num, pageSize: query.page_size, showTotal: true }"
         row-key="id"
         column-resizable
-        :scroll="{ x: 1900 }"
+        :scroll="{ minWidth: 1900 }"
         @page-change="changePage"
       >
         <template #domain="{ record }">

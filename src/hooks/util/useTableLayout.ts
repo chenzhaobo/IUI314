@@ -56,14 +56,29 @@ export function withTableDefaults<T extends ColumnLike>(columns: T[]): T[] {
 /** [`useTableAutoHeight`] 的可调项 */
 export interface TableAutoHeightOptions {
   /**
-   * 表格下方还要留出的高度（分页条、卡片内边距、页面底部留白等）。
-   * 默认 96：Arco 分页条约 56px + 卡片下内边距 20px + 余量 20px。
+   * 容器下方**固定**留白（卡片下内边距、页面底部留白）。
+   *
+   * 默认 32，比早期的 96 小很多 —— 因为分页条等**下方兄弟节点的高度现在是实测的**
+   * （见 measureBelow），不再需要靠这个常量去猜。常量猜大了表格填不满、
+   * 猜小了表格越过视口撑出页面滚动条，两种症状都出现过。
    */
   reserve?: number
   /** 高度下限，防止在小窗口/短视口下算出负值或只剩一两行 */
   min?: number
   /** 关掉自适应（返回 undefined，表格退回不限高、整页滚动） */
   disabled?: boolean
+  /**
+   * 容器**已经有确定高度**时改用容器自身高度，而不是从视口反推。
+   *
+   * 适用于容器处在一条完整的高度链里 —— 例如外层 flex 行已经有实测的 `height`，
+   * 容器是它的 `flex: 1` 子项。这种情况下视口反推必然与父级实际剩余空间有偏差
+   * （两者各自减去不同的余量），表现为表格下方留一段空白。
+   *
+   * 用容器自身高度是**安全**的，前提正是"高度确定"：此时容器高度**不随表格高度变化**，
+   * 所以可以直接 ResizeObserver 观察容器而不会形成自激回路。
+   * 若容器高度其实是内容驱动的（auto），打开这个选项会造成回路 —— 别这么用。
+   */
+  fillParent?: boolean
 }
 
 /**
@@ -111,48 +126,157 @@ export function useTableAutoHeight(
   container: Ref<HTMLElement | undefined | null>,
   options?: TableAutoHeightOptions,
 ) {
-  const reserve = options?.reserve ?? 96
+  const reserve = options?.reserve ?? 32
   const min = options?.min ?? 200
 
   const viewportHeight = ref(typeof window === 'undefined' ? 0 : window.innerHeight)
   const containerTop = ref(0)
+  /** 容器下方兄弟节点的总高度（分页条等），实测而非用常量猜 */
+  const belowHeight = ref(0)
+  /** fillParent 模式下容器自身的高度 */
+  const containerHeight = ref(0)
+
+  /**
+   * 元素下方还有多少内容（分页条、底部说明、额外按钮行……）。
+   *
+   * 原来这部分靠常量 `reserve` 猜（默认 96 = 分页条 56 + 内边距 20 + 余量 20）。
+   * 猜小了表格底边就越过视口 → **整页多出滚动条**；猜大了表格就填不满、
+   * 下方留白 —— 用户同时反馈了这两种相反的症状，正是因为不同页面下方内容不同，
+   * 一个常量不可能同时对。
+   *
+   * 这里改成**实测**：把容器之后的所有兄弟节点高度加起来。
+   * 只看兄弟节点是有意的 —— 它们的高度不随表格高度变化，不会形成反馈回路。
+   */
+  function measureBelow(el: HTMLElement) {
+    let total = 0
+    let sib = el.nextElementSibling
+    while (sib) {
+      const r = sib.getBoundingClientRect()
+      // 隐藏元素 rect 为 0，天然不计入
+      total += r.height
+      sib = sib.nextElementSibling
+    }
+    // 兄弟之间与容器底部的间距无法逐一测量，留一点固定余量
+    return total > 0 ? total + 12 : 0
+  }
 
   function measure() {
     if (typeof window === 'undefined')
       return
     const el = unref(container)
-    const nextTop = el ? el.getBoundingClientRect().top : 0
+    if (!el)
+      return
+    const rect = el.getBoundingClientRect()
+    // top <= 0 说明还没真正参与布局（挂载瞬间、或在隐藏的 tab 里）。
+    // 此时若照算，得到的高度接近整个视口 —— 而现在高度还会作为 min-height
+    // 强制生效，直接把页面顶出一条滚动条。所以宁可先不出高度。
+    if (rect.top <= 0)
+      return
     const nextVh = window.innerHeight
-    // 2px 阈值：高度没有实质变化就不写 ref。这是断开
-    // 「改高度 → 触发布局变化 → 又来测量」自激回路的关键一环。
     if (Math.abs(nextVh - viewportHeight.value) > 2)
       viewportHeight.value = nextVh
-    if (Math.abs(nextTop - containerTop.value) > 2)
-      containerTop.value = nextTop
+    if (Math.abs(rect.top - containerTop.value) > 2)
+      containerTop.value = rect.top
+    const nextBelow = measureBelow(el)
+    if (Math.abs(nextBelow - belowHeight.value) > 2)
+      belowHeight.value = nextBelow
+    if (options?.fillParent) {
+      const own = el.clientHeight
+      if (own > 0 && Math.abs(own - containerHeight.value) > 2)
+        containerHeight.value = own
+    }
   }
 
   const tableHeight = computed<number | undefined>(() => {
     if (options?.disabled)
       return undefined
-    const available = viewportHeight.value - containerTop.value - reserve
+    // 还没测到有效位置时不给高度：让表格先按内容渲染，
+    // 比给一个错的高度（撑出页面滚动条）好
+    if (options?.fillParent) {
+      if (containerHeight.value <= 0)
+        return undefined
+      return Math.max(min, Math.round(containerHeight.value - belowHeight.value))
+    }
+    if (containerTop.value <= 0)
+      return undefined
+    const available = viewportHeight.value - containerTop.value - reserve - belowHeight.value
     return Math.max(min, Math.round(available))
   })
 
+  /**
+   * 观察容器**上方**兄弟节点的尺寸变化。
+   *
+   * 上方内容（筛选区展开收起、统计卡片异步加载出来）一变，容器顶边就变，
+   * 不重测高度就是错的 —— 这是"表格填不满"最常见的成因：挂载那一刻统计卡片
+   * 还没渲染，顶边偏小；等它出来后顶边下移，但高度没跟着改。
+   *
+   * 只观察上方兄弟是关键：它们的高度**不依赖**表格高度，所以不会出现
+   * 「改高度 → 布局变 → 又来测量」的自激回路（第一版观察 document.body 就踩了这个，
+   * Chrome 直接报 ResizeObserver loop 并丢帧）。
+   */
+  let observer: ResizeObserver | null = null
+
+  function observeSiblingsAbove() {
+    if (typeof ResizeObserver === 'undefined')
+      return
+    const el = unref(container)
+    if (!el)
+      return
+    observer?.disconnect()
+    observer = new ResizeObserver(() => measure())
+    let sib = el.previousElementSibling
+    while (sib) {
+      observer.observe(sib)
+      sib = sib.previousElementSibling
+    }
+    // 下方兄弟同样要观察：分页条在数据加载后才出现，出现前后可用高度不同
+    let next = el.nextElementSibling
+    while (next) {
+      observer.observe(next)
+      next = next.nextElementSibling
+    }
+    // fillParent 模式下容器高度由外层 flex 决定、不随表格变化，观察它是安全的
+    if (options?.fillParent)
+      observer.observe(el)
+  }
+
+  /**
+   * 分几个时机复测。
+   *
+   * 单次 `requestAnimationFrame` 不够：页面数据是异步来的，首帧时筛选区上方的
+   * 统计卡片、分页条往往还没渲染，测出的顶边偏小。这里按 0 / 1 帧 / 120ms / 400ms
+   * 各测一次，覆盖"接口回来后才渲染"的常见情形；有 2px 阈值兜着，
+   * 重复测量不会造成多余的响应式写入。
+   */
+  const timers: number[] = []
+  function scheduleMeasures() {
+    measure()
+    requestAnimationFrame(() => {
+      measure()
+      observeSiblingsAbove()
+    })
+    timers.push(window.setTimeout(measure, 120), window.setTimeout(() => {
+      measure()
+      // 上方内容可能整块换掉（v-if 切换），重新挂观察者
+      observeSiblingsAbove()
+    }, 400))
+  }
+
   onMounted(() => {
-    // 等一帧再测：挂载瞬间上方的筛选卡片可能还没渲染完，此时 top 偏小、
-    // 会算出过高的表格高度，导致首屏出现一次多余的整页滚动条。
-    requestAnimationFrame(measure)
+    scheduleMeasures()
     window.addEventListener('resize', measure)
   })
 
   // 页面被 keep-alive 缓存后，再次进入不会走 onMounted，但窗口尺寸/布局可能已变，
   // 不重测就会用上次的旧高度。
   onActivated(() => {
-    requestAnimationFrame(measure)
+    scheduleMeasures()
   })
 
   onUnmounted(() => {
     window.removeEventListener('resize', measure)
+    observer?.disconnect()
+    timers.forEach(t => window.clearTimeout(t))
   })
 
   // 把算出的高度以 CSS 变量写到容器上，供 arco.scss 里的
@@ -201,7 +325,7 @@ export function useAutoHeight(
   // 同样带 2px 阈值断开自激回路（原因见 useTableAutoHeight 的文档）。
   const { tableHeight: height, measure } = useTableAutoHeight(container, {
     // 面板下方一般没有分页条，留白比表格少
-    reserve: options?.reserve ?? 24,
+    reserve: options?.reserve ?? 16,
     min: options?.min ?? 160,
     disabled: options?.disabled,
   })

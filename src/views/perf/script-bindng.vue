@@ -190,6 +190,13 @@ function handlePageChange(page: number) {
   bindListQuery.value.page_num = page
   fetchBindList()
 }
+// 改每页条数必须同时回到第 1 页：原本停在第 5 页、条数从 10 改成 50 时，
+// 第 5 页往往已超出新的总页数，后端返回空列表，看起来像"数据没了"。
+function handlePageSizeChange(size: number) {
+  bindListQuery.value.page_size = size
+  bindListQuery.value.page_num = 1
+  fetchBindList()
+}
 
 const bindColumns = [
   { title: '菜单名称', dataIndex: 'menu_name', width: 200, ellipsis: true, tooltip: true },
@@ -362,6 +369,7 @@ async function handleAddSubmit() {
           :pagination="{ total: bindTotal, current: bindListQuery.page_num, pageSize: bindListQuery.page_size, showTotal: true, showPageSize: true }"
           size="small"
           @page-change="handlePageChange"
+          @page-size-change="handlePageSizeChange"
         >
           <template #created_at="{ record }">{{ formatTime(record.created_at) }}</template>
           <template #status="{ record }">
@@ -415,7 +423,7 @@ async function handleAddSubmit() {
         :pagination="false"
         row-key="txn_code"
         size="small"
-        :scroll="{ x: 720, y: 480 }"
+        :scroll="{ minWidth: 720, y: 480 }"
       >
         <template #matchStatus="{ record }">
           <a-tag v-if="record.match_status === 'matched'" color="green" size="small">已匹配</a-tag>

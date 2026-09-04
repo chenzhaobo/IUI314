@@ -138,7 +138,7 @@ const columns = [
         row-key="id"
         size="small"
         :pagination="{ total, current: query.page_num, pageSize: query.page_size, showTotal: true }"
-        :scroll="{ x: 1250 }"
+        :scroll="{ minWidth: 1250 }"
         :row-class="(record: any) => (statusOf(record).text !== '有效' ? 'token-inactive' : '')"
         @page-change="(p: number) => { query.page_num = p; fetchList() }"
       >

@@ -16,7 +16,9 @@
         记录达标率各产品线所用 Superset 数据源（物理表）的字段口径、预置指标与 SQL 定义，避免口径散落在需求文档中时间久了遗失。
       </a-alert>
 
-      <a-table :data="list" :loading="loading" :pagination="false" row-key="id">
+      <!-- 原生 div 挂 ref：组件 ref 拿到的是实例、没有 getBoundingClientRect -->
+      <div ref="tableWrap">
+      <a-table :data="list" :loading="loading" :pagination="false" row-key="id" :scroll="{ y: tableHeight }">
         <template #columns>
           <a-table-column title="产品线" :width="90">
             <template #cell="{ record }">
@@ -41,6 +43,7 @@
           </a-table-column>
         </template>
       </a-table>
+      </div>
     </a-card>
 
     <!-- 详情抽屉 -->
@@ -113,11 +116,15 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { ApiPerfDatasource } from '@/api/perfApis'
-import { useGet } from '@/hooks'
+import { useGet, useTableAutoHeight } from '@/hooks'
 
 defineOptions({ name: 'datasource-meta' })
 
 // ── 列表 ──────────────────────────────────────
+// 表格高度自适应：滚动条落在表格内、表头固定
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
+
 const productLine = ref('')
 const listParams = ref<any>({ product_line: '' })
 const { isFetching: loading, data: listData, execute: fetchList } = useGet<any>(ApiPerfDatasource.list, listParams, { immediate: true })

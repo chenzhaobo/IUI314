@@ -30,6 +30,13 @@ function handlePageChange(page: number) {
   queryParams.value.page_num = page
   getList()
 }
+// 改每页条数必须同时回到第 1 页：原本停在第 5 页、条数从 10 改成 50 时，
+// 第 5 页往往已超出新的总页数，后端返回空列表，看起来像"数据没了"。
+function handlePageSizeChange(size: number) {
+  queryParams.value.page_size = size
+  queryParams.value.page_num = 1
+  getList()
+}
 
 // ── 列筛选（服务端分页，走 toServerFilters 交后端） ──────────────
 const FILTERABLE_COLUMNS = ['name'] as const
@@ -427,6 +434,7 @@ async function handleTriggerSubmit() {
           row-key="id"
           :scroll="{ y: tableHeight }"
           @page-change="handlePageChange"
+          @page-size-change="handlePageSizeChange"
         >
           <template v-for="key in FILTERABLE_COLUMNS" #[`filter-${key}`] :key="key">
             <ColumnFilterPanel v-model="columnFilters[key]" @change="onColumnFilterChange" />

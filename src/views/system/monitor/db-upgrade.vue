@@ -156,7 +156,7 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
         row-key="migration"
         size="small"
         :pagination="{ pageSize: 20, showTotal: true, showPageSize: true }"
-        :scroll="{ x: 1300, y: tableHeight }"
+        :scroll="{ minWidth: 1300, y: tableHeight }"
         :expandable="logAvailable ? { width: 40 } : undefined"
         :row-class="(record: any) => (!record.applied || (record.stmt_failed || 0) > 0 ? 'db-upg-bad' : '')"
         @expand="(rowKey: string | number) => onExpand(rowKey)"

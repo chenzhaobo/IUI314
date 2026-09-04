@@ -567,7 +567,7 @@ async function syncRepo(record: ModuleWithRepository) {
           }"
           column-resizable
           row-key="relation_id"
-          :scroll="{ x: 1400, y: tableHeight }"
+          :scroll="{ minWidth: 1400, y: tableHeight }"
           @page-change="(p: number) => (pageNum = p)"
           @page-size-change="onPageSizeChange"
         >

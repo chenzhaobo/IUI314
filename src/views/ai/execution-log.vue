@@ -203,7 +203,7 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
           :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true }"
           column-resizable
           @page-change="handlePageChange"
-          :scroll="{ x: 900, y: tableHeight }"
+          :scroll="{ minWidth: 900, y: tableHeight }"
         >
           <template #status="{ record }">
             <a-tag :color="statusColor(record.status)">{{ record.status }}</a-tag>

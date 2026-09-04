@@ -32,7 +32,9 @@
       </a-row>
 
       <!-- 数据表格 -->
-      <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange" row-key="id">
+      <!-- 原生 div 挂 ref：组件 ref 拿到的是实例、没有 getBoundingClientRect -->
+      <div ref="tableWrap">
+      <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange" row-key="id" :scroll="{ y: tableHeight }">
         <template #columns>
           <a-table-column title="场景名称" data-index="name" :width="200" />
           <a-table-column title="应用" data-index="app_name" :width="120" />
@@ -76,6 +78,7 @@
           </a-table-column>
         </template>
       </a-table>
+      </div>
     </a-card>
 
     <!-- 新增/编辑弹窗 -->
@@ -142,9 +145,13 @@
 import { ref, reactive, computed } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { ApiPerfScenario } from '@/api/perfApis'
-import { useGet, usePost, usePut, useDelete } from '@/hooks'
+import { useGet, usePost, usePut, useDelete, useTableAutoHeight } from '@/hooks'
 
 defineOptions({ name: 'scenario-list' })
+
+// 表格高度自适应：滚动条落在表格内、表头固定
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 
 const pageNum = ref(1)
 const pageSize = ref(20)

@@ -25,7 +25,9 @@
       </a-row>
 
       <!-- 表格 -->
-      <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange">
+      <!-- 原生 div 挂 ref：组件 ref 拿到的是实例、没有 getBoundingClientRect -->
+      <div ref="tableWrap">
+      <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange" :scroll="{ y: tableHeight }">
         <template #columns>
           <a-table-column title="客户名称" data-index="customer_name" :width="200" />
           <a-table-column title="租户编码" data-index="tenant_code" :width="120" />
@@ -56,6 +58,7 @@
           </a-table-column>
         </template>
       </a-table>
+      </div>
     </a-card>
 
     <!-- 新增/编辑弹窗 -->
@@ -98,11 +101,15 @@ import { ref, reactive, computed } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { ApiPerfCustomer } from '@/api/perfApis'
 import { ApiSysDictData } from '@/api/apis'
-import { useGet, usePost, usePut, useDelete } from '@/hooks'
+import { useGet, usePost, usePut, useDelete, useTableAutoHeight } from '@/hooks'
 
 defineOptions({ name: 'customer-list' })
 
 // ── 字典加载 ──────────────────────────────────
+// 表格高度自适应：滚动条落在表格内、表头固定
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
+
 const { data: cloudTypeRaw } = useGet<any>(ApiSysDictData.getByType, { dict_type: 'perf_cloud_type' }, { immediate: true })
 const cloudTypeOptions = computed(() => (Array.isArray(cloudTypeRaw.value) ? cloudTypeRaw.value : []).map((d: any) => ({ label: d.dict_label, value: d.dict_value })))
 const { data: runtimeTypeRaw } = useGet<any>(ApiSysDictData.getByType, { dict_type: 'perf_runtime_type' }, { immediate: true })

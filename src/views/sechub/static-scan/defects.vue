@@ -881,7 +881,7 @@ function shortSha(sha: string | null | undefined): string {
                 size="small"
                 column-resizable
                 :row-selection="{ type: 'checkbox', showCheckedAll: true }"
-                :scroll="{ x: 1480, y: tableHeight }"
+                :scroll="{ minWidth: 1480, y: tableHeight }"
                 @page-change="onPageChange"
                 @page-size-change="onPageSizeChange"
                 @selection-change="handleSelectionChange"

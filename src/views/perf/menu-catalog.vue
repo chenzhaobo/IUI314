@@ -94,6 +94,13 @@ function handleMenuPageChange(page: number) {
   menuQuery.value.page_num = page
   getMenuList()
 }
+// 改每页条数必须同时回到第 1 页：原本停在第 5 页、条数从 10 改成 50 时，
+// 第 5 页往往已超出新的总页数，后端返回空列表，看起来像"数据没了"。
+function handleMenuPageSizeChange(size: number) {
+  menuQuery.value.page_size = size
+  menuQuery.value.page_num = 1
+  getMenuList()
+}
 
 const menuColumns = withTableDefaults([
   { title: '菜单名称', dataIndex: 'menu_name', width: 180 },
@@ -637,11 +644,12 @@ const { tableHeight: buttonTableHeight } = useTableAutoHeight(buttonTableWrap)
             :data="menuList"
             :columns="menuColumns"
             :pagination="{ total: menuTotal, current: menuQuery.page_num, pageSize: menuQuery.page_size, showTotal: true, showPageSize: true }"
-            :scroll="{ y: menuTableHeight, x: 1430 }"
+            :scroll="{ y: menuTableHeight, minWidth: 1430 }"
             row-key="id"
             :row-selection="{ type: 'checkbox', showCheckedAll: true, selectedRowKeys: selectedMenuIds }"
             @selection-change="handleSelectionChange"
             @page-change="handleMenuPageChange"
+            @page-size-change="handleMenuPageSizeChange"
           >
             <template #synced_at="{ record }">{{ formatTime(record.synced_at) }}</template>
             <template #in_test_scope="{ record }">

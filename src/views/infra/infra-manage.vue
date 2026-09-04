@@ -249,7 +249,7 @@ function getRoleLabel(value: string) {
         v-model:expanded-keys="expandedKeys"
         row-key="key"
         :pagination="false"
-        :scroll="{ x: 1200 }"
+        :scroll="{ minWidth: 1200 }"
       >
         <template #role="{ record }">
           <a-tag v-if="record.type === 'host'" color="arcoblue">物理机</a-tag>

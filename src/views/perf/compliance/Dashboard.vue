@@ -202,7 +202,10 @@ const { height: layoutRowH } = useAutoHeight(layoutRow)
 
 // 表格高度自适应（滚动条在表格内，表头固定）
 const tableWrap = ref<HTMLElement>()
-const { tableHeight } = useTableAutoHeight(tableWrap)
+// fillParent：这个容器是外层实测定高 flex 行里的 `flex:1` 子项，高度已确定。
+// 用视口反推会与父级实际剩余空间差出一截（两者各减不同余量），
+// 表现为表格下方留白 —— 直接取容器自身高度才严丝合缝。
+const { tableHeight } = useTableAutoHeight(tableWrap, { fillParent: true })
 
 // ── 产品线选择（星瀚/星空，默认星瀚） ──────────────────────────────────
 const productLine = ref('星瀚')

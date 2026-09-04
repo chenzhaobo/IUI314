@@ -522,7 +522,7 @@ const columns = withTableDefaults([
           :loading="listLoading"
           :pagination="false"
           row-key="id"
-          :scroll="{ x: 1800, y: tableHeight }"
+          :scroll="{ minWidth: 1800, y: tableHeight }"
           size="small"
         >
           <!-- 代码仓库：多 tag + 超出折叠 tooltip -->
@@ -883,7 +883,7 @@ const columns = withTableDefaults([
         :loading="recordLoading"
         :pagination="false"
         row-key="id"
-        :scroll="{ x: 1200 }"
+        :scroll="{ minWidth: 1200 }"
         size="small"
       >
         <!-- commit 短 SHA -->

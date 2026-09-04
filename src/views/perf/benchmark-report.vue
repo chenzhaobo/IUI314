@@ -491,7 +491,7 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
           pageSizeOptions: [10, 20, 50, 100],
         }"
         row-key="txn_code"
-        :scroll="{ x: 2000, y: tableHeight }"
+        :scroll="{ minWidth: 2000, y: tableHeight }"
         @page-change="handlePageChange"
         @page-size-change="handlePageSizeChange"
       >

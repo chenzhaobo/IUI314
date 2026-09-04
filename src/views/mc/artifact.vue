@@ -179,7 +179,7 @@ function handleDelete(row: any) {
           row-key="id"
           size="small"
           column-resizable
-          :scroll="{ x: 1500, y: tableHeight }"
+          :scroll="{ minWidth: 1500, y: tableHeight }"
           @page-change="(p: number) => { queryParams.page_num = p; fetchList() }"
         >
           <template #kind="{ record }">
@@ -225,7 +225,7 @@ function handleDelete(row: any) {
         row-key="id"
         size="small"
         :pagination="{ pageSize: 10 }"
-        :scroll="{ x: 1200 }"
+        :scroll="{ minWidth: 1200 }"
       >
         <template #created="{ record }">
           {{ formatTime(record.created_at) }}

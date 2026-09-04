@@ -137,7 +137,7 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
           showTotal: true,
         }"
         row-key="id"
-        :scroll="{ x: 1500, y: tableHeight }"
+        :scroll="{ minWidth: 1500, y: tableHeight }"
         @page-change="handlePageChange"
       >
         <template #overall_status="{ record }">

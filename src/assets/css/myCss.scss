@@ -43,6 +43,20 @@
 .panel-scroll-y {
   min-height: 0;
   overflow-y: auto;
+  /*
+    必须显式写 overflow-x: hidden。
+
+    CSS 规范：`overflow` 两个轴中一个是 auto/scroll 而另一个是 visible 时，
+    visible 会被**计算成 auto**。所以只写 `overflow-y: auto` 等于同时开了横向滚动，
+    任何横向探出的子元素都会长出一条横向滚动条。
+
+    而 Arco 的 `<a-row :gutter="N">` 正是靠**负外边距**（左右各 -N/2）实现列间距的，
+    天生就探出容器 —— 于是这些面板普遍多出一条横向滚动条
+    （反馈里"有页面横向纵向滚动条"的直接来源）。
+
+    面板内部真需要横向滚动的内容（表格）自己有滚动容器，不依赖这一层。
+  */
+  overflow-x: hidden;
   overscroll-behavior: contain;
 }
 

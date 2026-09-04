@@ -79,6 +79,13 @@ function handlePageChange(page: number) {
   selectedIds.value = []
   getList()
 }
+// 改每页条数必须同时回到第 1 页：原本停在第 5 页、条数从 10 改成 50 时，
+// 第 5 页往往已超出新的总页数，后端返回空列表，看起来像"数据没了"。
+function handlePageSizeChange(size: number) {
+  queryParams.value.page_size = size
+  queryParams.value.page_num = 1
+  getList()
+}
 
 
 // ── 耗时格式化 ──────────────────────────────────
@@ -916,6 +923,7 @@ const layoutOnlyModel = {}
         v-model:selectedKeys="selectedIds"
         :scroll="{ y: tableHeight }"
         @page-change="handlePageChange"
+        @page-size-change="handlePageSizeChange"
       >
         <template v-for="key in FILTERABLE_COLUMNS" #[`filter-${key}`] :key="key">
           <ColumnFilterPanel v-model="columnFilters[key]" @change="onColumnFilterChange" />
@@ -1085,7 +1093,7 @@ const layoutOnlyModel = {}
           row-key="name"
           size="small"
           column-resizable
-          :scroll="{ x: 1130, y: 'calc(100vh - 300px)' }"
+          :scroll="{ minWidth: 1130, y: 'calc(100vh - 300px)' }"
         >
           <template #matchStatus="{ record }">
             <a-tag v-if="record.txn_code && txnMatchMap[record.txn_code]" :color="txnMatchMap[record.txn_code].match_status === 'matched' ? 'green' : txnMatchMap[record.txn_code].match_status === 'unmatched' ? 'orange' : 'gray'" size="small">
@@ -1167,7 +1175,7 @@ const layoutOnlyModel = {}
         :pagination="false"
         row-key="id"
         size="small"
-        :scroll="{ x: 700 }"
+        :scroll="{ minWidth: 700 }"
       >
         <template #att_type="{ record }">
           <a-tag :color="record.file_type === 'jar' ? 'blue' : record.file_type === 'csv' ? 'green' : record.file_type === 'props' ? 'orange' : 'gray'" size="small">
@@ -1196,7 +1204,7 @@ const layoutOnlyModel = {}
         :pagination="false"
         row-key="id"
         size="small"
-        :scroll="{ x: 800 }"
+        :scroll="{ minWidth: 800 }"
       >
         <template #v_version="{ record }">
           <a-tag :color="record.is_current ? 'green' : 'blue'" size="small">{{ record.version }}{{ record.is_current ? ' (当前)' : '' }}</a-tag>

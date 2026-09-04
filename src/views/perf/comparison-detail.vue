@@ -273,7 +273,7 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
           showPageSize: true,
         }"
         row-key="id"
-        :scroll="{ x: 1700, y: tableHeight }"
+        :scroll="{ minWidth: 1700, y: tableHeight }"
         @page-change="handlePageChange"
         @page-size-change="handlePageSizeChange"
       >

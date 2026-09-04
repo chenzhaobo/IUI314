@@ -238,6 +238,13 @@ function handlePageChange(page: number) {
   queryParams.value.page_num = page
   getList()
 }
+// 改每页条数必须同时回到第 1 页：原本停在第 5 页、条数从 10 改成 50 时，
+// 第 5 页往往已超出新的总页数，后端返回空列表，看起来像"数据没了"。
+function handlePageSizeChange(size: number) {
+  queryParams.value.page_size = size
+  queryParams.value.page_num = 1
+  getList()
+}
 
 // ── 编辑弹窗 ──────────────────────────────────
 const editVisible = ref(false)
@@ -690,7 +697,7 @@ const scriptColumns = [
           :columns="columns"
           :data="dataList"
           :loading="isLoading"
-          :scroll="{ x: 2000, y: tableHeight }"
+          :scroll="{ minWidth: 2000, y: tableHeight }"
           :pagination="{
             total,
             current: queryParams.page_num,
@@ -701,6 +708,7 @@ const scriptColumns = [
           row-key="txn_code"
           size="small"
           @page-change="handlePageChange"
+          @page-size-change="handlePageSizeChange"
           @filter-change="handleTableFilterChange"
         >
           <template #txn_type="{ record }">{{ fmtTxnType(record.txn_type) }}</template>

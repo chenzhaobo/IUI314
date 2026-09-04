@@ -1026,7 +1026,7 @@ const crossColumns = computed(() => [
         :row-selection="{ type: 'checkbox', showCheckedAll: true }"
         :pagination="{ pageSize: 10, showTotal: true }"
         size="small"
-        :scroll="{ x: 1200 }"
+        :scroll="{ minWidth: 1200 }"
       >
         <template #qkind="{ record }">
           {{ queueKindLabels[record.task_kind] ?? record.task_kind }}

@@ -6,7 +6,9 @@
       </template>
 
       <!-- 任务列表 -->
-      <a-table :data="taskList" :loading="loading" :pagination="pagination" @page-change="handlePageChange" row-key="id">
+      <!-- 原生 div 挂 ref：组件 ref 拿到的是实例、没有 getBoundingClientRect -->
+      <div ref="tableWrap">
+      <a-table :data="taskList" :loading="loading" :pagination="pagination" @page-change="handlePageChange" row-key="id" :scroll="{ y: tableHeight }">
         <template #columns>
           <a-table-column title="任务名称" :width="220">
             <template #cell="{ record }">
@@ -54,6 +56,7 @@
           </a-table-column>
         </template>
       </a-table>
+      </div>
     </a-card>
 
     <!-- 新增/编辑弹框 -->
@@ -215,11 +218,15 @@
 import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { ApiPerfSyncTask, ApiPerfCompliance } from '@/api/perfApis'
-import { useGet, usePost, usePut, useDelete } from '@/hooks'
+import { useGet, usePost, usePut, useDelete, useTableAutoHeight } from '@/hooks'
 
 defineOptions({ name: 'sync-manage' })
 
 // ── 任务列表 ──────────────────────────────────
+// 表格高度自适应：滚动条落在表格内、表头固定
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
+
 const pageNum = ref(1)
 const pageSize = ref(20)
 const queryParams = computed(() => ({ page_num: pageNum.value, page_size: pageSize.value }))

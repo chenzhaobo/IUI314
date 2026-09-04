@@ -469,7 +469,7 @@ onUnmounted(() => {
         }"
         @page-change="handleStatsPageChange"
         @page-size-change="handleStatsPageSizeChange"
-        :scroll="{ y: tableHeight, x: 1050 }"
+        :scroll="{ y: tableHeight, minWidth: 1050 }"
         row-key="id"
       >
         <template #row_count_type="{ record }">
@@ -495,7 +495,7 @@ onUnmounted(() => {
         }"
         @page-change="handleEntityPageChange"
         @page-size-change="handleEntityPageSizeChange"
-        :scroll="{ y: tableHeight, x: 1570 }"
+        :scroll="{ y: tableHeight, minWidth: 1570 }"
         row-key="id"
       >
         <template #entity_type="{ record }">

@@ -46,6 +46,13 @@ function handlePageChange(page: number) {
   queryParams.value.page_num = page
   getList()
 }
+// 改每页条数必须同时回到第 1 页：原本停在第 5 页、条数从 10 改成 50 时，
+// 第 5 页往往已超出新的总页数，后端返回空列表，看起来像"数据没了"。
+function handlePageSizeChange(size: number) {
+  queryParams.value.page_size = size
+  queryParams.value.page_num = 1
+  getList()
+}
 
 // ── 列头筛选（服务端）──────────────────────────────
 // 服务端分页页面必须走后端筛：前端筛只筛当前页，搜靠后的记录会搜不到。
@@ -231,6 +238,7 @@ async function handleHealthCheck(record: any) {
         row-key="id"
         :scroll="{ y: tableHeight }"
         @page-change="handlePageChange"
+        @page-size-change="handlePageSizeChange"
       >
         <template v-for="key in FILTERABLE_COLUMNS" #[`filter-${key}`] :key="key">
           <ColumnFilterPanel v-model="columnFilters[key]" @change="onColumnFilterChange" />

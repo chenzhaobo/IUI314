@@ -1353,7 +1353,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
               :pagination="false"
               row-key="scan_point_id"
               size="small"
-              :scroll="{ x: 1100, y: scanpointTableH }"
+              :scroll="{ minWidth: 1100, y: scanpointTableH }"
             >
               <template #domain="{ record }">
                 <a-tag size="small" :color="record.domain === 'security' ? 'red' : 'blue'">
@@ -1380,7 +1380,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
               :pagination="{ total: codeDetail?.total ?? 0, current: codePageNum, pageSize: 50 }"
               row-key="id"
               size="small"
-              :scroll="{ x: 1200, y: fileTableH }"
+              :scroll="{ minWidth: 1200, y: fileTableH }"
               @page-change="(page: number) => { codePageNum = page; loadCodeCandidates() }"
             >
               <template #domain="{ record }">
@@ -1649,7 +1649,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
           :pagination="false"
           row-key="comparison_key"
           size="small"
-          :scroll="{ x: 1100 }"
+          :scroll="{ minWidth: 1100 }"
         >
           <template #crModel="{ record }">
             <span>{{ record.ai_model || '默认模型' }}</span>

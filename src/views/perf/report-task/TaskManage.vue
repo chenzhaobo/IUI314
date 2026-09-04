@@ -13,7 +13,23 @@
         </a-space>
       </template>
 
-      <a-table :data="taskList" :loading="loading" :pagination="false" row-key="id">
+      <!--
+        「手动触发」原来在表格**下方**，表格一长就要滚到底才看得见，而它是常用动作。
+        移到表格上方并与说明文字同一行：按钮紧邻解释它作用的文字，也不占额外一行。
+      -->
+      <div class="trigger-bar">
+        <a-button status="success" @click="openTriggerAll()">
+          <template #icon><icon-thunderbolt /></template>
+          手动触发
+        </a-button>
+        <span class="trigger-tip">
+          对全部<b>启用</b>任务执行一次（按数据日期逐阶段断点续跑）；每日定时由调度按「执行时间」自动触发。
+        </span>
+      </div>
+
+      <!-- 原生 div 挂 ref：组件 ref 拿到的是实例、没有 getBoundingClientRect -->
+      <div ref="tableWrap">
+      <a-table :data="taskList" :loading="loading" :pagination="false" row-key="id" :scroll="{ y: tableHeight }">
         <template #columns>
           <a-table-column title="任务名称" :width="180">
             <template #cell="{ record }">
@@ -79,18 +95,26 @@
           </a-table-column>
         </template>
       </a-table>
+      </div>
 
-      <a-alert style="margin-top: 12px" type="info">
-        手动触发对全部<b>启用</b>任务执行一次（按数据日期逐阶段断点续跑）；每日定时由调度按「执行时间」自动触发。
-      </a-alert>
-      <a-button style="margin-top: 8px" status="success" @click="openTriggerAll()">
-        <template #icon><icon-thunderbolt /></template>
-        手动触发
-      </a-button>
     </a-card>
 
     <!-- 新增/编辑弹框 -->
-    <a-modal v-model:visible="modalVisible" :title="isEdit ? '编辑任务' : '新增任务'" :width="640" @ok="handleSave" :ok-loading="saving">
+    <!--
+      弹窗原来 640px 宽、内容不限高：表单项一多就把弹窗顶得比视口还高，
+      确定/取消被推到视口外，必须滚动整个页面才点得到。
+      加宽到 860px（表单是两列标签+控件，窄了标签换行），并给内容区一个
+      基于视口的最大高度 + 自身滚动 —— 这样按钮始终留在视口内。
+      弹窗是视口锚定的，这里用 100vh 是正确的（护栏也按此放行）。
+    -->
+    <a-modal
+      v-model:visible="modalVisible"
+      :title="isEdit ? '编辑任务' : '新增任务'"
+      :width="860"
+      :body-style="{ maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' }"
+      :ok-loading="saving"
+      @ok="handleSave"
+    >
       <a-form :model="form" layout="vertical">
         <a-form-item label="任务名称" required>
           <a-input v-model="form.task_name" placeholder="如: 集团财务-按日慢请求" />
@@ -444,11 +468,15 @@ import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { ApiPerfReportTask, ApiPerfCompliance } from '@/api/perfApis'
 import { ApiAiAgent, type AiAgent, type AiListResult } from '@/api/aiApis'
-import { formatTime, useGet, usePost } from '@/hooks'
+import { formatTime, useGet, usePost, useTableAutoHeight } from '@/hooks'
 
 defineOptions({ name: 'report-task-manage' })
 
 // ── 任务列表 ──────────────────────────────────
+// 表格高度自适应：滚动条落在表格内、表头固定
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
+
 const keyword = ref('')
 const filterDimType = ref<string>()
 const queryParams = computed(() => ({ keyword: keyword.value || undefined, dimension_type: filterDimType.value || undefined }))
@@ -785,6 +813,20 @@ const layoutOnlyModel = {}
   color: var(--color-text-3);
   font-size: 12px;
   line-height: 1.6;
+}
+
+/* 手动触发按钮与说明同行；说明文字占剩余宽度并可换行 */
+.trigger-bar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.trigger-tip {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-text-3);
+  font-size: 12px;
 }
 
 .page-container {
