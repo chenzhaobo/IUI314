@@ -3,6 +3,23 @@
 .fade-transform-leave-active {
   transition: all 0.3s;
 }
+/**
+ * 离场页面脱离文档流。
+ *
+ * 路由出口去掉了 `mode="out-in"`（它遇到 fragment 根会永久卡死整个出口，
+ * 见 `components/layout/app-main.vue` 的说明），于是进场和离场**同时发生**。
+ * 两个都是块级元素时会上下堆叠 —— 新页面被旧页面顶到下方，旧页面离场后
+ * 新页面再跳回原位，看起来就是「页面从下面闪一下上来」。
+ *
+ * 让离场元素 absolute 脱离文档流，两个页面就重叠在同一位置，不再有位移。
+ * 父级 `.app-main-content` 已设 `position: relative` 作为定位基准。
+ */
+.fade-transform-leave-active {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
 .fade-transform-enter-from {
   opacity: 0;
   transform: translateX(-30px);

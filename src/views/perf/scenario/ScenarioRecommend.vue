@@ -1,5 +1,5 @@
 <template>
-  <div class="container">
+  <div class="page-container">
     <a-card :bordered="false">
       <!-- 筛选栏 -->
       <a-row :gutter="16" style="margin-bottom: 16px">

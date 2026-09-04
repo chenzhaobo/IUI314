@@ -1,5 +1,5 @@
 <template>
-  <div class="container">
+  <div class="page-container">
     <a-card :bordered="false" :body-style="{ padding: '16px' }">
       <!-- 顶部选择器 -->
       <a-row :gutter="12" style="margin-bottom: 12px" align="center">

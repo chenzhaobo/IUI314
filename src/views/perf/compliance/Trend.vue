@@ -1,5 +1,5 @@
 <template>
-  <div class="container">
+  <div class="page-container">
     <a-card :bordered="false" :body-style="{ padding: '16px' }">
       <!-- 顶部选择器 -->
       <a-row :gutter="12" style="margin-bottom: 12px" align="center">
@@ -61,36 +61,44 @@
       <!-- 左树右图：高度占满视口剩余空间，利用页面下方空白 -->
       <div :style="{ display: 'flex', gap: '16px', minHeight: '480px', height: 'calc(100vh - 300px)' }">
         <!-- 左树 -->
-        <div class="panel-scroll-y" style="width: 280px; flex-shrink: 0; border-right: 1px solid #e5e6eb; padding-right: 12px">
+        <!--
+          左栏是纵向 flex：搜索框固定、只让树滚（与达标率看板一致）。
+          原来 panel-scroll-y 加在整个左栏上，搜索框会跟着滚走。
+          min-height:0 是 flex 子项能被压缩的前提，缺了它内部 overflow 不触发。
+        -->
+        <div style="width: 280px; flex-shrink: 0; border-right: 1px solid #e5e6eb; padding-right: 12px; display: flex; flex-direction: column; min-height: 0">
           <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px">
             <a-input-search v-model="treeSearch" placeholder="搜索节点" allow-clear style="flex: 1" />
             <a-switch v-model="showCode" size="small" />
             <span style="font-size: 12px; color: #86909c; white-space: nowrap">显示编码</span>
           </div>
-          <a-spin :loading="treeLoading" style="width: 100%">
-            <a-tree
-              v-if="displayTree.length"
-              :data="displayTree"
-              :field-names="{ key: 'key', title: 'title', children: 'children', isLeaf: 'is_leaf' }"
-              :load-more="onLoadMore"
-              show-line
-              block-node
-              :selected-keys="selectedKeys"
-              @select="onTreeSelect"
-            >
-              <template #title="node">
-                <span>{{ displayTitle(node) }}</span>
-                <span style="margin-left: 6px; font-size: 12px" :style="{ color: getRateColor(node.compliance_rate) }">
-                  {{ node.compliance_rate?.toFixed(2) }}%
-                </span>
-              </template>
-            </a-tree>
-            <a-empty v-else description="暂无树数据" />
-          </a-spin>
+          <!-- flex:1 让树区吃掉左栏剩余高度：高度自动派生，无需写死像素 -->
+          <div class="panel-scroll-y" style="flex: 1">
+            <a-spin :loading="treeLoading" style="width: 100%">
+              <a-tree
+                v-if="displayTree.length"
+                :data="displayTree"
+                :field-names="{ key: 'key', title: 'title', children: 'children', isLeaf: 'is_leaf' }"
+                :load-more="onLoadMore"
+                show-line
+                block-node
+                :selected-keys="selectedKeys"
+                @select="onTreeSelect"
+              >
+                <template #title="node">
+                  <span>{{ displayTitle(node) }}</span>
+                  <span style="margin-left: 6px; font-size: 12px" :style="{ color: getRateColor(node.compliance_rate) }">
+                    {{ node.compliance_rate?.toFixed(2) }}%
+                  </span>
+                </template>
+              </a-tree>
+              <a-empty v-else description="暂无树数据" />
+            </a-spin>
+          </div>
         </div>
 
         <!-- 右侧图表 -->
-        <div style="flex: 1; min-width: 0">
+        <div style="flex: 1; min-width: 0; min-height: 0">
           <!-- 当前节点信息 -->
           <div v-if="selectedNode" style="margin-bottom: 12px; padding: 8px 12px; background: #f7f8fa; border-radius: 4px">
             <span style="font-weight: 500">{{ selectedNode.title }}</span>

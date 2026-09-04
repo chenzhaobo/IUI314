@@ -90,6 +90,10 @@ const cacheList = computed(() => tabBarStore.getCacheList)
   display: flex;
   flex-direction: column;
   min-height: 100%;
+  /* 作为过场动画中离场页面 absolute 的定位基准。
+     离场页面要脱离文档流，否则进场页面会被它顶到下方再跳回来
+     （详见 assets/css/transition.scss 的说明）。 */
+  position: relative;
 }
 
 .app-main-content {

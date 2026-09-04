@@ -1,5 +1,5 @@
 <template>
-  <div class="container">
+  <div class="page-container">
     <a-card title="数据源元数据" :bordered="false">
       <template #extra>
         <a-space>

@@ -1,5 +1,5 @@
 <template>
-  <div class="container">
+  <div class="page-container">
     <a-card title="周期报告任务" :bordered="false">
       <template #extra>
         <a-space>
@@ -787,7 +787,7 @@ const layoutOnlyModel = {}
   line-height: 1.6;
 }
 
-.container {
+.page-container {
   padding: 16px;
 }
 .run-progress-detail {

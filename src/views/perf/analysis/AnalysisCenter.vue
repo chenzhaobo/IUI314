@@ -1,5 +1,5 @@
 <template>
-  <div class="container">
+  <div class="page-container">
     <a-card :bordered="false" title="分析任务">
       <template #extra>
         <a-space>

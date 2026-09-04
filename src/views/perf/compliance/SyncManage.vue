@@ -1,5 +1,5 @@
 <template>
-  <div class="container">
+  <div class="page-container">
     <a-card title="同步任务管理" :bordered="false">
       <template #extra>
         <a-button type="primary" @click="openAddModal">新增同步任务</a-button>

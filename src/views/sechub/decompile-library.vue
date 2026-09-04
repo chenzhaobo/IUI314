@@ -1,5 +1,5 @@
 <template>
-  <div class="container">
+  <div class="page-container">
     <!-- 源配置 + 一键更新 -->
     <a-card :bordered="false" title="反编译源码库">
       <template #extra>

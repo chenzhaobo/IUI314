@@ -1,5 +1,5 @@
 <template>
-  <div class="container">
+  <div class="page-container">
     <a-card :bordered="false" :loading="loading">
       <template #title>
         <a-space>

@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div class="container">
+    <div class="page-container">
       <a-card :bordered="false">
     
         <a-row :gutter="16" style="margin-bottom: 16px">
@@ -87,12 +87,30 @@
         </a-row>
 
         <div class="scope-layout">
-          <aside class="scope-panel">
+          <aside class="scope-panel panel-scroll-y">
             <IssueScopeTree :key="scopeTreeKey" :filters="scopeCountFilters" source="issue" @change="handleScopeChange" />
           </aside>
-          <div class="scope-content">
+          <div ref="tableWrap" class="scope-content">
             <!-- 表格 -->
-            <a-table :data="tableData" :loading="loading" :pagination="pagination" :row-selection="{ type: 'checkbox', showCheckedAll: true }" :selected-keys="selectedIds" @selection-change="onSelectionChange" @page-change="handlePageChange" row-key="id">
+            <!--
+              操作列是 fixed="right"，但这张表原本**没有 :scroll.x** ——
+              Arco 只有在有横向滚动容器时才能正确定位固定列，缺了它操作列会
+              溢出到表格右边界之外（反馈："按钮超右边了"）。
+              16 个列宽合计 1965px，取整设为 scroll.x；容器更宽时 Arco 会自动拉伸，
+              不会因此凭空多出横向滚动条。
+            -->
+            <a-table
+              column-resizable
+              :data="tableData"
+              :loading="loading"
+              :pagination="pagination"
+              :row-selection="{ type: 'checkbox', showCheckedAll: true }"
+              :selected-keys="selectedIds"
+              :scroll="{ x: 1965, y: tableHeight }"
+              row-key="id"
+              @selection-change="onSelectionChange"
+              @page-change="handlePageChange"
+            >
               <template #columns>
                 <a-table-column title="编号" data-index="issue_no" :width="130" />
                 <a-table-column title="标题" data-index="title" :width="250" ellipsis />
@@ -351,11 +369,15 @@ import { MdPreview } from 'md-editor-v3'
 // 必须导入样式，否则 MdPreview 渲染出来没有任何格式
 import 'md-editor-v3/lib/style.css'
 import { ApiPerfIssue, ApiPerfPatternLedger } from '@/api/perfApis'
-import { useDelete, useDownload, useGet, usePost, usePut } from '@/hooks'
+import { useDelete, useDownload, useGet, usePost, usePut, useTableAutoHeight } from '@/hooks'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
 import { useUserStore } from '@/stores'
 
 defineOptions({ name: 'issue-list' })
+
+// 表格高度自适应：滚动条落在表格内、表头固定
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 
 const route = useRoute()
 const initialKeyword = typeof route.query.keyword === 'string' ? route.query.keyword : ''
@@ -706,9 +728,10 @@ const handleDelete = async (record: any) => {
 </script>
 
 <style scoped>
-.scope-layout { display: flex; gap: 16px; min-height: 520px; }
-.scope-panel { width: 280px; flex-shrink: 0; padding-right: 12px; border-right: 1px solid var(--color-border-2); }
-.scope-content { flex: 1; min-width: 0; }
+/* min-height:0 让两栏可被压缩，内部 overflow 才会触发（flex 默认 min-height:auto 会拒绝压缩） */
+.scope-layout { display: flex; gap: 16px; min-height: 520px; align-items: stretch; }
+.scope-panel { width: 280px; flex-shrink: 0; min-height: 0; padding-right: 12px; border-right: 1px solid var(--color-border-2); }
+.scope-content { flex: 1; min-width: 0; min-height: 0; }
 .markdown-content { white-space: pre-wrap; background: var(--color-fill-1); padding: 12px; border-radius: 4px; }
 .json-content { margin: 0; max-height: 360px; overflow: auto; white-space: pre-wrap; word-break: break-all; background: var(--color-fill-1); padding: 12px; border-radius: 4px; }
 

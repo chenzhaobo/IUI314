@@ -12,7 +12,7 @@
  *   固定 `y: 400` 之类的写法在大屏上又浪费半屏，所以有了 [`useTableAutoHeight`]。
  */
 
-import { computed, onActivated, onMounted, onUnmounted, ref, unref } from 'vue'
+import { computed, onActivated, onMounted, onUnmounted, ref, unref, watch } from 'vue'
 import type { Ref } from 'vue'
 
 /** Arco 列配置里我们会批量补的字段（只列用到的，避免引入 Arco 类型依赖） */
@@ -87,6 +87,20 @@ export interface TableAutoHeightOptions {
  * 但 `getBoundingClientRect().top` 是**视口相对**的，页面滚动时会变 ——
  * 所以只在上述离散时机取值，不跟随滚动，否则滚动时表格高度会跳。
  *
+ * ## 为什么还要写一个 CSS 变量（表格「填不满」的根因）
+ * `:scroll.y` 在 Arco 里落到的是 **`max-height`**（`es/table/table.js`：
+ * `maxHeight: isNumber(scroll.y) ? `${scroll.y}px` : '100%'`），不是 `height`。
+ * 也就是说它只**限制上界**：数据多了在表格内滚（这是我们要的），
+ * 但数据只有三五行时表格就只有三五行那么高，下方露出一大片空白 ——
+ * 用户反馈的「好多表格还是很小」就是这个。
+ *
+ * 补 `min-height` 才能填满，可高度是每张表算出来的、写不进静态 CSS。
+ * 所以这里把算出的值以 CSS 变量 `--ttp-table-body-h` **直接写到容器元素上**，
+ * 由 `assets/css/arco.scss` 里的一条全局规则消费。
+ *
+ * 这么做的好处是**已经接入过的页面一行都不用改**就同时获得填满行为；
+ * 代价是耦合了一个变量名，故两处注释互相指明。
+ *
  * @example
  * const tableWrap = ref<HTMLElement>()
  * const { tableHeight } = useTableAutoHeight(tableWrap)
@@ -140,6 +154,21 @@ export function useTableAutoHeight(
   onUnmounted(() => {
     window.removeEventListener('resize', measure)
   })
+
+  // 把算出的高度以 CSS 变量写到容器上，供 arco.scss 里的
+  // `.arco-table-body { min-height: var(--ttp-table-body-h) }` 消费，
+  // 让数据少的表格也填满可用高度（详见上方文档「表格填不满」一节）。
+  // 用 watch 而不是在 measure() 里写：measure 只更新测量源，
+  // tableHeight 是 computed，中间还有 min 下限与取整。
+  watch(tableHeight, (h) => {
+    const el = unref(container)
+    if (!el)
+      return
+    if (h == null)
+      el.style.removeProperty('--ttp-table-body-h')
+    else
+      el.style.setProperty('--ttp-table-body-h', `${h}px`)
+  }, { immediate: true, flush: 'post' })
 
   return { tableHeight, measure }
 }

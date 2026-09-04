@@ -1,5 +1,5 @@
 <template>
-  <div class="container">
+  <div class="page-container">
     <a-card :bordered="false" title="性能诊断分析">
       <!-- 筛选栏 -->
       <a-row :gutter="16" style="margin-bottom: 12px" align="center">

@@ -170,3 +170,28 @@ body[arco-theme='dark'] {
 
 }
 
+/**
+ * 表格填满可用高度。
+ *
+ * `:scroll.y` 在 Arco 里落到的是 `max-height`（`es/table/table.js` 里
+ * `maxHeight: isNumber(scroll.y) ? ... : '100%'`），只限上界不给下界 ——
+ * 数据多了会在表格内滚（要的），但只有三五行时表格就只有三五行高，
+ * 下方一大片空白（反馈：「好多表格还是很小」）。
+ *
+ * 变量由 `hooks/util/useTableLayout.ts` 的 `useTableAutoHeight` 写到容器元素上，
+ * 值就是喂给 `scroll.y` 的那个高度，于是上下界一致 = 恰好填满。
+ * 没接入自适应高度的表格取不到变量，回退 auto，行为不变。
+ */
+.arco-table-body {
+  min-height: var(--ttp-table-body-h, auto);
+}
+
+/**
+ * 展开行/嵌套表格不要继承外层的高度。
+ * CSS 变量会沿 DOM 继承，而展开行内容就在外层表格的 `.arco-table-body` 里，
+ * 不重置的话内层小表会被撑到和外层一样高。
+ * （弹窗里的表不受影响 —— 它们 teleport 到 body，不在继承链上。）
+ */
+.arco-table-body .arco-table-body {
+  min-height: auto;
+}

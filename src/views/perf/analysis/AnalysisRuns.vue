@@ -100,7 +100,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="container">
+  <div class="page-container">
     <a-card :bordered="false" title="分析任务运行">
       <template #extra>
         <a-space>
