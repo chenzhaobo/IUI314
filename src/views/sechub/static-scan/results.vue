@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ColumnFilterState } from './composables/useColumnFilter'
+import type { ColumnFilterState } from '@/hooks'
 import type {
   CandidateDetailPage,
   CandidateDetailRow,
@@ -16,9 +16,8 @@ import { useRoute } from 'vue-router'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
 import { downloadText, formatTime, useGet, usePost } from '@/hooks'
-import ColumnFilterPanel from './components/ColumnFilterPanel.vue'
-import { applyColumnFilters, emptyFilter, isFilterActive } from './composables/useColumnFilter'
-import { useFilterPersistence } from './composables/useFilterPersistence'
+import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
+import { applyColumnFilters, emptyFilter, isFilterActive, useFilterPersistence } from '@/hooks'
 import 'md-editor-v3/lib/style.css'
 
 defineOptions({ name: 'StaticScanResults' })
@@ -650,7 +649,7 @@ function roundTooltipContent(row: CrossRunAggRow): string {
 }
 
 // ===== 表格列 =====
-// ===== 列过滤（前端过滤，见 composables/useColumnFilter）=====
+// ===== 列过滤（前端过滤，见 @/hooks/util/useColumnFilter）=====
 const columnFilters = ref<Record<string, ColumnFilterState>>({
   file_path: emptyFilter('text'),
   start_line: emptyFilter('number'),
@@ -1027,6 +1026,7 @@ watch(() => route.query, (newQ, oldQ) => {
             :loading="candidateLoading"
             :data="filteredCandidates"
             :columns="candidateColumns"
+            column-resizable
             :pagination="{
               current: pageNum,
               pageSize,

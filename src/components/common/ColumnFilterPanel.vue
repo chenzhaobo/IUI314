@@ -7,8 +7,8 @@
  */
 import { computed } from 'vue'
 
-import type { ColumnFilterState } from '../composables/useColumnFilter'
-import { NUMBER_OPS, TEXT_OPS, emptyFilter } from '../composables/useColumnFilter'
+import type { ColumnFilterState } from '@/hooks'
+import { NUMBER_OPS, TEXT_OPS, emptyFilter } from '@/hooks'
 
 const props = defineProps<{
   /** 当前条件；由父组件按 dataIndex 存一份 */

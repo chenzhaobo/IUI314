@@ -1,11 +1,22 @@
 <script setup lang="ts">
 import type { ModuleWithRepository, MutationReceipt, RepositoryEditRequest, RepositorySyncResponse } from '@/types/static-scan'
+import type { ColumnFilterState } from '@/hooks'
 import { Message } from '@arco-design/web-vue'
 import { useDebounceFn } from '@vueuse/core'
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { ApiPerfModule } from '@/api/perfApis'
 import { ApiSecModuleRepository } from '@/api/sechubApis'
-import { newIdempotencyKey, postAction, putAction, useGet } from '@/hooks'
+import {
+  applyColumnFilters,
+  emptyFilter,
+  isFilterActive,
+  newIdempotencyKey,
+  postAction,
+  putAction,
+  useFilterPersistence,
+  useGet,
+} from '@/hooks'
+import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 
 defineOptions({ name: 'StaticScanRepositories' })
 
@@ -261,37 +272,135 @@ async function submitEdit() {
   }
 }
 
-const columns = [
-  { title: '模块名称', dataIndex: 'module_name', width: 160 },
-  { title: '模块简码', dataIndex: 'module_code', width: 120 },
-  { title: '仓库名称', dataIndex: 'repository_name', width: 160 },
-  { title: '仓库编码', dataIndex: 'repository_code', width: 120 },
-  { title: 'Git URL', dataIndex: 'git_url', width: 280, ellipsis: true, tooltip: true },
-  { title: '默认分支', dataIndex: 'default_branch', width: 100 },
-  { title: '根路径', dataIndex: 'root_path', width: 120, ellipsis: true, tooltip: true },
+// ===== 表格列 =====
+//
+// 三件此前缺失的能力，全部靠 Arco a-table 的既有 props 打开，不需要换组件：
+//   · column-resizable → 列宽可拖动。**这是表级 prop**，不是列级的。
+//     仓库里有 43 个文件在列定义里写 `resizable: true`，但 Arco 的
+//     `TableColumnData`（es/table/interface.d.ts:53）**没有这个字段** ——
+//     那是个不存在的属性，完全不生效，列宽照样拖不动。真正的开关只有表上这一个。
+//   · filterable → 列头筛选漏斗；Arco 自带的是"枚举多选"，而这里要过滤仓库名/编码/
+//     Git URL 这类自由文本，候选无穷、枚举不适用，所以用自家的 ColumnFilterPanel
+//     （运算符面板：包含/不包含/等于/不等于），见 @/hooks/util/useColumnFilter
+//   · a-table 的 :pagination 传对象而不是 false → 分页 + 每页条数下拉
+const FILTERABLE_COLUMNS = [
+  'module_name',
+  'module_code',
+  'repository_name',
+  'repository_code',
+  'git_url',
+  'default_branch',
+  'root_path',
+] as const
+
+/** 列过滤条件：按 dataIndex 存一份 */
+const columnFilters = ref<Record<string, ColumnFilterState>>(
+  Object.fromEntries(FILTERABLE_COLUMNS.map(k => [k, emptyFilter('text')])),
+)
+
+function onColumnFilterChange() {
+  pageNum.value = 1
+  saveTableState()
+}
+
+/** 生成列的 filterable 配置；带激活态高亮，否则用户看不出哪列在过滤 */
+function filterableOf(key: string) {
+  return {
+    slotName: `filter-${key}`,
+    // Arco 靠 filteredValue 非空给漏斗图标加高亮，这里借它表达"该列有过滤生效"
+    filteredValue: isFilterActive(columnFilters.value[key]) ? ['1'] : [],
+    // 过滤实际由 applyColumnFilters 在 filteredRows 里做（要和顶部关键字取交集，
+    // 还要驱动分页复位）。这里必须给个恒真的 filter 满足 Arco 的类型契约，
+    // 否则它会再按自己那套枚举语义过滤一遍。
+    filter: () => true,
+    // 隐藏 Arco 自带的确定/重置按钮，面板里已有「清空 / 筛选」
+    hideButton: true,
+  }
+}
+
+const columns = computed(() => [
+  { title: '模块名称', dataIndex: 'module_name', width: 160, ellipsis: true, tooltip: true, filterable: filterableOf('module_name') },
+  { title: '模块简码', dataIndex: 'module_code', width: 120, filterable: filterableOf('module_code') },
+  { title: '仓库名称', dataIndex: 'repository_name', width: 160, ellipsis: true, tooltip: true, filterable: filterableOf('repository_name') },
+  { title: '仓库编码', dataIndex: 'repository_code', width: 120, filterable: filterableOf('repository_code') },
+  { title: 'Git URL', dataIndex: 'git_url', width: 280, ellipsis: true, tooltip: true, filterable: filterableOf('git_url') },
+  { title: '默认分支', dataIndex: 'default_branch', width: 100, filterable: filterableOf('default_branch') },
+  { title: '根路径', dataIndex: 'root_path', width: 120, ellipsis: true, tooltip: true, filterable: filterableOf('root_path') },
   { title: '扫描启用', dataIndex: 'scan_enabled', slotName: 'scanEnabled', width: 90 },
   { title: '状态', dataIndex: 'status', slotName: 'status', width: 100 },
   { title: '操作', slotName: 'operations', width: 340, fixed: 'right' as const },
-]
+])
 
 // ===== 过滤条件 =====
 const keyword = ref('')
 const statusFilter = ref('')
+
+/**
+ * 顶部关键字：一次覆盖「模块名称/简码 + 仓库名称/编码 + Git URL」。
+ *
+ * 原实现漏了 `module_code`（模块简码）——它恰好是内网找仓库最常用的入口，
+ * 搜 `ssc` 之类的简码搜不到东西。列头筛选是精确定位某一列，
+ * 顶部关键字是"不确定在哪一列"时的粗筛，两者互补。
+ */
 const filteredRows = computed(() => {
   let list = rows.value
-  if (statusFilter.value) {
+  if (statusFilter.value)
     list = list.filter(r => r.status === statusFilter.value)
-  }
+
   const kw = keyword.value.trim().toLowerCase()
   if (kw) {
+    const hit = (v: string | null | undefined) => (v ?? '').toLowerCase().includes(kw)
     list = list.filter(r =>
-      r.module_name.toLowerCase().includes(kw)
-      || r.repository_name.toLowerCase().includes(kw)
-      || r.repository_code.toLowerCase().includes(kw)
-      || r.git_url.toLowerCase().includes(kw),
+      hit(r.module_name) || hit(r.module_code)
+      || hit(r.repository_name) || hit(r.repository_code)
+      || hit(r.git_url),
     )
   }
-  return list
+  // 列头筛选叠加在上面的粗筛之上（取交集）
+  return applyColumnFilters(list, columnFilters.value)
+})
+
+// ===== 分页（前端分页）=====
+//
+// 为什么在前端分页：`/module/repositories-with-module` 是一次返回全量绑定的接口
+// （本机测试库 186 条，生产 182 条），后端没有分页参数。为它加分页要动接口契约，
+// 而这个量级前端切片毫无压力；真正的痛点是"一屏 180 行滚不到底"，切片就解决了。
+// 数据量再涨一个数量级时再推后端分页。
+const pageNum = ref(1)
+const pageSize = ref(20)
+const PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 200]
+
+const pagedRows = computed(() => {
+  const start = (pageNum.value - 1) * pageSize.value
+  return filteredRows.value.slice(start, start + pageSize.value)
+})
+
+// 过滤后总数变少时，当前页可能已越界（例如停在第 9 页又筛出 3 条），
+// 不复位就会显示空表格而用户以为"没数据"。
+watch(filteredRows, (list) => {
+  const maxPage = Math.max(1, Math.ceil(list.length / pageSize.value))
+  if (pageNum.value > maxPage)
+    pageNum.value = maxPage
+})
+
+function onPageSizeChange(size: number) {
+  pageSize.value = size
+  pageNum.value = 1
+  saveTableState()
+}
+
+// 关键字/状态变化都要回到第一页，否则同上会看到空表格
+watch([keyword, statusFilter], () => {
+  pageNum.value = 1
+})
+
+// 每页条数与筛选条件按标签页暂存：页内往返（点进详情再回来）不用重新设一遍。
+// 见 @/hooks/util/useFilterPersistence 里关于 keep-alive key 带 query 的说明。
+const { save: saveTableState } = useFilterPersistence('sechub-repositories', {
+  keyword,
+  statusFilter,
+  pageSize,
+  columnFilters,
 })
 
 // ===== 详情抽屉 =====
@@ -433,13 +542,29 @@ async function syncRepo(record: ModuleWithRepository) {
 
     <a-card :bordered="false">
       <a-table
-        :data="filteredRows"
+        :data="pagedRows"
         :columns="columns"
         :loading="loading"
-        :pagination="false"
+        :pagination="{
+          current: pageNum,
+          pageSize,
+          total: filteredRows.length,
+          showTotal: true,
+          showPageSize: true,
+          pageSizeOptions: PAGE_SIZE_OPTIONS,
+        }"
+        column-resizable
         row-key="relation_id"
         :scroll="{ x: 1400 }"
+        @page-change="(p: number) => (pageNum = p)"
+        @page-size-change="onPageSizeChange"
       >
+        <!-- 列头筛选面板：Arco 自带的 filters 是枚举多选，这里要过滤自由文本，
+             所以用共享的运算符面板（包含/不包含/等于/不等于） -->
+        <template v-for="key in FILTERABLE_COLUMNS" #[`filter-${key}`] :key="key">
+          <ColumnFilterPanel v-model="columnFilters[key]" @change="onColumnFilterChange" />
+        </template>
+
         <template #scanEnabled="{ record }">
           <a-tag :color="record.scan_enabled ? 'green' : 'gray'" size="small">
             {{ record.scan_enabled ? '启用' : '禁用' }}

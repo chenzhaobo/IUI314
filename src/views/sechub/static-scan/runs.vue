@@ -3,10 +3,9 @@ import type { CrossRunAggRow, ModuleWithRepository } from '@/types/static-scan'
 import { Checkbox, Message, Modal } from '@arco-design/web-vue'
 import { computed, h, onUnmounted, ref, watch } from 'vue'
 
-import ColumnFilterPanel from './components/ColumnFilterPanel.vue'
-import type { ColumnFilterState } from './composables/useColumnFilter'
-import { applyColumnFilters, emptyFilter, isFilterActive } from './composables/useColumnFilter'
-import { useFilterPersistence } from './composables/useFilterPersistence'
+import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
+import type { ColumnFilterState } from '@/hooks'
+import { applyColumnFilters, emptyFilter, isFilterActive, useFilterPersistence } from '@/hooks'
 import { useRouter } from 'vue-router'
 import { ErrorFlag } from '@/api/apis'
 import { ApiAiExecution } from '@/api/aiApis'
@@ -201,7 +200,7 @@ const crossTableRows = computed(() => crossRows.value.map(row => ({
   ...row,
   key: row.run_id,
 })))
-// ===== 列过滤（前端过滤，见 composables/useColumnFilter）=====
+// ===== 列过滤（前端过滤，见 @/hooks/util/useColumnFilter）=====
 // 每列一份条件，key 用 dataIndex。文本列给"包含/不包含/等于/不等于"，
 // 数字列给"大于/小于"，时间列给"从…到…"。
 const columnFilters = ref<Record<string, ColumnFilterState>>({
@@ -836,6 +835,7 @@ const crossColumns = computed(() => [
         :loading="crossLoading"
         :data="pagedCrossRows"
         :columns="crossColumns"
+        column-resizable
         :row-selection="{ type: 'checkbox', showCheckedAll: true }"
         :pagination="{
           total: filteredCrossRows.length,
@@ -1029,6 +1029,7 @@ const crossColumns = computed(() => [
         :loading="queueLoading"
         :data="queueRows"
         :columns="queueColumns"
+        column-resizable
         row-key="id"
         :row-selection="{ type: 'checkbox', showCheckedAll: true }"
         :pagination="{ pageSize: 10, showTotal: true }"
