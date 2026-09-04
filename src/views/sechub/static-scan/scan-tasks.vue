@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import type { AiAgent, AiListResult } from '@/api/aiApis'
 import type { ModuleWithRepository } from '@/types/static-scan'
-import type { PrescanTaskIdPayload, PrescanTaskRecordRow, PrescanTaskRow, PrescanTaskSavePayload, PrescanTaskTriggerResponse } from '@/types/static-scan-task'
+import type { PrescanTaskRecordRow, PrescanTaskRow, PrescanTaskSavePayload, PrescanTaskTriggerResponse } from '@/types/static-scan-task'
 import { Message, Modal } from '@arco-design/web-vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { ApiAiAgent } from '@/api/aiApis'
 import { ApiSecModuleRepository, ApiSecPrescan } from '@/api/sechubApis'
-import { formatTime, useGet, usePost } from '@/hooks'
+import { formatTime, useGet, postAction } from '@/hooks'
 
 defineOptions({ name: 'StaticScanTasks' })
 
@@ -293,11 +293,6 @@ const savePayload = ref<PrescanTaskSavePayload>({
   ai_mode: 'batch',
   status: '1',
 })
-const { execute: execSave, error: saveError } = usePost(
-  computed(() => isEdit.value ? ApiSecPrescan.taskEdit : ApiSecPrescan.taskAdd),
-  savePayload,
-  { immediate: false },
-)
 
 async function handleSave() {
   // 前端校验
@@ -316,11 +311,11 @@ async function handleSave() {
   modalLoading.value = true
   try {
     savePayload.value = buildPayload()
-    await execSave()
-    if (saveError.value) {
-      Message.error(isEdit.value ? '保存失败' : '新增失败')
-      return
-    }
+    const res = await postAction(
+      isEdit.value ? ApiSecPrescan.taskEdit : ApiSecPrescan.taskAdd,
+      savePayload.value,
+    )
+    if (!res) return
     Message.success(isEdit.value ? '已保存' : '任务创建成功')
     modalVisible.value = false
     await loadList()
@@ -334,12 +329,6 @@ async function handleSave() {
 //  删除
 // ═══════════════════════════════════════════════════════════
 const deletingId = ref('')
-const deletePayload = ref<PrescanTaskIdPayload>({ id: '' })
-const { execute: execDelete, data: deleteData, error: deleteError } = usePost<string>(
-  ApiSecPrescan.taskDelete,
-  deletePayload,
-  { immediate: false },
-)
 
 function handleDelete(record: PrescanTaskRow) {
   Modal.warning({
@@ -352,14 +341,10 @@ function handleDelete(record: PrescanTaskRow) {
     onOk: async () => {
       deletingId.value = record.id
       try {
-        deletePayload.value = { id: record.id }
-        await execDelete()
-        if (deleteError.value) {
-          Message.error(`删除失败：${(deleteError.value as any)?.message ?? deleteError.value}`)
-          return
-        }
+        const res = await postAction<string>(ApiSecPrescan.taskDelete, { id: record.id })
+        if (!res) return
         // 后端 delete_task 软删，返回被删除的任务 id 字符串
-        const msg = deleteData.value ? String(deleteData.value) : '任务已删除'
+        const msg = String(res)
         Message.success(msg.includes(record.id) ? `任务「${record.name}」已删除` : msg)
         await loadList()
       }
@@ -374,25 +359,15 @@ function handleDelete(record: PrescanTaskRow) {
 //  立即执行（触发）
 // ═══════════════════════════════════════════════════════════
 const triggeringId = ref('')
-const triggerPayload = ref<PrescanTaskIdPayload>({ id: '' })
-const { execute: execTrigger, data: triggerData, error: triggerError } = usePost<PrescanTaskTriggerResponse>(
-  ApiSecPrescan.taskTrigger,
-  triggerPayload,
-  { immediate: false },
-)
 
 async function handleTrigger(record: PrescanTaskRow) {
   triggeringId.value = record.id
   try {
-    triggerPayload.value = { id: record.id }
-    await execTrigger()
-    if (triggerError.value) {
-      Message.error(`触发失败`)
-      return
-    }
+    const res = await postAction<PrescanTaskTriggerResponse>(ApiSecPrescan.taskTrigger, { id: record.id })
+    if (!res) return
     // 后端对每个成功处理的仓库都会返回一个 run_id；代码未变更的仓库会复用既有
     // succeeded run（记录里标记为「已跳过」），同样计入返回值。空数组说明全部失败。
-    const runIds = Array.isArray(triggerData.value) ? triggerData.value : []
+    const runIds = Array.isArray(res) ? res : []
     if (runIds.length === 0) {
       Message.warning('未触发任何仓库，请在执行记录中查看失败原因')
       return
@@ -415,7 +390,7 @@ async function handleScheduleToggle(record: PrescanTaskRow, newVal: boolean) {
   // 乐观更新
   record.schedule_enabled = newVal ? '1' : '0'
   togglingId.value = record.id
-  const togglePayload = ref<PrescanTaskSavePayload>({
+  const togglePayload: PrescanTaskSavePayload = {
     id: record.id,
     name: record.name,
     repository_ids: record.repository_ids,
@@ -425,18 +400,12 @@ async function handleScheduleToggle(record: PrescanTaskRow, newVal: boolean) {
     auto_confirm: record.auto_confirm,
     ai_mode: record.ai_mode,
     status: record.status,
-  })
+  }
   try {
-    const { execute, error } = usePost(
-      ApiSecPrescan.taskEdit,
-      togglePayload,
-      { immediate: false },
-    )
-    await execute()
-    if (error.value) {
-      // 回滚 UI
+    const res = await postAction(ApiSecPrescan.taskEdit, togglePayload)
+    if (!res) {
+      // 回滚 UI（拦截器已弹出后端具体错误，这里不再重复提示）
       record.schedule_enabled = originalVal
-      Message.error('启用状态切换失败')
     }
   }
   finally {

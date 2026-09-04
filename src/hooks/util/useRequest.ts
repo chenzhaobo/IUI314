@@ -248,7 +248,10 @@ export function isRequestFailed(data: unknown): boolean {
  */
 export async function postAction<T = unknown>(
   url: string,
-  payload?: Record<string, unknown>,
+  // 与 usePost 的签名对齐（MaybeRef<unknown>）：请求体可能是数组、也可能是带 null
+  // 的接口类型，收窄成 Record<string, unknown> 只会逼调用点写
+  // `as unknown as Record<string, unknown>`，除了噪音没有任何收益。
+  payload?: unknown,
 ): Promise<T | null> {
   const request = usePost<T>(url, payload, { immediate: false })
   await request.execute()
@@ -258,9 +261,34 @@ export async function postAction<T = unknown>(
 /** PUT 并返回业务数据；失败返回 `null`。语义同 [`postAction`]。 */
 export async function putAction<T = unknown>(
   url: string,
-  payload?: Record<string, unknown>,
+  payload?: unknown,
 ): Promise<T | null> {
   const request = usePut<T>(url, payload, { immediate: false })
+  await request.execute()
+  return isRequestFailed(request.data.value) ? null : (request.data.value as T)
+}
+
+/** DELETE 并返回业务数据；失败返回 `null`。语义同 [`postAction`]。 */
+export async function deleteAction<T = unknown>(
+  url: string,
+  payload?: unknown,
+): Promise<T | null> {
+  const request = useDelete<T>(url, payload, { immediate: false })
+  await request.execute()
+  return isRequestFailed(request.data.value) ? null : (request.data.value as T)
+}
+
+/**
+ * GET 并返回业务数据；失败返回 `null`。语义同 [`postAction`]。
+ *
+ * 列表页的常驻查询仍应直接用 [`useGet`]（要 `isFetching` / 响应式 `data`）；
+ * 这个只用于「取一次、按结果决定下一步」的命令式场景。
+ */
+export async function getAction<T = unknown>(
+  url: string,
+  query?: unknown,
+): Promise<T | null> {
+  const request = useGet<T>(url, query, { immediate: false })
   await request.execute()
   return isRequestFailed(request.data.value) ? null : (request.data.value as T)
 }

@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { formatTime, useDelete, useGet, usePost, usePut } from '@/hooks'
+import { deleteAction, formatTime, postAction, putAction, useGet } from '@/hooks'
 import { ApiPerfTestPlan, ApiPerfScript, ApiPerfEnv, ApiPerfIteration, ApiSysDictData, ApiPerfLoadNode } from '@/api/apis'
 
 defineOptions({ name: 'PerfTestPlan' })
@@ -248,14 +248,12 @@ async function handleSave() {
     scripts: editForm.value.scripts,
   }
   if (isEdit.value) {
-    const { execute, error } = usePut(ApiPerfTestPlan.edit, payload)
-    await execute()
-    if (error.value) { Message.error('保存失败'); editSubmitting.value = false; return }
+    const res = await putAction(ApiPerfTestPlan.edit, payload)
+    if (!res) { editSubmitting.value = false; return }
     Message.success('保存成功')
   } else {
-    const { execute, error } = usePost(ApiPerfTestPlan.add, payload)
-    await execute()
-    if (error.value) { Message.error('创建失败'); editSubmitting.value = false; return }
+    const res = await postAction(ApiPerfTestPlan.add, payload)
+    if (!res) { editSubmitting.value = false; return }
     Message.success('创建成功')
   }
   editSubmitting.value = false
@@ -265,9 +263,8 @@ async function handleSave() {
 
 // ── 删除 ──────────────────────────────────
 async function handleDelete(record: any) {
-  const { execute, error } = useDelete(ApiPerfTestPlan.delete, { ids: [record.id] })
-  await execute()
-  if (error.value) { Message.error('删除失败'); return }
+  const res = await deleteAction(ApiPerfTestPlan.delete, { ids: [record.id] })
+  if (!res) return
   Message.success('删除成功')
   getList()
 }
@@ -347,10 +344,9 @@ function fetchPlanEstimate(planId: string, maxConcurrency: number) {
 
 async function handleTriggerSubmit() {
   triggerSubmitting.value = true
-  const { execute, error } = usePost(ApiPerfTestPlan.trigger, triggerForm.value)
-  await execute()
+  const res = await postAction(ApiPerfTestPlan.trigger, triggerForm.value)
   triggerSubmitting.value = false
-  if (error.value) { Message.error('触发失败'); return }
+  if (!res) return
   Message.success('任务已触发')
   triggerVisible.value = false
 }

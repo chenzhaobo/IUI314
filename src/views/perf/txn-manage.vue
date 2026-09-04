@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed, watch, h } from 'vue'
 import { Message, type TableColumnData, type TreeNodeData } from '@arco-design/web-vue'
-import { formatTime, useGet, usePost, usePut } from '@/hooks'
+import { formatTime, isRequestFailed, postAction, useGet, usePut } from '@/hooks'
 import { ApiPerfBenchmark, ApiPerfMenu, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
 import * as XLSX from 'xlsx'
 
@@ -249,8 +249,8 @@ const editForm = ref({
 
 const targetUpdatePayload = ref({ txn_code: '', target_value_ms: 0 })
 const infoUpdatePayload = ref<{ txn_code: string; display_name: string | null; txn_type: string | null }>({ txn_code: '', display_name: null, txn_type: null })
-const { execute: doUpdateTarget, isFetching: updatingTarget } = usePut(ApiPerfBenchmark.updateTarget, targetUpdatePayload)
-const { execute: doUpdateInfo, isFetching: updatingInfo } = usePut(ApiPerfBenchmark.updateTxnInfo, infoUpdatePayload)
+const { execute: doUpdateTarget, isFetching: updatingTarget, data: updateTargetData } = usePut(ApiPerfBenchmark.updateTarget, targetUpdatePayload)
+const { execute: doUpdateInfo, isFetching: updatingInfo, data: updateInfoData } = usePut(ApiPerfBenchmark.updateTxnInfo, infoUpdatePayload)
 
 const updating = computed(() => updatingTarget.value || updatingInfo.value)
 
@@ -265,6 +265,7 @@ async function handleSaveEdit() {
       target_value_ms: editForm.value.target_value_sec * 1000,
     }
     await doUpdateTarget()
+    if (isRequestFailed(updateTargetData.value)) return
   }
   infoUpdatePayload.value = {
     txn_code: editForm.value.txn_code,
@@ -272,6 +273,7 @@ async function handleSaveEdit() {
     txn_type: editForm.value.txn_type || null,
   }
   await doUpdateInfo()
+  if (isRequestFailed(updateInfoData.value)) return
   Message.success('事务信息已更新')
   editVisible.value = false
   fetchAll()
@@ -393,14 +395,9 @@ async function handleImportFile(e: Event) {
       return
     }
 
-    const { execute, error, data: resp } = usePost<any>(ApiPerfBenchmark.importTxn, items)
-    await execute()
-    if (error.value) {
-      Message.error('导入失败')
-      return
-    }
+    const r = await postAction<any>(ApiPerfBenchmark.importTxn, items)
+    if (!r) return
 
-    const r = resp.value
     const notFound = r?.not_found?.length || 0
     let msg = `导入完成！成功 ${r?.success || 0} 条`
     if (notFound > 0) {

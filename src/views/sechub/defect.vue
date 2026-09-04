@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { ApiSecDefect } from '@/api/apis'
 import { ApiSecApproval, ApiSecDisposition } from '@/api/sechubApis'
-import { useGet, usePost, usePut, useDelete } from '@/hooks'
+import { useGet, postAction, putAction, deleteAction, getAction } from '@/hooks'
 import { useUserStore } from '@/stores'
 
 defineOptions({ name: 'defect' })
@@ -38,14 +38,12 @@ function handleEdit(record: any) {
 async function handleSubmit() {
   if (!formData.value.defect_title) { Message.warning('请填写缺陷标题'); return }
   if (isEdit.value) {
-    const { execute, error } = usePut(ApiSecDefect.edit, formData)
-    await execute()
-    if (error.value) { Message.error('编辑失败'); return }
+    const res = await putAction(ApiSecDefect.edit, formData.value)
+    if (!res) return
     Message.success('编辑成功')
   } else {
-    const { execute, error } = usePost(ApiSecDefect.add, formData)
-    await execute()
-    if (error.value) { Message.error('新增失败'); return }
+    const res = await postAction(ApiSecDefect.add, formData.value)
+    if (!res) return
     Message.success('新增成功')
   }
   modalVisible.value = false
@@ -57,9 +55,8 @@ const fromFindingVisible = ref(false)
 const findingId = ref('')
 async function handleFromFinding() {
   if (!findingId.value) { Message.warning('请输入Finding ID'); return }
-  const { execute, error } = usePost(ApiSecDefect.fromFinding, { finding_id: findingId.value })
-  await execute()
-  if (error.value) { Message.error('创建失败'); return }
+  const res = await postAction(ApiSecDefect.fromFinding, { finding_id: findingId.value })
+  if (!res) return
   Message.success('从Finding创建缺陷成功')
   fromFindingVisible.value = false
   findingId.value = ''
@@ -68,9 +65,8 @@ async function handleFromFinding() {
 
 // ── 删除 ──────────────────────────────────────────
 async function handleDelete(record: any) {
-  const { execute, error } = useDelete(ApiSecDefect.delete, { ids: [record.id] })
-  await execute()
-  if (error.value) { Message.error('删除失败'); return }
+  const res = await deleteAction(ApiSecDefect.delete, { ids: [record.id] })
+  if (!res) return
   Message.success('删除成功')
   getList()
 }
@@ -83,18 +79,16 @@ async function handleDetail(record: any) {
   detailVisible.value = true
   detailLoading.value = true
   detailData.value = { ...record }
-  const { data, execute } = useGet<any>(ApiSecDefect.getById, { id: record.id }, { immediate: false })
-  await execute()
-  if (data.value && typeof data.value === 'object') detailData.value = data.value
+  const detail = await getAction<any>(ApiSecDefect.getById, { id: record.id })
+  if (detail && typeof detail === 'object') detailData.value = detail
   detailLoading.value = false
 }
 
 // ── 认领 ──────────────────────────────────────────
 async function handleClaim(record: any) {
   const payload = { ...record, assignee_names: currentUser.value, defect_status: 'processing' }
-  const { execute, error } = usePut(ApiSecDefect.edit, payload)
-  await execute()
-  if (error.value) { Message.error('认领失败'); return }
+  const res = await putAction(ApiSecDefect.edit, payload)
+  if (!res) return
   Message.success(`已认领，负责人：${currentUser.value}`)
   getList()
 }
@@ -121,27 +115,23 @@ async function submitNofix() {
   if (!record.finding_id) { Message.error('该缺陷无关联 Finding，无法发起不处理审批'); return }
   nofixLoading.value = true
   try {
-    const addDisp = usePost(ApiSecDisposition.add, {
+    const dispositionId = await postAction<string>(ApiSecDisposition.add, {
       finding_id: record.finding_id,
       kind: 'no_fix_requested',
       reason_code: nofixForm.value.type,
       reason: nofixForm.value.reason,
       assignee_id: record.assignee_names || currentUser.value,
-    }, { immediate: false })
-    await addDisp.execute()
-    if (addDisp.error.value) { Message.error('创建处置失败'); return }
-    const dispositionId = addDisp.data.value as string
-    const addApproval = usePost(ApiSecApproval.create, {
+    })
+    if (!dispositionId) return
+    const approval = await postAction(ApiSecApproval.create, {
       finding_id: record.finding_id,
       disposition_id: dispositionId,
       risk_level: record.priority || 'medium',
       evidence: nofixForm.value.reason,
-    }, { immediate: false })
-    await addApproval.execute()
-    if (addApproval.error.value) { Message.error('发起审批失败'); return }
-    const { execute, error } = usePut(ApiSecDefect.edit, { ...record, defect_status: 'wont_fix' })
-    await execute()
-    if (error.value) { Message.warning('缺陷状态更新失败'); return }
+    })
+    if (!approval) return
+    const updated = await putAction(ApiSecDefect.edit, { ...record, defect_status: 'wont_fix' })
+    if (!updated) return
     Message.success('已标记不处理并发起审批，等待架构师审批')
     nofixVisible.value = false
     getList()

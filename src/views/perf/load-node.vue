@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { formatTime, useDelete, useGet, usePost, usePut, useToken } from '@/hooks'
+import { formatTime, useGet, useToken, postAction, putAction, deleteAction } from '@/hooks'
 import { ApiPerfLoadNode } from '@/api/apis'
 
 defineOptions({ name: 'load-node' })
@@ -88,14 +88,12 @@ async function handleSubmit() {
   submitting.value = true
   try {
     if (isEdit.value) {
-      const { execute, error } = usePut(ApiPerfLoadNode.edit, form.value)
-      await execute()
-      if (error.value) { Message.error('编辑失败'); return }
+      const res = await putAction(ApiPerfLoadNode.edit, form.value)
+      if (!res) return
       Message.success('编辑成功')
     } else {
-      const { execute, error } = usePost(ApiPerfLoadNode.add, form.value)
-      await execute()
-      if (error.value) { Message.error('添加失败'); return }
+      const res = await postAction(ApiPerfLoadNode.add, form.value)
+      if (!res) return
       Message.success('添加成功')
     }
     modalVisible.value = false
@@ -107,9 +105,8 @@ async function handleSubmit() {
 
 // ── 删除 ──────────────────────────────────
 async function handleDelete(record: any) {
-  const { execute, error } = useDelete(ApiPerfLoadNode.delete, { ids: [record.id] })
-  await execute()
-  if (error.value) { Message.error('删除失败'); return }
+  const res = await deleteAction(ApiPerfLoadNode.delete, { ids: [record.id] })
+  if (!res) return
   Message.success('删除成功')
   getList()
 }

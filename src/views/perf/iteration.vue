@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { useGet, usePost, usePut, useDelete } from '@/hooks'
+import { useGet, postAction, putAction, deleteAction } from '@/hooks'
 import { ApiPerfIteration } from '@/api/apis'
 
 defineOptions({ name: 'iteration' })
@@ -85,14 +85,12 @@ async function handleSubmit() {
   submitting.value = true
   try {
     if (isEdit.value) {
-      const { execute, error } = usePut(ApiPerfIteration.edit, form.value)
-      await execute()
-      if (error.value) { Message.error('编辑失败'); return }
+      const res = await putAction(ApiPerfIteration.edit, form.value)
+      if (!res) return
       Message.success('编辑成功')
     } else {
-      const { execute, error } = usePost(ApiPerfIteration.add, form.value)
-      await execute()
-      if (error.value) { Message.error('添加失败'); return }
+      const res = await postAction(ApiPerfIteration.add, form.value)
+      if (!res) return
       Message.success('添加成功')
     }
     modalVisible.value = false
@@ -105,9 +103,8 @@ async function handleSubmit() {
 
 // ── 删除 ──────────────────────────────────
 async function handleDelete(record: any) {
-  const { execute, error } = useDelete(ApiPerfIteration.delete, { ids: [record.id] })
-  await execute()
-  if (error.value) { Message.error('删除失败'); return }
+  const res = await deleteAction(ApiPerfIteration.delete, { ids: [record.id] })
+  if (!res) return
   Message.success('删除成功')
   getList()
   fetchCurrent()
@@ -115,9 +112,8 @@ async function handleDelete(record: any) {
 
 // ── 设为当前迭代 ──────────────────────────────────
 async function handleSetCurrent(record: any) {
-  const { execute, error } = usePut(ApiPerfIteration.setCurrent, { id: record.id })
-  await execute()
-  if (error.value) { Message.error('设置失败'); return }
+  const res = await putAction(ApiPerfIteration.setCurrent, { id: record.id })
+  if (!res) return
   Message.success('已设为当前迭代')
   getList()
   fetchCurrent()

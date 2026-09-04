@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { useRouter } from 'vue-router'
-import { formatTime, useDelete, useGet } from '@/hooks'
+import { deleteAction, formatTime, useGet } from '@/hooks'
 import { ApiPerfComparison, ApiSysDictData, ApiPerfModule } from '@/api/apis'
 
 defineOptions({ name: 'comparison-report' })
@@ -66,12 +66,8 @@ async function handleDelete(record: any) {
     Message.error('记录ID为空，无法删除')
     return
   }
-  const { execute, error } = useDelete<any>(ApiPerfComparison.delete, { ids: [deleteId] })
-  await execute()
-  if (error.value) {
-    Message.error('删除失败')
-    return
-  }
+  const res = await deleteAction<any>(ApiPerfComparison.delete, { ids: [deleteId] })
+  if (!res) return
   Message.success('删除成功')
   getList()
 }

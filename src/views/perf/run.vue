@@ -3,7 +3,7 @@ import { ref, computed, watch, onUnmounted, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { EventSourcePolyfill, type Event as SseEvent, type MessageEvent as SseMessageEvent } from 'event-source-polyfill'
-import { formatTime, useGet, usePost, usePut } from '@/hooks'
+import { formatTime, getAction, postAction, putAction, useGet } from '@/hooks'
 import { ApiPerfRun, ApiPerfScript, ApiPerfIteration, ApiPerfTask, ApiPerfLoadNode } from '@/api/apis'
 import { useToken } from '@/hooks/app'
 
@@ -93,9 +93,8 @@ function handleTriggerClick() {
 
 async function handleTriggerSubmit() {
   if (!triggerForm.value.script_id) { Message.warning('请选择脚本'); return }
-  const { execute, error } = usePost(ApiPerfRun.trigger, triggerForm.value)
-  await execute()
-  if (error.value) { Message.error('触发失败'); return }
+  const res = await postAction(ApiPerfRun.trigger, triggerForm.value)
+  if (!res) return
   Message.success('已触发执行')
   triggerVisible.value = false
   setTimeout(() => getList(), 1000)
@@ -111,10 +110,9 @@ const logVisible = ref(false)
 const logContent = ref('')
 
 async function handleViewLog(record: any) {
-  const { data, error, execute } = useGet<any>(ApiPerfRun.log, { id: record.id }, { immediate: false })
-  await execute()
-  if (error.value) { Message.error('获取日志失败'); return }
-  logContent.value = data.value || '无日志'
+  const res = await getAction<any>(ApiPerfRun.log, { id: record.id })
+  if (!res) return
+  logContent.value = res || '无日志'
   logVisible.value = true
 }
 
@@ -169,9 +167,8 @@ function closeSSELog() {
 
 // ── 取消执行 ──────────────────────────────────
 async function handleCancel(record: any) {
-  const { execute, error } = usePut(ApiPerfRun.cancel, { run_id: record.id })
-  await execute()
-  if (error.value) { Message.error('取消失败'); return }
+  const res = await putAction(ApiPerfRun.cancel, { run_id: record.id })
+  if (!res) return
   Message.success('已取消')
   getList()
   resetPollTimer()
@@ -183,10 +180,9 @@ const retryingRunIds = ref<Set<string>>(new Set())
 async function handleRetry(record: any) {
   if (retryingRunIds.value.has(record.id)) return
   retryingRunIds.value.add(record.id)
-  const { execute, error } = usePost(ApiPerfRun.retry, { run_id: record.id })
-  await execute()
+  const res = await postAction(ApiPerfRun.retry, { run_id: record.id })
   retryingRunIds.value.delete(record.id)
-  if (error.value) { Message.error('重试失败'); return }
+  if (!res) return
   Message.success('已触发重试，新记录将出现在列表中')
   getList()
   resetPollTimer()
@@ -277,7 +273,7 @@ function handleBatchClick() {
 async function handleBatchSubmit() {
   if (batchForm.value.script_ids.length === 0) { Message.warning('请选择至少一个脚本'); return }
   batchSubmitting.value = true
-  const { execute, error } = usePost(ApiPerfTask.trigger, {
+  const res = await postAction(ApiPerfTask.trigger, {
     name: `批量执行-${formatTime(Date.now())}`,
     iteration_id: batchForm.value.iteration_id || undefined,
     task_type: 'sequential',
@@ -290,9 +286,8 @@ async function handleBatchSubmit() {
     extra_props: batchForm.value.extra_props || undefined,
     load_node_id: batchForm.value.load_node_id || undefined,
   })
-  await execute()
   batchSubmitting.value = false
-  if (error.value) { Message.error('触发失败'); return }
+  if (!res) return
   Message.success(`已触发 ${batchForm.value.script_ids.length} 个脚本的批量执行任务`)
   batchVisible.value = false
   setTimeout(() => getList(), 1000)

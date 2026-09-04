@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { ApiSecScanRun } from '@/api/apis'
-import { useGet, usePost } from '@/hooks'
+import { useGet, postAction } from '@/hooks'
 
 defineOptions({ name: 'scan-run' })
 
@@ -16,9 +16,8 @@ const triggerVisible = ref(false)
 const triggerForm = ref({ task_id: '', params: '' })
 async function handleTrigger() {
   if (!triggerForm.value.task_id) { Message.warning('请输入任务ID'); return }
-  const { execute, error } = usePost(ApiSecScanRun.trigger, triggerForm)
-  await execute()
-  if (error.value) { Message.error('触发失败'); return }
+  const res = await postAction(ApiSecScanRun.trigger, triggerForm.value)
+  if (!res) return
   Message.success('触发成功')
   triggerVisible.value = false
   getList()

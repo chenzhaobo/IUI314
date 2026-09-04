@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { computed, ref } from 'vue'
 import { Message, Modal } from '@arco-design/web-vue'
-import { useGet, usePost } from '@/hooks'
+import { postAction, useGet } from '@/hooks'
 import { ApiBotConfig, type BotConfigItem, type BotUserAccess, type AiListResult } from '@/api/aiApis'
 
 defineOptions({ name: 'ai-bot-config' })
@@ -37,9 +37,8 @@ async function handleSaveConfig() {
   saving.value = true
   try {
     const items = Object.entries(form.value).map(([key, value]) => ({ key, value }))
-    const { execute, error } = usePost(ApiBotConfig.update, { items })
-    await execute()
-    if (error.value) return
+    const res = await postAction(ApiBotConfig.update, { items })
+    if (!res) return
     Message.success('配置已保存，即时生效')
     formInited.value = false
     fetchConfig()
@@ -72,9 +71,8 @@ async function handleSubmitAccess() {
   }
   addSubmitting.value = true
   try {
-    const { execute, error } = usePost(ApiBotConfig.accessAdd, addForm.value)
-    await execute()
-    if (error.value) return
+    const res = await postAction(ApiBotConfig.accessAdd, addForm.value)
+    if (!res) return
     Message.success('添加成功')
     addVisible.value = false
     fetchAccess()
@@ -89,9 +87,8 @@ function handleRemoveAccess(record: BotUserAccess) {
     content: `确定移除用户「${record.user_name || record.user_identifier}」的准入记录？`,
     hideCancel: false,
     onOk: async () => {
-      const { execute, error } = usePost(ApiBotConfig.accessRemove, { id: record.id })
-      await execute()
-      if (error.value) return
+      const res = await postAction(ApiBotConfig.accessRemove, { id: record.id })
+      if (!res) return
       Message.success('已删除')
       fetchAccess()
     },

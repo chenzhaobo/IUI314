@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import SecCrudPage from './components/SecCrudPage.vue'
-import { useGet, usePost } from '@/hooks'
+import { useGet, postAction } from '@/hooks'
 import { ApiSecProjectGroup, ApiSysDictData } from '@/api/apis'
 
 defineOptions({ name: 'project-group' })
@@ -133,10 +133,9 @@ async function handleImportSubmit() {
     const text = await importFile.value.text()
     const items = parseCsv(text)
     if (items.length === 0) { Message.warning('未解析到有效数据，请检查文件格式'); return }
-    const { execute, data, error } = usePost<any>(ApiSecProjectGroup.batchImport, items)
-    await execute()
-    if (error.value) { Message.error('导入失败'); return }
-    importResult.value = data.value
+    const res = await postAction<any>(ApiSecProjectGroup.batchImport, items)
+    if (!res) return
+    importResult.value = res
     importVisible.value = false
     importResultVisible.value = true
     crudKey.value++ // 刷新列表

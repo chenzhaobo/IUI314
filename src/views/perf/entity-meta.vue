@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { Message, type TableColumnData } from '@arco-design/web-vue'
-import { formatTime, useGet, usePost } from '@/hooks'
+import { formatTime, getAction, postAction, useGet } from '@/hooks'
 import { ApiPerfEnv, ApiPerfTableStats, ApiSysDictData } from '@/api/apis'
 
 defineOptions({ name: 'entity-meta' })
@@ -250,10 +250,9 @@ watch(syncStatsEnvId, async (val) => {
   }
   syncPreviewLoading.value = true
   try {
-    const { execute, error, data } = useGet<any>(ApiPerfTableStats.syncPreview, { env_id: val, product_line: syncStatsProductLine.value }, { immediate: false })
-    await execute()
-    if (!error.value) {
-      syncPreviewData.value = data.value
+    const res = await getAction<any>(ApiPerfTableStats.syncPreview, { env_id: val, product_line: syncStatsProductLine.value })
+    if (res) {
+      syncPreviewData.value = res
     }
   } finally {
     syncPreviewLoading.value = false
@@ -273,9 +272,8 @@ async function confirmTableStatsSync() {
     if (syncMode.value === 'actual') {
       payload.concurrency = statsConcurrency.value
     }
-    const { execute, error } = usePost<string>(ApiPerfTableStats.sync, payload)
-    await execute()
-    if (error.value) { Message.error('触发同步失败'); return }
+    const res = await postAction<string>(ApiPerfTableStats.sync, payload)
+    if (!res) return
     Message.success(syncMode.value === 'estimated' ? '估算同步已启动' : '精确同步已启动')
     syncStatsEnvIdForPolling.value = syncStatsEnvId.value
     syncStatsVisible.value = false
@@ -286,9 +284,8 @@ async function confirmTableStatsSync() {
 }
 
 async function handleTableStatsCancel() {
-  const { execute, error } = usePost(ApiPerfTableStats.cancel, { env_id: syncStatsEnvIdForPolling.value })
-  await execute()
-  if (error.value) { Message.error('取消失败'); return }
+  const res = await postAction(ApiPerfTableStats.cancel, { env_id: syncStatsEnvIdForPolling.value })
+  if (!res) return
   Message.info('已发送取消信号')
 }
 

@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { formatTime, useDelete, useGet, usePost, usePut, useToken } from '@/hooks'
+import { formatTime, useGet, useToken, postAction, putAction, deleteAction } from '@/hooks'
 import { ApiPerfEnv, ApiSysDictData } from '@/api/apis'
 
 defineOptions({ name: 'env-manage' })
@@ -108,14 +108,12 @@ async function handleSubmit() {
   submitting.value = true
   try {
     if (isEdit.value) {
-      const { execute, error } = usePut(ApiPerfEnv.edit, form.value)
-      await execute()
-      if (error.value) { Message.error('编辑失败'); return }
+      const res = await putAction(ApiPerfEnv.edit, form.value)
+      if (!res) return
       Message.success('编辑成功')
     } else {
-      const { execute, error } = usePost(ApiPerfEnv.add, form.value)
-      await execute()
-      if (error.value) { Message.error('添加失败'); return }
+      const res = await postAction(ApiPerfEnv.add, form.value)
+      if (!res) return
       Message.success('添加成功')
     }
     modalVisible.value = false
@@ -127,9 +125,8 @@ async function handleSubmit() {
 
 // ── 删除 ──────────────────────────────────
 async function handleDelete(record: any) {
-  const { execute, error } = useDelete(ApiPerfEnv.delete, { ids: [record.id] })
-  await execute()
-  if (error.value) { Message.error('删除失败'); return }
+  const res = await deleteAction(ApiPerfEnv.delete, { ids: [record.id] })
+  if (!res) return
   Message.success('删除成功')
   getList()
 }

@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed, watch } from 'vue'
 import { Message, type TreeNodeData } from '@arco-design/web-vue'
-import { formatTime, useDelete, useGet, usePost } from '@/hooks'
+import { formatTime, useGet, postAction, deleteAction, getAction } from '@/hooks'
 import { ApiPerfScript, ApiPerfScriptMenu, ApiPerfMenu, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
 
 defineOptions({ name: 'script-bindng' })
@@ -204,9 +204,8 @@ const bindColumns = [
 
 // ── 解绑 ──────────────────────────────────
 async function handleUnbind(record: any) {
-  const { execute, error } = useDelete(ApiPerfScriptMenu.unbind, { ids: [record.id] })
-  await execute()
-  if (error.value) { Message.error('解绑失败'); return }
+  const res = await deleteAction(ApiPerfScriptMenu.unbind, { ids: [record.id] })
+  if (!res) return
   Message.success('解绑成功')
   fetchBindList()
 }
@@ -231,11 +230,10 @@ async function handleViewTxnButtons(record: any) {
   txnButtonDrawerVisible.value = true
   txnButtonLoading.value = true
   txnButtonList.value = []
-  const { execute, error, data } = useGet<any[]>(ApiPerfScriptMenu.txnButtons, { script_menu_id: record.id })
-  await execute()
+  const res = await getAction<any[]>(ApiPerfScriptMenu.txnButtons, { script_menu_id: record.id })
   txnButtonLoading.value = false
-  if (error.value) { Message.error('获取事务按钮失败'); return }
-  txnButtonList.value = Array.isArray(data.value) ? data.value : []
+  if (!res) return
+  txnButtonList.value = Array.isArray(res) ? res : []
 }
 
 // ── 添加脚本弹窗 ──────────────────────────────────
@@ -286,14 +284,13 @@ async function handleAddSubmit() {
   let okCount = 0
   let failCount = 0
   for (const sid of selectedScriptIds.value) {
-    const { execute, error } = usePost(ApiPerfScriptMenu.bind, {
+    const res = await postAction(ApiPerfScriptMenu.bind, {
       script_id: sid,
       menu_ids: [selectedMenuId.value],
       product_line: productLine.value,
       test_scenario: testScenario.value || undefined,
     })
-    await execute()
-    if (error.value) { failCount++ } else { okCount++ }
+    if (!res) { failCount++ } else { okCount++ }
   }
   addSubmitting.value = false
   if (failCount > 0) {

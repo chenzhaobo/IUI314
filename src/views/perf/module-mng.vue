@@ -18,7 +18,7 @@ import * as XLSX from 'xlsx'
 import { ApiPerfModule } from '@/api/perfApis'
 import { ApiSecModuleRepository, ApiSecProjectGroup } from '@/api/sechubApis'
 import StatusBadge from '@/components/static-scan/StatusBadge.vue'
-import { newIdempotencyKey, useDelete, useDicts, useGet, usePost, usePut } from '@/hooks'
+import { deleteAction, newIdempotencyKey, postAction, putAction, useDicts, useGet } from '@/hooks'
 
 defineOptions({ name: 'ModuleMng' })
 
@@ -239,21 +239,15 @@ async function handleSubmit() {
   submitting.value = true
   try {
     if (isEdit.value) {
-      const { execute, error } = usePut(ApiPerfModule.edit, form.value)
-      await execute()
-      if (error.value) {
-        Message.error('编辑失败')
+      const res = await putAction(ApiPerfModule.edit, form.value)
+      if (!res)
         return
-      }
       Message.success('编辑成功')
     }
     else {
-      const { execute, error } = usePost(ApiPerfModule.add, form.value)
-      await execute()
-      if (error.value) {
-        Message.error('添加失败')
+      const res = await postAction(ApiPerfModule.add, form.value)
+      if (!res)
         return
-      }
       Message.success('添加成功')
     }
     modalVisible.value = false
@@ -265,12 +259,9 @@ async function handleSubmit() {
 }
 
 async function handleDelete(record: ModuleSummary) {
-  const { execute, error } = useDelete(ApiPerfModule.delete, { ids: [record.id] })
-  await execute()
-  if (error.value) {
-    Message.error('删除失败')
+  const res = await deleteAction(ApiPerfModule.delete, { ids: [record.id] })
+  if (!res)
     return
-  }
   Message.success('删除成功')
   void getList()
 }
@@ -279,13 +270,9 @@ const syncingCloud = ref(false)
 async function handleSyncCloud() {
   syncingCloud.value = true
   try {
-    const { execute, error, data } = usePost<SyncCloudResult>(ApiPerfModule.syncCloud, {})
-    await execute()
-    if (error.value) {
-      Message.error('同步失败')
+    const result = await postAction<SyncCloudResult>(ApiPerfModule.syncCloud, {})
+    if (!result)
       return
-    }
-    const result = data.value ?? {}
     Message.success(`同步完成：共 ${result.total ?? 0} 条，更新 ${result.updated ?? 0} 条，跳过 ${result.skipped ?? 0} 条，未匹配 ${result.unmatched ?? 0} 条`)
     void getList()
     void loadCloudOptions()
@@ -363,12 +350,9 @@ async function handleFileChange(event: Event) {
       Message.warning(`没有可导入的数据（跳过 ${skipped} 条模块简码为空的行）`)
       return
     }
-    const { execute, error } = usePost(ApiPerfModule.import, modules)
-    await execute()
-    if (error.value) {
-      Message.error('导入失败')
+    const res = await postAction(ApiPerfModule.import, modules)
+    if (!res)
       return
-    }
     Message.success(`导入完成！共 ${modules.length} 条（跳过 ${skipped} 条空模块简码）`)
     void getList()
   }
@@ -544,9 +528,8 @@ async function submitBind() {
       default_scan_branch: bindForm.value.default_scan_branch || null,
       idempotency_key: newIdempotencyKey(),
     }
-    const { execute, error } = usePost<MutationReceipt>(ApiSecModuleRepository.bind, payload, { immediate: false })
-    await execute()
-    if (error.value)
+    const res = await postAction<MutationReceipt>(ApiSecModuleRepository.bind, payload)
+    if (!res)
       return
     Message.success('仓库绑定成功，凭据仅保存引用')
     bindVisible.value = false
@@ -560,7 +543,7 @@ async function submitBind() {
 async function validateRepository(repository: RepositoryBinding) {
   operationLoading.value = `validate:${repository.relation_id}`
   try {
-    const { data, execute, error } = usePost<WorkerJobReceipt>(
+    const receipt = await postAction<WorkerJobReceipt>(
       ApiSecModuleRepository.validate,
       {
         git_url: repository.git_url,
@@ -569,14 +552,11 @@ async function validateRepository(repository: RepositoryBinding) {
         allow_local_test_repository: repository.git_url.startsWith('local-test:'),
         idempotency_key: newIdempotencyKey(),
       },
-      { immediate: false },
     )
-    await execute()
-    if (error.value)
+    if (!receipt)
       return
-    if (data.value)
-      trackSourceJob(data.value)
-    Message.success(data.value?.status === 'succeeded' ? '仓库连通性验证通过' : '已提交连通性验证')
+    trackSourceJob(receipt)
+    Message.success(receipt.status === 'succeeded' ? '仓库连通性验证通过' : '已提交连通性验证')
     await loadRepositories()
   }
   finally {
@@ -611,12 +591,10 @@ async function repositoryOperation(repository: RepositoryBinding, operation: 'cl
       revision,
       idempotency_key: newIdempotencyKey(),
     }
-    const { data, execute, error } = usePost<WorkerJobReceipt>(ApiSecModuleRepository.sourceSnapshot, payload, { immediate: false })
-    await execute()
-    if (error.value)
+    const receipt = await postAction<WorkerJobReceipt>(ApiSecModuleRepository.sourceSnapshot, payload)
+    if (!receipt)
       return
-    if (data.value)
-      trackSourceJob(data.value)
+    trackSourceJob(receipt)
     Message.success(`已提交 ${operation} 任务；更新采用 fetch + 新 checkout，不改历史快照`)
     await loadRepositories()
   }

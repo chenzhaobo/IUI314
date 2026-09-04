@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { ApiSecFinding } from '@/api/apis'
-import { useGet, usePost, usePut } from '@/hooks'
+import { useGet, postAction, putAction } from '@/hooks'
 
 defineOptions({ name: 'finding' })
 
@@ -33,9 +33,8 @@ function openTriage(record: any) {
   triageVisible.value = true
 }
 async function handleTriage() {
-  const { execute, error } = usePut(ApiSecFinding.triage, triageForm)
-  await execute()
-  if (error.value) { Message.error('Triage失败'); return }
+  const res = await putAction(ApiSecFinding.triage, triageForm.value)
+  if (!res) return
   Message.success('Triage完成')
   triageVisible.value = false
   getList()
@@ -50,9 +49,8 @@ function openReopen(record: any) {
 }
 async function handleReopen() {
   if (!reopenForm.value.run_id) { Message.warning('请输入关联Run ID'); return }
-  const { execute, error } = usePut(ApiSecFinding.reopen, reopenForm)
-  await execute()
-  if (error.value) { Message.error('Reopen失败'); return }
+  const res = await putAction(ApiSecFinding.reopen, reopenForm.value)
+  if (!res) return
   Message.success('已重新打开')
   reopenVisible.value = false
   getList()
@@ -67,9 +65,8 @@ function openManual() {
 }
 async function handleManual() {
   if (!manualForm.value.title) { Message.warning('请填写标题'); return }
-  const { execute, error } = usePost(ApiSecFinding.manual, manualForm)
-  await execute()
-  if (error.value) { Message.error('创建失败'); return }
+  const res = await postAction(ApiSecFinding.manual, manualForm.value)
+  if (!res) return
   Message.success('创建成功')
   manualVisible.value = false
   getList()

@@ -9,7 +9,7 @@ interface CatalogTreeNode extends TreeNodeData {
   is_leaf?: boolean
   children?: CatalogTreeNode[]
 }
-import { formatTime, useGet, usePost, usePut } from '@/hooks'
+import { formatTime, postAction, putAction, useGet } from '@/hooks'
 import { ApiPerfEnv, ApiPerfApp, ApiPerfMenu, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
 import SyncMenuModal from './components/SyncMenuModal.vue'
 import AutoMatchModal from './components/AutoMatchModal.vue'
@@ -119,9 +119,8 @@ function handleSelectionChange(keys: (string | number)[]) {
 // ── 测试范围 ──────────────────────────────────
 async function handleSetScope(inScope: string) {
   if (selectedMenuIds.value.length === 0) { Message.warning('请先勾选菜单'); return }
-  const { execute, error } = usePut(ApiPerfMenu.scope, { menu_ids: selectedMenuIds.value, in_test_scope: inScope })
-  await execute()
-  if (error.value) { Message.error('设置失败'); return }
+  const res = await putAction(ApiPerfMenu.scope, { menu_ids: selectedMenuIds.value, in_test_scope: inScope })
+  if (!res) return
   Message.success(`已${inScope === '1' ? '纳入' : '移出'}测试范围`)
   selectedMenuIds.value = []
   getMenuList()
@@ -130,9 +129,8 @@ async function handleSetScope(inScope: string) {
 
 async function handleToggleScope(record: any) {
   const newScope = record.in_test_scope === '1' ? '0' : '1'
-  const { execute, error } = usePut(ApiPerfMenu.scope, { menu_ids: [record.id], in_test_scope: newScope })
-  await execute()
-  if (error.value) { Message.error('设置失败'); return }
+  const res = await putAction(ApiPerfMenu.scope, { menu_ids: [record.id], in_test_scope: newScope })
+  if (!res) return
   Message.success(`已${newScope === '1' ? '纳入' : '移出'}测试范围`)
   getMenuList()
   fetchStats()
@@ -370,10 +368,9 @@ async function handleAutoMatchPg() {
     if (selectedMenuIds.value.length > 0) {
       payload.menu_ids = selectedMenuIds.value
     }
-    const { execute, error, data } = usePost<any>(ApiPerfMenu.autoMatchPg, payload)
-    await execute()
-    if (error.value) { Message.error('匹配失败'); return }
-    autoMatchResult.value = data.value
+    const res = await postAction<any>(ApiPerfMenu.autoMatchPg, payload)
+    if (!res) return
+    autoMatchResult.value = res
     autoMatchVisible.value = true
     Message.success('自动匹配完成')
     getMenuList()
@@ -418,9 +415,8 @@ function handleButtonSelectionChange(keys: (string | number)[]) {
 
 async function handleMarkButtons(isImportant: string) {
   if (selectedButtonIds.value.length === 0) { Message.warning('请先勾选按钮'); return }
-  const { execute, error } = usePut(ApiPerfMenu.markButtons, { ids: selectedButtonIds.value, is_important: isImportant })
-  await execute()
-  if (error.value) { Message.error('标记失败'); return }
+  const res = await putAction(ApiPerfMenu.markButtons, { ids: selectedButtonIds.value, is_important: isImportant })
+  if (!res) return
   Message.success(isImportant === '1' ? '已标记为关键按钮' : '已取消关键标记')
   selectedButtonIds.value = []
   getButtonList()
@@ -429,9 +425,8 @@ async function handleMarkButtons(isImportant: string) {
 
 async function handleToggleButtonImportant(record: any) {
   const newVal = record.is_important === '1' ? '0' : '1'
-  const { execute, error } = usePut(ApiPerfMenu.markButtons, { ids: [record.id], is_important: newVal })
-  await execute()
-  if (error.value) { Message.error('标记失败'); return }
+  const res = await putAction(ApiPerfMenu.markButtons, { ids: [record.id], is_important: newVal })
+  if (!res) return
   getButtonList()
   fetchStats()
 }

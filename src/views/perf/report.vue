@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
-import { formatTime, useGet, useToken } from '@/hooks'
+import { formatTime, getAction, useGet, useToken } from '@/hooks'
 import { ApiPerfReport, ApiPerfScript, ApiPerfIteration, ApiPerfRun } from '@/api/apis'
 
 defineOptions({ name: 'report' })
@@ -77,13 +77,12 @@ async function handleViewDetail(record: any) {
   detailLoading.value = true
   detailList.value = []
 
-  const { data, error, execute } = useGet<any>(ApiPerfReport.detail, { run_id: record.id }, { immediate: false })
-  await execute()
-  if (error.value) {
-    Message.error('获取明细失败')
-  } else {
-    detailList.value = data.value || []
+  const res = await getAction<any>(ApiPerfReport.detail, { run_id: record.id })
+  if (!res) {
+    detailLoading.value = false
+    return
   }
+  detailList.value = res || []
   detailLoading.value = false
 }
 

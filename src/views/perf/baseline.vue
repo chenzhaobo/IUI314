@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
-import { formatTime, useDelete, useGet, usePost } from '@/hooks'
+import { deleteAction, formatTime, postAction, useGet } from '@/hooks'
 import { ApiPerfBaseline, ApiPerfRun, ApiPerfScript } from '@/api/apis'
 
 const router = useRouter()
@@ -65,9 +65,8 @@ function handleAddClick() {
 async function handleAddSubmit() {
   if (!addForm.value.name) { Message.warning('请输入基线名称'); return }
   if (!addForm.value.run_id) { Message.warning('请选择执行记录'); return }
-  const { execute, error } = usePost(ApiPerfBaseline.add, addForm.value)
-  await execute()
-  if (error.value) { Message.error('添加失败'); return }
+  const res = await postAction(ApiPerfBaseline.add, addForm.value)
+  if (!res) return
   Message.success('添加成功')
   addVisible.value = false
   getList()
@@ -75,9 +74,8 @@ async function handleAddSubmit() {
 
 // ── 删除 ──────────────────────────────────
 async function handleDelete(record: any) {
-  const { execute, error } = useDelete(ApiPerfBaseline.delete, { ids: [record.id] })
-  await execute()
-  if (error.value) { Message.error('删除失败'); return }
+  const res = await deleteAction(ApiPerfBaseline.delete, { ids: [record.id] })
+  if (!res) return
   Message.success('删除成功')
   getList()
 }
@@ -127,10 +125,9 @@ async function handleCompareSubmit() {
   if (!compareForm.value.current_run_id) { Message.warning('请选择当前Run'); return }
   comparing.value = true
   try {
-    const { data, error, execute } = usePost<any>(ApiPerfBaseline.compare, compareForm.value)
-    await execute()
-    if (error.value) { Message.error('对比失败'); return }
-    compareResult.value = data.value
+    const res = await postAction<any>(ApiPerfBaseline.compare, compareForm.value)
+    if (!res) return
+    compareResult.value = res
   } finally {
     comparing.value = false
   }

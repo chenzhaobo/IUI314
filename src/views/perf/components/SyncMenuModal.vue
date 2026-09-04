@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, watch, computed } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { formatTime, useGet, usePost } from '@/hooks'
+import { formatTime, getAction, postAction, useGet } from '@/hooks'
 import { ApiPerfEnv, ApiPerfMenu } from '@/api/apis'
 import TaskProgress from '@/components/common/TaskProgress.vue'
 
@@ -80,9 +80,8 @@ watch(syncMenuEnvId, async (val) => {
   if (!val || !syncMenuProductLine.value) return
   syncPreviewLoading.value = true
   try {
-    const { execute, error, data } = useGet<any>(ApiPerfMenu.syncPreview, { env_id: val, product_line: syncMenuProductLine.value }, { immediate: false })
-    await execute()
-    if (!error.value) syncPreviewData.value = data.value
+    const res = await getAction<any>(ApiPerfMenu.syncPreview, { env_id: val, product_line: syncMenuProductLine.value })
+    if (res) syncPreviewData.value = res
   } finally {
     syncPreviewLoading.value = false
   }
@@ -94,7 +93,7 @@ async function confirmSyncMenu() {
   if (!syncOptMenus.value && !syncOptEntities.value) { Message.warning('请至少选择一项同步内容'); return }
   syncMenuLoading.value = true
   try {
-    const { execute, error, data } = usePost<any>(ApiPerfMenu.sync, {
+    const res = await postAction<any>(ApiPerfMenu.sync, {
       env_id: syncMenuEnvId.value,
       product_line: syncMenuProductLine.value,
       sync_menus: syncOptMenus.value,
@@ -103,11 +102,10 @@ async function confirmSyncMenu() {
       clear_entities: clearEntities.value,
       clear_buttons: clearButtons.value,
     })
-    await execute()
-    if (error.value) { Message.error('同步失败，请查看环境同步状态'); return }
+    if (!res) return
     // 后端返回 task_id，异步执行同步
     currentProgress.value = null
-    syncTaskId.value = data.value
+    syncTaskId.value = res
     emit('update:visible', false)
     syncProgressVisible.value = true
   } finally {

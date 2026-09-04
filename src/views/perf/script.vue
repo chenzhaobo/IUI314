@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed, watch } from 'vue'
 import { Message, Modal } from '@arco-design/web-vue'
-import { formatTime, useDelete, useGet, usePost, usePut, useToken } from '@/hooks'
+import { deleteAction, formatTime, postAction, putAction, useGet, useToken } from '@/hooks'
 import { ApiPerfScript, ApiSecProjectGroup, ApiSysDictData, ApiPerfAttachment } from '@/api/apis'
 
 defineOptions({ name: 'script' })
@@ -229,9 +229,8 @@ function handleEdit(record: any) {
 }
 
 async function handleEditSubmit() {
-  const { execute, error } = usePut(ApiPerfScript.edit, editForm.value)
-  await execute()
-  if (error.value) { Message.error('编辑失败'); return }
+  const res = await putAction(ApiPerfScript.edit, editForm.value)
+  if (!res) return
   Message.success('编辑成功')
   editVisible.value = false
   getList()
@@ -239,9 +238,8 @@ async function handleEditSubmit() {
 
 // ── 删除 ──────────────────────────────────
 async function handleDelete(record: any) {
-  const { execute, error } = useDelete(ApiPerfScript.delete, { ids: [record.id] })
-  await execute()
-  if (error.value) { Message.error('删除失败'); return }
+  const res = await deleteAction(ApiPerfScript.delete, { ids: [record.id] })
+  if (!res) return
   Message.success('删除成功')
   getList()
 }
@@ -294,7 +292,7 @@ function handleParams(record: any) {
 
 async function handleParamsSubmit() {
   paramsLoading.value = true
-  const { execute, error } = usePut(ApiPerfScript.updateParams, {
+  const res = await putAction(ApiPerfScript.updateParams, {
     script_id: paramsForm.value.script_id,
     params: {
       threads: paramsForm.value.threads ?? null,
@@ -305,9 +303,8 @@ async function handleParamsSubmit() {
       extra_props: paramsForm.value.extra_props || null,
     },
   })
-  await execute()
   paramsLoading.value = false
-  if (error.value) { Message.error('保存失败'); return }
+  if (!res) return
   Message.success('参数已保存')
   paramsVisible.value = false
   getList()
@@ -402,9 +399,8 @@ async function handleAttUpload() {
 }
 
 async function handleAttDelete(record: any) {
-  const { execute, error } = useDelete(ApiPerfAttachment.delete, { attachment_id: record.id })
-  await execute()
-  if (error.value) { Message.error('删除失败'); return }
+  const res = await deleteAction(ApiPerfAttachment.delete, { attachment_id: record.id })
+  if (!res) return
   Message.success('删除成功')
   loadAttachments()
   getList()
@@ -667,10 +663,9 @@ const reparsingIds = ref<Set<string>>(new Set())
 
 async function handleReparse(record: any) {
   reparsingIds.value.add(record.id)
-  const { execute, error } = usePut(ApiPerfScript.reparse + '?id=' + record.id)
-  await execute()
+  const res = await putAction(ApiPerfScript.reparse + '?id=' + record.id)
   reparsingIds.value.delete(record.id)
-  if (error.value) { Message.error('重新解析失败'); return }
+  if (!res) return
   Message.success('事务详情解析成功')
   getList()
 }
@@ -689,11 +684,10 @@ async function handleReparseAll() {
 
 async function doReparseAll(mode: string) {
   reparsingAll.value = true
-  const { execute, error, data } = usePut(ApiPerfScript.reparse + '?mode=' + mode, {})
-  await execute()
+  const res = await putAction<any>(ApiPerfScript.reparse + '?mode=' + mode, {})
   reparsingAll.value = false
-  if (error.value) { Message.error('批量解析失败'); return }
-  Message.success(data.value?.msg || '批量解析完成')
+  if (!res) return
+  Message.success(res.msg || '批量解析完成')
   getList()
 }
 
@@ -716,31 +710,19 @@ interface AutoBindAllResult {
 
 async function handleAutoBind(record: any) {
   autoBindingIds.value.add(record.id)
-  const { execute, error, data } = usePost<AutoBindResult>(ApiPerfScript.autoBind + '?id=' + record.id)
-  await execute()
+  const r = await postAction<AutoBindResult>(ApiPerfScript.autoBind + '?id=' + record.id)
   autoBindingIds.value.delete(record.id)
-  if (error.value) { Message.error('自动关联失败'); return }
-  const r = data.value
-  if (r) {
-    Message.success(`匹配${r.menu_count}个菜单，新建${r.bind_count}条绑定，事务匹配${r.txn_matched}/${r.txn_total}`)
-  } else {
-    Message.success('自动关联完成')
-  }
+  if (!r) return
+  Message.success(`匹配${r.menu_count}个菜单，新建${r.bind_count}条绑定，事务匹配${r.txn_matched}/${r.txn_total}`)
   getList()
 }
 
 async function handleAutoBindAll() {
   autoBindingAll.value = true
-  const { execute, error, data } = usePost<AutoBindAllResult>(ApiPerfScript.autoBind, {})
-  await execute()
+  const r = await postAction<AutoBindAllResult>(ApiPerfScript.autoBind, {})
   autoBindingAll.value = false
-  if (error.value) { Message.error('批量自动关联失败'); return }
-  const r = data.value
-  if (r) {
-    Message.success(r.message || `批量关联完成: 共${r.total}个脚本, ${r.matched}个匹配到菜单`)
-  } else {
-    Message.success('批量自动关联完成')
-  }
+  if (!r) return
+  Message.success(r.message || `批量关联完成: 共${r.total}个脚本, ${r.matched}个匹配到菜单`)
   getList()
 }
 
@@ -811,14 +793,13 @@ function handleSetOwnerClick() {
 async function handleSetOwnerSubmit() {
   if (!setOwnerValue.value.trim()) { Message.warning('请输入责任人'); return }
   setOwnerLoading.value = true
-  const { execute, error, data } = usePut<any>(ApiPerfScript.batchSetOwner, {
+  const res = await putAction<any>(ApiPerfScript.batchSetOwner, {
     ids: selectedIds.value,
     owner: setOwnerValue.value.trim(),
   })
-  await execute()
   setOwnerLoading.value = false
-  if (error.value) { Message.error('设置失败'); return }
-  Message.success(data.value?.data || '设置成功')
+  if (!res) return
+  Message.success(res.data || '设置成功')
   setOwnerVisible.value = false
   selectedIds.value = []
   getList()

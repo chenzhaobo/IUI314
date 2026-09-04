@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { computed, ref } from 'vue'
 import { Message, Modal } from '@arco-design/web-vue'
-import { useGet, usePost } from '@/hooks'
+import { postAction, useGet } from '@/hooks'
 import { ApiAiExecution, type AiExecution, type AiExecutionStats, type AiListResult } from '@/api/aiApis'
 
 defineOptions({ name: 'ai-execution-log' })
@@ -87,21 +87,14 @@ async function deleteAllMatching() {
 async function doDelete(payload: Record<string, unknown>) {
   deleting.value = true
   try {
-    const { data, execute, error } = usePost<{ deleted: number, message?: string }>(
+    const res = await postAction<{ deleted: number, message?: string }>(
       ApiAiExecution.batchDelete,
       payload,
-      { immediate: false },
     )
-    await execute()
-    if (error.value) {
-      Message.error('删除失败')
-      return
-    }
-    if (data.value) {
-      Message.success(data.value.message || `已删除 ${data.value.deleted} 条`)
-      selectedKeys.value = []
-      fetchList()
-    }
+    if (!res) return
+    Message.success(res.message || `已删除 ${res.deleted} 条`)
+    selectedKeys.value = []
+    fetchList()
   }
   finally {
     deleting.value = false

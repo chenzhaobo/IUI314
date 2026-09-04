@@ -29,7 +29,7 @@ import VChart from 'vue-echarts'
 import { ApiSecModuleRepository, ApiSecPrescan } from '@/api/sechubApis'
 import { ApiAiAgent, ApiAiSkill, type AiAgent, type AiSkill } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
-import { formatTime, useGet, usePost } from '@/hooks'
+import { formatTime, useGet, getAction, postAction } from '@/hooks'
 import { domainLabels, securityCategoryLabels } from './labels'
 
 type SelectChangeValue = string | number | boolean | Record<string, unknown> | (string | number | boolean | Record<string, unknown>)[]
@@ -627,42 +627,35 @@ async function triggerPrescan(force = false, branch?: string, commitSha?: string
       }
       body.diff_granularity = hunkEnabled.value ? 'hunk' : 'file'
     }
-    const { data, execute, error } = usePost<PrescanTriggerResponse>(
+    const res = await postAction<PrescanTriggerResponse>(
       ApiSecPrescan.trigger,
       body,
-      { immediate: false },
     )
-    await execute()
-    if (error.value) {
-      Message.error('预扫描触发失败')
+    if (!res) return
+    if (res.idempotent && !force) {
+      // 已存在相同输入的扫描结果，询问用户是否强制重扫
+      Modal.confirm({
+        title: '已存在扫描结果',
+        content: '该应用已有相同代码和规则的扫描结果，是否要强制重新扫描？',
+        okText: '重新扫描',
+        cancelText: '查看已有结果',
+        onOk: () => triggerPrescan(true),
+        onCancel: () => {
+          currentRunId.value = res.run_id
+          refreshStatus()
+        },
+      })
       return
     }
-    if (data.value) {
-      if (data.value.idempotent && !force) {
-        // 已存在相同输入的扫描结果，询问用户是否强制重扫
-        Modal.confirm({
-          title: '已存在扫描结果',
-          content: '该应用已有相同代码和规则的扫描结果，是否要强制重新扫描？',
-          okText: '重新扫描',
-          cancelText: '查看已有结果',
-          onOk: () => triggerPrescan(true),
-          onCancel: () => {
-            currentRunId.value = data.value!.run_id
-            refreshStatus()
-          },
-        })
-        return
-      }
-      currentRunId.value = data.value.run_id
-      if (force) {
-        Message.success('强制重扫已启动')
-      }
-      else {
-        Message.success('预扫描已启动')
-      }
-      startPolling()
-      await refreshStatus()
+    currentRunId.value = res.run_id
+    if (force) {
+      Message.success('强制重扫已启动')
     }
+    else {
+      Message.success('预扫描已启动')
+    }
+    startPolling()
+    await refreshStatus()
   }
   finally {
     triggering.value = false
@@ -863,10 +856,9 @@ const skillLoading = ref(false)
 async function loadSkillList() {
   skillLoading.value = true
   try {
-    const { data, execute, error } = useGet<{ list: AiSkill[] }>(ApiAiSkill.getList, { status: 'active', page_size: 100 })
-    await execute()
-    if (!error.value && data.value) {
-      skillList.value = data.value.list || []
+    const res = await getAction<{ list: AiSkill[] }>(ApiAiSkill.getList, { status: 'active', page_size: 100 })
+    if (res) {
+      skillList.value = res.list || []
     }
   }
   finally {
@@ -877,10 +869,9 @@ async function loadSkillList() {
 async function loadAgentList() {
   agentLoading.value = true
   try {
-    const { data, execute, error } = useGet<{ list: AiAgent[] }>(ApiAiAgent.getList, { status: 'active', page_size: 50 })
-    await execute()
-    if (!error.value && data.value) {
-      agentList.value = data.value.list || []
+    const res = await getAction<{ list: AiAgent[] }>(ApiAiAgent.getList, { status: 'active', page_size: 50 })
+    if (res) {
+      agentList.value = res.list || []
     }
   }
   finally {
@@ -984,24 +975,17 @@ async function doAiConfirm() {
     if (aiSkillCode.value) {
       body.skill_code = aiSkillCode.value
     }
-    const { data, execute, error } = usePost<AiConfirmResponse>(
+    const res = await postAction<AiConfirmResponse>(
       ApiSecPrescan.aiConfirm,
       body,
-      { immediate: false },
     )
-    await execute()
-    if (error.value) {
-      Message.error('AI 确认失败')
-      return
+    if (!res) return
+    Message.success(res.message)
+    if (aiMode.value === 'agent') {
+      startAgentPolling()
     }
-    if (data.value) {
-      Message.success(data.value.message)
-      if (aiMode.value === 'agent') {
-        startAgentPolling()
-      }
-      else {
-        await loadDashboardData()
-      }
+    else {
+      await loadDashboardData()
     }
   }
   finally {

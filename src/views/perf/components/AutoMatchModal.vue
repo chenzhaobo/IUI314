@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { usePost } from '@/hooks'
+import { postAction } from '@/hooks'
 import { ApiPerfMenu } from '@/api/apis'
 
 const props = defineProps<{
@@ -21,13 +21,11 @@ async function handleCreateModulesFromUnmatched() {
   if (!apps || apps.length === 0) { Message.warning('没有未匹配应用'); return }
   createModulesLoading.value = true
   try {
-    const { execute, error, data } = usePost<any>(ApiPerfMenu.createModules, {
+    const r = await postAction<any>(ApiPerfMenu.createModules, {
       product_line: props.productLine,
       apps,
     })
-    await execute()
-    if (error.value) { Message.error('插入失败'); return }
-    const r = data.value
+    if (!r) return
     Message.success(`已插入 ${r.inserted ?? 0} 条模块记录，跳过 ${r.skipped ?? 0} 条`)
     emit('modulesCreated')
     emit('update:visible', false)

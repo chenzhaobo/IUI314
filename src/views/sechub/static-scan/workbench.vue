@@ -28,7 +28,7 @@ import {
   ApiSecScanTask,
 } from '@/api/sechubApis'
 import ScopePreviewPanel from '@/components/static-scan/ScopePreviewPanel.vue'
-import { newIdempotencyKey, useGet, usePost } from '@/hooks'
+import { newIdempotencyKey, useGet, getAction, postAction } from '@/hooks'
 
 defineOptions({ name: 'StaticScanWorkbench' })
 
@@ -88,22 +88,20 @@ async function loadModules() {
   let total = Number.POSITIVE_INFINITY
 
   while (loaded.size < total) {
-    const request = useGet<PageResult<ModuleSummary> | ModuleSummary[]>(
+    const page = await getAction<PageResult<ModuleSummary> | ModuleSummary[]>(
       ApiPerfModule.getList,
       { page_num: pageNum, page_size: modulePageSize, status: '可用' },
-      { immediate: false },
     )
-    await request.execute()
-    if (request.error.value)
+    if (!page)
       return
 
-    const page = listOf<ModuleSummary>(request.data.value)
-    if (!page.length)
+    const items = listOf<ModuleSummary>(page)
+    if (!items.length)
       break
-    page.forEach(module => loaded.set(module.id, module))
-    total = Array.isArray(request.data.value)
+    items.forEach(module => loaded.set(module.id, module))
+    total = Array.isArray(page)
       ? loaded.size
-      : Number(request.data.value?.total ?? loaded.size)
+      : Number(page?.total ?? loaded.size)
     pageNum += 1
   }
 
@@ -302,14 +300,13 @@ async function handlePreview() {
       file_paths: form.value.file_paths,
       include_dependencies: form.value.include_dependencies,
     }
-    const scopeRequest = usePost<ScopePreviewResponse>(ApiSecScanScope.preview, scopePayload, { immediate: false })
-    await scopeRequest.execute()
-    if (scopeRequest.error.value || !scopeRequest.data.value) {
+    const scopeRes = await postAction<ScopePreviewResponse>(ApiSecScanScope.preview, scopePayload)
+    if (!scopeRes) {
       preview.value = null
       completePreflight.value = null
       return
     }
-    preview.value = scopeRequest.data.value
+    preview.value = scopeRes
     previewFingerprint.value = fingerprint()
     if (preview.value.preflight.decision !== 'accepted') {
       completePreflight.value = null
@@ -318,9 +315,8 @@ async function handlePreview() {
     }
 
     completeScanIdempotencyKey.value = newIdempotencyKey()
-    const request = usePost<PreflightDecision>(ApiSecScanRun.preflight, completeScanRequest(), { immediate: false })
-    await request.execute()
-    completePreflight.value = request.error.value ? null : request.data.value
+    const preflightRes = await postAction<PreflightDecision>(ApiSecScanRun.preflight, completeScanRequest())
+    completePreflight.value = preflightRes
     if (!completePreflight.value?.accepted)
       Message.warning('完整扫描 contract preflight 未通过，已禁止触发')
   }
@@ -336,11 +332,10 @@ async function handleTrigger() {
   }
   triggerLoading.value = true
   try {
-    const { data, execute, error } = usePost<TriggerResult>(ApiSecScanRun.trigger, completeScanRequest(), { immediate: false })
-    await execute()
-    if (error.value)
+    const res = await postAction<TriggerResult>(ApiSecScanRun.trigger, completeScanRequest())
+    if (!res)
       return
-    Message.success(`完整扫描已触发${data.value?.run_id ? `：${data.value.run_id}` : ''}`)
+    Message.success(`完整扫描已触发${res.run_id ? `：${res.run_id}` : ''}`)
   }
   finally {
     triggerLoading.value = false

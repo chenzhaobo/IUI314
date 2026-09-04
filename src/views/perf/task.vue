@@ -2,7 +2,7 @@
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
-import { formatTime, useDelete, useGet, usePost, usePut } from '@/hooks'
+import { deleteAction, formatTime, postAction, putAction, useGet, usePost } from '@/hooks'
 import { ApiPerfTask, ApiPerfScript, ApiPerfIteration, ApiPerfDomain, ApiPerfLoadNode } from '@/api/apis'
 
 defineOptions({ name: 'task' })
@@ -198,7 +198,7 @@ async function handleTriggerSubmit() {
     Message.info(`将动态解析领域「${triggerForm.value.domain}」下的脚本`)
   }
   triggerSubmitting.value = true
-  const { execute, error } = usePost(ApiPerfTask.trigger, {
+  const res = await postAction(ApiPerfTask.trigger, {
     name: triggerForm.value.name,
     iteration_id: triggerForm.value.iteration_id || undefined,
     domain: triggerForm.value.domain || undefined,
@@ -212,9 +212,8 @@ async function handleTriggerSubmit() {
     extra_props: triggerForm.value.extra_props || undefined,
     load_node_id: triggerForm.value.load_node_id || undefined,
   })
-  await execute()
   triggerSubmitting.value = false
-  if (error.value) { Message.error('触发失败'); return }
+  if (!res) return
   Message.success(`任务已触发，共 ${triggerForm.value.script_ids.length} 个脚本`)
   triggerVisible.value = false
   setTimeout(() => { getList(); resetPollTimer() }, 1000)
@@ -222,9 +221,8 @@ async function handleTriggerSubmit() {
 
 // ── 重试失败项 ──────────────────────────────────
 async function handleRetryFailed(record: any) {
-  const { execute, error } = usePost(ApiPerfTask.retryFailed, { task_id: record.id })
-  await execute()
-  if (error.value) { Message.error('重试失败'); return }
+  const res = await postAction(ApiPerfTask.retryFailed, { task_id: record.id })
+  if (!res) return
   Message.success('已触发重试')
   getList()
   resetPollTimer()
@@ -232,9 +230,8 @@ async function handleRetryFailed(record: any) {
 
 // ── 取消任务 ──────────────────────────────────
 async function handleCancel(record: any) {
-  const { execute, error } = usePut(ApiPerfTask.cancel, { task_id: record.id })
-  await execute()
-  if (error.value) { Message.error('取消失败'); return }
+  const res = await putAction(ApiPerfTask.cancel, { task_id: record.id })
+  if (!res) return
   Message.success('已取消')
   getList()
   resetPollTimer()
@@ -242,9 +239,8 @@ async function handleCancel(record: any) {
 
 // ── 删除任务 ──────────────────────────────────
 async function handleDelete(record: any) {
-  const { execute, error } = useDelete(ApiPerfTask.delete, { ids: [record.id] })
-  await execute()
-  if (error.value) { Message.error('删除失败'); return }
+  const res = await deleteAction(ApiPerfTask.delete, { ids: [record.id] })
+  if (!res) return
   Message.success('删除成功')
   getList()
   resetPollTimer()
