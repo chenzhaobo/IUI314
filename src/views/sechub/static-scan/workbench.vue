@@ -30,7 +30,7 @@ import {
 import ScopePreviewPanel from '@/components/static-scan/ScopePreviewPanel.vue'
 import { newIdempotencyKey, useGet, getAction, postAction } from '@/hooks'
 
-defineOptions({ name: 'workbench' })
+defineOptions({ name: 'StaticScanWorkbench' })
 
 function listOf<T>(value: unknown): T[] {
   if (Array.isArray(value))

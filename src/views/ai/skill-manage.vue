@@ -5,7 +5,7 @@ import { useGet, usePost, usePut, useDelete, useToken, useTableAutoHeight, withT
 import { ApiAiSkill, ApiAiAgent, type AiSkill, type AiAgent, type AiSkillFile, type AiListResult, type AiSkillDeployStatus } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
 
-defineOptions({ name: 'skill-manage' })
+defineOptions({ name: 'ai-skill-manage' })
 
 // ── Agent 列表（供关联选择）──────────────────────────────────
 const { data: agentListRaw } = useGet<AiListResult<AiAgent>>(ApiAiAgent.getList, { page_size: 100 }, { immediate: true })

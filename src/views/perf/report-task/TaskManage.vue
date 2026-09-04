@@ -446,7 +446,7 @@ import { ApiPerfReportTask, ApiPerfCompliance } from '@/api/perfApis'
 import { ApiAiAgent, type AiAgent, type AiListResult } from '@/api/aiApis'
 import { formatTime, useGet, usePost } from '@/hooks'
 
-defineOptions({ name: 'report-task' })
+defineOptions({ name: 'report-task-manage' })
 
 // ── 任务列表 ──────────────────────────────────
 const keyword = ref('')

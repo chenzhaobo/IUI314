@@ -76,7 +76,8 @@
         </a-space>
 
         <!-- 应用优先级表格 -->
-        <a-table :data="domainData.apps" :pagination="{ pageSize: 20, showTotal: true }" size="small" row-key="app_number"
+        <div ref="tableWrap">
+        <a-table :data="domainData.apps" :pagination="{ pageSize: 20, showTotal: true }" size="small" row-key="app_number" column-resizable :scroll="{ y: tableHeight }"
           :expandable="{ expandedRowKeys: expandedApps }"
           @expanded-change="(keys: (string | number)[]) => expandedApps = keys.map(String)">
           <template #columns>
@@ -108,10 +109,10 @@
           <template #expand-row="{ record }">
             <div style="padding: 8px 0">
               <b>Top 问题表单：</b>
-              <a-table :data="record.top_forms" size="mini" :pagination="false" row-key="form_id" style="margin-top: 4px">
+              <a-table :data="record.top_forms" size="mini" :pagination="false" row-key="form_id" style="margin-top: 4px" column-resizable>
                 <template #columns>
-                  <a-table-column title="表单" data-index="form_id" :width="200" ellipsis />
-                  <a-table-column title="名称" data-index="form_name" :width="150" ellipsis />
+                  <a-table-column title="表单" data-index="form_id" :width="200" ellipsis tooltip />
+                  <a-table-column title="名称" data-index="form_name" :width="150" ellipsis tooltip />
                   <a-table-column title="达标率" :width="90" align="right">
                     <template #cell="{ record: f }">{{ f.compliance_rate }}%</template>
                   </a-table-column>
@@ -124,6 +125,7 @@
             </div>
           </template>
         </a-table>
+        </div>
 
         <!-- 分析指导面板 -->
         <a-card v-if="guideData" title="分析指导" size="small" style="margin-top: 16px">
@@ -166,11 +168,12 @@
         </a-space>
 
         <!-- 表单级问题 -->
+        <div ref="tableWrap">
         <a-table :data="appData.forms.filter((f: any) => f.over_3s_count > 0)" :pagination="{ pageSize: 20, showTotal: true }"
-          size="small" row-key="form_id">
+          size="small" row-key="form_id" column-resizable :scroll="{ y: tableHeight }">
           <template #columns>
-            <a-table-column title="表单" data-index="form_id" :width="200" ellipsis />
-            <a-table-column title="名称" data-index="form_name" :width="150" ellipsis />
+            <a-table-column title="表单" data-index="form_id" :width="200" ellipsis tooltip />
+            <a-table-column title="名称" data-index="form_name" :width="150" ellipsis tooltip />
             <a-table-column title="达标率" :width="90" align="right">
               <template #cell="{ record }">
                 <span :style="{ color: record.compliance_rate >= (filters.target_rate || 99) ? '#00b42a' : '#f53f3f' }">{{ record.compliance_rate }}%</span>
@@ -200,6 +203,7 @@
             </a-table-column>
           </template>
         </a-table>
+        </div>
       </template>
     </a-card>
 
@@ -232,9 +236,9 @@ import { Message } from '@arco-design/web-vue'
 import { MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
 import { ApiPerfDiagnosis, ApiPerfReportV2, ApiPerfIssue } from '@/api/perfApis'
-import { useGet, usePost } from '@/hooks'
+import { useGet, usePost, useTableAutoHeight } from '@/hooks'
 
-defineOptions({ name: 'diagnosis' })
+defineOptions({ name: 'domain-diagnosis' })
 
 // ── 筛选条件 ──────────────────────────────────
 const filters = ref<any>({
@@ -268,6 +272,10 @@ const reportPayload = ref<any>({})
 const { execute: genReport } = usePost<any>(ApiPerfDiagnosis.report, reportPayload, { immediate: false })
 
 const expandedApps = ref<string[]>([])
+
+// 表格高度自适应：滚动条落在表格内，表头固定。领域/应用两张主表在互斥的 v-if 分支里，共用一个原生 div ref（同一时刻只挂载其中一个）。
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 
 const handleDiagnose = async () => {
   domainData.value = null

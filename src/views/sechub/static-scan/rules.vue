@@ -7,7 +7,7 @@ import StatusBadge from '@/components/static-scan/StatusBadge.vue'
 import { useDownload, useGet, usePost, useToken } from '@/hooks'
 import { domainLabels, securityCategoryLabels } from './labels'
 
-defineOptions({ name: 'rules' })
+defineOptions({ name: 'StaticScanRules' })
 
 // ===== 左树数据 =====
 const { data: treeData } = useGet<ScanPointTreeNode[]>(ApiSecScanPoint.tree, {}, { immediate: true })

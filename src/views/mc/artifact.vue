@@ -4,7 +4,7 @@ import { computed, ref } from 'vue'
 import { ApiMcArtifact, ApiMcAudit } from '@/api/apis'
 import { formatTime, useDelete, useGet, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
 
-defineOptions({ name: 'mc-artifact' })
+defineOptions({ name: 'McArtifact' })
 
 // ── 制品列表 ──────────────────────────────────
 const queryParams = ref({ kind: '', version: '', page_num: 1, page_size: 20 })

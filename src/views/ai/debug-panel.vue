@@ -5,7 +5,7 @@ import { useGet, usePost } from '@/hooks'
 import { ApiAiAgent, ApiAiSkill, ApiAiInvoke, type AiAgent, type AiSkill, type AiListResult, type AiInvokeResponse } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
 
-defineOptions({ name: 'debug-panel' })
+defineOptions({ name: 'ai-debug-panel' })
 
 // ── Agent 列表 ──────────────────────────────────
 const { data: agentListRaw } = useGet<AiListResult<AiAgent>>(ApiAiAgent.getList, { page_size: 100, status: 'active' }, { immediate: true })

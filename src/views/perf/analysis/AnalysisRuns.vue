@@ -3,9 +3,9 @@ import { Message, Modal } from '@arco-design/web-vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiPerfAnalysisJob, ApiPerfAnalysisTask } from '@/api/perfApis'
-import { useGet, usePost } from '@/hooks'
+import { useGet, usePost, useTableAutoHeight } from '@/hooks'
 
-defineOptions({ name: 'analysis-runs' })
+defineOptions({ name: 'AnalysisRuns' })
 const route = useRoute()
 const router = useRouter()
 const query = ref<any>({ job_id: route.query.job_id, task_type: 'analysis_workflow', page_num: 1, page_size: 20 })
@@ -16,6 +16,10 @@ function changePage(page: number) {
   query.value = { ...query.value, page_num: page }
   fetchRuns()
 }
+
+// 表格高度自适应：滚动条落在表格内，表头固定。容器必须是原生 div。
+const tableWrap = ref<HTMLElement>()
+const { tableHeight } = useTableAutoHeight(tableWrap)
 
 const detailVisible = ref(false)
 const selected = ref<any>()
@@ -110,9 +114,10 @@ onUnmounted(() => {
       <a-alert style="margin-bottom: 16px">
         运行流程：收集慢请求 → 下载 Ops 日志 → AI 根因分析 → 生成问题与报告。“重新分析日志”会复用已下载文件，默认只生成新报告，不创建真实问题。
       </a-alert>
-      <a-table :data="runs" :loading="loading" :pagination="pagination" row-key="id" @page-change="changePage">
+      <div ref="tableWrap">
+      <a-table :data="runs" :loading="loading" :pagination="pagination" row-key="id" column-resizable :scroll="{ y: tableHeight }" @page-change="changePage">
         <template #columns>
-          <a-table-column title="运行ID" data-index="id" :width="190" ellipsis />
+          <a-table-column title="运行ID" data-index="id" :width="190" ellipsis tooltip />
           <a-table-column title="状态" :width="90">
             <template #cell="{ record }">
               <a-tag :color="statusColor(record.status)">
@@ -135,9 +140,9 @@ onUnmounted(() => {
               {{ parseParams(record.params).model_override || '—' }} / {{ record.ai_mode || 'batch' }}
             </template>
           </a-table-column>
-          <a-table-column title="结果摘要" data-index="result_summary" ellipsis />
-          <a-table-column title="开始时间" data-index="started_at" :width="170" />
-          <a-table-column title="完成时间" data-index="finished_at" :width="170" />
+          <a-table-column title="结果摘要" data-index="result_summary" ellipsis tooltip />
+          <a-table-column title="开始时间" data-index="started_at" :width="170" ellipsis tooltip />
+          <a-table-column title="完成时间" data-index="finished_at" :width="170" ellipsis tooltip />
           <a-table-column title="操作" :width="230" fixed="right">
             <template #cell="{ record }">
               <a-space>
@@ -155,6 +160,7 @@ onUnmounted(() => {
           </a-table-column>
         </template>
       </a-table>
+      </div>
     </a-card>
 
     <a-drawer v-model:visible="detailVisible" title="运行详情" :width="720" :footer="false">

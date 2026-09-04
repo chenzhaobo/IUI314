@@ -6,7 +6,7 @@ import { deleteAction, emptyFilter, formatTime, isFilterActive, postAction, putA
 import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import { ApiPerfTestPlan, ApiPerfScript, ApiPerfEnv, ApiPerfIteration, ApiSysDictData, ApiPerfLoadNode } from '@/api/apis'
 
-defineOptions({ name: 'test-plan' })
+defineOptions({ name: 'PerfTestPlan' })
 
 // ── 视图切换：list | edit ──────────────────────────────────
 const viewMode = ref<'list' | 'edit'>('list')

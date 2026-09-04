@@ -8,7 +8,7 @@ import { ApiAiAgent } from '@/api/aiApis'
 import { ApiSecModuleRepository, ApiSecPrescan } from '@/api/sechubApis'
 import { formatTime, postAction, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
 
-defineOptions({ name: 'scan-tasks' })
+defineOptions({ name: 'StaticScanTasks' })
 
 // ═══════════════════════════════════════════════════════════
 //  任务列表

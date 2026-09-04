@@ -4,7 +4,7 @@ import { computed, ref } from 'vue'
 import { ApiSysMigration } from '@/api/apis'
 import { formatTime, useDelete, useGet, usePost } from '@/hooks'
 
-defineOptions({ name: 'db-upgrade' })
+defineOptions({ name: 'DbUpgrade' })
 
 const query = ref({ keyword: '', failed_only: false })
 const { isFetching, data: raw, execute: fetchList } = useGet<any>(ApiSysMigration.getList, query, { immediate: true })

@@ -12,7 +12,7 @@
  *   固定 `y: 400` 之类的写法在大屏上又浪费半屏，所以有了 [`useTableAutoHeight`]。
  */
 
-import { computed, onMounted, onUnmounted, ref, unref } from 'vue'
+import { computed, onActivated, onMounted, onUnmounted, ref, unref } from 'vue'
 import type { Ref } from 'vue'
 
 /** Arco 列配置里我们会批量补的字段（只列用到的，避免引入 Arco 类型依赖） */
@@ -68,11 +68,24 @@ export interface TableAutoHeightOptions {
 
 /**
  * 算出表格体的可用高度，喂给 `:scroll="{ y: tableHeight }"`，
- * 让**滚动条出现在表格内部**、表头固定不动，页面本身不再产生长滚动条。
+ * 让**滚动条出现在表格内部**、表头固定不动。
  *
- * 算法：视口高度 − 表格容器距视口顶部的距离 − `reserve`。
- * 用容器的实时 `getBoundingClientRect().top` 而不是写死的偏移量，
- * 这样上方的筛选卡片展开/收起、面包屑换行都能自动跟随，不用为每个页面调参。
+ * ## 为什么不用 ResizeObserver 观察 body（踩过）
+ * 第一版是 `new ResizeObserver(measure).observe(document.body)`，想让上方筛选区
+ * 展开/收起时自动跟随。但这构成**反馈回路**：
+ *   measure → tableHeight 变 → 表格体高度变 → body 高度变 → observer 再触发 → …
+ * Chrome 会报 `ResizeObserver loop completed with undelivered notifications`
+ * 并丢帧；而本应用的内容还嵌在 `<a-scrollbar>` 里、外面又套了两层 Arco 的
+ * `ResizeObserver` 组件（在 Vue 警告的组件栈里能看到），叠起来足以把渲染卡死。
+ *
+ * 现在只在**确定的时机**测量：挂载后、窗口尺寸变化、keep-alive 重新激活，
+ * 外加一个 2px 阈值 —— 高度没有实质变化就不写 ref，从根上断掉自激。
+ * 筛选区展开这类布局变化不再自动跟随，需要时由页面自己调返回的 `measure()`。
+ *
+ * ## 为什么用 rect.top 而不是 offsetTop
+ * 容器可能嵌在若干层布局里，逐层累加 offsetTop 容易漏掉滚动容器。
+ * 但 `getBoundingClientRect().top` 是**视口相对**的，页面滚动时会变 ——
+ * 所以只在上述离散时机取值，不跟随滚动，否则滚动时表格高度会跳。
  *
  * @example
  * const tableWrap = ref<HTMLElement>()
@@ -93,9 +106,15 @@ export function useTableAutoHeight(
   function measure() {
     if (typeof window === 'undefined')
       return
-    viewportHeight.value = window.innerHeight
     const el = unref(container)
-    containerTop.value = el ? el.getBoundingClientRect().top : 0
+    const nextTop = el ? el.getBoundingClientRect().top : 0
+    const nextVh = window.innerHeight
+    // 2px 阈值：高度没有实质变化就不写 ref。这是断开
+    // 「改高度 → 触发布局变化 → 又来测量」自激回路的关键一环。
+    if (Math.abs(nextVh - viewportHeight.value) > 2)
+      viewportHeight.value = nextVh
+    if (Math.abs(nextTop - containerTop.value) > 2)
+      containerTop.value = nextTop
   }
 
   const tableHeight = computed<number | undefined>(() => {
@@ -105,23 +124,21 @@ export function useTableAutoHeight(
     return Math.max(min, Math.round(available))
   })
 
-  let observer: ResizeObserver | undefined
-
   onMounted(() => {
-    measure()
+    // 等一帧再测：挂载瞬间上方的筛选卡片可能还没渲染完，此时 top 偏小、
+    // 会算出过高的表格高度，导致首屏出现一次多余的整页滚动条。
+    requestAnimationFrame(measure)
     window.addEventListener('resize', measure)
-    // 上方筛选区展开/收起不会触发 window resize，但会改变容器的 top，
-    // 所以还要观察 body 尺寸变化。ResizeObserver 在目标环境（Chrome/Edge）均可用；
-    // 兜底判断是为了 SSR/单测里没有该 API 时不炸。
-    if (typeof ResizeObserver !== 'undefined') {
-      observer = new ResizeObserver(measure)
-      observer.observe(document.body)
-    }
+  })
+
+  // 页面被 keep-alive 缓存后，再次进入不会走 onMounted，但窗口尺寸/布局可能已变，
+  // 不重测就会用上次的旧高度。
+  onActivated(() => {
+    requestAnimationFrame(measure)
   })
 
   onUnmounted(() => {
     window.removeEventListener('resize', measure)
-    observer?.disconnect()
   })
 
   return { tableHeight, measure }
