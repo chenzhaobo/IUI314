@@ -45,7 +45,8 @@
       </a-row>
 
       <div ref="tableWrap">
-      <a-table :data="tableData" :loading="loading" :pagination="pagination" column-resizable :scroll="{ y: tableHeight }" @page-change="handlePageChange">
+      <a-table :data="tableData" :loading="loading" :pagination="pagination" column-resizable :scroll="{ y: tableHeight }" @page-change="handlePageChange"
+ @page-size-change="handlePageSizeChange">
         <template #columns>
           <a-table-column title="标题" data-index="title" :width="250" ellipsis tooltip />
           <a-table-column title="类型" data-index="analysis_type" :width="80">
@@ -248,11 +249,14 @@ const statusColor = (s: string) => ({ draft: 'gray', published: 'green', archive
 const queryParams = computed(() => ({ ...searchForm, page_num: pageNum.value, page_size: pageSize.value }))
 const { isFetching: loading, data: rawData, execute: fetchData } = useGet<any>(ApiPerfReportV2.getList, queryParams, { immediate: true })
 const tableData = computed(() => rawData.value?.list || [])
-const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0 }))
+const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0, showTotal: true, showPageSize: true }))
 
 const handleSearch = () => { pageNum.value = 1; fetchData() }
 const handleReset = () => { Object.assign(searchForm, { keyword: '', analysis_type: '', status: '', dimension_type: '', dimension_value: '' }); handleSearch() }
 const handlePageChange = (page: number) => { pageNum.value = page; fetchData() }
+// 改每页条数必须同时回到第 1 页：原本停在第 5 页、条数改大后该页往往已超出总页数，
+// 后端返回空列表，看起来像"数据没了"。
+const handlePageSizeChange = (size: number) => { pageSize.value = size; pageNum.value = 1; fetchData() }
 
 async function fetchReportDetail(id: string) {
   const { data, execute } = useGet<any>(ApiPerfReportV2.getById, { id }, { immediate: false })

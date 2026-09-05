@@ -12,7 +12,11 @@ node_modules
 dist
 dev-dist
 dist-ssr
-coverage
+# 只忽略根目录的测试覆盖率产物。
+# 裸写 coverage 会匹配**任意层级**的同名目录 —— 它曾把 src/views/perf/coverage/
+# 整个源码目录忽略掉，导致「覆盖率看板」「覆盖率明细」两个页面从未进入仓库，
+# 菜单指向的组件在别人 clone 后并不存在。
+/coverage
 *.local
 
 /cypress/videos/

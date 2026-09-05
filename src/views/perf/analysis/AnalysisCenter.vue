@@ -14,7 +14,7 @@
       </a-alert>
 
       <div ref="tableWrap">
-      <a-table :data="jobs" :loading="loading" :pagination="pagination" row-key="id" column-resizable :scroll="{ y: tableHeight }" @page-change="changePage">
+      <a-table :data="jobs" :loading="loading" :pagination="pagination" row-key="id" column-resizable :scroll="{ y: tableHeight }" @page-change="changePage" @page-size-change="changePageSize">
         <template #columns>
           <a-table-column title="任务名称" data-index="task_name" :width="190" ellipsis tooltip />
           <a-table-column title="分析范围" :width="230">
@@ -127,8 +127,13 @@ const router = useRouter()
 const query = ref<any>({ keyword: '', page_num: 1, page_size: 20 })
 const { data, isFetching: loading, execute: fetchJobs } = useGet<any>(ApiPerfAnalysisJob.getList, query, { immediate: true })
 const jobs = computed(() => data.value?.list || [])
-const pagination = computed(() => ({ current: data.value?.page_num || 1, total: data.value?.total || 0, pageSize: 20, showTotal: true }))
+// pageSize 读 query 而非写死 20：写死后改条数分页条显示不变，看着像没生效
+const pagination = computed(() => ({ current: data.value?.page_num || 1, total: data.value?.total || 0, pageSize: query.value.page_size, showTotal: true, showPageSize: true }))
 const changePage = (page: number) => { query.value = { ...query.value, page_num: page }; fetchJobs() }
+
+// 改条数要回第 1 页：原本停在第 5 页、条数改大后该页往往已超出总页数，
+// 后端返回空列表，看着像"数据没了"。
+const changePageSize = (size: number) => { query.value = { ...query.value, page_size: size, page_num: 1 }; fetchJobs() }
 
 // 表格高度自适应：滚动条落在表格内，表头固定。容器必须是原生 div（组件 ref 是实例，没有 getBoundingClientRect）
 const tableWrap = ref<HTMLElement>()

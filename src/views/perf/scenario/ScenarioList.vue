@@ -34,7 +34,8 @@
       <!-- 数据表格 -->
       <!-- 原生 div 挂 ref：组件 ref 拿到的是实例、没有 getBoundingClientRect -->
       <div ref="tableWrap">
-      <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange" row-key="id" :scroll="{ y: tableHeight }">
+      <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange"
+ @page-size-change="handlePageSizeChange" row-key="id" :scroll="{ y: tableHeight }">
         <template #columns>
           <a-table-column title="场景名称" data-index="name" :width="200" />
           <a-table-column title="应用" data-index="app_name" :width="120" />
@@ -165,13 +166,16 @@ const formData = reactive<any>({
 const queryParams = computed(() => ({ ...searchForm, page_num: pageNum.value, page_size: pageSize.value }))
 const { isFetching: loading, data: rawData, execute: fetchData } = useGet<any>(ApiPerfScenario.getList, queryParams, { immediate: true })
 const tableData = computed(() => rawData.value?.list || [])
-const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0 }))
+const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0, showTotal: true, showPageSize: true }))
 
 const statusColor = (s: string) => ({ pending: 'orange', confirmed: 'blue', implemented: 'green', ignored: 'gray' }[s] || 'gray')
 const statusText = (s: string) => ({ pending: '待确认', confirmed: '已确认', implemented: '已实现', ignored: '已忽略' }[s] || s)
 const priorityColor = (p: string) => ({ high: 'red', medium: 'orange', low: 'blue' }[p] || 'gray')
 
 const handlePageChange = (page: number) => { pageNum.value = page; fetchData() }
+// 改每页条数必须同时回到第 1 页：原本停在第 5 页、条数改大后该页往往已超出总页数，
+// 后端返回空列表，看起来像"数据没了"。
+const handlePageSizeChange = (size: number) => { pageSize.value = size; pageNum.value = 1; fetchData() }
 
 const handleAdd = () => {
   Object.assign(formData, { id: '', name: '', description: '', app_number: '', app_name: '', form_id: '', form_name: '', operation_type: '', test_steps: '', expected_result: '', priority: '' })

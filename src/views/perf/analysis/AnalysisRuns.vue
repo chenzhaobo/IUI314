@@ -11,9 +11,17 @@ const router = useRouter()
 const query = ref<any>({ job_id: route.query.job_id, task_type: 'analysis_workflow', page_num: 1, page_size: 20 })
 const { data, isFetching: loading, execute: fetchRuns } = useGet<any>(ApiPerfAnalysisTask.getList, query, { immediate: true })
 const runs = computed(() => data.value?.list || [])
-const pagination = computed(() => ({ current: data.value?.page_num || 1, total: data.value?.total || 0, pageSize: 20, showTotal: true }))
+// pageSize 读 query 而非写死 20：写死后改条数分页条显示不变，看着像没生效
+const pagination = computed(() => ({ current: data.value?.page_num || 1, total: data.value?.total || 0, pageSize: query.value.page_size, showTotal: true, showPageSize: true }))
 function changePage(page: number) {
   query.value = { ...query.value, page_num: page }
+  fetchRuns()
+}
+
+// 改条数要回第 1 页：原本停在第 5 页、条数改大后该页往往已超出总页数，
+// 后端返回空列表，看着像"数据没了"。
+function changePageSize(size: number) {
+  query.value = { ...query.value, page_size: size, page_num: 1 }
   fetchRuns()
 }
 
@@ -115,7 +123,7 @@ onUnmounted(() => {
         运行流程：收集慢请求 → 下载 Ops 日志 → AI 根因分析 → 生成问题与报告。“重新分析日志”会复用已下载文件，默认只生成新报告，不创建真实问题。
       </a-alert>
       <div ref="tableWrap">
-      <a-table :data="runs" :loading="loading" :pagination="pagination" row-key="id" column-resizable :scroll="{ y: tableHeight }" @page-change="changePage">
+      <a-table :data="runs" :loading="loading" :pagination="pagination" row-key="id" column-resizable :scroll="{ y: tableHeight }" @page-change="changePage" @page-size-change="changePageSize">
         <template #columns>
           <a-table-column title="运行ID" data-index="id" :width="190" ellipsis tooltip />
           <a-table-column title="状态" :width="90">

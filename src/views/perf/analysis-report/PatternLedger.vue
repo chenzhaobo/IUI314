@@ -78,7 +78,8 @@
 
           <!-- 表格 -->
           <div ref="tableWrap" class="table-fill">
-          <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange" row-key="id" column-resizable :scroll="{ minWidth: 1600, y: tableHeight }">
+          <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange"
+ @page-size-change="handlePageSizeChange" row-key="id" column-resizable :scroll="{ minWidth: 1600, y: tableHeight }">
             <template #columns>
               <a-table-column title="编号" data-index="pattern_no" :width="100" ellipsis tooltip />
               <a-table-column title="标题" data-index="title" :width="250" ellipsis tooltip />
@@ -469,7 +470,7 @@ const handleMoreAction = (key: string, record: any) => {
       break
   }
 }
-const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0 }))
+const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0, showTotal: true, showPageSize: true }))
 
 // ── 操作 ──────────────────────────────────────
 const handleScopeChange = (scope: {
@@ -508,6 +509,9 @@ const handleReset = () => {
   handleSearch()
 }
 const handlePageChange = (page: number) => { pageNum.value = page; fetchData() }
+// 改每页条数必须同时回到第 1 页：原本停在第 5 页、条数改大后该页往往已超出总页数，
+// 后端返回空列表，看起来像"数据没了"。
+const handlePageSizeChange = (size: number) => { pageSize.value = size; pageNum.value = 1; fetchData() }
 // ── 缺陷报告 md 原文 ──────────────────────────────────
 // 直接渲染 md 而不是把内容拆成十几个框：md 里的耗时分解表格与代码块是报告
 // 最有用的部分，拆框会丢掉；而且归因提示词一改章节，拆框逻辑就得跟着改。

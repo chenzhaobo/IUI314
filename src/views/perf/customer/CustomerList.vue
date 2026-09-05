@@ -27,7 +27,8 @@
       <!-- 表格 -->
       <!-- 原生 div 挂 ref：组件 ref 拿到的是实例、没有 getBoundingClientRect -->
       <div ref="tableWrap">
-      <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange" :scroll="{ y: tableHeight }">
+      <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange"
+ @page-size-change="handlePageSizeChange" :scroll="{ y: tableHeight }">
         <template #columns>
           <a-table-column title="客户名称" data-index="customer_name" :width="200" />
           <a-table-column title="租户编码" data-index="tenant_code" :width="120" />
@@ -142,7 +143,7 @@ const formData = reactive<any>({
 const queryParams = computed(() => ({ ...searchForm, page_num: pageNum.value, page_size: pageSize.value }))
 const { isFetching: loading, data: rawData, execute: fetchData } = useGet<any>(ApiPerfCustomer.getList, queryParams, { immediate: true })
 const tableData = computed(() => rawData.value?.list || [])
-const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0 }))
+const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0, showTotal: true, showPageSize: true }))
 
 const handleSearch = () => { pageNum.value = 1; fetchData() }
 const handleReset = () => {
@@ -152,6 +153,9 @@ const handleReset = () => {
   handleSearch()
 }
 const handlePageChange = (page: number) => { pageNum.value = page; fetchData() }
+// 改每页条数必须同时回到第 1 页：原本停在第 5 页、条数改大后该页往往已超出总页数，
+// 后端返回空列表，看起来像"数据没了"。
+const handlePageSizeChange = (size: number) => { pageSize.value = size; pageNum.value = 1; fetchData() }
 
 const handleAdd = () => {
   isEdit.value = false

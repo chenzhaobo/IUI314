@@ -8,7 +8,8 @@
       <!-- 任务列表 -->
       <!-- 原生 div 挂 ref：组件 ref 拿到的是实例、没有 getBoundingClientRect -->
       <div ref="tableWrap">
-      <a-table :data="taskList" :loading="loading" :pagination="pagination" @page-change="handlePageChange" row-key="id" :scroll="{ y: tableHeight }">
+      <a-table :data="taskList" :loading="loading" :pagination="pagination" @page-change="handlePageChange"
+ @page-size-change="handlePageSizeChange" row-key="id" :scroll="{ y: tableHeight }">
         <template #columns>
           <a-table-column title="任务名称" :width="220">
             <template #cell="{ record }">
@@ -232,8 +233,11 @@ const pageSize = ref(20)
 const queryParams = computed(() => ({ page_num: pageNum.value, page_size: pageSize.value }))
 const { isFetching: loading, data: rawData, execute: fetchTasks } = useGet<any>(ApiPerfSyncTask.list, queryParams, { immediate: true })
 const taskList = computed(() => rawData.value?.list || [])
-const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0 }))
+const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0, showTotal: true, showPageSize: true }))
 const handlePageChange = (page: number) => { pageNum.value = page; fetchTasks() }
+// 改每页条数必须同时回到第 1 页：原本停在第 5 页、条数改大后该页往往已超出总页数，
+// 后端返回空列表，看起来像"数据没了"。
+const handlePageSizeChange = (size: number) => { pageSize.value = size; pageNum.value = 1; fetchTasks() }
 
 // ── 维度选项（级联） ──────────────────────────────
 const domainOptions = ref<any[]>([])

@@ -147,6 +147,17 @@ export function useTableAutoHeight(
    * 这里改成**实测**：把容器之后的所有兄弟节点高度加起来。
    * 只看兄弟节点是有意的 —— 它们的高度不随表格高度变化，不会形成反馈回路。
    */
+  /** 元素高度 + 上下外边距；元素不存在或隐藏时返回 0 */
+  function outerHeight(node: Element | null) {
+    if (!node)
+      return 0
+    const r = node.getBoundingClientRect()
+    if (r.height === 0)
+      return 0
+    const cs = window.getComputedStyle(node)
+    return r.height + Number.parseFloat(cs.marginTop || '0') + Number.parseFloat(cs.marginBottom || '0')
+  }
+
   function measureBelow(el: HTMLElement) {
     let total = 0
     let sib = el.nextElementSibling
@@ -169,12 +180,34 @@ export function useTableAutoHeight(
       早期版本靠 `reserve = 96` 这个常量把它包含进去，但常量对"没有分页的表"
       又会多减，所以这里改成按实际存在与否去测。
     */
-    const pager = el.querySelector('.arco-table-pagination')
-    if (pager) {
-      const r = pager.getBoundingClientRect()
-      const cs = window.getComputedStyle(pager)
-      total += r.height + Number.parseFloat(cs.marginTop || '0') + Number.parseFloat(cs.marginBottom || '0')
-    }
+    total += outerHeight(el.querySelector('.arco-table-pagination'))
+
+    /*
+      表头同样要减掉。
+
+      关键是 `scroll.y` 在 Arco 里落到的是**表格体**（`.arco-table-body`）的
+      max-height，**不含表头**。所以：
+
+          表格总高 = 表头 + 表格体 + 分页条
+
+      只减分页条时，整张表就比可用空间高出一个表头（约 40~48px），
+      页面因此还是要滚一小段 —— 现象是"看起来快对了，但还得往下滚一点"。
+      早期 `reserve = 96` 的常量里混着表头这份，改成实测后一度漏掉了它。
+
+      表头高度取实测而非常量：`size="mini|small|medium"`、多级表头、
+      带筛选图标的表头高度都不一样。
+    */
+    /*
+      `.arco-table-header` 这个独立元素**只在表头与表体分离时才存在** ——
+      Arco 的判定是 `isScroll.y || stickyHeader || 虚拟列表 || (isScroll.x && 无数据)`
+      （`table.js` 的 `splitTable`）。
+
+      而 `scroll.y` 恰好是我们**算出来才会设上**的，于是首帧还没有它，
+      测不到表头就会把高度算大一点，等表头出现后第二次测量才修正 ——
+      用户能看到表格加载后轻微收缩一次。
+      所以拿不到独立表头时退回量 `thead`（单表格形态下的表头行），一次就准。
+    */
+    total += outerHeight(el.querySelector('.arco-table-header') ?? el.querySelector('thead'))
 
     return total
   }
@@ -259,9 +292,13 @@ export function useTableAutoHeight(
       observer.observe(el)
     // 分页条在数据回来后才渲染，出现/消失都会改变可用高度。
     // 观察它是安全的：分页条高度固定，不随表格体高度变化。
-    const pager = el.querySelector('.arco-table-pagination')
-    if (pager)
-      observer.observe(pager)
+    // 分页条在数据回来后才渲染；表头在列变化时高度会变。
+    // 两者高度都**不随表格体高度变化**，所以观察它们不会形成自激回路。
+    for (const sel of ['.arco-table-pagination', '.arco-table-header']) {
+      const node = el.querySelector(sel)
+      if (node)
+        observer.observe(node)
+    }
   }
 
   /**
