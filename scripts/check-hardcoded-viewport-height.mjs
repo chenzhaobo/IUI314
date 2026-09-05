@@ -108,15 +108,72 @@ const OVERFLOW_Y = /overflow-y:\s*(auto|scroll)|overflowY:\s*['"](auto|scroll)['
 const HAS_OVERFLOW_X = /overflow-x|overflowX/
 
 // 也扫 scss —— 共享工具类里同样栽过这个坑（`.panel-scroll-y` 只写了 overflow-y）
+/**
+ * 第三项检查：`<style scoped>` 里定义了但模板/脚本里没用到的类（孤儿规则）。
+ *
+ * ## 为什么要拦
+ * 改类名时很容易只改一处。真实案例：问题列表的工具行模板改成了
+ * `class="table-toolbar"`，样式里却还是 `.toolbar` —— 于是
+ * **工具行完全没有 flex 布局**（按钮紧贴、导出/新增没被推到右端），
+ * 而 `vue-tsc` 和 `vite build` 都不会报错，只有用户看到。
+ *
+ * 孤儿规则就是这种脱节的可检测信号：类名改了，旧规则留在原地没人用。
+ *
+ * ## 为什么噪音可控
+ * `<style scoped>` 是**页面局部**的，里面的类本就应该在同一个文件里用到。
+ * 需要排除的只有几类"不由本文件模板写出"的类名，列在 CLASS_ALLOW 里。
+ */
+const CLASS_ALLOW = [
+  /^arco-/, // Arco 内部类（嵌套选择器里直接写、不一定套 :deep）
+  /^router-link/, // vue-router 自动加的
+  /-(enter|leave)(-(from|to|active))?$/, // <transition name="x"> 自动生成的 x-enter-from 等
+  /^markdown-body$/, // md 渲染库的类
+]
+
+/**
+ * 动态类名：`:class="[\`side-${x}\`]"` 这种拼出来的，静态搜不到。
+ * 只要模板里出现过同前缀的模板字符串，就认为该类可能被用到。
+ */
+function usedDynamically(rest, cls) {
+  const parts = cls.split('-')
+  for (let i = parts.length - 1; i > 0; i--) {
+    if (rest.includes(`\`${parts.slice(0, i).join('-')}-$`))
+      return true
+  }
+  return false
+}
+
 const files = [...globSync('src/**/*.vue'), ...globSync('src/**/*.scss')]
 const offenders = []
 const overflowOffenders = []
+const orphanOffenders = []
 
 for (const file of files) {
   const rel = file.replace(/\\/g, '/')
   if (ALLOWLIST.has(rel))
     continue
-  const lines = readFileSync(file, 'utf-8').split(/\r?\n/)
+  const raw = readFileSync(file, 'utf-8')
+  const lines = raw.split(/\r?\n/)
+  // 孤儿 scoped 类
+  if (rel.endsWith('.vue')) {
+    const styleMatch = raw.match(/<style[^>]*\bscoped\b[^>]*>([\s\S]*?)<\/style>/)
+    if (styleMatch) {
+      // :deep(...) 内部是子组件的类，不该出现在本文件模板里
+      const own = styleMatch[1].replace(/:deep\([^)]*\)/g, ' ')
+      const defined = new Set([...own.matchAll(/(?:^|[\s,>+~])\.([a-zA-Z][\w-]*)/g)].map(x => x[1]))
+      const rest = raw.slice(0, raw.indexOf(styleMatch[0]))
+      for (const cls of defined) {
+        if (CLASS_ALLOW.some(re => re.test(cls)))
+          continue
+        if (usedDynamically(rest, cls))
+          continue
+        const used = new RegExp(`["'\\s.]${cls.replace(/-/g, '\\-')}["'\\s.$]`).test(rest)
+        if (!used)
+          orphanOffenders.push(`${rel}  →  .${cls}`)
+      }
+    }
+  }
+
   const anchored = markViewportAnchoredLines(lines)
   const comments = markCommentLines(lines)
   lines.forEach((line, idx) => {
@@ -131,6 +188,18 @@ for (const file of files) {
         overflowOffenders.push(`${rel}:${idx + 1}\n    ${line.trim()}`)
     }
   })
+}
+
+if (orphanOffenders.length) {
+  console.error(
+    `\n✗ 发现 ${orphanOffenders.length} 处 <style scoped> 里定义了但没用到的类：\n\n${orphanOffenders.map(o => `  ${o}`).join('\n')}\n`
+    + '\n  这通常意味着**类名改了一半**：模板换了新名字，旧样式规则留在原地。'
+    + '\n  真实案例：模板改成 class="table-toolbar" 而样式里还是 .toolbar，'
+    + '\n  结果工具行完全没有 flex 布局，而 vue-tsc 与 vite build 都不报错。'
+    + '\n\n  要么删掉没用的规则，要么把模板/样式改成同一个名字。'
+    + '\n  确实由外部写入的类名（Arco 内部、路由、过场动画）请加进 CLASS_ALLOW。\n',
+  )
+  process.exit(1)
 }
 
 if (overflowOffenders.length) {
@@ -157,4 +226,4 @@ if (offenders.length) {
   process.exit(1)
 }
 
-console.log('✔ 未发现写死的视口高度偏移，也未发现只写纵向 overflow 的容器')
+console.log('✔ 视口高度、overflow 轴向、孤儿 scoped 类三项检查均通过')

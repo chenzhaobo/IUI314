@@ -255,7 +255,6 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
 
 <style scoped>
 .ai-execution-log { padding: 0; }
-.card-sub { margin-left: 12px; color: var(--color-text-3); font-weight: normal; font-size: 12px; }
 .detail-pre { max-height: 300px; overflow: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all; background: var(--color-fill-1); padding: 12px; border-radius: 4px; }
 .error-text { color: rgb(var(--red-6)); }
 </style>

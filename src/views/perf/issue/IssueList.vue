@@ -103,55 +103,55 @@
         </div>
 
 
-        <!--
-        布局行必须有**确定高度**，不能只给 min-height：
+      <!--
+        左树右表骨架交给 ListPage：确定高度、min-height:0 链、overflow-x、
+        左栏内部滚动、工具行固定、表格体高度这些细节都在组件里。
         IssueScopeTree 内部是 `flex:1; min-height:0; overflow:auto`（自己滚），
-        但那要求父级高度确定 —— 只有 min-height 时父级仍是 auto，
-        树会一路把页面撑长（反馈：左树太长导致出现页面滚动条）。
-        高度用实测而非写死 calc(100vh - N)：写死值只要与实际顶边不符就会超出视口。
+        需要父级高度确定，ListPage 的左栏正好提供这一点。
       -->
-      <div ref="layoutRow" class="scope-layout" :style="{ height: layoutRowH + 'px' }">
-          <aside class="scope-panel panel-scroll-y">
-            <IssueScopeTree :key="scopeTreeKey" :filters="scopeCountFilters" source="issue" @change="handleScopeChange" />
-          </aside>
-          <div class="scope-content">
-            <!--
-              对表格记录的操作按钮放在**表格正上方**、与选中提示同一行。
-              这样按钮紧邻它作用的对象；也不再和筛选字段抢同一行的宽度。
-            -->
-            <div class="table-toolbar">
-              <!-- 内部处理流程：勾选行后点。与「状态」列（生产复现状态）是两个维度，不会互相覆盖 -->
-              <a-button type="primary" :disabled="!selectedIds.length" @click="openClaim">认领</a-button>
-              <a-dropdown :disabled="!selectedIds.length" @select="(v) => transition(String(v))">
-                <a-button :disabled="!selectedIds.length" :loading="transitionLoading">
-                  处理状态
-                  <template #icon><icon-down /></template>
-                </a-button>
-                <template #content>
-                  <a-doption v-for="s in PROCESS_FLOW" :key="s.value" :value="s.value">
-                    {{ s.label }}
-                  </a-doption>
-                </template>
-              </a-dropdown>
-              <a-button :disabled="!selectedIds.length" @click="openDmp">DMP 编码</a-button>
-              <span v-if="selectedIds.length" class="sel-hint">已选 {{ selectedIds.length }} 条</span>
-              <div class="toolbar-spacer" />
-              <a-button status="success" @click="handleExport">导出 Excel</a-button>
-              <a-button type="primary" status="success" @click="handleAdd">新增</a-button>
-            </div>
-            <!-- 表格 -->
-            <!--
-              操作列是 fixed="right"，但这张表原本**没有 :scroll.x** ——
-              Arco 只有在有横向滚动容器时才能正确定位固定列，缺了它操作列会
-              溢出到表格右边界之外（反馈："按钮超右边了"）。
-              16 个列宽合计 1965px，取整设为 scroll.x；容器更宽时 Arco 会自动拉伸，
-              不会因此凭空多出横向滚动条。
-            -->
-            <!-- ref 挂在只包表格的这一层：挂到含工具行的外层会把工具行高度
-                 也算进可用高度，表格就会超出而把整栏顶出外层滚动条 -->
-            <div ref="tableWrap" class="table-fill">
+      <ListPage :aside-width="280">
+        <template #aside>
+          <IssueScopeTree :key="scopeTreeKey" :filters="scopeCountFilters" source="issue" @change="handleScopeChange" />
+        </template>
+
+        <!--
+          对表格记录的操作按钮放在**表格正上方**、与选中提示同一行。
+          这样按钮紧邻它作用的对象；也不再和筛选字段抢同一行的宽度。
+          工具行的 flex 布局由 ListPage 的 `.lp-toolbar` 负责 ——
+          此前这里自己写 `class="table-toolbar"` 而样式里只有 `.toolbar`，
+          类名对不上，工具行根本没有 flex（按钮紧贴、导出/新增没被推到右端）。
+        -->
+        <template #toolbar>
+          <!-- 内部处理流程：勾选行后点。与「状态」列（生产复现状态）是两个维度，不会互相覆盖 -->
+          <a-button type="primary" :disabled="!selectedIds.length" @click="openClaim">认领</a-button>
+          <a-dropdown :disabled="!selectedIds.length" @select="(v) => transition(String(v))">
+            <a-button :disabled="!selectedIds.length" :loading="transitionLoading">
+              处理状态
+              <template #icon><icon-down /></template>
+            </a-button>
+            <template #content>
+              <a-doption v-for="s in PROCESS_FLOW" :key="s.value" :value="s.value">
+                {{ s.label }}
+              </a-doption>
+            </template>
+          </a-dropdown>
+          <a-button :disabled="!selectedIds.length" @click="openDmp">DMP 编码</a-button>
+          <span v-if="selectedIds.length" class="sel-hint">已选 {{ selectedIds.length }} 条</span>
+          <!-- 把导出/新增推到右端：它们是全局动作，与左侧的选中行操作分组 -->
+          <div class="toolbar-spacer" />
+          <a-button status="success" @click="handleExport">导出 Excel</a-button>
+          <a-button type="primary" status="success" @click="handleAdd">新增</a-button>
+        </template>
+
+        <template #default="{ tableHeight }">
+          <!--
+            操作列是 fixed="right"，所以必须给 scroll 一个横向尺寸 ——
+            Arco 只有在有横向滚动容器时才能正确定位固定列，缺了它操作列会
+            溢出到表格右边界之外。
+            用 minWidth 而非 x：x 会被当成固定 width，容器更宽时表格停在那个宽度、
+            右边留白。16 个列宽合计 1965px。
+          -->
             <a-table
-              column-resizable
               :data="tableData"
               :loading="loading"
               :pagination="pagination"
@@ -161,6 +161,7 @@
               row-key="id"
               @selection-change="onSelectionChange"
               @page-change="handlePageChange"
+              @page-size-change="handlePageSizeChange"
             >
               <template #columns>
                 <a-table-column title="编号" data-index="issue_no" :width="130" />
@@ -227,9 +228,8 @@
                 </a-table-column>
               </template>
             </a-table>
-            </div>
-          </div>
-        </div>
+        </template>
+      </ListPage>
       </a-card>
 
       <!-- 详情抽屉 -->
@@ -421,22 +421,14 @@ import { MdPreview } from 'md-editor-v3'
 // 必须导入样式，否则 MdPreview 渲染出来没有任何格式
 import 'md-editor-v3/lib/style.css'
 import { ApiPerfIssue, ApiPerfPatternLedger } from '@/api/perfApis'
-import { useDelete, useDownload, useGet, usePost, usePut, useTableAutoHeight, useAutoHeight } from '@/hooks'
+import ListPage from '@/components/common/ListPage.vue'
+import { useDelete, useDownload, useGet, usePost, usePut } from '@/hooks'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
 import { useUserStore } from '@/stores'
 
 defineOptions({ name: 'issue-list' })
 
-// 表格高度自适应：滚动条落在表格内、表头固定
-// 布局行高度实测（左树靠它才能内部滚动，见模板处说明）
-const layoutRow = ref<HTMLElement>()
-const { height: layoutRowH } = useAutoHeight(layoutRow)
-
-const tableWrap = ref<HTMLElement>()
-// fillParent：容器是定高 flex 列里的 flex:1 子项，高度已确定。
-// 从视口反推会与这块空间差出一截，表格溢出后会把整栏顶出外层滚动条，
-// 表现为工具行跟着一起滚。
-const { tableHeight } = useTableAutoHeight(tableWrap, { fillParent: true })
+// 高度测量、min-height:0 链、overflow-x 全部由 ListPage 负责，页面不再维护 ref。
 
 const route = useRoute()
 const initialKeyword = typeof route.query.keyword === 'string' ? route.query.keyword : ''
@@ -618,7 +610,7 @@ function toggleDmpUnlinked() {
 const queryParams = computed(() => ({ ...searchForm, page_num: pageNum.value, page_size: pageSize.value }))
 const { isFetching: loading, data: rawData, execute: fetchData } = useGet<any>(ApiPerfIssue.getList, queryParams, { immediate: true })
 const tableData = computed(() => rawData.value?.list || [])
-const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0 }))
+const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0, showTotal: true, showPageSize: true }))
 
 const traceIdList = (raw?: string): string[] => (raw || '').split(/[,;\s]+/).filter(Boolean)
 const prettyJson = (value: any): string => {
@@ -737,6 +729,9 @@ const handleReset = () => {
   handleSearch()
 }
 const handlePageChange = (page: number) => { pageNum.value = page; fetchData() }
+// 改每页条数必须同时回到第 1 页：原本停在第 5 页、条数改大后该页往往已超出总页数，
+// 后端返回空列表，看起来像"数据没了"。
+const handlePageSizeChange = (size: number) => { pageSize.value = size; pageNum.value = 1; fetchData() }
 const handleDetail = (record: any) => {
   currentRecord.value = record
   drawerVisible.value = true
@@ -788,19 +783,22 @@ const handleDelete = async (record: any) => {
 
 <style scoped>
 /* 筛选区：按需宽度 + 放不下自动换行，不再用 24 等分的 span 硬凑 */
-.filter-bar,
-.toolbar {
+.filter-bar {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-}
-.filter-bar {
   margin-bottom: 8px;
 }
-.toolbar {
-  margin-bottom: 16px;
-}
+
+/*
+  字段宽度必须落在**包裹 div** 上，不能直接写给 Arco 组件。
+
+  Arco 的 Input / Select 都是 `inheritAttrs: false`（`es/input/input.js`、
+  `es/select/select.js`），传给组件的 class 不会落到根节点 ——
+  早先直接给 `<a-select class="f-mid">` 写宽度，那些类从未生效，
+  控件保持 Arco 自带的 `width: 100%`，在 flex 容器里就变成每个占满一行。
+*/
 .f-wide {
   width: 240px;
 }
@@ -814,25 +812,23 @@ const handleDelete = async (record: any) => {
 .f-dmp {
   width: 240px;
 }
+
+/* 控件填满它的包裹 div。用 :deep —— 这些是子组件根节点，
+   `inheritAttrs: false` 时不该依赖 scope id 一定落在上面。 */
+.filter-bar > div :deep(.arco-select),
+.filter-bar > div :deep(.arco-input-wrapper),
+.filter-bar > div :deep(.arco-input-group) {
+  width: 100%;
+}
 .f-dmp :deep(.arco-input-wrapper) {
   flex: 1;
 }
 
-/* min-height:0 让两栏可被压缩，内部 overflow 才会触发（flex 默认 min-height:auto 会拒绝压缩） */
-.scope-layout { display: flex; gap: 16px; min-height: 520px; align-items: stretch; }
-.scope-panel { width: 280px; flex-shrink: 0; min-height: 0; padding-right: 12px; border-right: 1px solid var(--color-border-2); }
-/*
-  右栏纵向 flex 且**自己不滚**：工具行固定，滚动发生在表格体内部
-  （Arco 的 .arco-table-body 自带 overflow:auto，表头固定）。
-  给它 overflow 会让工具行跟着滚走、表头也离开视口。
-*/
-.scope-content {
-  display: flex;
-  flex-direction: column;
+/* 把导出/新增推到工具行右端（工具行本身的 flex 由 ListPage 提供） */
+.toolbar-spacer {
   flex: 1;
-  min-width: 0;
-  min-height: 0;
 }
+
 .markdown-content { white-space: pre-wrap; background: var(--color-fill-1); padding: 12px; border-radius: 4px; }
 .json-content { margin: 0; max-height: 360px; overflow: auto; white-space: pre-wrap; word-break: break-all; background: var(--color-fill-1); padding: 12px; border-radius: 4px; }
 
