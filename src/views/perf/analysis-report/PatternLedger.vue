@@ -83,6 +83,50 @@
             <template #columns>
               <a-table-column title="编号" data-index="pattern_no" :width="100" ellipsis tooltip />
               <a-table-column title="标题" data-index="title" :width="250" ellipsis tooltip />
+              <!-- 影响面放在标题后面：排期时先看它。
+                   分数本身说明不了什么，所以悬停给出六项输入和它们怎么合成 ——
+                   看到「78 分」没用，看到「4331 人次 / 3 个客户 / 平均 1.7 秒」才能判断。 -->
+              <a-table-column title="影响面" :width="110" :sortable="{ sortDirections: ['descend', 'ascend'] }" data-index="impact_score">
+                <template #cell="{ record }">
+                  <a-tooltip v-if="record.impact_score !== null && record.impact_score !== undefined" position="right">
+                    <template #content>
+                      <div style="line-height: 1.9; min-width: 300px">
+                        <div style="font-weight: 600; margin-bottom: 4px">
+                          影响面 {{ record.impact_score }} 分（{{ record.impact_level }}）
+                        </div>
+                        <div v-for="row in impactRows(record)" :key="row.k" style="display: flex; gap: 10px">
+                          <span style="width: 84px; opacity: 0.75">{{ row.k }}</span>
+                          <span style="flex: 1">{{ row.v }}</span>
+                        </div>
+                        <div style="margin-top: 6px; opacity: 0.7; font-size: 12px">
+                          影响面 = 受影响人次 × 客户广度 × 体验劣化，不是严重程度
+                        </div>
+                      </div>
+                    </template>
+                    <span>
+                      <a-tag :color="impactColor(record.impact_level)" size="small">{{ record.impact_level || '--' }}</a-tag>
+                      <span style="margin-left: 6px; font-variant-numeric: tabular-nums">{{ record.impact_score }}</span>
+                    </span>
+                  </a-tooltip>
+                  <span v-else style="color: #c9cdd4">未评分</span>
+                </template>
+              </a-table-column>
+              <!-- 分析层权重与系统层分开显示：口径不同（全量统计 vs 那轮抽样），
+                   两者不一致本身是信息 —— 系统层低而这里高说明低频但高度集中。 -->
+              <a-table-column title="分析权重" :width="96">
+                <template #cell="{ record }">
+                  <a-tooltip v-if="record.analysis_weight !== null && record.analysis_weight !== undefined">
+                    <template #content>
+                      该问题占本维度总慢时间 {{ record.analysis_share_pct ?? record.analysis_weight }}%（AI 那一轮的口径）
+                      <template v-if="record.expected_avg_ms !== null && record.expected_avg_ms !== undefined">
+                        <br />当前平均 {{ fmtMs(record.current_avg_ms) }}；即使该段完全消除，仍有 {{ fmtMs(record.expected_avg_ms) }}
+                      </template>
+                    </template>
+                    <span style="font-variant-numeric: tabular-nums">{{ record.analysis_weight }}%</span>
+                  </a-tooltip>
+                  <span v-else style="color: #c9cdd4">--</span>
+                </template>
+              </a-table-column>
               <a-table-column title="归因标签" data-index="attribution_tag" :width="150">
                 <template #cell="{ record }">
                   <template v-if="record.attribution_tag">
@@ -197,6 +241,22 @@
             <a-tag v-for="(tag, idx) in splitTag(currentRecord.attribution_tag)" :key="idx" :color="idx === 0 ? 'arcoblue' : 'cyan'" size="small" style="margin-right: 4px">{{ tag }}</a-tag>
           </template>
           <span v-else>--</span>
+        </a-descriptions-item>
+        <a-descriptions-item label="影响面">
+          <template v-if="currentRecord?.impact_score !== null && currentRecord?.impact_score !== undefined">
+            <a-tag :color="impactColor(currentRecord.impact_level)" size="small">{{ currentRecord.impact_level }}</a-tag>
+            <span style="margin-left: 6px">{{ currentRecord.impact_score }} 分</span>
+          </template>
+          <span v-else>未评分</span>
+        </a-descriptions-item>
+        <a-descriptions-item label="分析维度">{{ currentRecord?.analysis_dimension || '--' }}</a-descriptions-item>
+        <a-descriptions-item v-if="impactRows(currentRecord || {}).length" label="影响面构成" :span="2">
+          <div style="line-height: 1.9">
+            <div v-for="row in impactRows(currentRecord || {})" :key="row.k" style="display: flex; gap: 10px">
+              <span style="width: 90px; color: #86909c">{{ row.k }}</span>
+              <span style="flex: 1">{{ row.v }}</span>
+            </div>
+          </div>
         </a-descriptions-item>
         <a-descriptions-item label="维度">{{ dimensionTypeText(currentRecord?.dimension_type) }} / {{ currentRecord?.dimension_value }}</a-descriptions-item>
         <a-descriptions-item label="产品线">{{ currentRecord?.product_line || '--' }}</a-descriptions-item>
@@ -584,6 +644,58 @@ const { execute: fetchPatternMd } = useGet<any>(ApiPerfPatternLedger.reportMd, m
     mdMeta.value = d.found ? d : null
   },
 })
+
+// ── 影响面：分数 + 悬停明细 ────────────────────────────────
+//
+// 单看一个分数没法判断，所以悬停要把六项输入连同它们怎么合成一起给出来。
+// 「78 分」看不出什么，「4331 人次 / 3 个客户 / 平均 1.7 秒」才能拿去排期。
+const fmtMs = (ms?: number | null) => {
+  if (ms === null || ms === undefined) return '--'
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`
+}
+
+const impactColor = (level?: string) => {
+  switch (level) {
+    case 'P0': return 'red'
+    case 'P1': return 'orange'
+    case 'P2': return 'blue'
+    default: return 'gray'
+  }
+}
+
+const impactRows = (record: any) => {
+  const i = record.impact_inputs || {}
+  const rows: { k: string, v: string }[] = []
+  if (i.affected_users !== undefined) {
+    const src = i.slow_total ? `该操作超3秒 ${i.slow_total} 次中的份额` : '按本问题命中数'
+    rows.push({ k: '受影响人次', v: `${i.affected_users} 次/30天（${src}）` })
+  }
+  if (i.customer_count !== undefined) rows.push({ k: '影响客户', v: `${i.customer_count} 个` })
+  if (i.avg_ms !== undefined && i.avg_ms !== null) {
+    // 达标线 3 秒：低于它说明这个操作整体不慢，慢的是其中一部分请求
+    const tail = i.avg_ms >= 3000 ? '（已超达标线）' : '（整体未超线，慢在部分请求）'
+    rows.push({ k: '平均响应', v: `${fmtMs(i.avg_ms)}${tail}` })
+  }
+  if (i.clicks !== undefined) {
+    const ratio = i.slow_ratio_pct !== null && i.slow_ratio_pct !== undefined ? `，慢占比 ${i.slow_ratio_pct}%` : ''
+    rows.push({ k: '操作点击量', v: `${i.clicks} 次/30天${ratio}` })
+  }
+  if (record.analysis_dimension) rows.push({ k: '分析维度', v: record.analysis_dimension })
+  // 口径必须显示：表单级是估算（含该表单其它操作），那 106 条要让人知道
+  if (i.granularity) rows.push({ k: '统计口径', v: `${i.granularity}，${i.window || ''}` })
+  if (record.expected_avg_ms !== null && record.expected_avg_ms !== undefined) {
+    rows.push({
+      k: '治理预期',
+      // 措辞必须是「即使…仍」：脚本假设该段降为 0，做不到的部分它判断不了
+      v: `当前 ${fmtMs(record.current_avg_ms)}，即使该段完全消除仍有 ${fmtMs(record.expected_avg_ms)}`
+        + (record.expected_meet_ratio !== null && record.expected_meet_ratio !== undefined
+          // 这个比例决定「这条能不能单独修」：13% 意味着修完大部分请求仍超标
+          ? `（按此上限约 ${Math.round(Number(record.expected_meet_ratio))}% 的请求可进 3 秒内）`
+          : ''),
+    })
+  }
+  return rows
+}
 
 const handleDetail = (record: any) => {
   currentRecord.value = record
