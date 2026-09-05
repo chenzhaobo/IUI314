@@ -224,6 +224,61 @@
         来源：{{ mdMeta.run_date }} / {{ mdMeta.file }}（{{ Math.round((mdMeta.bytes || 0) / 1024) }} KB{{ mdMeta.truncated ? '，已截断' : '' }}）
       </div>
 
+      <!-- 追加分析放在缺陷报告后面：质疑通常是看完报告才提的，
+           放在前面等于让人先写意见再看内容。 -->
+      <a-divider>再次分析</a-divider>
+      <a-alert type="normal" style="margin-bottom: 10px">
+        写明你的方向或质疑，AI 会带着它重新读原始日志与报告，然后判断是<strong>修正这一条</strong>、
+        <strong>拆出新的一条</strong>，还是<strong>认为原结论仍然成立</strong>。
+        质疑写得越具体（哪一行日志、哪个时间戳对不上）复核越准。
+      </a-alert>
+      <a-textarea
+        v-model="reanalysisText"
+        :auto-size="{ minRows: 3, maxRows: 8 }"
+        placeholder="例：这份报告说空档前最后一条日志是 A，但我核对原始 xls 是 B（时间戳 14:10:53.517），而且 A 的出口日志在空档之前就打印了，说明它已经返回。"
+        :max-length="2000"
+        show-word-limit
+      />
+      <div style="margin-top: 8px">
+        <a-button type="primary" :loading="reanalysisSubmitting" @click="submitReanalysis">提交复核</a-button>
+        <span style="margin-left: 10px; color: #86909c; font-size: 12px">
+          复核要读原始 Excel、跑分组脚本、查源码，通常几分钟。结果会自动刷新。
+        </span>
+      </div>
+
+      <div v-if="reanalysisList.length" style="margin-top: 14px">
+        <a-timeline>
+          <a-timeline-item
+            v-for="r in reanalysisList"
+            :key="r.id"
+            :dot-color="r.status === 'failed' ? '#f53f3f' : r.status === 'running' ? '#ff7d00' : '#00b42a'"
+          >
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+              <span style="color: #86909c; font-size: 12px">{{ formatTime(r.created_at) }}</span>
+              <a-tag v-if="r.challenger_name" size="small">{{ r.challenger_name }}</a-tag>
+              <a-tag v-if="r.status === 'running'" color="orange" size="small">复核中</a-tag>
+              <a-tag v-else-if="r.status === 'failed'" color="red" size="small">失败</a-tag>
+              <a-tag v-else :color="decisionMeta(r.decision).color" size="small">{{ decisionMeta(r.decision).text }}</a-tag>
+              <!-- create 时结果是另一条台账，给出提示让人去找那条 -->
+              <span v-if="r.decision === 'create' && r.result_pattern_id" style="font-size: 12px; color: #86909c">
+                新条目已生成，可在列表中查看
+              </span>
+            </div>
+            <div class="content-block" style="margin-top: 6px">
+              <strong>质疑：</strong>{{ r.challenge }}
+            </div>
+            <div v-if="r.decision_reason" class="content-block" style="margin-top: 6px">
+              <strong>复核结论：</strong>
+              <pre style="white-space: pre-wrap; margin: 4px 0; font-family: inherit">{{ r.decision_reason }}</pre>
+            </div>
+            <a-alert v-if="r.error_message" type="error" style="margin-top: 6px">{{ r.error_message }}</a-alert>
+            <div v-if="r.input_log_files?.length || r.input_report_md" style="margin-top: 4px; color: #86909c; font-size: 12px">
+              送检证据：{{ r.input_log_files?.length || 0 }} 份原始日志{{ r.input_report_md ? ' + 报告全文' : '' }}
+            </div>
+          </a-timeline-item>
+        </a-timeline>
+      </div>
+
       <a-divider>涉及对象 (involved_object)</a-divider>
       <div class="content-block">{{ currentRecord?.involved_object || '暂无' }}</div>
 
@@ -287,11 +342,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message, Modal } from '@arco-design/web-vue'
 import { ApiPerfPatternLedger } from '@/api/perfApis'
-import { useDownload, useGet, usePost, useTableAutoHeight, useAutoHeight } from '@/hooks'
+import { formatTime, useDownload, useGet, usePost, useTableAutoHeight, useAutoHeight } from '@/hooks'
 import { MdPreview } from 'md-editor-v3'
 // 必须导入样式，否则 MdPreview 渲染出来没有任何格式（表格无边框、标题不分级）
 import 'md-editor-v3/lib/style.css'
@@ -542,7 +597,90 @@ const handleDetail = (record: any) => {
   mdPayload.value = { pattern: key }
   mdLoading.value = true
   fetchPatternMd().finally(() => { mdLoading.value = false })
+  loadReanalysis(record?.id)
 }
+
+// ── 追加分析：人工带着方向或质疑要求 AI 重新判一次 ────────────
+//
+// 归因是一次性的 AI 判断，判错了原来没有回路。实测审计五份报告，其中一份把
+// 空档起点看错了一行，然后顺着错起点写出带源码行号和逐行注释的根因 ——
+// 那种错只有人核对原始日志才能发现，发现之后需要一条「带着我的质疑重看一遍」的路径。
+const reanalysisText = ref('')
+const reanalysisSubmitting = ref(false)
+const reanalysisList = ref<any[]>([])
+const reanalysisPayload = ref<any>({})
+let reanalysisTimer: ReturnType<typeof setTimeout> | null = null
+
+const { execute: fetchReanalysis } = useGet<any>(ApiPerfPatternLedger.reanalysisHistory, reanalysisPayload, {
+  immediate: false,
+  onSuccess(data: any) {
+    reanalysisList.value = Array.isArray(data) ? data : []
+    // 还在跑就继续轮询。AI 要读 xls、跑脚本、查源码，实测 2 分钟量级，
+    // 不轮询的话人要自己刷新页面才知道跑完了。
+    stopReanalysisPoll()
+    if (reanalysisList.value.some((x) => x.status === 'running')) {
+      reanalysisTimer = setTimeout(() => loadReanalysis(currentRecord.value?.id), 15000)
+    }
+  },
+})
+
+const stopReanalysisPoll = () => {
+  if (reanalysisTimer) {
+    clearTimeout(reanalysisTimer)
+    reanalysisTimer = null
+  }
+}
+
+const loadReanalysis = (patternId?: string) => {
+  stopReanalysisPoll()
+  reanalysisList.value = []
+  if (!patternId) return
+  reanalysisPayload.value = { pattern_id: patternId }
+  fetchReanalysis()
+}
+
+const reanalysisPostPayload = ref<any>({})
+const { execute: doReanalysis } = usePost<any>(ApiPerfPatternLedger.reanalysis, reanalysisPostPayload, {
+  immediate: false,
+  onSuccess() {
+    Message.success('已提交，AI 正在复核（约几分钟），结果会出现在下面的记录里')
+    reanalysisText.value = ''
+    loadReanalysis(currentRecord.value?.id)
+  },
+})
+
+const submitReanalysis = async () => {
+  const text = reanalysisText.value.trim()
+  if (!text) {
+    Message.warning('请先写明你的方向或质疑 —— 没有输入就没有复核的依据')
+    return
+  }
+  const patternId = currentRecord.value?.id
+  if (!patternId) return
+  reanalysisPostPayload.value = { pattern_id: patternId, challenge: text }
+  reanalysisSubmitting.value = true
+  await doReanalysis().finally(() => { reanalysisSubmitting.value = false })
+}
+
+const decisionMeta = (d?: string) => {
+  switch (d) {
+    case 'update':
+      return { color: 'orange', text: '已修正原条目' }
+    case 'create':
+      return { color: 'arcoblue', text: '已拆出新条目' }
+    // reject 是正当结论，不是失败 —— 原结论对的时候说它对，比编一个改动有价值
+    case 'reject':
+      return { color: 'gray', text: '质疑不成立，未改动' }
+    default:
+      return { color: 'gray', text: d || '--' }
+  }
+}
+
+// 抽屉关掉就停轮询，不然切到别的页面还在发请求
+watch(drawerVisible, (v) => {
+  if (!v) stopReanalysisPoll()
+})
+onUnmounted(stopReanalysisPoll)
 const gotoIssue = (issueId: string) => {
   // '/perf/issue' 在生产菜单里不存在（问题追踪目录是 /cloud-perf/issue，且它是
   // 目录节点不能直接访问），真正的页面是 issue-list。按路由名跳转，不受菜单层级变动影响。

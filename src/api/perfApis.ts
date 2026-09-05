@@ -402,6 +402,9 @@ export enum ApiPerfPatternLedger {
   reportMd = '/perf/periodic-report/pattern/report-md',
   save = '/perf/periodic-report/pattern/save',
   createIssue = '/perf/periodic-report/pattern/create-issue',
+  // 追加分析：人工给方向或质疑，AI 复核后判 update / create / reject
+  reanalysis = '/perf/periodic-report/pattern/reanalysis',
+  reanalysisHistory = '/perf/periodic-report/pattern/reanalysis/history',
 }
 
 // ── Agent 自主诊断 ──────────────────────────────────────
