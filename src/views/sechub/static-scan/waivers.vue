@@ -5,7 +5,8 @@
 import type { WaiverRuleStatRow } from '@/types/static-scan'
 import { computed, onMounted, ref } from 'vue'
 import { Message, Modal } from '@arco-design/web-vue'
-import { useGet, usePost, useTableAutoHeight, useAutoHeight } from '@/hooks'
+import ListPage from '@/components/common/ListPage.vue'
+import { useGet, usePost } from '@/hooks'
 import { ApiSecWaiver, ApiSecProjectGroup } from '@/api/sechubApis'
 
 defineOptions({ name: 'StaticScanWaivers' })
@@ -33,26 +34,7 @@ const selectedRuleId = ref('all')
 const expandedKeys = ref<string[]>([])
 
 // ── 左树宽度拖拽 ─────────────────────
-const leftPanelWidth = ref(230)
-const isDragging = ref(false)
-const PANEL_MIN = 160
-const PANEL_MAX = 480
-
-function onDragStart(e: MouseEvent) {
-  isDragging.value = true
-  const startX = e.clientX
-  const startW = leftPanelWidth.value
-  const onMove = (ev: MouseEvent) => {
-    leftPanelWidth.value = Math.min(PANEL_MAX, Math.max(PANEL_MIN, startW + ev.clientX - startX))
-  }
-  const onUp = () => {
-    isDragging.value = false
-    document.removeEventListener('mousemove', onMove)
-    document.removeEventListener('mouseup', onUp)
-  }
-  document.addEventListener('mousemove', onMove)
-  document.addEventListener('mouseup', onUp)
-}
+// 分栏宽度与拖动逻辑已由 ListPage 提供（aside-resizable），页面不再自己维护。
 
 async function fetchJson<T>(url: string): Promise<T | null> {
   const { data, execute } = useGet<T>(url, {}, { immediate: false })
@@ -265,6 +247,14 @@ function onPageChange(page: number) {
   refresh()
 }
 
+// 改每页条数必须同时回到第 1 页：原本停在第 5 页、条数改大后该页往往已超出总页数，
+// 后端返回空列表，看起来像"数据没了"。
+function onPageSizeChange(size: number) {
+  queryParams.value.page_size = size
+  queryParams.value.page_num = 1
+  refresh()
+}
+
 function onSearch() {
   queryParams.value.page_num = 1
   // 查询条件（项目组/状态）变更：重置树选中并重新加载左树
@@ -276,14 +266,8 @@ function onSearch() {
 }
 
 // ── 表格高度自适应（滚动条出现在表格内，表头固定）──
-// 布局行实测定高：左右两栏由它派生高度
-const layoutRow = ref<HTMLElement>()
-const { height: layoutRowH } = useAutoHeight(layoutRow)
-
-const tableWrap = ref<HTMLElement>()
-// fillParent：容器是定高 flex 列里的 flex:1 子项，高度已确定；从视口反推会差一截，
-// 表格溢出后分页条被顶出视口，翻页点不到。
-const { tableHeight } = useTableAutoHeight(tableWrap, { fillParent: true })
+// 高度计算（布局行定高、表格体高度、min-height:0 链、overflow-x）
+// 全部由 ListPage 负责，页面不再维护任何 ref 与测量逻辑。
 
 onMounted(() => {
   void loadRuleStats()
@@ -309,21 +293,19 @@ onMounted(() => {
       </div>
     </a-card>
 
-    <!-- 左树右表（可拖拽分栏） -->
-      <!--
-        布局行必须有**确定高度**：原来只写 `flex: 1`，但父级不是 flex 容器，
-        `flex: 1` 无效，整行高度由内容决定 —— 左树越展开页面越长，
-        右表又各自从视口反推，两边加起来超出视口。
-      -->
-    <div ref="layoutRow" class="split-layout" :class="{ dragging: isDragging }" :style="{ height: layoutRowH + 'px' }">
-      <!-- 左树：规则分布 -->
-      <div class="split-left" :style="{ width: `${leftPanelWidth}px` }">
-        <a-card :bordered="false" size="small" class="split-card scroll-body">
-          <template #title>
-            规则分布
-            <small class="card-sub">生效/待审批/总数</small>
-          </template>
-          <a-spin :loading="ruleStatsLoading" style="width: 100%">
+    <!--
+      左树右表骨架交给 ListPage：确定高度、min-height:0 链、overflow-x、
+      工具行固定、表格体高度这些细节都在组件里，页面只填内容。
+      column-resizable 已是全站默认（plugins/arco-defaults.ts），不必逐表再写。
+    -->
+    <ListPage :aside-width="230" aside-resizable>
+      <template #aside-title>
+        规则分布
+        <small class="card-sub">生效/待审批/总数</small>
+      </template>
+
+      <template #aside>
+        <a-spin :loading="ruleStatsLoading" style="width: 100%">
             <a-tree
               v-if="ruleTree.length"
               :data="ruleTree"
@@ -345,19 +327,18 @@ onMounted(() => {
             </a-tree>
             <a-empty v-else description="暂无白名单" />
           </a-spin>
-        </a-card>
-      </div>
+      </template>
 
-      <!-- 拖拽手柄 -->
-      <div class="split-handle" @mousedown="onDragStart" />
-
-      <!-- 右表：白名单列表 -->
-      <div class="split-right">
-        <a-card :bordered="false" class="split-card fill-body">
-          <!-- 表格 -->
-          <!-- 吃掉右栏剩余高度；配合 fillParent 让表格体正好等于这块空间 -->
-          <div ref="tableWrap" class="table-fill">
-          <a-table :data="dataList" :loading="loading" :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size }" row-key="id" column-resizable :scroll="{ y: tableHeight }" @page-change="onPageChange">
+      <template #default="{ tableHeight }">
+        <a-table
+          :data="dataList"
+          :loading="loading"
+          :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true, showPageSize: true }"
+          row-key="id"
+          :scroll="{ minWidth: 1180, y: tableHeight }"
+          @page-change="onPageChange"
+          @page-size-change="onPageSizeChange"
+        >
         <template #columns>
           <a-table-column title="规则代码" data-index="rule_code" :width="140" ellipsis tooltip />
           <a-table-column title="原因" data-index="reason" :width="200" ellipsis tooltip />
@@ -386,10 +367,8 @@ onMounted(() => {
           </a-table-column>
         </template>
           </a-table>
-          </div>
-        </a-card>
-      </div>
-    </div>
+      </template>
+    </ListPage>
 
     <!-- 创建申请弹窗 -->
     <a-modal v-model:visible="formVisible" title="新建白名单申请" :ok-loading="formLoading" @ok="submitForm">
@@ -444,35 +423,8 @@ onMounted(() => {
 
 <style scoped>
 .card-sub { margin-left: 12px; color: var(--color-text-3); font-weight: normal; font-size: 12px; }
-.split-layout { display: flex; gap: 0; align-items: stretch; flex: 1; min-height: 0; }
-.split-layout.dragging { user-select: none; cursor: col-resize; }
-.split-left { flex-shrink: 0; overflow: hidden; }
-/* 卡片撑满栏高但**自己不滚**；滚不滚由下面两个修饰类决定 */
-.split-card { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 
-/* 左树卡片：标题固定，内容区滚动（原来整卡滚动，标题会跟着滚走） */
-.scroll-body :deep(.arco-card-body) {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  /* 只写 overflow-y 时横向会被计算成 auto，探出的子元素会长出横向滚动条 */
-  overflow-x: hidden;
-}
 
-/* 右侧卡片：内容区做纵向 flex，让表格容器吃掉剩余高度，滚动落在表格体内部 */
-.fill-body :deep(.arco-card-body) {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-}
-.table-fill { flex: 1; min-height: 0; }
-.split-handle {
-  width: 6px; flex-shrink: 0; cursor: col-resize; border-radius: 3px; margin: 0 3px;
-  background: transparent; transition: background 0.2s;
-}
-.split-handle:hover, .split-layout.dragging .split-handle { background: rgb(var(--primary-6)); }
-.split-right { flex: 1; min-width: 0; min-height: 0; }
 .rule-node { display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; }
 .rule-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rule-stats { flex-shrink: 0; font-size: 12px; color: var(--color-text-3); }
