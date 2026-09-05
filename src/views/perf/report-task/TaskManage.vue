@@ -1,6 +1,6 @@
 <template>
   <div class="page-container">
-    <a-card title="周期报告任务" :bordered="false">
+    <a-card title="周期任务" :bordered="false">
       <template #extra>
         <a-space>
           <a-input v-model="keyword" placeholder="任务名称" allow-clear style="width: 180px" @change="() => fetchTasks()" />
@@ -210,6 +210,63 @@
         <a-form-item label="启用">
           <a-switch v-model="form.enabled" />
           <span style="margin-left: 8px; color: #86909c; font-size: 12px">停用后定时调度与手动触发均跳过该任务</span>
+        </a-form-item>
+
+        <a-divider orientation="left" style="margin: 8px 0">归因周期</a-divider>
+        <a-form-item label="归因执行周期">
+          <a-select v-model="form.attr_schedule" style="width: 160px">
+            <a-option value="daily">每天</a-option>
+            <a-option value="weekly">每周</a-option>
+            <a-option value="biweekly">每两周</a-option>
+            <a-option value="monthly">每月</a-option>
+            <a-option value="manual">仅手动</a-option>
+          </a-select>
+          <a-select
+            v-if="form.attr_schedule === 'weekly' || form.attr_schedule === 'biweekly'"
+            v-model="form.attr_weekday"
+            style="width: 120px; margin-left: 12px"
+          >
+            <a-option :value="1">周一</a-option>
+            <a-option :value="2">周二</a-option>
+            <a-option :value="3">周三</a-option>
+            <a-option :value="4">周四</a-option>
+            <a-option :value="5">周五</a-option>
+            <a-option :value="6">周六</a-option>
+            <a-option :value="7">周日</a-option>
+          </a-select>
+          <a-input-number
+            v-if="form.attr_schedule === 'monthly'"
+            v-model="form.attr_month_day"
+            :min="1"
+            :max="28"
+            style="width: 130px; margin-left: 12px"
+          >
+            <template #prepend>每月</template>
+            <template #append>日</template>
+          </a-input-number>
+          <template #extra>
+            <span>
+              <b>下载固定每天跑</b>（Ops 日志只留 5~7 天，攒着会取不到）；归因按这里的周期，
+              触发时会把<b>所有已下载但还没归因的日期合并成一个区间一次分析完</b>。
+              攒几天比每天跑便宜得多 —— 实测 31 个维度 7 天数据，合并后需 176 份报告，
+              逐天各跑要 384 份，省 54%，因为同一个问题一周内反复出现只报一次。
+              「仅手动」表示不定时，攒够了在上面点「手动触发」并选 defect_attribution 阶段。
+            </span>
+          </template>
+        </a-form-item>
+        <a-form-item label="归因时刻">
+          <a-time-picker
+            v-model="form.attr_run_time"
+            format="HH:mm"
+            value-format="HH:mm"
+            :disabled="form.attr_schedule === 'manual'"
+            placeholder="留空沿用上面的执行时间"
+            style="width: 100%"
+            allow-clear
+          />
+          <template #extra>
+            <span>留空则用「执行时间」。归因是长任务（一个维度 5~10 分钟），建议排在下载之后的空闲时段。</span>
+          </template>
         </a-form-item>
 
         <a-divider orientation="left" style="margin: 8px 0">周期报告</a-divider>
@@ -519,6 +576,7 @@ const form = reactive<any>({
   threshold_ms: 3000, daily_limit_per_group: 100, group_top_pct: 80, group_max: 200,
   run_time: '02:00', yzj_chat_id: '', work_dir: '', agent_code: '', model: '', enabled: true,
   weekly_enabled: true, monthly_enabled: true, weekly_weekday: 2, monthly_day: 2, period_run_time: '06:00',
+  attr_schedule: 'daily', attr_run_time: '', attr_weekday: 7, attr_month_day: 1,
 })
 
 // 模型选项跟随所选 Agent 的 supported_models_json：各 Agent 支持的模型不同
@@ -545,7 +603,7 @@ watch(() => form.agent_code, () => {
 
 const openAddModal = () => {
   isEdit.value = false; editId.value = ''
-  Object.assign(form, { task_name: '', dimension_type: 'product_domain', dimension_value: undefined, product_line: '星瀚', threshold_ms: 3000, daily_limit_per_group: 100, group_top_pct: 80, group_max: 200, run_time: '02:00', yzj_chat_id: '', work_dir: '', enabled: true, weekly_enabled: true, monthly_enabled: true, weekly_weekday: 2, monthly_day: 2, period_run_time: '06:00' })
+  Object.assign(form, { task_name: '', dimension_type: 'product_domain', dimension_value: undefined, product_line: '星瀚', threshold_ms: 3000, daily_limit_per_group: 100, group_top_pct: 80, group_max: 200, run_time: '02:00', yzj_chat_id: '', work_dir: '', enabled: true, weekly_enabled: true, monthly_enabled: true, weekly_weekday: 2, monthly_day: 2, period_run_time: '06:00', attr_schedule: 'daily', attr_run_time: '', attr_weekday: 7, attr_month_day: 1 })
   loadDimValues()
   modalVisible.value = true
 }
@@ -566,6 +624,10 @@ const openEditModal = (record: any) => {
     monthly_enabled: record.monthly_enabled ?? true,
     weekly_weekday: record.weekly_weekday ?? 2,
     monthly_day: record.monthly_day ?? 2,
+    attr_schedule: record.attr_schedule || 'daily',
+    attr_run_time: record.attr_run_time || '',
+    attr_weekday: record.attr_weekday ?? 7,
+    attr_month_day: record.attr_month_day ?? 1,
     period_run_time: record.period_run_time || '06:00',
   })
   loadDimValues()
