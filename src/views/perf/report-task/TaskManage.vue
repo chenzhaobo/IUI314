@@ -1,533 +1,12 @@
-<template>
-  <div class="page-container">
-    <a-card title="周期任务" :bordered="false">
-      <template #extra>
-        <a-space>
-          <a-input v-model="keyword" placeholder="任务名称" allow-clear style="width: 180px" @change="() => fetchTasks()" />
-          <a-select v-model="filterDimType" placeholder="维度类型" allow-clear style="width: 140px" @change="() => fetchTasks()">
-            <a-option value="product_domain">产品领域</a-option>
-            <a-option value="business_area">业务领域</a-option>
-            <a-option value="project_group">项目组</a-option>
-          </a-select>
-          <a-button type="primary" @click="openAddModal">新增任务</a-button>
-        </a-space>
-      </template>
-
-      <!--
-        「手动触发」原来在表格**下方**，表格一长就要滚到底才看得见，而它是常用动作。
-        移到表格上方并与说明文字同一行：按钮紧邻解释它作用的文字，也不占额外一行。
-      -->
-      <div class="trigger-bar">
-        <a-button status="success" @click="openTriggerAll()">
-          <template #icon><icon-thunderbolt /></template>
-          手动触发
-        </a-button>
-        <span class="trigger-tip">
-          对全部<b>启用</b>任务执行一次（按数据日期逐阶段断点续跑）；每日定时由调度按「执行时间」自动触发。
-        </span>
-      </div>
-
-      <!-- 原生 div 挂 ref：组件 ref 拿到的是实例、没有 getBoundingClientRect -->
-      <div ref="tableWrap">
-      <a-table :data="taskList" :loading="loading" :pagination="false" row-key="id" :scroll="{ y: tableHeight }">
-        <template #columns>
-          <a-table-column title="任务名称" :width="180">
-            <template #cell="{ record }">
-              <span>{{ record.task_name }}</span>
-              <a-tag v-if="!record.enabled" color="gray" size="small" style="margin-left: 6px">停用</a-tag>
-            </template>
-          </a-table-column>
-          <a-table-column title="维度" :width="170">
-            <template #cell="{ record }">
-              <a-tag :color="dimTypeColor(record.dimension_type)" size="small">{{ dimTypeText(record.dimension_type) }}</a-tag>
-              <span style="margin-left: 4px">{{ record.dimension_value }}</span>
-            </template>
-          </a-table-column>
-          <a-table-column title="产品线" :width="80">
-            <template #cell="{ record }">
-              <a-tag :color="record.product_line === '星空' ? 'purple' : 'blue'" size="small">{{ record.product_line || '星瀚' }}</a-tag>
-            </template>
-          </a-table-column>
-          <a-table-column title="量控" :width="200">
-            <template #cell="{ record }">
-              <a-tooltip :content="`超${record.threshold_ms || 3000}ms · 每组合≤${record.daily_limit_per_group || 100}条/天 · 覆盖超量${record.group_top_pct || 80}% · ≤${record.group_max || 200}组合`">
-                <span>{{ record.threshold_ms || 3000 }}ms / {{ record.daily_limit_per_group || 100 }}条 / {{ record.group_top_pct || 80 }}% / {{ record.group_max || 200 }}组</span>
-              </a-tooltip>
-            </template>
-          </a-table-column>
-          <a-table-column title="执行时间" data-index="run_time" :width="90" />
-          <!-- 单行 + 省略 + 悬浮提示。原来用 a-space 排两个标签再跟时间，
-               150px 宽放不下就换行，把 06:00 挤成竖排 —— 表格列宽有限，
-               信息密度高的内容一律走「一行摘要 + tooltip 全文」。 -->
-          <a-table-column title="周期报告" :width="150" ellipsis tooltip>
-            <template #cell="{ record }">
-              <span>{{ periodSummary(record) }}</span>
-            </template>
-          </a-table-column>
-          <a-table-column title="工作目录" data-index="work_dir" ellipsis tooltip :width="180" />
-          <a-table-column title="最近运行" :width="150">
-            <template #cell="{ record }">
-              <template v-if="record.last_run_date">
-                <a-tag :color="runStatusColor(record.last_run_status)" size="small">{{ runStatusText(record.last_run_status) }}</a-tag>
-                <span style="margin-left: 4px; color: #666">{{ record.last_run_date }}</span>
-              </template>
-              <span v-else style="color: #999">未运行</span>
-            </template>
-          </a-table-column>
-          <a-table-column title="启用" :width="70">
-            <template #cell="{ record }">
-              <a-switch :model-value="!!record.enabled" size="small" @change="(v: boolean | string | number) => toggleEnabled(record, !!v)" />
-            </template>
-          </a-table-column>
-          <a-table-column title="操作" :width="240" fixed="right">
-            <template #cell="{ record }">
-              <a-space>
-                <!-- 行内触发只跑这一个任务，**不判断是否启用**：
-                     停用只影响定时调度，人工点某一行就是明确要补跑它。 -->
-                <a-link @click="openTriggerFor(record)">触发</a-link>
-                <a-link @click="openEditModal(record)">编辑</a-link>
-                <a-link @click="openRuns(record)">记录</a-link>
-                <a-popconfirm content="确认删除该任务？" @ok="handleDelete(record)">
-                  <a-link status="danger">删除</a-link>
-                </a-popconfirm>
-              </a-space>
-            </template>
-          </a-table-column>
-        </template>
-      </a-table>
-      </div>
-
-    </a-card>
-
-    <!-- 新增/编辑弹框 -->
-    <!--
-      弹窗原来 640px 宽、内容不限高：表单项一多就把弹窗顶得比视口还高，
-      确定/取消被推到视口外，必须滚动整个页面才点得到。
-      加宽到 860px（表单是两列标签+控件，窄了标签换行），并给内容区一个
-      基于视口的最大高度 + 自身滚动 —— 这样按钮始终留在视口内。
-      弹窗是视口锚定的，这里用 100vh 是正确的（护栏也按此放行）。
-    -->
-    <a-modal
-      v-model:visible="modalVisible"
-      :title="isEdit ? '编辑任务' : '新增任务'"
-      :width="860"
-      :body-style="{ maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' }"
-      :ok-loading="saving"
-      @ok="handleSave"
-    >
-      <a-form :model="form" layout="vertical">
-        <a-form-item label="任务名称" required>
-          <a-input v-model="form.task_name" placeholder="如: 集团财务-按日慢请求" />
-        </a-form-item>
-        <a-row :gutter="16">
-          <a-col :span="8">
-            <a-form-item label="维度类型" required>
-              <a-select v-model="form.dimension_type" @change="onDimTypeChange">
-                <a-option value="product_domain">产品领域</a-option>
-                <a-option value="business_area">业务领域</a-option>
-                <a-option value="project_group">项目组</a-option>
-              </a-select>
-            </a-form-item>
-          </a-col>
-          <a-col :span="10">
-            <a-form-item label="维度值" required>
-              <a-select v-model="form.dimension_value" allow-search allow-create allow-clear placeholder="选择或输入维度值">
-                <a-option v-for="o in dimValueOptions" :key="o.code" :value="o.code">{{ o.name === o.code ? o.name : `${o.name} (${o.code})` }}</a-option>
-              </a-select>
-            </a-form-item>
-          </a-col>
-          <a-col :span="6">
-            <a-form-item label="产品线">
-              <a-select v-model="form.product_line">
-                <a-option value="星瀚">星瀚</a-option>
-                <a-option value="星空">星空</a-option>
-              </a-select>
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-divider orientation="left">量控（默认值与设计 §11.5 一致）</a-divider>
-        <a-row :gutter="16">
-          <a-col :span="6">
-            <a-form-item label="超阈值(ms)">
-              <a-input-number v-model="form.threshold_ms" :min="500" :max="60000" style="width: 100%" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="6">
-            <a-form-item label="每组合限量/天">
-              <a-input-number v-model="form.daily_limit_per_group" :min="1" :max="1000" style="width: 100%" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="6">
-            <a-form-item label="覆盖超量(%)">
-              <a-input-number v-model="form.group_top_pct" :min="10" :max="100" style="width: 100%" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="6">
-            <a-form-item label="组合数上限">
-              <a-input-number v-model="form.group_max" :min="1" :max="1000" style="width: 100%" />
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-divider orientation="left">调度与推送</a-divider>
-        <a-row :gutter="16">
-          <a-col :span="8">
-            <a-form-item label="执行时间">
-              <a-time-picker v-model="form.run_time" format="HH:mm" value-format="HH:mm" style="width: 100%" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="16">
-            <a-form-item label="群组通知机器人">
-              <a-input v-model="form.yzj_chat_id" allow-clear placeholder="群机器人 token 或完整 webhook 地址，留空则不推送日报" />
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-form-item label="工作目录（技能目录隔离红线，如 性能分析产出/集团财务）">
-          <a-input v-model="form.work_dir" allow-clear placeholder="下载产物/中间文件/报告均落在该目录子文件夹内" />
-        </a-form-item>
-        <a-form-item label="归因 Agent">
-          <a-select v-model="form.agent_code" allow-clear placeholder="留空用 kiro-cli">
-            <a-option v-for="a in agents" :key="a.id" :value="a.agent_code">
-              {{ a.agent_name }}（{{ a.agent_code }}）
-            </a-option>
-          </a-select>
-          <template #extra>
-            <span>缺陷归因阶段调用的 AI Agent。kiro 因网络受限不可用时可切到 qoder 系列。</span>
-          </template>
-        </a-form-item>
-        <a-form-item label="归因模型">
-          <a-select
-            v-model="form.model"
-            allow-clear
-            :disabled="!form.agent_code"
-            :placeholder="form.agent_code ? '留空用该 Agent 默认模型' : '请先选择归因 Agent'"
-          >
-            <a-option v-for="name in modelOptions" :key="name" :value="name">{{ name }}</a-option>
-          </a-select>
-          <template #extra>
-            <span>选项取自所选 Agent 的「支持的模型」，可在 AI 中心点「同步模型」从 CLI 刷新。</span>
-          </template>
-        </a-form-item>
-        <a-form-item label="启用">
-          <a-switch v-model="form.enabled" />
-          <span style="margin-left: 8px; color: #86909c; font-size: 12px">停用后定时调度与手动触发均跳过该任务</span>
-        </a-form-item>
-
-        <a-divider orientation="left" style="margin: 8px 0">归因周期</a-divider>
-        <a-form-item label="归因执行周期">
-          <a-select v-model="form.attr_schedule" style="width: 160px">
-            <a-option value="daily">每天</a-option>
-            <a-option value="weekly">每周</a-option>
-            <a-option value="biweekly">每两周</a-option>
-            <a-option value="monthly">每月</a-option>
-            <a-option value="manual">仅手动</a-option>
-          </a-select>
-          <a-select
-            v-if="form.attr_schedule === 'weekly' || form.attr_schedule === 'biweekly'"
-            v-model="form.attr_weekday"
-            style="width: 120px; margin-left: 12px"
-          >
-            <a-option :value="1">周一</a-option>
-            <a-option :value="2">周二</a-option>
-            <a-option :value="3">周三</a-option>
-            <a-option :value="4">周四</a-option>
-            <a-option :value="5">周五</a-option>
-            <a-option :value="6">周六</a-option>
-            <a-option :value="7">周日</a-option>
-          </a-select>
-          <a-input-number
-            v-if="form.attr_schedule === 'monthly'"
-            v-model="form.attr_month_day"
-            :min="1"
-            :max="28"
-            style="width: 130px; margin-left: 12px"
-          >
-            <template #prepend>每月</template>
-            <template #append>日</template>
-          </a-input-number>
-          <template #extra>
-            <span>
-              <b>下载固定每天跑</b>（Ops 日志只留 5~7 天，攒着会取不到）；归因按这里的周期，
-              触发时会把<b>所有已下载但还没归因的日期合并成一个区间一次分析完</b>。
-              攒几天比每天跑便宜得多 —— 实测 31 个维度 7 天数据，合并后需 176 份报告，
-              逐天各跑要 384 份，省 54%，因为同一个问题一周内反复出现只报一次。
-              「仅手动」表示不定时，攒够了在上面点「手动触发」并选 defect_attribution 阶段。
-            </span>
-          </template>
-        </a-form-item>
-        <a-form-item label="归因时刻">
-          <a-time-picker
-            v-model="form.attr_run_time"
-            format="HH:mm"
-            value-format="HH:mm"
-            :disabled="form.attr_schedule === 'manual'"
-            placeholder="留空沿用上面的执行时间"
-            style="width: 100%"
-            allow-clear
-          />
-          <template #extra>
-            <span>留空则用「执行时间」。归因是长任务（一个维度 5~10 分钟），建议排在下载之后的空闲时段。</span>
-          </template>
-        </a-form-item>
-
-        <a-divider orientation="left" style="margin: 8px 0">周期报告</a-divider>
-        <a-form-item label="生成周报">
-          <a-switch v-model="form.weekly_enabled" />
-          <a-select
-            v-model="form.weekly_weekday"
-            :disabled="!form.weekly_enabled"
-            style="width: 120px; margin-left: 12px"
-          >
-            <a-option :value="1">每周一</a-option>
-            <a-option :value="2">每周二</a-option>
-            <a-option :value="3">每周三</a-option>
-            <a-option :value="4">每周四</a-option>
-            <a-option :value="5">每周五</a-option>
-            <a-option :value="6">每周六</a-option>
-            <a-option :value="7">每周日</a-option>
-          </a-select>
-          <template #extra>
-            <span>出的始终是「上一个完整 ISO 周」。默认周二 —— 周日的日报要到周一夜间才生成，周一出周报必然缺最后一天。</span>
-          </template>
-        </a-form-item>
-        <a-form-item label="生成月报">
-          <a-switch v-model="form.monthly_enabled" />
-          <a-input-number
-            v-model="form.monthly_day"
-            :disabled="!form.monthly_enabled"
-            :min="1"
-            :max="28"
-            style="width: 130px; margin-left: 12px"
-          >
-            <template #prepend>每月</template>
-            <template #append>日</template>
-          </a-input-number>
-          <template #extra>
-            <span>出的始终是「上一个完整自然月」。上限 28 日 —— 29~31 在短月永远不会触发。</span>
-          </template>
-        </a-form-item>
-        <a-form-item label="生成时刻">
-          <a-time-picker
-            v-model="form.period_run_time"
-            format="HH:mm"
-            value-format="HH:mm"
-            :disabled="!form.weekly_enabled && !form.monthly_enabled"
-            style="width: 100%"
-          />
-          <template #extra>
-            <span>到点后的第一次调度轮询（每 5 分钟一次）会生成；已存在则跳过，不会重复出。</span>
-          </template>
-        </a-form-item>
-      </a-form>
-    </a-modal>
-
-    <!-- 手动触发弹框 -->
-    <a-modal
-      v-model:visible="triggerVisible"
-      :title="triggerTarget ? `手动触发 — ${triggerTarget.task_name}` : '手动触发（全部启用任务）'"
-      :width="440"
-      @ok="handleTrigger"
-      :ok-loading="triggering"
-    >
-      <a-alert v-if="triggerTarget" type="info" style="margin-bottom: 12px">
-        只跑这一个任务。<b>不受启用开关影响</b> —— 停用只影响定时调度，这里是人工补跑。
-      </a-alert>
-      <a-form layout="vertical" :model="layoutOnlyModel">
-        <a-form-item label="数据日期（默认昨天）">
-          <a-date-picker v-model="triggerDate" value-format="YYYY-MM-DD" style="width: 100%" />
-          <span v-if="triggerStage === 'weekly' || triggerStage === 'monthly'" class="hint">
-            周报/月报以这个日期为锚点，取它所在的整{{ triggerStage === 'weekly' ? '周' : '月' }}。
-            与调度生成的区别只是不等区间闭合、不等触发时刻 —— 同区间重复生成会复用既有报告，不会堆重复。
-          </span>
-        </a-form-item>
-        <a-form-item label="强制重跑">
-          <a-switch v-model="triggerForce" />
-          <span class="hint">
-            默认开启断点续跑：已成功的阶段会被跳过，所以对跑过的日期点触发会
-            <b>什么都不做</b>。改了配置或想用同一天数据复验时打开这个。
-          </span>
-        </a-form-item>
-        <a-form-item label="只跑指定阶段（空=全流程）">
-          <a-select v-model="triggerStage" allow-clear placeholder="全流程：下载→提取→缺陷归因（日报独立节点）">
-            <a-option value="preflight">preflight（预检，不调用 Ops）</a-option>
-            <a-option value="download">download（下载）</a-option>
-            <a-option value="extract">extract（结构化提取）</a-option>
-            <a-option value="defect_attribution">defect_attribution（AI 逐维度归因）</a-option>
-            <a-option value="report">report（日报与台账）</a-option>
-            <a-option value="weekly">weekly（周报，取数据日期所在那一周）</a-option>
-            <a-option value="monthly">monthly（月报，取数据日期所在那一月）</a-option>
-            <a-option value="push">push（推送）</a-option>
-          </a-select>
-        </a-form-item>
-      </a-form>
-    </a-modal>
-
-    <!-- 运行记录抽屉 -->
-    <!-- 宽度用视口百分比而不是固定 px：运行记录有 10 列（含产物/错误这种长文本），
-         1080px 下错误信息只能截断成一小段，排查时还得逐行点开看。 -->
-    <a-drawer v-model:visible="drawerVisible" :title="`运行记录: ${currentTask?.task_name || ''}`" width="90%" :footer="false">
-      <!-- 分页：一个任务跑一段时间就有几十上百条阶段记录（每天 5 个阶段，
-             重跑还会累计），不分页要一直滚，也看不出总共多少条 -->
-        <a-table
-          :data="runList"
-          :loading="runLoading"
-          :pagination="{ pageSize: 20, showTotal: true, showPageSize: true }"
-          size="small"
-          row-key="id"
-        >
-        <template #columns>
-          <a-table-column title="数据日期" data-index="run_date" :width="100" />
-          <a-table-column title="阶段" :width="120">
-            <template #cell="{ record }">
-              <a-tag size="small">{{ stageText(record.stage) }}</a-tag>
-            </template>
-          </a-table-column>
-          <a-table-column title="状态" :width="82">
-            <template #cell="{ record }">
-              <a-tag :color="runStatusColor(record.status)" size="small">{{ runStatusText(record.status) }}</a-tag>
-            </template>
-          </a-table-column>
-          <a-table-column title="进度 / ETA" :width="190">
-            <template #cell="{ record }">
-              <a-progress :percent="Math.max(0, Math.min(1, (record.progress || 0) / 100))" size="small" />
-              <div class="run-progress-detail">
-                {{ record.done_items || 0 }}/{{ record.total_items || 0 }}
-                <span v-if="record.failed_items"> · 失败 {{ record.failed_items }}</span>
-                <span v-if="record.eta_seconds != null"> · ETA {{ fmtDuration(record.eta_seconds) }}</span>
-              </div>
-            </template>
-          </a-table-column>
-          <a-table-column title="心跳" :width="145">
-            <template #cell="{ record }">{{ formatTime(record.heartbeat_at) }}</template>
-          </a-table-column>
-          <!-- ellipsis 只截断不提示，长错误会被挡住看不到真正原因（生产实测：
-               「日期目录不存在: /data/app/report-work/...」这类路径全被吃掉）。
-               配 tooltip 让悬停展开；再加原生 title 兜底，
-               避免 tooltip 在某些容器里被 overflow 裁掉时完全看不到。 -->
-          <a-table-column title="产物/错误" ellipsis tooltip>
-            <template #cell="{ record }">
-              <span
-                v-if="record.error_message"
-                style="color: #f53f3f; cursor: help"
-                :title="record.error_message"
-              >{{ record.error_message }}</span>
-              <span
-                v-else-if="record.artifact_path"
-                style="color: #666"
-                :title="record.artifact_path"
-              >{{ record.artifact_path }}</span>
-              <span v-else>-</span>
-            </template>
-          </a-table-column>
-          <!-- 阶段记录按 (任务,日期,阶段) 原地更新：重跑不会新增行，只有次数会加。
-               不显示次数的话，重跑过和没重跑过的记录长得一模一样。 -->
-          <a-table-column title="次数" :width="64" align="center">
-            <template #cell="{ record }">
-              <a-tag v-if="(record.attempt || 1) > 1" color="orange" size="small">
-                第 {{ record.attempt }} 次
-              </a-tag>
-              <span v-else>1</span>
-            </template>
-          </a-table-column>
-          <a-table-column title="本次开始" :width="140">
-            <template #cell="{ record }">{{ formatTime(record.started_at) }}</template>
-          </a-table-column>
-          <a-table-column title="本次结束" :width="140">
-            <template #cell="{ record }">{{ formatTime(record.finished_at) }}</template>
-          </a-table-column>
-          <a-table-column title="首次创建" :width="140">
-            <template #cell="{ record }">{{ formatTime(record.created_at) }}</template>
-          </a-table-column>
-          <a-table-column title="操作" :width="130" fixed="right">
-            <template #cell="{ record }">
-              <a-space>
-                <!-- 归因是逐维度处理的长任务，阶段行只能看到总体进度；
-                     维度明细才能看出卡在哪个表单、复用率多少 -->
-                <a-link v-if="record.stage === 'defect_attribution'" @click="openDimensions(record)">维度进度</a-link>
-                <a-popconfirm v-if="record.status === 'running'" content="在当前安全边界取消该阶段？已完成原子产物会保留。" @ok="cancelRun(record)">
-                  <a-link status="danger">取消</a-link>
-                </a-popconfirm>
-              </a-space>
-            </template>
-          </a-table-column>
-        </template>
-      </a-table>
-    </a-drawer>
-
-    <!-- 维度级归因进度：分析单位是「应用+表单+操作」，一个维度一轮 AI 处理 -->
-    <a-drawer v-model:visible="dimVisible" :title="`维度归因进度: ${dimRunDate}`" width="90%" :footer="false">
-      <a-spin :loading="dimLoading" style="display: block">
-        <a-alert v-if="dimSummary.remaining > 0" type="warning" style="margin-bottom: 12px">
-          还有 {{ dimSummary.remaining }} 个维度未处理（共 {{ dimSummary.total }} 个）。
-          <strong>日报会等到全部处理完才生成</strong> —— 否则出的是只统计了一半的报告。
-        </a-alert>
-        <a-alert v-else-if="dimSummary.total > 0" type="success" style="margin-bottom: 12px">
-          全部 {{ dimSummary.total }} 个维度已处理完毕，日报可生成。
-        </a-alert>
-
-        <a-descriptions :column="4" size="small" bordered style="margin-bottom: 12px">
-          <a-descriptions-item label="维度总数">{{ dimSummary.total }}</a-descriptions-item>
-          <a-descriptions-item label="已完成">{{ dimSummary.done }}</a-descriptions-item>
-          <a-descriptions-item label="处理中">{{ dimSummary.running }}</a-descriptions-item>
-          <a-descriptions-item label="待处理">{{ dimSummary.pending }}</a-descriptions-item>
-          <a-descriptions-item label="失败">{{ dimSummary.failed }}</a-descriptions-item>
-          <a-descriptions-item label="根因总数">{{ dimSummary.defect_total }}</a-descriptions-item>
-          <a-descriptions-item label="新增 / 复现">
-            {{ dimSummary.new_defect_total }} / {{ dimSummary.recurring_total }}
-          </a-descriptions-item>
-          <!-- 复用率是判断「归因还要不要继续优化」的直接依据：
-               越高说明每天真正要查源码的越少 -->
-          <a-descriptions-item label="台账复用率">{{ dimSummary.reuse_rate }}%</a-descriptions-item>
-        </a-descriptions>
-
-        <a-alert v-if="dimSummary.detail_truncated" type="info" style="margin-bottom: 8px">
-          维度较多，明细仅显示慢请求数最高的前 {{ dimSummary.detail_limit }} 条（共 {{ dimSummary.total }} 个）。
-          上方汇总数字仍为全量口径。
-        </a-alert>
-        <a-table :data="dimList" :pagination="{ pageSize: 20, showTotal: true }" size="small" row-key="bucket">
-          <template #columns>
-            <a-table-column title="表单" data-index="form_id" :width="170" ellipsis tooltip />
-            <a-table-column title="操作" data-index="operation" :width="90" ellipsis tooltip />
-            <a-table-column title="慢请求" data-index="slow_count" :width="80" :sortable="{ sortDirections: ['descend'] }" />
-            <a-table-column title="日志数" data-index="trace_count" :width="80" />
-            <a-table-column title="状态" :width="90">
-              <template #cell="{ record }">
-                <a-tag :color="dimStatusColor(record.status)" size="small">{{ dimStatusText(record.status) }}</a-tag>
-              </template>
-            </a-table-column>
-            <!-- 线索是正则给 AI 的参考，不是产出目标：同一条 trace 里的慢 SQL、异常、
-                 循环往往是同一个根因的不同表现，所以根因数通常远小于线索数 -->
-            <a-table-column title="线索 → 根因" :width="120">
-              <template #cell="{ record }">
-                {{ record.candidate_hint }} → <strong>{{ record.defect_count }}</strong>
-              </template>
-            </a-table-column>
-            <a-table-column title="新增 / 复现" :width="100">
-              <template #cell="{ record }">{{ record.new_defect_count }} / {{ record.recurring_count }}</template>
-            </a-table-column>
-            <a-table-column title="尝试" data-index="attempt" :width="60" />
-            <a-table-column title="错误" ellipsis tooltip>
-              <template #cell="{ record }">
-                <span v-if="record.error_message" style="color: #f53f3f" :title="record.error_message">
-                  {{ record.error_message }}
-                </span>
-                <span v-else>-</span>
-              </template>
-            </a-table-column>
-          </template>
-        </a-table>
-      </a-spin>
-    </a-drawer>
-  </div>
-</template>
-
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onUnmounted } from 'vue'
+import type { AiAgent, AiListResult } from '@/api/aiApis'
 import { Message } from '@arco-design/web-vue'
-import { ApiPerfReportTask, ApiPerfCompliance } from '@/api/perfApis'
-import { ApiAiAgent, type AiAgent, type AiListResult } from '@/api/aiApis'
+import { computed, onUnmounted, reactive, ref, watch } from 'vue'
+import { ApiAiAgent } from '@/api/aiApis'
+import { ApiPerfCompliance, ApiPerfReportTask } from '@/api/perfApis'
 import { formatTime, useGet, usePost, useTableAutoHeight } from '@/hooks'
 
-defineOptions({ name: 'report-task-manage' })
+defineOptions({ name: 'ReportTaskManage' })
 
 // ── 任务列表 ──────────────────────────────────
 // 表格高度自适应：滚动条落在表格内、表头固定
@@ -547,13 +26,13 @@ const { execute: fetchDimOptions } = useGet<any>(ApiPerfCompliance.dimensionOpti
   immediate: false,
   onSuccess(data: any) { dimValueOptions.value = data || [] },
 })
-const loadDimValues = () => {
+function loadDimValues() {
   const level = form.dimension_type
   // 产品领域/业务领域/项目组：不传父级 = 全量列出
   dimPayload.value = { level, product_domain: '', business_area: '' }
   fetchDimOptions()
 }
-const onDimTypeChange = () => { form.dimension_value = undefined; loadDimValues() }
+function onDimTypeChange() { form.dimension_value = undefined; loadDimValues() }
 
 // ── 新增/编辑弹框 ──────────────────────────────
 const modalVisible = ref(false)
@@ -572,12 +51,51 @@ const { data: agentData } = useGet<AiListResult<AiAgent>>(
 const agents = computed(() => agentData.value?.list || [])
 
 const form = reactive<any>({
-  task_name: '', dimension_type: 'product_domain', dimension_value: undefined, product_line: '星瀚',
-  threshold_ms: 3000, daily_limit_per_group: 100, group_top_pct: 80, group_max: 200,
-  run_time: '02:00', yzj_chat_id: '', work_dir: '', agent_code: '', model: '', enabled: true,
-  weekly_enabled: true, monthly_enabled: true, weekly_weekday: 2, monthly_day: 2, period_run_time: '06:00',
-  attr_schedule: 'daily', attr_run_time: '', attr_weekday: 7, attr_month_day: 1,
+  task_name: '',
+  task_type: 'pipeline',
+  dimension_type: 'product_domain',
+  dimension_value: undefined,
+  product_line: '星瀚',
+  threshold_ms: 3000,
+  daily_limit_per_group: 100,
+  group_top_pct: 80,
+  group_max: 1000,
+  // cron 取代了原来的「执行时间 + 执行周期」两个字段：那是同一个表达式的两半。
+  cron_expr: '',
+  yzj_chat_id: '',
+  push_enabled: false,
+  work_dir: '',
+  agent_code: '',
+  model: '',
+  enabled: true,
+  attr_scope: 'pending',
+  period_scope: 'last_month',
+  // 保留 run_time 只为兼容后端的旧字段，前端不再展示 —— 保存时按 cron 反推，
+  // 免得旧记录的 run_time 被清空导致回退时无法调度。
+  run_time: '02:00',
 })
+
+// 按类型决定显示哪些区块。
+//
+// 为什么按类型分：一个任务原来要填 23 个字段，其中大半和它实际做的事无关
+// （只下载的任务也得填周报月报开关）。拆开后每种最多 9 个。
+const needCollect = computed(() => form.task_type === 'pipeline' || form.task_type === 'collect')
+const needAttribute = computed(() => form.task_type === 'pipeline' || form.task_type === 'attribute')
+// 归因也要维度值：它按 dimension_type/value 查台账判新老问题
+const needScope = computed(() => form.task_type !== '')
+
+const typeHint = computed(() => ({
+  pipeline: '一个任务做完下载、提取、归因。适合数据量小、当天就要结论的场景。',
+  collect: '只下载与提取。Ops 日志只留 5~7 天，采集必须每天跑，所以通常单独建一个每天的采集任务。',
+  attribute: '只做归因，会把所有已下载未归因的日期合并成一个区间一次分析完。攒几天比每天跑省一半报告量。',
+  period: '按区间读问题台账与归因报告出报告，不依赖日报。',
+}[form.task_type as string] || ''))
+
+const cronPlaceholder = computed(() => ({
+  collect: '0 0 23 * * *（每天 23:00 取前一天）',
+  attribute: '0 0 1 * * 1（每周一 01:00）',
+  period: '0 0 12 1 * *（每月 1 日 12:00）',
+}[form.task_type as string] || '0 0 2 * * *（每天 02:00）'))
 
 // 模型选项跟随所选 Agent 的 supported_models_json：各 Agent 支持的模型不同
 // （kiro-cli 19 个、qoder 系列 15 个），且随 CLI 升级变化，硬编码追不上。
@@ -600,35 +118,67 @@ watch(() => form.agent_code, () => {
     form.model = ''
 })
 
-
-const openAddModal = () => {
+function openAddModal() {
   isEdit.value = false; editId.value = ''
-  Object.assign(form, { task_name: '', dimension_type: 'product_domain', dimension_value: undefined, product_line: '星瀚', threshold_ms: 3000, daily_limit_per_group: 100, group_top_pct: 80, group_max: 200, run_time: '02:00', yzj_chat_id: '', work_dir: '', enabled: true, weekly_enabled: true, monthly_enabled: true, weekly_weekday: 2, monthly_day: 2, period_run_time: '06:00', attr_schedule: 'daily', attr_run_time: '', attr_weekday: 7, attr_month_day: 1 })
+  Object.assign(form, {
+    task_name: '',
+    task_type: 'pipeline',
+    dimension_type: 'product_domain',
+    dimension_value: undefined,
+    product_line: '星瀚',
+    threshold_ms: 3000,
+    daily_limit_per_group: 100,
+    group_top_pct: 80,
+    group_max: 1000,
+    cron_expr: '',
+    yzj_chat_id: '',
+    push_enabled: false,
+    work_dir: '',
+    agent_code: '',
+    model: '',
+    enabled: true,
+    attr_scope: 'pending',
+    period_scope: 'last_month',
+    run_time: '02:00',
+  })
   loadDimValues()
   modalVisible.value = true
 }
 
-const openEditModal = (record: any) => {
+/// HH:MM → 6 段 cron。给迁移前建的老记录兜底。
+function cronFromRunTime(t: string): string {
+  const [h, m] = String(t).split(':')
+  const hh = Number(h); const mm = Number(m)
+  if (Number.isNaN(hh) || Number.isNaN(mm))
+    return ''
+  return `0 ${mm} ${hh} * * *`
+}
+
+function openEditModal(record: any) {
   isEdit.value = true; editId.value = record.id
   Object.assign(form, {
-    task_name: record.task_name, dimension_type: record.dimension_type, dimension_value: record.dimension_value,
+    task_name: record.task_name,
+    // 老记录没有 task_type，按后端默认值兜底为全流程
+    task_type: record.task_type || 'pipeline',
+    dimension_type: record.dimension_type,
+    dimension_value: record.dimension_value,
     product_line: record.product_line || '星瀚',
-    threshold_ms: record.threshold_ms ?? 3000, daily_limit_per_group: record.daily_limit_per_group ?? 100,
-    group_top_pct: record.group_top_pct ?? 80, group_max: record.group_max ?? 200,
-    run_time: record.run_time || '02:00', yzj_chat_id: record.yzj_chat_id || '', work_dir: record.work_dir || '',
-    agent_code: record.agent_code || '', model: record.model || '',
+    threshold_ms: record.threshold_ms ?? 3000,
+    daily_limit_per_group: record.daily_limit_per_group ?? 100,
+    group_top_pct: record.group_top_pct ?? 80,
+    group_max: record.group_max ?? 1000,
+    // 老记录只有 run_time：迁移已把它转成 cron，这里再兜一层，
+    // 免得迁移前建的记录打开编辑框看到空的执行时间
+    cron_expr: record.cron_expr || (record.run_time ? cronFromRunTime(record.run_time) : ''),
+    run_time: record.run_time || '02:00',
+    yzj_chat_id: record.yzj_chat_id || '',
+    push_enabled: record.push_enabled ?? false,
+    work_dir: record.work_dir || '',
+    agent_code: record.agent_code || '',
+    model: record.model || '',
     enabled: !!record.enabled,
-    // 后端列有 NOT NULL 默认值，但老记录经接口回来可能是 undefined，
-    // 这里给出与后端一致的兜底，避免开关显示成「关」而实际是开的
-    weekly_enabled: record.weekly_enabled ?? true,
-    monthly_enabled: record.monthly_enabled ?? true,
-    weekly_weekday: record.weekly_weekday ?? 2,
-    monthly_day: record.monthly_day ?? 2,
-    attr_schedule: record.attr_schedule || 'daily',
-    attr_run_time: record.attr_run_time || '',
-    attr_weekday: record.attr_weekday ?? 7,
-    attr_month_day: record.attr_month_day ?? 1,
-    period_run_time: record.period_run_time || '06:00',
+    attr_scope: record.attr_scope || 'pending',
+    period_scope: record.period_scope || 'last_month',
   })
   loadDimValues()
   modalVisible.value = true
@@ -637,23 +187,45 @@ const openEditModal = (record: any) => {
 const savePayload = ref<any>({})
 const { execute: doSave } = usePost<any>(ApiPerfReportTask.save, savePayload, { immediate: false })
 
-const buildPayload = (base: any) => ({
-  task_name: base.task_name, dimension_type: base.dimension_type, dimension_value: base.dimension_value,
-  product_line: base.product_line,
-  threshold_ms: base.threshold_ms, daily_limit_per_group: base.daily_limit_per_group,
-  group_top_pct: base.group_top_pct, group_max: base.group_max,
-  run_time: base.run_time || '02:00',
-  weekly_enabled: base.weekly_enabled,
-  monthly_enabled: base.monthly_enabled,
-  weekly_weekday: base.weekly_weekday,
-  monthly_day: base.monthly_day,
-  period_run_time: base.period_run_time || '06:00',
-  yzj_chat_id: base.yzj_chat_id || undefined, work_dir: base.work_dir || undefined,
-    agent_code: base.agent_code || undefined, model: base.model || undefined,
-  enabled: base.enabled,
-})
+function buildPayload(base: any) {
+  return {
+    task_name: base.task_name,
+    task_type: base.task_type || 'pipeline',
+    dimension_type: base.dimension_type,
+    dimension_value: base.dimension_value,
+    product_line: base.product_line,
+    threshold_ms: base.threshold_ms,
+    daily_limit_per_group: base.daily_limit_per_group,
+    group_top_pct: base.group_top_pct,
+    group_max: base.group_max,
+    cron_expr: base.cron_expr || undefined,
+    // run_time 仍传：后端列非空，且回退到旧版本时它还是调度依据。
+    // 有 cron 时按 cron 反推，保持两者一致。
+    run_time: runTimeFromCron(base.cron_expr) || base.run_time || '02:00',
+    push_enabled: !!base.push_enabled,
+    attr_scope: base.attr_scope || 'pending',
+    period_scope: base.period_scope || 'last_month',
+    yzj_chat_id: base.yzj_chat_id || undefined,
+    work_dir: base.work_dir || undefined,
+    agent_code: base.agent_code || undefined,
+    model: base.model || undefined,
+    enabled: base.enabled,
+  }
+}
 
-const handleSave = async () => {
+/// 6 段 cron 的「秒 分 时」反推成 HH:MM，供后端旧字段使用。
+/// 取不出时返回空串，由调用方兜底。
+function runTimeFromCron(expr?: string): string {
+  const parts = String(expr || '').trim().split(/\s+/)
+  if (parts.length < 3)
+    return ''
+  const mm = Number(parts[1]); const hh = Number(parts[2])
+  if (Number.isNaN(hh) || Number.isNaN(mm))
+    return ''
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+}
+
+async function handleSave() {
   if (!form.task_name) { Message.warning('请输入任务名称'); return }
   if (!form.dimension_value) { Message.warning('请选择或输入维度值'); return }
   saving.value = true
@@ -662,13 +234,13 @@ const handleSave = async () => {
     await doSave()
     Message.success(isEdit.value ? '编辑成功' : '新增成功')
     modalVisible.value = false; fetchTasks()
-  } finally { saving.value = false }
+  }
+  finally { saving.value = false }
 }
 
 // ── 启用开关（内联切换即保存） ──────────────────────────────
-const weekdayText = (n: number) => ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'][n] || `第${n}天`
 
-const toggleEnabled = async (record: any, enabled: boolean) => {
+async function toggleEnabled(record: any, enabled: boolean) {
   savePayload.value = { id: record.id, ...buildPayload({ ...record, yzj_chat_id: record.yzj_chat_id || '', work_dir: record.work_dir || '', enabled }) }
   await doSave()
   Message.success(enabled ? '已启用' : '已停用')
@@ -678,7 +250,7 @@ const toggleEnabled = async (record: any, enabled: boolean) => {
 // ── 删除 ──────────────────────────────────
 const delPayload = ref<any>({})
 const { execute: doDelete } = usePost<any>(ApiPerfReportTask.delete, delPayload, { immediate: false })
-const handleDelete = async (record: any) => {
+async function handleDelete(record: any) {
   delPayload.value = { id: record.id }
   await doDelete()
   Message.success('删除成功'); fetchTasks()
@@ -695,32 +267,23 @@ const triggerStage = ref<string>()
 // 非空表示只触发这一个任务（行内入口）；为空表示触发全部启用任务（顶部入口）
 const triggerTarget = ref<any>(null)
 
-const openTriggerFor = (record: any) => {
+function openTriggerFor(record: any) {
   triggerTarget.value = record
   triggerStage.value = undefined
   triggerVisible.value = true
 }
-const openTriggerAll = () => {
+function openTriggerAll() {
   triggerTarget.value = null
   triggerStage.value = undefined
   triggerVisible.value = true
 }
 
 /// 周期报告列的一行摘要（列宽有限，全文走 tooltip）
-const periodSummary = (r: any) => {
-  const weekly = r.weekly_enabled ?? true
-  const monthly = r.monthly_enabled ?? true
-  if (!weekly && !monthly) return '未开启'
-  const parts: string[] = []
-  if (weekly) parts.push(`周报 ${weekdayText(r.weekly_weekday ?? 2)}`)
-  if (monthly) parts.push(`月报 ${r.monthly_day ?? 2} 日`)
-  return `${parts.join(' / ')} · ${r.period_run_time || '06:00'}`
-}
 const triggerPayload = ref<any>({})
 const { data: triggerResult, error: triggerError, execute: doTrigger } = usePost<any>(ApiPerfReportTask.trigger, triggerPayload, {
   immediate: false,
 })
-const handleTrigger = async () => {
+async function handleTrigger() {
   triggering.value = true
   try {
     triggerPayload.value = {
@@ -736,11 +299,13 @@ const handleTrigger = async () => {
       // 「什么都没跑」用绿色成功提示会误导 —— 用户正是据此以为跑了却没记录。
       // 这类结果用警告色，并延长停留时间（消息里要交代跳过原因与解决办法）。
       const skipped = text.startsWith('未执行')
-      if (skipped) Message.warning({ content: text, duration: 8000 })
+      if (skipped)
+        Message.warning({ content: text, duration: 8000 })
       else Message.success({ content: text, duration: 5000 })
     }
     triggerVisible.value = false
-  } finally { triggering.value = false }
+  }
+  finally { triggering.value = false }
 }
 
 // ── 运行记录 ──────────────────────────────────
@@ -753,7 +318,7 @@ const { execute: fetchRuns } = useGet<any>(ApiPerfReportTask.runs, runPayload, {
   immediate: false,
   onSuccess(data: any) { runList.value = data || [] },
 })
-const openRuns = (record: any) => {
+function openRuns(record: any) {
   currentTask.value = record; drawerVisible.value = true; runLoading.value = true
   runPayload.value = { task_id: record.id }
   fetchRuns().finally(() => { runLoading.value = false })
@@ -763,14 +328,14 @@ const openRuns = (record: any) => {
 
 const cancelPayload = ref<any>({})
 const { execute: doCancelRun } = usePost<any>(ApiPerfReportTask.cancel, cancelPayload, { immediate: false })
-const cancelRun = async (record: any) => {
+async function cancelRun(record: any) {
   cancelPayload.value = { task_id: record.task_id, run_date: record.run_date, stage: record.stage }
   await doCancelRun()
   Message.success('已提交取消请求，将在当前网络请求或处理项完成后停止')
   fetchRuns()
 }
 let runTimer: ReturnType<typeof setInterval> | null = null
-const stopRunTimer = () => { if (runTimer) { clearInterval(runTimer); runTimer = null } }
+function stopRunTimer() { if (runTimer) { clearInterval(runTimer); runTimer = null } }
 watch([drawerVisible, runList], ([visible, list]) => {
   stopRunTimer()
   if (visible && list.some((r: any) => r.status === 'running')) {
@@ -780,6 +345,39 @@ watch([drawerVisible, runList], ([visible, list]) => {
 onUnmounted(stopRunTimer)
 
 // ── 格式化辅助 ──────────────────────────────────
+function taskTypeText(t: string) {
+  return {
+    pipeline: '全流程',
+    collect: '仅采集',
+    attribute: '仅归因',
+    period: '周期报告',
+  }[t] || t || '全流程'
+}
+function taskTypeColor(t: string) {
+  return {
+    pipeline: 'arcoblue',
+    collect: 'cyan',
+    attribute: 'orange',
+    period: 'purple',
+  }[t] || 'gray'
+}
+
+/// 范围列：归因显示归因范围，周期报告显示区间，采集类不适用。
+function scopeSummary(r: any) {
+  if (r.task_type === 'attribute')
+    return r.attr_scope === 'single_day' ? '指定日期' : '全部未归因'
+  if (r.task_type === 'period') {
+    return ({
+      last_week: '上一周',
+      last_2weeks: '上两周',
+      this_week: '本周至今',
+      last_month: '上一月',
+      this_month: '本月至今',
+    }[r.period_scope as string] || r.period_scope || '上一月')
+  }
+  return '—'
+}
+
 const dimTypeText = (t: string) => ({ product_domain: '产品领域', business_area: '业务领域', project_group: '项目组' }[t] || t)
 const dimTypeColor = (t: string) => ({ product_domain: 'arcoblue', business_area: 'green', project_group: 'orange' }[t] || 'gray')
 // ── 维度归因进度 ──────────────────────────────
@@ -790,8 +388,16 @@ const dimLoading = ref(false)
 const dimRunDate = ref('')
 const dimList = ref<any[]>([])
 const dimSummary = ref<any>({
-  total: 0, pending: 0, running: 0, done: 0, failed: 0,
-  remaining: 0, defect_total: 0, new_defect_total: 0, recurring_total: 0, reuse_rate: 0,
+  total: 0,
+  pending: 0,
+  running: 0,
+  done: 0,
+  failed: 0,
+  remaining: 0,
+  defect_total: 0,
+  new_defect_total: 0,
+  recurring_total: 0,
+  reuse_rate: 0,
 })
 
 // useGet 返回的是 UseFetchReturn（**不是 Promise**），必须在顶层创建、
@@ -829,7 +435,7 @@ function openDimensions(record: any) {
 // 分不清是卡死还是在推进（运行记录抽屉早就有 5 秒轮询，这里漏了）。
 // 只在「还有维度没做完」时轮询，做完就停，避免空转。
 let dimTimer: ReturnType<typeof setInterval> | null = null
-const stopDimTimer = () => { if (dimTimer) { clearInterval(dimTimer); dimTimer = null } }
+function stopDimTimer() { if (dimTimer) { clearInterval(dimTimer); dimTimer = null } }
 watch([dimVisible, dimSummary], ([visible, summary]: any[]) => {
   stopDimTimer()
   const busy = Number(summary?.remaining ?? 0) > 0 || Number(summary?.running ?? 0) > 0
@@ -839,32 +445,667 @@ watch([dimVisible, dimSummary], ([visible, summary]: any[]) => {
 }, { deep: true })
 onUnmounted(stopDimTimer)
 
-const dimStatusText = (s: string) =>
-  ({ pending: '待处理', running: '处理中', done: '已完成', failed: '失败', skipped: '跳过',
-     // 分桶口径变化后遗留的旧维度会被作废，不再派发也不计入进度
-     obsolete: '已作废' }[s] || s)
+function dimStatusText(s: string) {
+  return { pending: '待处理', running: '处理中', done: '已完成', failed: '失败', skipped: '跳过',
+    // 分桶口径变化后遗留的旧维度会被作废，不再派发也不计入进度
+    obsolete: '已作废' }[s] || s
+}
 
-const dimStatusColor = (s: string) =>
-  ({ pending: 'gray', running: 'arcoblue', done: 'green', failed: 'red', skipped: 'orange',
-     obsolete: 'gray' }[s] || 'gray')
+function dimStatusColor(s: string) {
+  return { pending: 'gray', running: 'arcoblue', done: 'green', failed: 'red', skipped: 'orange', obsolete: 'gray' }[s] || 'gray'
+}
 
 // classify_hash 已从流水线移除（旧架构的正则机械分类，产物无人读取），
 // 但历史运行记录里还有这个阶段名，映射必须保留，否则旧记录显示成裸英文。
 const stageText = (s: string) => ({ preflight: '预检', download: '下载', extract: '结构提取', classify_hash: '问题分类（已废弃）', defect_attribution: '缺陷归因', report: '日报台账', push: '推送' }[s] || s)
 const runStatusText = (s: string) => ({ running: '运行中', success: '成功', failed: '失败', skipped: '跳过', cancelled: '已取消', interrupted: '待恢复' }[s] || s || '-')
 const runStatusColor = (s: string) => ({ running: 'blue', success: 'green', failed: 'red', skipped: 'gray', cancelled: 'orange', interrupted: 'orangered' }[s] || 'gray')
-const fmtDuration = (seconds?: number) => {
+function fmtDuration(seconds?: number) {
   const value = Math.max(0, Number(seconds || 0))
-  if (value < 60) return `${value}s`
-  if (value < 3600) return `${Math.ceil(value / 60)}m`
+  if (value < 60)
+    return `${value}s`
+  if (value < 3600)
+    return `${Math.ceil(value / 60)}m`
   return `${Math.floor(value / 3600)}h${Math.ceil((value % 3600) / 60)}m`
 }
 
 // 这些 a-form 只用来做纵向布局，不做校验，但 arco 的 model 是必填 prop。
 // 用一个模块级常量而不是在模板里写 :model="{}"，避免每次渲染都新建对象。
 const layoutOnlyModel = {}
-
 </script>
+
+<template>
+  <div class="page-container">
+    <a-card title="周期任务" :bordered="false">
+      <template #extra>
+        <a-space>
+          <a-input v-model="keyword" placeholder="任务名称" allow-clear style="width: 180px" @change="() => fetchTasks()" />
+          <a-select v-model="filterDimType" placeholder="维度类型" allow-clear style="width: 140px" @change="() => fetchTasks()">
+            <a-option value="product_domain">
+              产品领域
+            </a-option>
+            <a-option value="business_area">
+              业务领域
+            </a-option>
+            <a-option value="project_group">
+              项目组
+            </a-option>
+          </a-select>
+          <a-button type="primary" @click="openAddModal">
+            新增任务
+          </a-button>
+        </a-space>
+      </template>
+
+      <!--
+        「手动触发」原来在表格**下方**，表格一长就要滚到底才看得见，而它是常用动作。
+        移到表格上方并与说明文字同一行：按钮紧邻解释它作用的文字，也不占额外一行。
+      -->
+      <div class="trigger-bar">
+        <a-button status="success" @click="openTriggerAll()">
+          <template #icon>
+            <icon-thunderbolt />
+          </template>
+          手动触发
+        </a-button>
+        <span class="trigger-tip">
+          对全部<b>启用</b>任务执行一次（按数据日期逐阶段断点续跑）；每日定时由调度按「执行时间」自动触发。
+        </span>
+      </div>
+
+      <!-- 原生 div 挂 ref：组件 ref 拿到的是实例、没有 getBoundingClientRect -->
+      <div ref="tableWrap">
+        <a-table :data="taskList" :loading="loading" :pagination="false" row-key="id" :scroll="{ y: tableHeight }">
+          <template #columns>
+            <a-table-column title="任务名称" :width="180">
+              <template #cell="{ record }">
+                <span>{{ record.task_name }}</span>
+                <a-tag v-if="!record.enabled" color="gray" size="small" style="margin-left: 6px">
+                  停用
+                </a-tag>
+              </template>
+            </a-table-column>
+            <a-table-column title="类型" :width="100">
+              <template #cell="{ record }">
+                <a-tag :color="taskTypeColor(record.task_type)" size="small">
+                  {{ taskTypeText(record.task_type) }}
+                </a-tag>
+              </template>
+            </a-table-column>
+            <a-table-column title="维度" :width="170">
+              <template #cell="{ record }">
+                <a-tag :color="dimTypeColor(record.dimension_type)" size="small">
+                  {{ dimTypeText(record.dimension_type) }}
+                </a-tag>
+                <span style="margin-left: 4px">{{ record.dimension_value }}</span>
+              </template>
+            </a-table-column>
+            <a-table-column title="产品线" :width="80">
+              <template #cell="{ record }">
+                <a-tag :color="record.product_line === '星空' ? 'purple' : 'blue'" size="small">
+                  {{ record.product_line || '星瀚' }}
+                </a-tag>
+              </template>
+            </a-table-column>
+            <a-table-column title="量控" :width="200">
+              <template #cell="{ record }">
+                <a-tooltip :content="`超${record.threshold_ms || 3000}ms · 每组合≤${record.daily_limit_per_group || 100}条/天 · 覆盖超量${record.group_top_pct || 80}% · ≤${record.group_max || 200}组合`">
+                  <span>{{ record.threshold_ms || 3000 }}ms / {{ record.daily_limit_per_group || 100 }}条 / {{ record.group_top_pct || 80 }}% / {{ record.group_max || 200 }}组</span>
+                </a-tooltip>
+              </template>
+            </a-table-column>
+            <a-table-column title="执行时间" :width="150" ellipsis tooltip>
+              <template #cell="{ record }">
+                <span v-if="record.cron_expr">{{ record.cron_expr }}</span>
+                <a-tag v-else color="gray" size="small">
+                  仅手动
+                </a-tag>
+              </template>
+            </a-table-column>
+            <!-- 单行 + 省略 + 悬浮提示。原来用 a-space 排两个标签再跟时间，
+               150px 宽放不下就换行，把 06:00 挤成竖排 —— 表格列宽有限，
+               信息密度高的内容一律走「一行摘要 + tooltip 全文」。 -->
+            <!-- 范围列的含义随类型变：归因看归因范围，周期报告看报告区间 -->
+            <a-table-column title="范围" :width="130" ellipsis tooltip>
+              <template #cell="{ record }">
+                <span>{{ scopeSummary(record) }}</span>
+              </template>
+            </a-table-column>
+            <a-table-column title="推送" :width="70">
+              <template #cell="{ record }">
+                <a-tag :color="record.push_enabled ? 'green' : 'gray'" size="small">
+                  {{ record.push_enabled ? '开' : '关' }}
+                </a-tag>
+              </template>
+            </a-table-column>
+            <a-table-column title="工作目录" data-index="work_dir" ellipsis tooltip :width="180" />
+            <a-table-column title="最近运行" :width="150">
+              <template #cell="{ record }">
+                <template v-if="record.last_run_date">
+                  <a-tag :color="runStatusColor(record.last_run_status)" size="small">
+                    {{ runStatusText(record.last_run_status) }}
+                  </a-tag>
+                  <span style="margin-left: 4px; color: #666">{{ record.last_run_date }}</span>
+                </template>
+                <span v-else style="color: #999">未运行</span>
+              </template>
+            </a-table-column>
+            <a-table-column title="启用" :width="70">
+              <template #cell="{ record }">
+                <a-switch :model-value="!!record.enabled" size="small" @change="(v: boolean | string | number) => toggleEnabled(record, !!v)" />
+              </template>
+            </a-table-column>
+            <a-table-column title="操作" :width="240" fixed="right">
+              <template #cell="{ record }">
+                <a-space>
+                  <!-- 行内触发只跑这一个任务，**不判断是否启用**：
+                     停用只影响定时调度，人工点某一行就是明确要补跑它。 -->
+                  <a-link @click="openTriggerFor(record)">
+                    触发
+                  </a-link>
+                  <a-link @click="openEditModal(record)">
+                    编辑
+                  </a-link>
+                  <a-link @click="openRuns(record)">
+                    记录
+                  </a-link>
+                  <a-popconfirm content="确认删除该任务？" @ok="handleDelete(record)">
+                    <a-link status="danger">
+                      删除
+                    </a-link>
+                  </a-popconfirm>
+                </a-space>
+              </template>
+            </a-table-column>
+          </template>
+        </a-table>
+      </div>
+    </a-card>
+
+    <!-- 新增/编辑弹框 -->
+    <!--
+      弹窗原来 640px 宽、内容不限高：表单项一多就把弹窗顶得比视口还高，
+      确定/取消被推到视口外，必须滚动整个页面才点得到。
+      加宽到 860px（表单是两列标签+控件，窄了标签换行），并给内容区一个
+      基于视口的最大高度 + 自身滚动 —— 这样按钮始终留在视口内。
+      弹窗是视口锚定的，这里用 100vh 是正确的（护栏也按此放行）。
+    -->
+    <a-modal
+      v-model:visible="modalVisible"
+      :title="isEdit ? '编辑任务' : '新增任务'"
+      :width="860"
+      :body-style="{ maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' }"
+      :ok-loading="saving"
+      @ok="handleSave"
+    >
+      <a-form :model="form" layout="vertical">
+        <a-row :gutter="16">
+          <a-col :span="12">
+            <a-form-item label="任务名称" required>
+              <a-input v-model="form.task_name" placeholder="如: 集团财务-每日采集" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-item label="任务类型" required>
+              <a-select v-model="form.task_type">
+                <a-option value="pipeline">
+                  全流程（下载 → 提取 → 归因）
+                </a-option>
+                <a-option value="collect">
+                  仅采集（下载 + 提取）
+                </a-option>
+                <a-option value="attribute">
+                  仅归因
+                </a-option>
+                <a-option value="period">
+                  周期报告
+                </a-option>
+              </a-select>
+              <template #extra>
+                <span>{{ typeHint }}</span>
+              </template>
+            </a-form-item>
+          </a-col>
+        </a-row>
+
+        <a-row :gutter="16">
+          <a-col :span="12">
+            <a-form-item label="执行时间（cron）">
+              <a-input v-model="form.cron_expr" :placeholder="cronPlaceholder" allow-clear />
+              <template #extra>
+                <span>
+                  6 段（秒 分 时 日 月 周），按业务时区。常用：
+                  <a-link @click="form.cron_expr = '0 0 23 * * *'">每天 23:00</a-link>
+                  <a-link @click="form.cron_expr = '0 0 1 * * 1'">每周一 01:00</a-link>
+                  <a-link @click="form.cron_expr = '0 0 3 1 * *'">每月 1 日 03:00</a-link>
+                  <a-link @click="form.cron_expr = '0 0 12 1 * *'">每月 1 日 12:00</a-link>
+                  。<b>留空表示仅手动触发。</b>
+                </span>
+              </template>
+            </a-form-item>
+          </a-col>
+          <a-col :span="6">
+            <a-form-item label="启用">
+              <a-switch v-model="form.enabled" />
+              <span class="hint">停用后定时与手动触发都跳过</span>
+            </a-form-item>
+          </a-col>
+          <a-col :span="6">
+            <a-form-item label="完成后推送">
+              <a-switch v-model="form.push_enabled" />
+              <span class="hint">成功与失败都推</span>
+            </a-form-item>
+          </a-col>
+        </a-row>
+        <a-form-item v-if="form.push_enabled" label="云之家群机器人">
+          <a-input v-model="form.yzj_chat_id" placeholder="机器人 token 或完整 sendMsgUrl" allow-clear />
+          <template #extra>
+            <span>推送内容按任务类型自动组装：采集报下载与解析数量，归因报区间与问题数，周期报告报问题数与报告名。</span>
+          </template>
+        </a-form-item>
+
+        <!-- 分析范围：采集与周期报告都要（决定取哪些数据 / 读哪个范围的台账） -->
+        <template v-if="needScope">
+          <a-divider orientation="left" style="margin: 8px 0">
+            分析范围
+          </a-divider>
+          <a-row :gutter="16">
+            <a-col :span="8">
+              <a-form-item label="维度类型" required>
+                <a-select v-model="form.dimension_type" @change="onDimTypeChange">
+                  <a-option value="product_domain">
+                    产品域
+                  </a-option>
+                  <a-option value="project_group">
+                    项目组
+                  </a-option>
+                </a-select>
+              </a-form-item>
+            </a-col>
+            <a-col :span="8">
+              <a-form-item label="维度值" required>
+                <a-select v-model="form.dimension_value" allow-create allow-search placeholder="如: 集团财务">
+                  <a-option v-for="v in dimValueOptions" :key="v.value ?? v" :value="v.value ?? v">
+                    {{ v.label ?? v }}
+                  </a-option>
+                </a-select>
+              </a-form-item>
+            </a-col>
+            <a-col :span="8">
+              <a-form-item label="产品线">
+                <a-input v-model="form.product_line" placeholder="星瀚" />
+              </a-form-item>
+            </a-col>
+          </a-row>
+        </template>
+
+        <!-- 取数口径：只有会下载的类型需要 -->
+        <template v-if="needCollect">
+          <a-divider orientation="left" style="margin: 8px 0">
+            取数口径
+          </a-divider>
+          <a-row :gutter="16">
+            <a-col :span="6">
+              <a-form-item label="超阈值(ms)">
+                <a-input-number v-model="form.threshold_ms" :min="500" :step="500" style="width: 100%" />
+              </a-form-item>
+            </a-col>
+            <a-col :span="6">
+              <a-form-item label="每维度每天上限">
+                <a-input-number v-model="form.daily_limit_per_group" :min="1" :max="500" style="width: 100%" />
+              </a-form-item>
+            </a-col>
+            <a-col :span="6">
+              <a-form-item label="覆盖超量(%)">
+                <a-input-number v-model="form.group_top_pct" :min="1" :max="100" style="width: 100%" />
+              </a-form-item>
+            </a-col>
+            <a-col :span="6">
+              <a-form-item label="维度数上限">
+                <a-input-number v-model="form.group_max" :min="1" :max="5000" style="width: 100%" />
+              </a-form-item>
+            </a-col>
+          </a-row>
+        </template>
+
+        <!-- 归因：只有会归因的类型需要 -->
+        <template v-if="needAttribute">
+          <a-divider orientation="left" style="margin: 8px 0">
+            归因
+          </a-divider>
+          <a-form-item v-if="form.task_type === 'attribute'" label="归因范围">
+            <a-radio-group v-model="form.attr_scope">
+              <a-radio value="pending">
+                全部未归因
+              </a-radio>
+              <a-radio value="single_day">
+                指定日期
+              </a-radio>
+            </a-radio-group>
+            <template #extra>
+              <span>
+                <b>全部未归因</b>：把所有已下载但还没归因的日期合并成一个区间一次分析完。
+                攒几天比每天跑省一半报告量 —— 实测 31 个维度 7 天数据合并后需 176 份报告，
+                逐天各跑要 384 份，因为同一个问题一周内反复出现只报一次。
+                <b>指定日期</b>用于补跑某一天。
+              </span>
+            </template>
+          </a-form-item>
+          <a-row :gutter="16">
+            <a-col :span="12">
+              <a-form-item label="归因 Agent">
+                <a-select v-model="form.agent_code" allow-clear placeholder="默认 kiro-cli">
+                  <a-option v-for="a in agents" :key="a.agent_code" :value="a.agent_code">
+                    {{ a.agent_name || a.agent_code }}
+                  </a-option>
+                </a-select>
+                <template #extra>
+                  <span>kiro 因网络受限不可用时可切到 qoder 系列。</span>
+                </template>
+              </a-form-item>
+            </a-col>
+            <a-col :span="12">
+              <a-form-item label="归因模型">
+                <a-select v-model="form.model" allow-clear allow-create placeholder="默认按 Agent 配置">
+                  <a-option v-for="m in modelOptions" :key="m" :value="m">
+                    {{ m }}
+                  </a-option>
+                </a-select>
+              </a-form-item>
+            </a-col>
+          </a-row>
+        </template>
+
+        <!-- 周期报告 -->
+        <template v-if="form.task_type === 'period'">
+          <a-divider orientation="left" style="margin: 8px 0">
+            报告区间
+          </a-divider>
+          <a-form-item label="覆盖范围">
+            <a-select v-model="form.period_scope" style="width: 200px">
+              <a-option value="last_week">
+                上一周
+              </a-option>
+              <a-option value="last_2weeks">
+                上两周
+              </a-option>
+              <a-option value="this_week">
+                本周至今
+              </a-option>
+              <a-option value="last_month">
+                上一月
+              </a-option>
+              <a-option value="this_month">
+                本月至今
+              </a-option>
+            </a-select>
+            <template #extra>
+              <span>
+                按区间直接读<b>问题台账</b>与区间内的<b>归因报告</b>出报告，不依赖日报。
+                「上一周 / 上一月」是闭合区间，数字不会每天变；「本周 / 本月至今」用于临时查看。
+              </span>
+            </template>
+          </a-form-item>
+        </template>
+
+        <a-form-item label="工作目录">
+          <a-input v-model="form.work_dir" placeholder="如 /data/nfs/app/report-work/group-finance" />
+          <template #extra>
+            <span>技能目录隔离红线。归因要按日期目录读日志，所有类型都必须配。</span>
+          </template>
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <!-- 手动触发弹框 -->
+    <a-modal
+      v-model:visible="triggerVisible"
+      :title="triggerTarget ? `手动触发 — ${triggerTarget.task_name}` : '手动触发（全部启用任务）'"
+      :width="440"
+      :ok-loading="triggering"
+      @ok="handleTrigger"
+    >
+      <a-alert v-if="triggerTarget" type="info" style="margin-bottom: 12px">
+        只跑这一个任务。<b>不受启用开关影响</b> —— 停用只影响定时调度，这里是人工补跑。
+      </a-alert>
+      <a-form layout="vertical" :model="layoutOnlyModel">
+        <a-form-item label="数据日期（默认昨天）">
+          <a-date-picker v-model="triggerDate" value-format="YYYY-MM-DD" style="width: 100%" />
+          <span v-if="triggerStage === 'weekly' || triggerStage === 'monthly'" class="hint">
+            周报/月报以这个日期为锚点，取它所在的整{{ triggerStage === 'weekly' ? '周' : '月' }}。
+            与调度生成的区别只是不等区间闭合、不等触发时刻 —— 同区间重复生成会复用既有报告，不会堆重复。
+          </span>
+        </a-form-item>
+        <a-form-item label="强制重跑">
+          <a-switch v-model="triggerForce" />
+          <span class="hint">
+            默认开启断点续跑：已成功的阶段会被跳过，所以对跑过的日期点触发会
+            <b>什么都不做</b>。改了配置或想用同一天数据复验时打开这个。
+          </span>
+        </a-form-item>
+        <a-form-item label="只跑指定阶段（空=全流程）">
+          <a-select v-model="triggerStage" allow-clear placeholder="全流程：下载→提取→缺陷归因（日报独立节点）">
+            <a-option value="preflight">
+              preflight（预检，不调用 Ops）
+            </a-option>
+            <a-option value="download">
+              download（下载）
+            </a-option>
+            <a-option value="extract">
+              extract（结构化提取）
+            </a-option>
+            <a-option value="defect_attribution">
+              defect_attribution（AI 逐维度归因）
+            </a-option>
+            <a-option value="report">
+              report（日报与台账）
+            </a-option>
+            <a-option value="weekly">
+              weekly（周报，取数据日期所在那一周）
+            </a-option>
+            <a-option value="monthly">
+              monthly（月报，取数据日期所在那一月）
+            </a-option>
+            <a-option value="push">
+              push（推送）
+            </a-option>
+          </a-select>
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <!-- 运行记录抽屉 -->
+    <!-- 宽度用视口百分比而不是固定 px：运行记录有 10 列（含产物/错误这种长文本），
+         1080px 下错误信息只能截断成一小段，排查时还得逐行点开看。 -->
+    <a-drawer v-model:visible="drawerVisible" :title="`运行记录: ${currentTask?.task_name || ''}`" width="90%" :footer="false">
+      <!-- 分页：一个任务跑一段时间就有几十上百条阶段记录（每天 5 个阶段，
+             重跑还会累计），不分页要一直滚，也看不出总共多少条 -->
+      <a-table
+        :data="runList"
+        :loading="runLoading"
+        :pagination="{ pageSize: 20, showTotal: true, showPageSize: true }"
+        size="small"
+        row-key="id"
+      >
+        <template #columns>
+          <a-table-column title="数据日期" data-index="run_date" :width="100" />
+          <a-table-column title="阶段" :width="120">
+            <template #cell="{ record }">
+              <a-tag size="small">
+                {{ stageText(record.stage) }}
+              </a-tag>
+            </template>
+          </a-table-column>
+          <a-table-column title="状态" :width="82">
+            <template #cell="{ record }">
+              <a-tag :color="runStatusColor(record.status)" size="small">
+                {{ runStatusText(record.status) }}
+              </a-tag>
+            </template>
+          </a-table-column>
+          <a-table-column title="进度 / ETA" :width="190">
+            <template #cell="{ record }">
+              <a-progress :percent="Math.max(0, Math.min(1, (record.progress || 0) / 100))" size="small" />
+              <div class="run-progress-detail">
+                {{ record.done_items || 0 }}/{{ record.total_items || 0 }}
+                <span v-if="record.failed_items"> · 失败 {{ record.failed_items }}</span>
+                <span v-if="record.eta_seconds != null"> · ETA {{ fmtDuration(record.eta_seconds) }}</span>
+              </div>
+            </template>
+          </a-table-column>
+          <a-table-column title="心跳" :width="145">
+            <template #cell="{ record }">
+              {{ formatTime(record.heartbeat_at) }}
+            </template>
+          </a-table-column>
+          <!-- ellipsis 只截断不提示，长错误会被挡住看不到真正原因（生产实测：
+               「日期目录不存在: /data/app/report-work/...」这类路径全被吃掉）。
+               配 tooltip 让悬停展开；再加原生 title 兜底，
+               避免 tooltip 在某些容器里被 overflow 裁掉时完全看不到。 -->
+          <a-table-column title="产物/错误" ellipsis tooltip>
+            <template #cell="{ record }">
+              <span
+                v-if="record.error_message"
+                style="color: #f53f3f; cursor: help"
+                :title="record.error_message"
+              >{{ record.error_message }}</span>
+              <span
+                v-else-if="record.artifact_path"
+                style="color: #666"
+                :title="record.artifact_path"
+              >{{ record.artifact_path }}</span>
+              <span v-else>-</span>
+            </template>
+          </a-table-column>
+          <!-- 阶段记录按 (任务,日期,阶段) 原地更新：重跑不会新增行，只有次数会加。
+               不显示次数的话，重跑过和没重跑过的记录长得一模一样。 -->
+          <a-table-column title="次数" :width="64" align="center">
+            <template #cell="{ record }">
+              <a-tag v-if="(record.attempt || 1) > 1" color="orange" size="small">
+                第 {{ record.attempt }} 次
+              </a-tag>
+              <span v-else>1</span>
+            </template>
+          </a-table-column>
+          <a-table-column title="本次开始" :width="140">
+            <template #cell="{ record }">
+              {{ formatTime(record.started_at) }}
+            </template>
+          </a-table-column>
+          <a-table-column title="本次结束" :width="140">
+            <template #cell="{ record }">
+              {{ formatTime(record.finished_at) }}
+            </template>
+          </a-table-column>
+          <a-table-column title="首次创建" :width="140">
+            <template #cell="{ record }">
+              {{ formatTime(record.created_at) }}
+            </template>
+          </a-table-column>
+          <a-table-column title="操作" :width="130" fixed="right">
+            <template #cell="{ record }">
+              <a-space>
+                <!-- 归因是逐维度处理的长任务，阶段行只能看到总体进度；
+                     维度明细才能看出卡在哪个表单、复用率多少 -->
+                <a-link v-if="record.stage === 'defect_attribution'" @click="openDimensions(record)">
+                  维度进度
+                </a-link>
+                <a-popconfirm v-if="record.status === 'running'" content="在当前安全边界取消该阶段？已完成原子产物会保留。" @ok="cancelRun(record)">
+                  <a-link status="danger">
+                    取消
+                  </a-link>
+                </a-popconfirm>
+              </a-space>
+            </template>
+          </a-table-column>
+        </template>
+      </a-table>
+    </a-drawer>
+
+    <!-- 维度级归因进度：分析单位是「应用+表单+操作」，一个维度一轮 AI 处理 -->
+    <a-drawer v-model:visible="dimVisible" :title="`维度归因进度: ${dimRunDate}`" width="90%" :footer="false">
+      <a-spin :loading="dimLoading" style="display: block">
+        <a-alert v-if="dimSummary.remaining > 0" type="warning" style="margin-bottom: 12px">
+          还有 {{ dimSummary.remaining }} 个维度未处理（共 {{ dimSummary.total }} 个）。
+          <strong>日报会等到全部处理完才生成</strong> —— 否则出的是只统计了一半的报告。
+        </a-alert>
+        <a-alert v-else-if="dimSummary.total > 0" type="success" style="margin-bottom: 12px">
+          全部 {{ dimSummary.total }} 个维度已处理完毕，日报可生成。
+        </a-alert>
+
+        <a-descriptions :column="4" size="small" bordered style="margin-bottom: 12px">
+          <a-descriptions-item label="维度总数">
+            {{ dimSummary.total }}
+          </a-descriptions-item>
+          <a-descriptions-item label="已完成">
+            {{ dimSummary.done }}
+          </a-descriptions-item>
+          <a-descriptions-item label="处理中">
+            {{ dimSummary.running }}
+          </a-descriptions-item>
+          <a-descriptions-item label="待处理">
+            {{ dimSummary.pending }}
+          </a-descriptions-item>
+          <a-descriptions-item label="失败">
+            {{ dimSummary.failed }}
+          </a-descriptions-item>
+          <a-descriptions-item label="根因总数">
+            {{ dimSummary.defect_total }}
+          </a-descriptions-item>
+          <a-descriptions-item label="新增 / 复现">
+            {{ dimSummary.new_defect_total }} / {{ dimSummary.recurring_total }}
+          </a-descriptions-item>
+          <!-- 复用率是判断「归因还要不要继续优化」的直接依据：
+               越高说明每天真正要查源码的越少 -->
+          <a-descriptions-item label="台账复用率">
+            {{ dimSummary.reuse_rate }}%
+          </a-descriptions-item>
+        </a-descriptions>
+
+        <a-alert v-if="dimSummary.detail_truncated" type="info" style="margin-bottom: 8px">
+          维度较多，明细仅显示慢请求数最高的前 {{ dimSummary.detail_limit }} 条（共 {{ dimSummary.total }} 个）。
+          上方汇总数字仍为全量口径。
+        </a-alert>
+        <a-table :data="dimList" :pagination="{ pageSize: 20, showTotal: true }" size="small" row-key="bucket">
+          <template #columns>
+            <a-table-column title="表单" data-index="form_id" :width="170" ellipsis tooltip />
+            <a-table-column title="操作" data-index="operation" :width="90" ellipsis tooltip />
+            <a-table-column title="慢请求" data-index="slow_count" :width="80" :sortable="{ sortDirections: ['descend'] }" />
+            <a-table-column title="日志数" data-index="trace_count" :width="80" />
+            <a-table-column title="状态" :width="90">
+              <template #cell="{ record }">
+                <a-tag :color="dimStatusColor(record.status)" size="small">
+                  {{ dimStatusText(record.status) }}
+                </a-tag>
+              </template>
+            </a-table-column>
+            <!-- 线索是正则给 AI 的参考，不是产出目标：同一条 trace 里的慢 SQL、异常、
+                 循环往往是同一个根因的不同表现，所以根因数通常远小于线索数 -->
+            <a-table-column title="线索 → 根因" :width="120">
+              <template #cell="{ record }">
+                {{ record.candidate_hint }} → <strong>{{ record.defect_count }}</strong>
+              </template>
+            </a-table-column>
+            <a-table-column title="新增 / 复现" :width="100">
+              <template #cell="{ record }">
+                {{ record.new_defect_count }} / {{ record.recurring_count }}
+              </template>
+            </a-table-column>
+            <a-table-column title="尝试" data-index="attempt" :width="60" />
+            <a-table-column title="错误" ellipsis tooltip>
+              <template #cell="{ record }">
+                <span v-if="record.error_message" style="color: #f53f3f" :title="record.error_message">
+                  {{ record.error_message }}
+                </span>
+                <span v-else>-</span>
+              </template>
+            </a-table-column>
+          </template>
+        </a-table>
+      </a-spin>
+    </a-drawer>
+  </div>
+</template>
 
 <style scoped>
 /* 表单项下方的说明文字。开关类配置光看标签看不出默认行为，
