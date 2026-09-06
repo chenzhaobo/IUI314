@@ -393,6 +393,15 @@ export enum ApiPerfScenario {
   recommend = '/perf/scenario/recommend',
 }
 
+// ── 治理排序：选范围 → 读台账 → AI 给批次与顺序 ──────────────
+export enum ApiPerfTreatment {
+  // 预览不调 AI，只返回条数与聚类；改筛选条件时用它
+  preview = '/perf/periodic-report/treatment/preview',
+  plan = '/perf/periodic-report/treatment/plan',
+  // 生成后按 report_id 读正文（复用报告详情）
+  reportDetail = '/perf/report/detail',
+}
+
 // ── 问题模式台账（§11.2） ──────────────────────────────────────
 export enum ApiPerfPatternLedger {
   list = '/perf/periodic-report/pattern/list',
