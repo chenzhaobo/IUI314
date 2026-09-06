@@ -144,10 +144,11 @@
                    那表示「由哪个任务产出」而不是「归哪个项目组」，问题因此派不出去。
                    现在按 form_id 从达标率快照反查填上。查不到显示 --，
                    空值本身是「映射数据缺这个表单」的信号，不要当成 bug。 -->
-              <a-table-column title="项目组" data-index="project_group_code" :width="90">
+              <!-- 显示名称、编码放 tooltip：列宽有限，而名称才是人认得的 -->
+              <a-table-column title="项目组" data-index="project_group_code" :width="120">
                 <template #cell="{ record }">
-                  <a-tag v-if="record.project_group_code" color="arcoblue" size="small">
-                    {{ record.project_group_code }}
+                  <a-tag v-if="record.project_group_code" color="arcoblue" size="small" :title="record.project_group_code">
+                    {{ record.project_group_name || record.project_group_code }}
                   </a-tag>
                   <span v-else class="muted">--</span>
                 </template>

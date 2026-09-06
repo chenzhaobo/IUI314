@@ -233,7 +233,9 @@ const load = () => {
 
 // ── 创建并触发 ──────────────────────────────────────────
 const savePayload = ref<any>({})
-const { execute: doSave } = usePost<any>(ApiPerfReportTask.save, savePayload, { immediate: false })
+// 必须取 data ref：execute() 的返回值不是接口 data
+// （usePost 也不支持 onSuccess —— 那个回调只在 useGet 上挂载）
+const { data: saveResult, execute: doSave } = usePost<any>(ApiPerfReportTask.save, savePayload, { immediate: false })
 const triggerPayload = ref<any>({})
 const { execute: doTrigger } = usePost<any>(ApiPerfReportTask.trigger, triggerPayload, { immediate: false })
 
@@ -261,10 +263,11 @@ const createAndRun = async () => {
   }
   submitting.value = true
   try {
-    const id = await doSave()
-    const taskId = (id as any)?.data ?? id
+    await doSave()
+    // 后端 save 返回的 data 就是任务 id 字符串
+    const taskId = saveResult.value
     if (!taskId || typeof taskId !== 'string') {
-      Message.error('创建失败')
+      Message.error('创建失败，请检查必填项')
       return
     }
     triggerPayload.value = { task_id: taskId, run_date: form.run_date, force: true }

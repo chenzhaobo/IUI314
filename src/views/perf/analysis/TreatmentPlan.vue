@@ -24,8 +24,12 @@
         </a-col>
         <a-col :span="6">
           <a-form-item label="项目组" content-flex>
+            <!-- 显示名称、值仍是编码：后端按 project_group_code 筛，
+                 而界面上光看 PM013 认不出是哪个组 -->
             <a-select v-model="scope.project_group_codes" multiple allow-clear placeholder="不限" :max-tag-count="2">
-              <a-option v-for="v in opts.groups" :key="v" :value="v">{{ v }}</a-option>
+              <a-option v-for="g in opts.groups" :key="g.code" :value="g.code">
+                {{ g.name || g.code }}<span v-if="g.name" style="color: #86909c"> ({{ g.code }})</span>
+              </a-option>
             </a-select>
           </a-form-item>
         </a-col>
@@ -150,7 +154,7 @@ const payloadOf = () => {
 }
 
 // ── 下拉选项：从台账现有数据里取，不写死 ──────────────
-const opts = reactive({ apps: [] as string[], groups: [] as string[], areas: [] as string[], dims: [] as string[], lines: [] as string[] })
+const opts = reactive({ apps: [] as string[], groups: [] as { code: string, name?: string }[], areas: [] as string[], dims: [] as string[], lines: [] as string[] })
 const ledgerPayload = ref<any>({ page_num: 1, page_size: 500 })
 const { execute: fetchLedger } = useGet<any>(ApiPerfPatternLedger.list, ledgerPayload, {
   immediate: false,
@@ -158,7 +162,14 @@ const { execute: fetchLedger } = useGet<any>(ApiPerfPatternLedger.list, ledgerPa
     const rows: any[] = d?.list ?? d ?? []
     const uniq = (f: (r: any) => any) => [...new Set(rows.map(f).filter(Boolean))].sort() as string[]
     opts.apps = uniq(r => r.app_number)
-    opts.groups = uniq(r => r.project_group_code)
+    // 名称由后端补（project_group_name），关联不上时回退显示编码
+    const seen = new Map<string, string | undefined>()
+    for (const r of rows) {
+      if (r.project_group_code && !seen.has(r.project_group_code)) {
+        seen.set(r.project_group_code, r.project_group_name)
+      }
+    }
+    opts.groups = [...seen.entries()].map(([code, name]) => ({ code, name })).sort((a, b) => a.code.localeCompare(b.code))
     opts.areas = uniq(r => r.business_area)
     opts.dims = uniq(r => r.dimension_value)
     opts.lines = uniq(r => r.product_line)
@@ -169,10 +180,11 @@ const { execute: fetchLedger } = useGet<any>(ApiPerfPatternLedger.list, ledgerPa
 const preview = ref<any>(null)
 const previewing = ref(false)
 const previewPayload = ref<any>({})
-const { execute: doPreview } = usePost<any>(ApiPerfTreatment.preview, previewPayload, {
-  immediate: false,
-  onSuccess(d: any) { preview.value = d },
-})
+// usePost **不支持** onSuccess —— 那个回调只在 useGet 里通过 withOnSuccess 挂载
+// （useRequest.ts:237）。写在 usePost 上永远不会被调用，表现是
+// preview 一直是 null、stats 一直 undefined，于是不管查什么都提示「没有台账」。
+// 正确用法是取返回的 data ref，与 PatternLedger 里 createIssueResult 一致。
+const { data: previewResult, execute: doPreview } = usePost<any>(ApiPerfTreatment.preview, previewPayload, { immediate: false })
 const stats = computed(() => preview.value?.stats)
 
 const clusterBlocks = computed(() => {
@@ -194,7 +206,9 @@ const refreshPreview = () => {
   timer = setTimeout(() => {
     previewPayload.value = payloadOf()
     previewing.value = true
-    doPreview().finally(() => { previewing.value = false })
+    doPreview()
+      .then(() => { preview.value = previewResult.value })
+      .finally(() => { previewing.value = false })
   }, 350)
 }
 watch(scope, refreshPreview, { deep: true })
@@ -204,10 +218,7 @@ const planMd = ref('')
 const planReportId = ref('')
 const planning = ref(false)
 const planPayload = ref<any>({})
-const { execute: doPlan } = usePost<any>(ApiPerfTreatment.plan, planPayload, {
-  immediate: false,
-  onSuccess(d: any) { planReportId.value = d?.report_id || '' },
-})
+const { data: planResult, execute: doPlan } = usePost<any>(ApiPerfTreatment.plan, planPayload, { immediate: false })
 const reportPayload = ref<any>({})
 const { execute: fetchReport } = useGet<any>(ApiPerfTreatment.reportDetail, reportPayload, {
   immediate: false,
@@ -225,6 +236,7 @@ const generate = async () => {
   try {
     planPayload.value = payloadOf()
     await doPlan()
+    planReportId.value = planResult.value?.report_id || ''
     if (planReportId.value) {
       reportPayload.value = { id: planReportId.value }
       await fetchReport()
