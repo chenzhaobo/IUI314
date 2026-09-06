@@ -152,15 +152,22 @@
 <script lang="ts" setup>
 import { onMounted, reactive, ref } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import dayjs from 'dayjs'
 import { ApiPerfReportTask } from '@/api/perfApis'
 import { useGet, usePost } from '@/hooks'
 
 defineOptions({ name: 'adhoc-analysis' })
 
+// 只做「今天减 N 天 → YYYY-MM-DD」这一件事，用原生 Date 就够 ——
+// 项目没装 dayjs，为两个日期计算引入一个依赖不值得。
+const daysAgo = (n: number) => {
+  const d = new Date()
+  d.setDate(d.getDate() - n)
+  return d.toISOString().slice(0, 10)
+}
+
 const blank = () => ({
   task_name: '',
-  run_date: dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
+  run_date: daysAgo(1),
   dimension_value: '',
   product_line: '',
   dimensions: [{ form_id: '', event_name: '' }],
@@ -173,8 +180,8 @@ const submitting = ref(false)
 // Ops 日志只留 6 天 —— 选更早的日期下载必然失败，不如直接禁掉。
 // 也禁掉今天：当天数据还没同步完，跑出来是不完整的。
 const disabledDate = (d: Date) => {
-  const day = dayjs(d)
-  return day.isAfter(dayjs().subtract(1, 'day'), 'day') || day.isBefore(dayjs().subtract(6, 'day'), 'day')
+  const day = new Date(d).toISOString().slice(0, 10)
+  return day > daysAgo(1) || day < daysAgo(6)
 }
 
 const reset = () => Object.assign(form, blank())
@@ -273,7 +280,7 @@ const createAndRun = async () => {
 const rerun = async (record: any) => {
   triggerPayload.value = {
     task_id: record.id,
-    run_date: dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
+    run_date: daysAgo(1),
     force: true,
   }
   await doTrigger()
