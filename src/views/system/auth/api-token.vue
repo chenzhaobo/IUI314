@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { Message, Modal } from '@arco-design/web-vue'
 import { computed, ref } from 'vue'
-import { ApiSysApiToken, ApiSysUser } from '@/api/apis'
+import { ApiSysApiToken } from '@/api/apis'
 import { formatTime, useGet, usePost } from '@/hooks'
 
 defineOptions({ name: 'ApiToken' })
@@ -11,15 +11,6 @@ const { isFetching, data: raw, execute: fetchList } = useGet<any>(ApiSysApiToken
 const list = computed(() => raw.value?.list || [])
 const total = computed(() => raw.value?.total || 0)
 
-// 绑定用户下拉：令牌的权限完全等于这个用户的角色权限
-const userQuery = ref({ page_size: 200 })
-const { data: userRaw } = useGet<any>(ApiSysUser.getList, userQuery, { immediate: true })
-const userOptions = computed(() =>
-  (userRaw.value?.list || []).map((u: any) => ({
-    label: `${u.user_name}（${u.user_nickname}）`,
-    value: u.id,
-  })),
-)
 
 /// 令牌状态：吊销 / 过期 / 停用 / 有效
 function statusOf(r: any): { text: string, color: string } {
@@ -34,9 +25,10 @@ function statusOf(r: any): { text: string, color: string } {
 
 // ── 签发 ──────────────────────────────────────
 const addVisible = ref(false)
-const addForm = ref<{ name: string, user_id: string, expires_days: number | undefined, remark: string }>({
+const addForm = ref<{ name: string, scope: string, expires_days: number | undefined, remark: string }>({
   name: '',
-  user_id: '',
+  // 默认最小权限：需要全量的人会明确去选
+  scope: 'mc',
   expires_days: 90,
   remark: '',
 })
@@ -44,7 +36,7 @@ const addForm = ref<{ name: string, user_id: string, expires_days: number | unde
 const issued = ref<any>(null)
 
 function openAdd() {
-  addForm.value = { name: '', user_id: '', expires_days: 90, remark: '' }
+  addForm.value = { name: '', scope: 'mc', expires_days: 90, remark: '' }
   issued.value = null
   addVisible.value = true
 }
@@ -64,7 +56,7 @@ async function submitAdd() {
   try {
     const { data, execute } = usePost<any>(ApiSysApiToken.add, {
       name: addForm.value.name,
-      user_id: addForm.value.user_id || undefined,
+      scope: addForm.value.scope,
       expires_days: addForm.value.expires_days,
       remark: addForm.value.remark || undefined,
     })
@@ -127,7 +119,9 @@ function handleRevoke(r: any) {
 const columns = [
   { title: '名称', dataIndex: 'name', width: 160, ellipsis: true, tooltip: true },
   { title: '前缀', dataIndex: 'token_prefix', width: 190, slotName: 'prefix' },
-  { title: '代表用户', dataIndex: 'user_id', width: 210, ellipsis: true },
+  // 令牌只能代表签发者自己，所以这一列就是签发人
+  { title: '范围', dataIndex: 'scope', width: 90, slotName: 'scope' },
+  { title: '所属用户', dataIndex: 'user_id', width: 210, ellipsis: true },
   { title: '状态', dataIndex: 'status', width: 90, slotName: 'status' },
   { title: '过期', dataIndex: 'expires_at', width: 170, slotName: 'expires' },
   { title: '最近使用', dataIndex: 'last_used_at', width: 170, slotName: 'used' },
@@ -174,6 +168,11 @@ const columns = [
         <template #prefix="{ record }">
           <span class="font-mono text-xs">{{ record.token_prefix }}…</span>
         </template>
+        <template #scope="{ record }">
+          <a-tag :color="record.scope === 'all' ? 'red' : 'green'" size="small">
+            {{ record.scope === 'all' ? '不限' : '仅 MC' }}
+          </a-tag>
+        </template>
         <template #status="{ record }">
           <a-tag :color="statusOf(record).color">
             {{ statusOf(record).text }}
@@ -199,16 +198,25 @@ const columns = [
          这里改成自己出 footer，按钮态与关闭都显式控制。 -->
     <a-modal v-model:visible="addVisible" title="签发 API 令牌" width="640px" @close="issued = null">
       <a-form v-if="!issued" :model="addForm" layout="vertical">
+        <!-- 只能签发代表自己的令牌：原来可以指定任意用户且不校验资格，
+             填一个超管 ID 就能签出绕过全部鉴权的令牌 -->
+        <a-alert type="normal" class="mb-3">
+          令牌代表<strong>你自己</strong>，权限与你的角色一致。不能签发代表其他用户的令牌。
+        </a-alert>
         <a-form-item label="名称" help="写清用途，将来排查泄露时靠它定位">
           <a-input v-model="addForm.name" placeholder="如：platform-mcp / 发版脚本 / CI" />
         </a-form-item>
-        <a-form-item label="代表用户" help="留空则代表你自己。令牌的权限就是这个用户角色的权限">
-          <a-select v-model="addForm.user_id" placeholder="默认：当前登录用户" allow-search allow-clear>
-            <a-option v-for="o in userOptions" :key="o.value" :value="o.value">
-              {{ o.label }}
-            </a-option>
-          </a-select>
+        <a-form-item label="访问范围" help="默认最小权限。发版自动化只需要「仅管理中心」">
+          <a-radio-group v-model="addForm.scope" type="button">
+            <a-radio value="mc">仅管理中心（/api/mc/**）</a-radio>
+            <a-radio value="all">不限</a-radio>
+          </a-radio-group>
         </a-form-item>
+        <!-- MC 与生产共用一个库和同一张令牌表，所以「不限」是真的不限 -->
+        <a-alert v-if="addForm.scope === 'all'" type="warning" class="mb-3">
+          「不限」的令牌能调<strong>任何</strong>接口，包括生产的业务接口 ——
+          管理中心与生产连的是同一个库。除非确实需要，请用「仅管理中心」。
+        </a-alert>
         <a-form-item label="有效天数" help="留空或 0 = 长期有效。长期令牌泄露后窗口无限，建议设期限">
           <a-input-number v-model="addForm.expires_days" :min="0" :max="3650" placeholder="90" />
         </a-form-item>
@@ -233,7 +241,12 @@ const columns = [
           <a-descriptions-item label="名称">
             {{ issued.name }}
           </a-descriptions-item>
-          <a-descriptions-item label="代表用户">
+          <a-descriptions-item label="访问范围">
+            <a-tag :color="issued.scope === 'all' ? 'red' : 'green'" size="small">
+              {{ issued.scope === 'all' ? '不限（可调生产业务接口）' : '仅管理中心' }}
+            </a-tag>
+          </a-descriptions-item>
+          <a-descriptions-item label="所属用户">
             {{ issued.user_id }}
           </a-descriptions-item>
           <a-descriptions-item label="过期">
