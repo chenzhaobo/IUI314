@@ -40,16 +40,23 @@ async function get_options() {
   )
   await Promise.all([e_roles(), e_depts()])
   const map: Record<string, string> = {}
-  const r = roles.value?.list.filter((item) => {
+  // 这里原来写 `roles.value?.list.filter(...)`：`?.` 只保护了 `.value`，
+  // **没保护 `.list`** —— 请求失败时 data.value 是错误哨兵（不是 null，
+  // 见 useRequest 的 updateDataOnError），`.list` 为 undefined，
+  // `.filter` 直接抛 "t.value.list is undefined"，把整个导航栏 setup 打断。
+  // 用户可见的现象是右上角用户菜单里角色/部门是空的。
+  const roleList = Array.isArray(roles.value?.list) ? roles.value!.list : []
+  const deptList = Array.isArray(depts.value?.list) ? depts.value!.list : []
+  const r = roleList.filter((item) => {
     return userStore.user.roles.includes(item.role_id!)
   })
-  const d = depts.value?.list.filter((item) => {
+  const d = deptList.filter((item) => {
     map[item.dept_id!] = item.dept_name!
     return userStore.user.depts.includes(item.dept_id!)
   })
-  roleOptions.value = r!
+  roleOptions.value = r
   role_id.value = userStore.user.role
-  deptOptions.value = d!
+  deptOptions.value = d
   deptMapOptions.value = map
   dept_id.value = userStore.user.dept
 }

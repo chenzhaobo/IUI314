@@ -2,7 +2,7 @@
 import { Message, Modal } from '@arco-design/web-vue'
 import { computed, ref } from 'vue'
 import { ApiSysMigration } from '@/api/apis'
-import { formatTime, useDelete, useGet, usePost, useTableAutoHeight } from '@/hooks'
+import { deleteAction, formatTime, getAction, postAction, useGet, useTableAutoHeight } from '@/hooks'
 
 defineOptions({ name: 'DbUpgrade' })
 
@@ -39,8 +39,12 @@ async function loadDetail(migration: string) {
   if (detailCache.value[migration])
     return
   detailLoading.value = migration
-  const { data } = await useGet<any>(ApiSysMigration.getDetail, { migration }, { immediate: true }).execute()
-  detailCache.value[migration] = Array.isArray(data?.value) ? data.value : []
+  // 用 getAction 而不是 `await useGet(...).execute()`：
+  // execute() 解析出的是 Promise<Response | null>，不是组合式返回的 shell ——
+  // 从它解构 { data } 只会得到 undefined，或在返回 null 时直接抛
+  // "null has no properties"（api-token 页就是这么报错的）。
+  const detail = await getAction<any>(ApiSysMigration.getDetail, { migration })
+  detailCache.value[migration] = Array.isArray(detail) ? detail : []
   detailLoading.value = ''
 }
 
@@ -64,12 +68,11 @@ function handleReset(r: any) {
     hideCancel: false,
     okText: '确认重置',
     onOk: async () => {
-      const { data } = await usePost(ApiSysMigration.reset, {
+      const d = await postAction<any>(ApiSysMigration.reset, {
         migration: r.migration,
         confirm: true,
         purge_log: false,
-      }).execute()
-      const d: any = data?.value
+      })
       if (d) {
         Message.success({ content: `${d.migration}：删除已应用标记 ${d.applied_removed} 行。${d.next_step}`, duration: 8000 })
         delete detailCache.value[r.migration]
@@ -85,8 +88,8 @@ function handlePurge(r: any) {
     content: `只删除 ${r.migration} 的逐条语句记录，不影响「是否已应用」，也不会导致重跑。`,
     hideCancel: false,
     onOk: async () => {
-      const { data } = await useDelete(ApiSysMigration.purgeLog, { migration: r.migration }).execute()
-      if (data?.value !== null) {
+      const purged = await deleteAction(ApiSysMigration.purgeLog, { migration: r.migration })
+      if (purged !== null) {
         delete detailCache.value[r.migration]
         fetchList()
       }

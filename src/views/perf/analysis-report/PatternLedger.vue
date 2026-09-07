@@ -407,7 +407,7 @@ import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message, Modal } from '@arco-design/web-vue'
 import { ApiPerfPatternLedger } from '@/api/perfApis'
-import { formatTime, useDownload, useGet, usePost, useTableAutoHeight, useAutoHeight } from '@/hooks'
+import { formatTime, isRequestFailed, useAutoHeight, useDownload, useGet, usePost, useTableAutoHeight } from '@/hooks'
 import { MdPreview } from 'md-editor-v3'
 // 必须导入样式，否则 MdPreview 渲染出来没有任何格式（表格无边框、标题不分级）
 import 'md-editor-v3/lib/style.css'
@@ -753,13 +753,12 @@ const loadReanalysis = (patternId?: string) => {
 }
 
 const reanalysisPostPayload = ref<any>({})
-const { execute: doReanalysis } = usePost<any>(ApiPerfPatternLedger.reanalysis, reanalysisPostPayload, {
+// 注意：`usePost` **不支持** onSuccess —— 只有 `useGet` 经 withOnSuccess 包过
+// （见 hooks/util/useRequest.ts）。原来把 onSuccess 传给 usePost，
+// 回调从未被调用：提交后既不提示、也不清输入、更不刷新下方记录，
+// 看起来像"点了没反应"。改为在 execute() 之后按结果显式处理。
+const { data: reanalysisRes, execute: doReanalysis } = usePost<any>(ApiPerfPatternLedger.reanalysis, reanalysisPostPayload, {
   immediate: false,
-  onSuccess() {
-    Message.success('已提交，AI 正在复核（约几分钟），结果会出现在下面的记录里')
-    reanalysisText.value = ''
-    loadReanalysis(currentRecord.value?.id)
-  },
 })
 
 const submitReanalysis = async () => {
@@ -772,7 +771,19 @@ const submitReanalysis = async () => {
   if (!patternId) return
   reanalysisPostPayload.value = { pattern_id: patternId, challenge: text }
   reanalysisSubmitting.value = true
-  await doReanalysis().finally(() => { reanalysisSubmitting.value = false })
+  try {
+    await doReanalysis()
+    // 失败时 data.value 是错误哨兵而非 null，所以用 isRequestFailed 统一判定；
+    // 拦截器已经弹过错误提示，这里失败就不再重复提示。
+    if (!isRequestFailed(reanalysisRes.value)) {
+      Message.success('已提交，AI 正在复核（约几分钟），结果会出现在下面的记录里')
+      reanalysisText.value = ''
+      loadReanalysis(currentRecord.value?.id)
+    }
+  }
+  finally {
+    reanalysisSubmitting.value = false
+  }
 }
 
 const decisionMeta = (d?: string) => {

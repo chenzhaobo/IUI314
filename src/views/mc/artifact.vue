@@ -2,7 +2,7 @@
 import { Message, Modal } from '@arco-design/web-vue'
 import { computed, ref } from 'vue'
 import { ApiMcArtifact, ApiMcAudit } from '@/api/apis'
-import { formatTime, useDelete, useGet, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
+import { deleteAction, formatTime, useGet, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
 
 defineOptions({ name: 'McArtifact' })
 
@@ -104,8 +104,10 @@ function handleDelete(row: any) {
     content: `确认删除 ${row.version}？被环境引用的制品会被后端拒绝删除。`,
     hideCancel: false,
     onOk: async () => {
-      const { data } = await useDelete(ApiMcArtifact.delete, { id: row.id })
-      if (data.value !== null)
+      // 不能 `await useDelete(...)`：直接 await 组合式返回的 shell 会等
+      // waitUntilFinished()，而全局默认 immediate:false，execute() 从未被调用 ——
+      // isFinished 永远为 false，这个 await **永久挂住**，删除静默不发生。
+      if (await deleteAction(ApiMcArtifact.delete, { id: row.id }) !== null)
         refresh()
     },
   })

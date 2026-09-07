@@ -179,8 +179,12 @@ const submitting = ref(false)
 
 // Ops 日志只留 6 天 —— 选更早的日期下载必然失败，不如直接禁掉。
 // 也禁掉今天：当天数据还没同步完，跑出来是不完整的。
-const disabledDate = (d: Date) => {
-  const day = new Date(d).toISOString().slice(0, 10)
+// Arco 的 disabled-date 签名是 `(current?: Date) => boolean`（参数可选），
+// 标成必填的 `(d: Date)` 类型上不兼容。参数缺失时不禁用，交给组件默认行为。
+const disabledDate = (current?: Date) => {
+  if (!current)
+    return false
+  const day = new Date(current).toISOString().slice(0, 10)
   return day > daysAgo(1) || day < daysAgo(6)
 }
 

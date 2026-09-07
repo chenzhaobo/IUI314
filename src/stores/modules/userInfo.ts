@@ -174,9 +174,18 @@ export const useUserStore = defineStore('userInfo', {
     },
     // 刷新token
     async freshToken() {
-      const { data, execute } = await usePut<TokenInfo>(ApiSysUser.freshToken)
+      // 注意这里**没有** `await usePut(...)`：直接 await 组合式函数返回的 shell
+      // 会去等 `waitUntilFinished()`，而全局默认 `immediate: false`、execute()
+      // 还没被调用 —— `isFinished` 永远为 false，这个 await 会**永久挂住**，
+      // 于是令牌刷新从来没真正执行过（令牌到期后用户被登出）。
+      const { data, execute } = usePut<TokenInfo>(ApiSysUser.freshToken)
       await execute()
-      const token = unref(data) as TokenInfo
+      const token = unref(data) as TokenInfo | null
+      // 刷新失败时不能往下写：原来直接读 `token.token`，data 为 null 时抛
+      // "null has no properties"；即使不抛，也会把有效令牌覆盖成 undefined。
+      // 拦截器已经提示过错误，这里静默保留旧令牌，等下次刷新或由 401 走登出。
+      if (!token?.token)
+        return
       this.token = {
         value: token.token,
         expires: token.exp,

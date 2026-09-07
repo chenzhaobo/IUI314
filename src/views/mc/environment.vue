@@ -2,7 +2,7 @@
 import { Message, Modal } from '@arco-design/web-vue'
 import { computed, ref } from 'vue'
 import { ApiMcArtifact, ApiMcEnvironment } from '@/api/apis'
-import { formatTime, useGet, usePost, usePut } from '@/hooks'
+import { formatTime, postAction, putAction, useGet } from '@/hooks'
 
 defineOptions({ name: 'McEnvironment' })
 
@@ -30,8 +30,9 @@ const kindLabel: Record<string, string> = {
 
 // ── 立即探测 ──────────────────────────────────
 async function handleProbe(env: any) {
-  const { data } = await usePost(ApiMcEnvironment.probe, { code: env.code })
-  if (data.value !== null) {
+  // 不能直接 await 组合式返回的 shell（immediate:false 时 await 永久挂住），
+  // 走 postAction：它内部 execute() 后再判定失败。
+  if (await postAction(ApiMcEnvironment.probe, { code: env.code }) !== null) {
     Message.success(`已探测 ${env.code}`)
     fetchEnvs()
   }
@@ -58,14 +59,14 @@ async function submitPromote() {
     Message.warning('请选择目标版本')
     return false
   }
-  const { data } = await usePost(ApiMcEnvironment.setDesired, {
+  const desired = await postAction<any>(ApiMcEnvironment.setDesired, {
     code: promoteForm.value.code,
     version: promoteForm.value.version,
     notes: promoteForm.value.notes,
   })
-  if (data.value === null)
+  if (desired === null)
     return false
-  promoteResult.value = data.value
+  promoteResult.value = desired
   fetchEnvs()
   return false // 保持弹窗打开，让人看到迁移判定与下一步动作
 }
@@ -81,7 +82,7 @@ function openEdit(env: any) {
 
 async function submitEdit() {
   const f = editForm.value
-  const { data } = await usePut(ApiMcEnvironment.edit, {
+  const edited = await putAction(ApiMcEnvironment.edit, {
     id: f.id,
     code: f.code,
     name: f.name,
@@ -92,7 +93,7 @@ async function submitEdit() {
     allow_ai_promote: f.allow_ai_promote,
     remark: f.remark || null,
   })
-  if (data.value === null)
+  if (edited === null)
     return false
   Message.success('已保存')
   editVisible.value = false

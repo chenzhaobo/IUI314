@@ -143,10 +143,33 @@ function usedDynamically(rest, cls) {
   return false
 }
 
-const files = [...globSync('src/**/*.vue'), ...globSync('src/**/*.scss')]
+/**
+ * 第四项检查：`await useGet/usePost/usePut/useDelete(...)` 这类误用。
+ *
+ * 这两种写法都是错的，而且**都不会报错**，只会静默出问题：
+ *
+ * 1. `const { data } = await useXxx(...)`
+ *    直接 await 组合式函数返回的 shell，会去等 vueuse 的 `waitUntilFinished()`。
+ *    本项目 `createFetch` 的全局默认是 `immediate: false`，execute() 还没被调用，
+ *    `isFinished` 永远为 false —— 这个 await **永久挂住**，动作静默不发生。
+ *    （`userInfo.freshToken` 就这样，令牌刷新从来没真正执行过。）
+ *
+ * 2. `const { data } = await useXxx(...).execute()`
+ *    `execute()` 解析出的是 `Promise<Response | null>`，不是 shell。
+ *    解构它得到 undefined，或在返回 null 时直接抛 "null has no properties"。
+ *    （api-token 页线上报的就是这个。）
+ *
+ * 正确写法是 `postAction/putAction/deleteAction/getAction`，
+ * 或 `const { data, execute } = useXxx(...)` 然后 `await execute()`。
+ */
+const AWAIT_COMPOSABLE = /\bawait\s+use(Get|Post|Put|Delete)\s*[<(]/
+const DESTRUCTURE_EXECUTE = /\{[^}]*\}\s*=\s*await[^;\n]*\.execute\(\)/
+
+const files = [...globSync('src/**/*.vue'), ...globSync('src/**/*.scss'), ...globSync('src/**/*.ts')]
 const offenders = []
 const overflowOffenders = []
 const orphanOffenders = []
+const awaitOffenders = []
 
 for (const file of files) {
   const rel = file.replace(/\\/g, '/')
@@ -181,6 +204,8 @@ for (const file of files) {
       return
     if (PATTERN.test(line) && !anchored[idx])
       offenders.push(`${rel}:${idx + 1}\n    ${line.trim()}`)
+    if (AWAIT_COMPOSABLE.test(line) || DESTRUCTURE_EXECUTE.test(line))
+      awaitOffenders.push(`${rel}:${idx + 1}\n    ${line.trim()}`)
     if (OVERFLOW_Y.test(line) && !anchored[idx]) {
       // overflow-x 可能写在相邻行（多行 CSS 块），前后各看 3 行
       const near = lines.slice(Math.max(0, idx - 3), idx + 4).join('\n')
@@ -188,6 +213,20 @@ for (const file of files) {
         overflowOffenders.push(`${rel}:${idx + 1}\n    ${line.trim()}`)
     }
   })
+}
+
+if (awaitOffenders.length) {
+  console.error(
+    `\n✗ 发现 ${awaitOffenders.length} 处对请求组合式函数的误用：\n\n${awaitOffenders.map(o => `  ${o}`).join('\n\n')}\n`
+    + '\n  `await useXxx(...)`：await 的是组合式返回的 shell，会去等 waitUntilFinished()，'
+    + '\n  而全局默认 immediate:false、execute() 还没调 —— isFinished 永远为 false，'
+    + '\n  这个 await **永久挂住**，动作静默不发生。'
+    + '\n\n  `await useXxx(...).execute()`：execute() 解析出的是 Promise<Response|null>，不是 shell，'
+    + '\n  解构它得到 undefined，或在返回 null 时抛 "null has no properties"。'
+    + '\n\n  改用 postAction / putAction / deleteAction / getAction，'
+    + '\n  或 `const { data, execute } = useXxx(...)` 再 `await execute()`。\n',
+  )
+  process.exit(1)
 }
 
 if (orphanOffenders.length) {
@@ -226,4 +265,4 @@ if (offenders.length) {
   process.exit(1)
 }
 
-console.log('✔ 视口高度、overflow 轴向、孤儿 scoped 类三项检查均通过')
+console.log('✔ 视口高度、overflow 轴向、孤儿 scoped 类、请求组合式用法四项检查均通过')
