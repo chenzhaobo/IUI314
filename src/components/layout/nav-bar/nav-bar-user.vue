@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import defaultAvatar from '@/assets/av.webp'
 
 import { Message, Modal } from '@arco-design/web-vue'
+import AboutInfo from './about-info.vue'
 import ChangeCom from './changeCom.vue'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSysDept, ApiSysRole, ApiSysUser } from '@/api/sysApis'
@@ -149,6 +150,21 @@ async function logout() {
 function go_to_profile() {
   router.push('/user/profile')
 }
+
+// 关于：显示当前实例跑的是哪个包。
+// 用 Modal 而不是单独一个路由页 —— 这是「看一眼就走」的信息，
+// 不值得占一个菜单，也不该让人为了看版本号跳出当前页面。
+function aboutModal() {
+  Modal.info({
+    title: '关于',
+    hideCancel: true,
+    titleAlign: 'start',
+    content: () => h(AboutInfo),
+    okText: t('app.confirm'),
+    draggable: true,
+    width: 460,
+  })
+}
 get_options()
 </script>
 
@@ -193,6 +209,10 @@ get_options()
           <span @click="go_to_profile">
             {{ t('route.userCenter') }}
           </span>
+        </a-doption>
+        <a-divider />
+        <a-doption @click="aboutModal">
+          关于
         </a-doption>
         <a-divider />
         <a-doption

@@ -9,6 +9,9 @@ export enum ApiSysLogin {
   getUserInfo = '/system/user/get_info',
   getRouters = '/system/menu/get_routers',
   logOut = '/comm/log_out',
+  // 版本信息：制品版本号 / git sha / 构建时间 / 已应用迁移数。
+  // 排查「生产上跑的到底是哪个包」时第一个要看的东西。
+  version = '/comm/version',
 }
 
 /**
