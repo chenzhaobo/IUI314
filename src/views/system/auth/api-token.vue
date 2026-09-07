@@ -49,22 +49,45 @@ function openAdd() {
   addVisible.value = true
 }
 
+const submitting = ref(false)
+
+// 不能用 a-modal 的 on-before-ok：那个回调返回 false 的语义是
+// **阻止关闭并保持 loading**，而这里签发成功后要留住弹窗给人抄明文，
+// 于是永远 return false —— 按钮就一直转圈，成功也看不出来（实测反馈）。
+// 改成自己控制按钮状态，弹窗关闭由 issued 决定显示哪一屏。
 async function submitAdd() {
   if (!addForm.value.name.trim()) {
     Message.warning('请填令牌名称')
-    return false
+    return
   }
-  const { data } = await usePost(ApiSysApiToken.add, {
-    name: addForm.value.name,
-    user_id: addForm.value.user_id || undefined,
-    expires_days: addForm.value.expires_days,
-    remark: addForm.value.remark || undefined,
-  }).execute()
-  if (data.value === null)
-    return false
-  issued.value = data.value
-  fetchList()
-  return false // 保持弹窗打开，让人把明文抄走
+  submitting.value = true
+  try {
+    const { data, execute } = usePost<any>(ApiSysApiToken.add, {
+      name: addForm.value.name,
+      user_id: addForm.value.user_id || undefined,
+      expires_days: addForm.value.expires_days,
+      remark: addForm.value.remark || undefined,
+    })
+    await execute()
+    const res = data.value
+    // 明文只在这一次响应里给，取不到就必须说清楚 ——
+    // 静默失败会让人以为签发了、拿着空值去配脚本
+    if (!res?.token) {
+      Message.error('签发失败：响应里没有令牌明文，请重试')
+      return
+    }
+    issued.value = res
+    Message.success('已签发，请立刻复制明文 —— 它不会再显示第二次')
+    fetchList()
+  }
+  finally {
+    submitting.value = false
+  }
+}
+
+function closeAdd() {
+  addVisible.value = false
+  issued.value = null
 }
 
 async function copyToken() {
@@ -88,9 +111,15 @@ function handleRevoke(r: any) {
     hideCancel: false,
     okText: '确认吊销',
     onOk: async () => {
-      const { data } = await usePost(ApiSysApiToken.revoke, { id: r.id }).execute()
-      if (data.value !== null)
-        fetchList()
+      const { data, execute } = usePost<any>(ApiSysApiToken.revoke, { id: r.id })
+      await execute()
+      // 原来失败与成功都不说话，列表状态也不变 —— 人不知道点没点上（实测反馈）
+      if (data.value === null) {
+        Message.error('吊销失败，请重试')
+        return
+      }
+      Message.success(`令牌「${r.name}」已吊销`)
+      await fetchList()
     },
   })
 }
@@ -165,7 +194,10 @@ const columns = [
       </a-table>
     </a-card>
 
-    <a-modal v-model:visible="addVisible" title="签发 API 令牌" :on-before-ok="submitAdd" width="640px">
+    <!-- 不绑 on-before-ok：签发成功要留住弹窗给人抄明文，而那个回调返回 false
+         的语义是「阻止关闭并保持 loading」—— 于是按钮永远转圈。
+         这里改成自己出 footer，按钮态与关闭都显式控制。 -->
+    <a-modal v-model:visible="addVisible" title="签发 API 令牌" width="640px" @close="issued = null">
       <a-form v-if="!issued" :model="addForm" layout="vertical">
         <a-form-item label="名称" help="写清用途，将来排查泄露时靠它定位">
           <a-input v-model="addForm.name" placeholder="如：platform-mcp / 发版脚本 / CI" />
@@ -217,6 +249,17 @@ const columns = [
             platform-mcp：<span class="font-mono">export PLATFORM_API_TOKEN=&lt;令牌&gt;</span>
             （设了它就不再走登录，也不受验证码影响）
           </div>
+        </div>
+      </template>
+      <template #footer>
+        <div style="display: flex; justify-content: flex-end; gap: 8px">
+          <template v-if="!issued">
+            <a-button @click="closeAdd">取消</a-button>
+            <a-button type="primary" :loading="submitting" @click="submitAdd">签发</a-button>
+          </template>
+          <!-- 已签发：只留「完成」。这一步不能是「确定」——
+               人会以为还要再确认一次，而明文已经在上面了 -->
+          <a-button v-else type="primary" @click="closeAdd">已抄好，完成</a-button>
         </div>
       </template>
     </a-modal>
