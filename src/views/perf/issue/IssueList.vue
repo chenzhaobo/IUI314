@@ -134,7 +134,7 @@
               <template #icon><icon-down /></template>
             </a-button>
             <template #content>
-              <a-doption v-for="s in PROCESS_FLOW" :key="s.value" :value="s.value">
+              <a-doption v-for="s in PROCESS_ACTIONS" :key="s.value" :value="s.value">
                 {{ s.label }}
               </a-doption>
             </template>
@@ -456,7 +456,7 @@
               项目组：{{ l.from_project_group ? `${l.from_project_group} → ` : '' }}{{ l.to_project_group }}
             </div>
             <div v-if="l.wontfix_type" style="font-size: 12px; color: var(--color-text-2)">
-              不处理类型：{{ l.wontfix_type }}
+              不处理类型：{{ wontFixText(l.wontfix_type) }}
             </div>
             <div v-if="l.remark" style="font-size: 12px">{{ l.remark }}</div>
             <div style="font-size: 12px; color: var(--color-text-3)">操作人：{{ l.operator_name || '—' }}</div>
@@ -585,6 +585,7 @@ const getNextStatuses = (current: string) => {
 //
 // 与「状态」列是两码事：那个是**生产复现状态**（对外口径：生产上还复现不复现），
 // 这个是内部处理进度。两者会同时存在 —— 比如已发版但生产仍复现。
+// 全部处理状态，用于**显示**标签与颜色。
 const PROCESS_FLOW = [
   { value: 'claimed', label: '已认领', color: 'blue' },
   { value: 'fixing', label: '修复中', color: 'orange' },
@@ -596,6 +597,14 @@ const PROCESS_FLOW = [
   // wont_fix 是状态而不是独立开关：正交设计会产生「已修复且不处理」这种矛盾组合
   { value: 'wont_fix', label: '不处理', color: 'gray' },
 ] as const
+
+// 「处理」下拉里能选的动作 —— **不含 claimed**。
+//
+// claimed 的含义是「责任落到某个人头上」，那是「转交」按钮做的事
+// （它要同时收责任人和项目组）。下拉里再放一个「已认领」等于同一件事
+// 两个入口，而且下拉那个不收责任人，点了之后没人知道归谁。
+// 下拉只负责推进进度。
+const PROCESS_ACTIONS = PROCESS_FLOW.filter(s => s.value !== 'claimed')
 
 function processLabel(v?: string | null) {
   return PROCESS_FLOW.find(x => x.value === v)?.label ?? ''
@@ -711,6 +720,14 @@ function onProcessSelect(v: string | number | Record<string, any> | undefined) {
     return
   }
   transition(target)
+}
+
+/** 不处理类型的显示名。库里存的是字典 value（false_positive 这类），
+ *  直接显示会让流转记录出现内部标识。字典没加载完时退回原值，
+ *  不要显示空 —— 那会让人以为没填类型。 */
+function wontFixText(v?: string | null) {
+  if (!v) return ''
+  return wontFixOptions.value.find(o => o.value === v)?.label || v
 }
 
 function openWontFix() {
