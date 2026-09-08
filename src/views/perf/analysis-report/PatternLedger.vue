@@ -14,18 +14,46 @@
           </a-select>
         </a-col>
         <a-col :span="3">
-          <a-select v-model="searchForm.dimension_type" placeholder="维度类型" allow-clear>
-            <a-option value="product_domain">产品领域</a-option>
-            <a-option value="business_area">业务领域</a-option>
-            <a-option value="project_group">项目组</a-option>
-            <a-option value="application">应用</a-option>
+          <!-- 项目组：生产上有 9 个取值，是真正有区分度的维度。
+               原来这里是「维度类型 + 维度值」，但台账 364 条的 dimension_type
+               全是 product_domain、dimension_value 全是「集团财务」——
+               只有一个取值，填对返回全部、填错返回 0，等于没有筛选作用。 -->
+          <a-select
+            v-model="searchForm.project_group_code"
+            placeholder="项目组"
+            allow-clear
+            allow-search
+          >
+            <a-option v-for="g in groupOptions" :key="g.value" :value="g.value">
+              {{ g.label }}
+            </a-option>
           </a-select>
         </a-col>
         <a-col :span="3">
-          <a-input v-model="searchForm.dimension_value" placeholder="维度值" allow-clear @press-enter="handleSearch" />
+          <a-select
+            v-model="searchForm.business_area"
+            placeholder="业务领域"
+            allow-clear
+            allow-search
+          >
+            <a-option v-for="a in areaOptions" :key="a" :value="a">{{ a }}</a-option>
+          </a-select>
         </a-col>
         <a-col :span="3">
-          <a-input v-model="searchForm.attribution_tag" placeholder="归因标签" allow-clear @press-enter="handleSearch" />
+          <!-- 归因标签：下拉选字典值，同时允许手动输入（allow-create）。
+               字典 perf_attr_tag 有 23 条且带判定说明；手动输入是为了查
+               字典外的历史值（生产上有 11 条产生于标签校验上线前）。 -->
+          <a-select
+            v-model="searchForm.attribution_tag"
+            placeholder="归因标签"
+            allow-clear
+            allow-search
+            allow-create
+          >
+            <a-option v-for="t in tagOptions" :key="t.value" :value="t.value">
+              {{ t.label }}
+            </a-option>
+          </a-select>
         </a-col>
         <a-col :span="3">
           <a-select v-model="searchForm.status" placeholder="状态" allow-clear>
@@ -41,9 +69,18 @@
           </a-select>
         </a-col>
         <a-col :span="6">
-          <a-space>
+          <!-- 按钮区右对齐。「修改」需要先勾选行，所以显示已选条数，
+               让人知道这次会改几条 —— 批量操作最怕不知道影响范围。 -->
+          <a-space style="display: flex; justify-content: flex-end">
             <a-button type="primary" @click="handleSearch">查询</a-button>
             <a-button @click="handleReset">重置</a-button>
+            <a-button
+              type="outline"
+              :disabled="selectedKeys.length === 0"
+              @click="openEditAttribution"
+            >
+              修改{{ selectedKeys.length ? ` (${selectedKeys.length})` : '' }}
+            </a-button>
             <a-button status="success" @click="handleExport">导出 Excel</a-button>
           </a-space>
         </a-col>
@@ -79,7 +116,8 @@
           <!-- 表格 -->
           <div ref="tableWrap" class="table-fill">
           <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange"
- @page-size-change="handlePageSizeChange" row-key="id" column-resizable :scroll="{ minWidth: 1600, y: tableHeight }">
+ @page-size-change="handlePageSizeChange" row-key="id" column-resizable :scroll="{ minWidth: 1800, y: tableHeight }"
+ v-model:selected-keys="selectedKeys" :row-selection="rowSelection" @sorter-change="handleSorterChange">
             <template #columns>
               <a-table-column title="编号" data-index="pattern_no" :width="100" ellipsis tooltip />
               <a-table-column title="标题" data-index="title" :width="250" ellipsis tooltip />
@@ -113,7 +151,7 @@
               </a-table-column>
               <!-- 分析层权重与系统层分开显示：口径不同（全量统计 vs 那轮抽样），
                    两者不一致本身是信息 —— 系统层低而这里高说明低频但高度集中。 -->
-              <a-table-column title="分析权重" :width="96">
+              <a-table-column title="分析权重" :width="96" data-index="analysis_weight" :sortable="{ sortDirections: ['descend', 'ascend'] }">
                 <template #cell="{ record }">
                   <a-tooltip v-if="record.analysis_weight !== null && record.analysis_weight !== undefined">
                     <template #content>
@@ -164,6 +202,24 @@
                 </template>
               </a-table-column>
               <a-table-column title="产品线" data-index="product_line" :width="80" ellipsis tooltip />
+              <!-- 归属三字段。库里一直有值（生产 357 条的项目组 100% 有值），
+                   只是页面没展示 —— 而这三个字段决定问题分给哪个团队。
+                   项目组显示名称而不是 PM0xx 编码：光看编码认不出是哪个组。 -->
+              <a-table-column title="项目组" :width="130" ellipsis tooltip>
+                <template #cell="{ record }">
+                  {{ record.project_group_name || record.project_group_code || '—' }}
+                </template>
+              </a-table-column>
+              <a-table-column title="应用" data-index="app_number" :width="90" ellipsis tooltip />
+              <a-table-column title="业务领域" data-index="business_area" :width="100" ellipsis tooltip />
+              <a-table-column title="修改人" :width="110" ellipsis tooltip>
+                <template #cell="{ record }">
+                  <a-tooltip v-if="record.last_modified_by" :content="`修改时间 ${formatTime(record.last_modified_at)}`">
+                    <span>{{ record.last_modified_by }}</span>
+                  </a-tooltip>
+                  <span v-else style="color: var(--color-text-4)">—</span>
+                </template>
+              </a-table-column>
               <a-table-column title="首次出现" data-index="first_found_week" :width="100" ellipsis tooltip />
               <a-table-column title="最近出现" data-index="last_found_week" :width="100" ellipsis tooltip />
               <a-table-column title="周趋势" :width="160">
@@ -399,6 +455,28 @@
       <a-alert type="warning" style="margin-bottom: 12px">请输入问题跟踪的内部 ID（不是标题）。后端会校验问题真实存在且未删除。</a-alert>
       <a-input v-model="linkIssueId" placeholder="perf_issue.id" allow-clear />
     </a-modal>
+    <a-modal v-model:visible="editVisible" title="修改归属" :width="520" @ok="handleEditSubmit">
+      <a-alert type="normal" style="margin-bottom: 12px">
+        已选 {{ selectedKeys.length }} 条。只修改归属，不改标签与分析结论 ——
+        标签参与指纹计算，改了会让跨天判重失效。
+        <br />留空的字段保持原值；要清空某个字段请填一个空格。
+      </a-alert>
+      <a-form :model="editForm" layout="vertical">
+        <a-form-item label="项目组">
+          <a-select v-model="editForm.project_group_code" placeholder="不修改" allow-clear allow-search allow-create>
+            <a-option v-for="g in groupOptions" :key="g.value" :value="g.value">{{ g.label }}</a-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="应用">
+          <a-input v-model="editForm.app_number" placeholder="不修改" allow-clear />
+        </a-form-item>
+        <a-form-item label="业务领域">
+          <a-select v-model="editForm.business_area" placeholder="不修改" allow-clear allow-search allow-create>
+            <a-option v-for="a in areaOptions" :key="a" :value="a">{{ a }}</a-option>
+          </a-select>
+        </a-form-item>
+      </a-form>
+    </a-modal>
   </div>
 </template>
 
@@ -407,7 +485,7 @@ import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message, Modal } from '@arco-design/web-vue'
 import { ApiPerfPatternLedger } from '@/api/perfApis'
-import { formatTime, isRequestFailed, useAutoHeight, useDownload, useGet, usePost, useTableAutoHeight } from '@/hooks'
+import { formatTime, isRequestFailed, useAutoHeight, useDicts, useDownload, useGet, usePost, useTableAutoHeight } from '@/hooks'
 import { MdPreview } from 'md-editor-v3'
 // 必须导入样式，否则 MdPreview 渲染出来没有任何格式（表格无边框、标题不分级）
 import 'md-editor-v3/lib/style.css'
@@ -436,7 +514,16 @@ const searchForm = reactive({
   product_domain: '',
   app_number: '',
   form_id: '',
+  // 排序在后端做：影响面与分析权重要按**全量**排序，
+  // 表格自带的 sortable 只排当页 20 条，排出的第一名不是真正的第一名。
+  sort_by: '',
+  sort_order: '',
 })
+
+// ── 多选与批量修改 ──────────────────────────────────────
+const selectedKeys = ref<string[]>([])
+const rowSelection = { type: 'checkbox' as const, showCheckedAll: true }
+
 const scopeCountFilters = computed(() => ({
   keyword: searchForm.keyword,
   dimension_type: searchForm.dimension_type,
@@ -512,9 +599,105 @@ const traceIdList = (raw: string): string[] => raw.split(/[,;\s]+/).filter(Boole
 const queryParams = computed(() => ({ ...searchForm, page_num: pageNum.value, page_size: pageSize.value }))
 const { isFetching: loading, data: rawData, execute: fetchData } = useGet<any>(ApiPerfPatternLedger.list, queryParams, { immediate: true })
 const tableData = computed(() => rawData.value?.list || [])
+
+/** 表头点击排序 → 转成后端参数重新查询。
+ *
+ * 必须走后端：表格自带的 sortable 只排当前页 20 条，
+ * 影响面「第一名」按那样排出来的不是全量第一名。 */
+const handleSorterChange = (dataIndex: string, direction: string) => {
+  if (!direction) {
+    searchForm.sort_by = ''
+    searchForm.sort_order = ''
+  } else {
+    searchForm.sort_by = dataIndex
+    searchForm.sort_order = direction === 'ascend' ? 'asc' : 'desc'
+  }
+  pageNum.value = 1
+  fetchData()
+}
 const statsData = computed(() => rawData.value?.stats || null)
 
 const { downloadWithTip } = useDownload()
+
+// ── 筛选选项 ──────────────────────────────────────
+//
+// 归因标签从数据字典 perf_attr_tag 取（23 条，每条带判定说明）。
+// 不用 SELECT DISTINCT：库里有 11 条产生于标签校验上线前的不规范值
+// （`外部依赖-外部接口超时` 这类把一级分类拼进标签的写法），
+// 放进下拉会让人以为那是正式标签。筛选框允许手动输入，要查历史值仍然查得到。
+const dicts = useDicts('perf_attr_tag')
+const tagOptions = computed(() => {
+  const raw: unknown = dicts.value.perf_attr_tag
+  if (!Array.isArray(raw)) return []
+  return raw.map((d: any) => ({ value: d.value ?? d.dict_value, label: d.label ?? d.dict_label }))
+})
+
+// 项目组与业务领域的取值直接从当前列表数据里归集。
+//
+// 为什么不另外调接口：台账的归属就在列表数据里，归集一次即可；
+// 单独拉全量项目组表会把没有台账的组也列出来，选了查不到任何东西。
+const groupOptions = computed(() => {
+  const seen = new Map<string, string>()
+  for (const r of tableData.value) {
+    const code = r.project_group_code
+    if (code && !seen.has(code)) seen.set(code, r.project_group_name || code)
+  }
+  return [...seen].map(([value, label]) => ({ value, label }))
+})
+const areaOptions = computed(() => {
+  const s = new Set<string>()
+  for (const r of tableData.value) if (r.business_area) s.add(r.business_area)
+  return [...s]
+})
+
+// ── 批量修改归属 ──────────────────────────────────────
+const editVisible = ref(false)
+const editForm = reactive({ project_group_code: '', app_number: '', business_area: '' })
+
+const openEditAttribution = () => {
+  // 单选时用当前值预填，批量时留空（避免把不同的值统一覆盖成第一条的值）
+  if (selectedKeys.value.length === 1) {
+    const row = tableData.value.find((r: any) => r.id === selectedKeys.value[0])
+    editForm.project_group_code = row?.project_group_code || ''
+    editForm.app_number = row?.app_number || ''
+    editForm.business_area = row?.business_area || ''
+  } else {
+    editForm.project_group_code = ''
+    editForm.app_number = ''
+    editForm.business_area = ''
+  }
+  editVisible.value = true
+}
+
+const editPayload = computed(() => {
+  // 只把填了的字段发出去：后端按 null=不动 / 空串=清空 区分，
+  // 批量改项目组时不该把应用和业务领域一起清掉。
+  const body: Record<string, unknown> = { ids: selectedKeys.value }
+  if (editForm.project_group_code.trim()) body.project_group_code = editForm.project_group_code.trim()
+  if (editForm.app_number.trim()) body.app_number = editForm.app_number.trim()
+  if (editForm.business_area.trim()) body.business_area = editForm.business_area.trim()
+  return body
+})
+const { data: editRes, execute: doEdit } = usePost<any>(
+  ApiPerfPatternLedger.editAttribution,
+  editPayload,
+  { immediate: false },
+)
+
+const handleEditSubmit = async () => {
+  if (!editForm.project_group_code.trim() && !editForm.app_number.trim() && !editForm.business_area.trim()) {
+    Message.warning('请至少填写一个要修改的字段')
+    return
+  }
+  await doEdit()
+  // usePost 不支持 onSuccess（只有 useGet 经 withOnSuccess 包过），
+  // 所以在这里手动判结果 —— 写在 onSuccess 上会静默失效。
+  if (isRequestFailed(editRes.value)) return
+  Message.success(editRes.value?.message || '修改成功')
+  editVisible.value = false
+  selectedKeys.value = []
+  await fetchData()
+}
 
 const handleExport = async () => {
   const params = new URLSearchParams()

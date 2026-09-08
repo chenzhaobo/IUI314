@@ -123,7 +123,10 @@
         -->
         <template #toolbar>
           <!-- 内部处理流程：勾选行后点。与「状态」列（生产复现状态）是两个维度，不会互相覆盖 -->
-          <a-button type="primary" :disabled="!selectedIds.length" @click="openClaim">认领</a-button>
+          <!-- 「转交」而不是「认领」：责任人会反复变更（转给 A、A 再转给 B），
+               认领只说得通第一次。转交时可以一并改项目组。 -->
+          <a-button type="primary" :disabled="!selectedIds.length" @click="openClaim">转交</a-button>
+          <a-button :disabled="!selectedIds.length" status="warning" @click="openWontFix">标记不处理</a-button>
           <a-dropdown :disabled="!selectedIds.length" @select="(v) => transition(String(v))">
             <a-button :disabled="!selectedIds.length" :loading="transitionLoading">
               处理状态
@@ -188,7 +191,7 @@
                     <a-tooltip v-if="record.process_status" :content="`处理人：${record.process_owner || '-'}${record.process_prev_status ? ` ← ${processLabel(record.process_prev_status)}` : ''}`" mini>
                       <a-tag :color="processColor(record.process_status)" size="small">{{ processLabel(record.process_status) }}</a-tag>
                     </a-tooltip>
-                    <span v-else class="dmp-empty">未认领</span>
+                    <span v-else class="dmp-empty">未转交</span>
                   </template>
                 </a-table-column>
                 <a-table-column title="处理人" data-index="process_owner" :width="85" ellipsis tooltip />
@@ -220,9 +223,10 @@
                           </a-doption>
                         </template>
                       </a-dropdown>
-                      <a-popconfirm content="确定删除？" @ok="handleDelete(record)">
-                        <a-link status="danger">删除</a-link>
-                      </a-popconfirm>
+                      <!-- 删除按钮已移除：问题不支持删除。归因产生的问题是分析结论的
+                           载体，删掉后下轮归因判出同一指纹会当成新问题重做源码调研。
+                           不需要处理的用「标记不处理」，理由会留在流转记录里。 -->
+                      <a-link @click="openLogs(record)">流转记录</a-link>
                     </a-space>
                   </template>
                 </a-table-column>
@@ -390,14 +394,71 @@
       </a-modal>
     </div>
 
-      <!-- 认领：必须有处理人 —— 认领的全部意义就是把责任落到人头上 -->
-      <a-modal v-model:visible="claimVisible" :title="`认领缺陷（${selectedIds.length} 条）`" :ok-loading="claimLoading" @ok="submitClaim">
+      <!-- 转交：必须有处理人 —— 转交的全部意义就是把责任落到人头上。
+           项目组默认取所选问题的当前项目组，改了会一起进流转记录。 -->
+      <a-modal v-model:visible="claimVisible" :title="`转交（${selectedIds.length} 条）`" :ok-loading="claimLoading" @ok="submitClaim">
         <a-form :model="{ claimOwner }" layout="vertical">
           <a-form-item label="处理人" required>
-            <a-input v-model="claimOwner" placeholder="默认为当前登录人" allow-clear />
+            <a-select v-model="claimOwner" placeholder="从系统人员中选择" allow-search allow-create>
+              <a-option v-for="u in userOptions" :key="u.value" :value="u.value">{{ u.label }}</a-option>
+            </a-select>
+          </a-form-item>
+          <a-form-item label="项目组">
+            <a-select v-model="claimGroup" placeholder="不变更" allow-clear allow-search>
+              <a-option v-for="g in groupOptions" :key="g.value" :value="g.value">{{ g.label }}</a-option>
+            </a-select>
+          </a-form-item>
+          <a-form-item label="说明">
+            <a-input v-model="claimRemark" placeholder="为什么转交（会记入流转记录）" allow-clear />
           </a-form-item>
         </a-form>
       </a-modal>
+
+      <!-- 标记不处理：类型必须从字典选，自由文本会让「误报占比」算不出来，
+           而那个数字是衡量归因质量的直接指标。误报会进待复核。 -->
+      <a-modal v-model:visible="wontFixVisible" :title="`标记不处理（${selectedIds.length} 条）`" :ok-loading="claimLoading" @ok="submitWontFix">
+        <a-alert type="warning" style="margin-bottom: 12px">
+          标为「误报」的问题会进入待复核清单 —— 那是对分析质量的判断，
+          需要第二个人确认，否则我们会失去发现归因错误的信号。
+        </a-alert>
+        <a-form :model="{ wontFixType }" layout="vertical">
+          <a-form-item label="不处理类型" required>
+            <a-select v-model="wontFixType" placeholder="请选择">
+              <a-option v-for="t in wontFixOptions" :key="t.value" :value="t.value">{{ t.label }}</a-option>
+            </a-select>
+          </a-form-item>
+          <a-form-item label="原因" required>
+            <a-textarea v-model="wontFixReason" placeholder="为什么不处理" :auto-size="{ minRows: 2 }" />
+          </a-form-item>
+        </a-form>
+      </a-modal>
+
+      <!-- 流转记录：追加写，看得出经手链条。
+           原来只有 process_prev_status 存上一步，转交反复发生时看不出谁转给了谁。 -->
+      <a-drawer v-model:visible="logsVisible" :width="560" title="流转记录">
+        <a-timeline v-if="logsData.length">
+          <a-timeline-item v-for="(l, i) in logsData" :key="i" :label="formatTime(l.created_at)">
+            <div>
+              <a-tag size="small" :color="processColor(l.to_status)">{{ processLabel(l.to_status) || l.to_status }}</a-tag>
+              <span v-if="l.from_status" style="color: var(--color-text-3)">
+                ← {{ processLabel(l.from_status) || l.from_status }}
+              </span>
+            </div>
+            <div v-if="l.to_owner" style="font-size: 12px; color: var(--color-text-2)">
+              责任人：{{ l.from_owner ? `${l.from_owner} → ` : '' }}{{ l.to_owner }}
+            </div>
+            <div v-if="l.to_project_group" style="font-size: 12px; color: var(--color-text-2)">
+              项目组：{{ l.from_project_group ? `${l.from_project_group} → ` : '' }}{{ l.to_project_group }}
+            </div>
+            <div v-if="l.wontfix_type" style="font-size: 12px; color: var(--color-text-2)">
+              不处理类型：{{ l.wontfix_type }}
+            </div>
+            <div v-if="l.remark" style="font-size: 12px">{{ l.remark }}</div>
+            <div style="font-size: 12px; color: var(--color-text-3)">操作人：{{ l.operator_name || '—' }}</div>
+          </a-timeline-item>
+        </a-timeline>
+        <a-empty v-else description="暂无流转记录（这条问题还没有人工流转过）" />
+      </a-drawer>
 
       <!-- DMP 编码：留空提交即清除关联 -->
       <a-modal v-model:visible="dmpVisible" :title="`设置 DMP 缺陷编码（${selectedIds.length} 条）`" :ok-loading="dmpLoading" @ok="submitDmp">
@@ -422,7 +483,8 @@ import { MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { ApiPerfIssue, ApiPerfPatternLedger } from '@/api/perfApis'
 import ListPage from '@/components/common/ListPage.vue'
-import { useDelete, useDownload, useGet, usePost, usePut } from '@/hooks'
+import { ApiSysUser } from '@/api/sysApis'
+import { formatTime, useDelete, useDicts, useDownload, useGet, usePost, usePut } from '@/hooks'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
 import { useUserStore } from '@/stores'
 
@@ -501,6 +563,11 @@ const PROCESS_FLOW = [
   { value: 'fixing', label: '修复中', color: 'orange' },
   { value: 'fixed', label: '已修复', color: 'cyan' },
   { value: 'released', label: '已发版', color: 'green' },
+  // verified 是闭环：原来只跟到「已发版」就把问题移出看板，但没有任何机制
+  // 核对发版后是否真的不复现 —— 下轮归因判出同一指纹会当成新问题重做调研。
+  { value: 'verified', label: '已验证', color: 'green' },
+  // wont_fix 是状态而不是独立开关：正交设计会产生「已修复且不处理」这种矛盾组合
+  { value: 'wont_fix', label: '不处理', color: 'gray' },
 ] as const
 
 function processLabel(v?: string | null) {
@@ -521,12 +588,116 @@ const claimOwner = ref('')
 const claimLoading = ref(false)
 const userStore = useUserStore()
 
+const claimGroup = ref('')
+const claimRemark = ref('')
+
+// 不处理：类型走数据字典 perf_issue_wontfix_type（低频问题/客户版本低/误报）
+const wontFixVisible = ref(false)
+const wontFixType = ref('')
+const wontFixReason = ref('')
+const wontFixDicts = useDicts('perf_issue_wontfix_type')
+const wontFixOptions = computed(() => {
+  const raw: unknown = wontFixDicts.value.perf_issue_wontfix_type
+  return Array.isArray(raw) ? raw.map((d: any) => ({ value: d.value, label: d.label })) : []
+})
+
+// 人员下拉：从系统用户表联查，不让人手输名字 ——
+// 手输会出现「张三」「张三 」「zhangsan」三种写法指向同一个人
+const userQuery = ref({ page_num: 1, page_size: 200 })
+const { data: userRes } = useGet<any>(ApiSysUser.getList, userQuery, { immediate: true })
+const userOptions = computed(() => {
+  const list = userRes.value?.list || userRes.value?.data || []
+  return (Array.isArray(list) ? list : []).map((u: any) => ({
+    value: u.user_nickname || u.user_name,
+    label: u.user_nickname ? `${u.user_nickname}（${u.user_name}）` : u.user_name,
+  }))
+})
+
+// 项目组下拉：从当前列表数据归集，选了查得到东西
+const groupOptions = computed(() => {
+  const seen = new Map<string, string>()
+  for (const r of tableData.value as any[]) {
+    const code = r.project_group_code
+    if (code && !seen.has(code)) seen.set(code, r.project_group_name || code)
+  }
+  return [...seen].map(([value, label]) => ({ value, label }))
+})
+
+// 流转记录
+const logsVisible = ref(false)
+const logsIssueId = ref('')
+const logsQuery = computed(() => ({ issue_id: logsIssueId.value }))
+const { data: logsRes, execute: fetchLogs } = useGet<any>(ApiPerfIssue.processLogs, logsQuery, { immediate: false })
+const logsData = computed(() => (Array.isArray(logsRes.value) ? logsRes.value : []))
+
+async function openLogs(record: any) {
+  logsIssueId.value = record.id
+  logsVisible.value = true
+  await fetchLogs()
+}
+
+// ── SLA 展示 ──────────────────────────────────────
+// 到期日在建单时定死，不随配置变动 —— 否则调宽时限能让超期记录集体消失
+function slaDaysLeft(record: any): number | null {
+  if (!record?.sla_due_date) return null
+  const due = new Date(record.sla_due_date).getTime()
+  return Math.ceil((due - Date.now()) / 86400000)
+}
+function slaText(record: any) {
+  const d = slaDaysLeft(record)
+  if (d === null) return ''
+  return d < 0 ? `超期 ${-d} 天` : `剩 ${d} 天`
+}
+function slaColor(record: any) {
+  const d = slaDaysLeft(record)
+  if (d === null) return 'gray'
+  return d < 0 ? 'red' : d <= 2 ? 'orange' : 'blue'
+}
+function slaHint(record: any) {
+  return `${record.sla_level || '未评级'} 档，期限 ${record.sla_due_date}`
+}
+
 function openClaim() {
   if (!selectedIds.value.length)
     return
-  // 默认填当前登录人 —— 绝大多数情况是「我认领」
+  // 默认填当前登录人 —— 绝大多数情况是「我接手」
   claimOwner.value = userStore.user?.nickname || userStore.user?.name || ''
+  // 项目组默认取所选问题的当前项目组：转交多数情况不改组，
+  // 默认空会让人以为不填就是清空
+  const first = (tableData.value as any[]).find(r => r.id === selectedIds.value[0])
+  claimGroup.value = first?.project_group_code || ''
+  claimRemark.value = ''
   claimVisible.value = true
+}
+
+function openWontFix() {
+  if (!selectedIds.value.length)
+    return
+  wontFixType.value = ''
+  wontFixReason.value = ''
+  wontFixVisible.value = true
+}
+
+async function submitWontFix() {
+  if (!wontFixType.value) {
+    Message.warning('请选择不处理类型')
+    return
+  }
+  if (!wontFixReason.value.trim()) {
+    Message.warning('请填写不处理原因')
+    return
+  }
+  claimLoading.value = true
+  try {
+    await transition('wont_fix', undefined, {
+      wontfix_type: wontFixType.value,
+      remark: wontFixReason.value.trim(),
+    })
+    wontFixVisible.value = false
+  }
+  finally {
+    claimLoading.value = false
+  }
 }
 
 async function submitClaim() {
@@ -547,14 +718,23 @@ async function submitClaim() {
 const transitionLoading = ref(false)
 
 /** 内部状态流转。不校验先后顺序 —— 实际会有「直接标已修复」「退回修复中」。 */
-async function transition(target: string, owner?: string) {
+async function transition(target: string, owner?: string, extra?: Record<string, unknown>) {
   if (!selectedIds.value.length)
     return
   transitionLoading.value = true
   try {
     const { data, execute } = usePost<{ updated: number, message: string }>(
       ApiPerfIssue.processTransition,
-      { ids: selectedIds.value, process_status: target, process_owner: owner },
+      {
+        ids: selectedIds.value,
+        process_status: target,
+        process_owner: owner,
+        // 项目组只在转交时带：后端按 null=不动处理，
+        // 传空串会把原项目组清掉
+        project_group_code: target === 'claimed' && claimGroup.value ? claimGroup.value : undefined,
+        remark: target === 'claimed' && claimRemark.value.trim() ? claimRemark.value.trim() : undefined,
+        ...(extra || {}),
+      },
       { immediate: false },
     )
     await execute()

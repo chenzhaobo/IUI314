@@ -316,6 +316,8 @@ export enum ApiPerfIssue {
   changeStatus = '/perf/issue/change_status',
   dmpCode = '/perf/issue/dmp-code',
   processTransition = '/perf/issue/process-transition',
+  // 流转记录：替代原来只显示当前状态，能看出经手链条
+  processLogs = '/perf/issue/process-logs',
   delete = '/perf/issue/delete',
   stats = '/perf/issue/stats',
   export = '/perf/issue/export',
@@ -414,6 +416,10 @@ export enum ApiPerfPatternLedger {
   // 追加分析：人工给方向或质疑，AI 复核后判 update / create / reject
   reanalysis = '/perf/periodic-report/pattern/reanalysis',
   reanalysisHistory = '/perf/periodic-report/pattern/reanalysis/history',
+  // 归属三字段批量编辑（项目组/应用/业务领域）。只改归属不动分析结论
+  editAttribution = '/perf/periodic-report/pattern/edit-attribution',
+  // 影响面重算：触发即返回，实算在后台（357 条同步跑必然网关超时）
+  recomputeImpact = '/perf/periodic-report/pattern/recompute-impact',
 }
 
 // ── Agent 自主诊断 ──────────────────────────────────────
