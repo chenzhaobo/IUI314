@@ -39,10 +39,27 @@ export const usePermissionStore = defineStore('permission', {
         ErrorPageRoute,
       ]
     },
-    async generateRoutes() {
+    async generateRoutes(): Promise<AppRouteRecordRaw[] | null> {
       const { data, execute } = useGet<AppRouteRecordRaw[]>(ApiSysLogin.getRouters)
       await execute()
-      const routes = unref(data) as AppRouteRecordRaw[]
+      const routes = unref(data)
+      // 请求失败时 useRequest 会把 data 换成 ErrorFlag 哨兵（字符串 '__________'）。
+      // 这里原来直接 `as AppRouteRecordRaw[]` 强转往下走，后果是白屏 + 控制台
+      // "e.filter is not a function"：
+      //   · generateFlatRoutes 收到字符串**不会报错** —— 字符串可迭代，for...of 会
+      //     遍历出 10 个 '_' 字符，返回一个垃圾数组，问题被藏过去；
+      //   · 真正抛错的是下一行 filterAsyncRouter(routes, false)，字符串没有 .filter。
+      // 更糟的是这个异常在路由守卫里同步抛出，会**打断 401 的自愈路径**：
+      // afterFetch 已经调过 log_out()，但它的 router.push('/login') 延迟 500ms，
+      // 崩溃正好落在这个窗口内，用户看到白屏而不是「登录已过期」+ 登录页。
+      // 全仓其余 30 多处调用都判了 ErrorFlag，只有这里漏了。
+      //
+      // 返回 null 而不是 []：两者语义不同 —— [] 是「拉到了但这个角色没有菜单」
+      // （合法状态，扫码新建号分到空菜单角色时就是这样），null 是「没拉到」。
+      if (!Array.isArray(routes)) {
+        this.setRoutes([])
+        return null
+      }
       // routers 生成正常的路由数据，用于菜单生成等
       // AccessRouters  将正常路由转换为二级扁平路由，用于keep-live和生成路由表
       // 注意：generateFlatRoutes 必须在 filterAsyncRouter 之前执行，

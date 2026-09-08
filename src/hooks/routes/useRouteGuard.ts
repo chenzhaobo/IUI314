@@ -82,6 +82,17 @@ export async function useRouterGuard(router: Router) {
 
     permissionStore.setServerError(false)
     const aRoutes = await permissionStore.generateRoutes()
+    // null = 拉菜单失败（401/500…）。不能继续往下 addRoute：
+    // 一来没有路由可加，二来 401 时 afterFetch 已经在登出，继续渲染等于
+    // 在半个会话上作画。原来这里直接 aRoutes.forEach，而 generateRoutes
+    // 拿到错误哨兵时会先抛 "e.filter is not a function" 把守卫打断，
+    // 用户看到的是白屏而不是登录页。
+    if (aRoutes === null) {
+      permissionStore.setIsReloading(false)
+      // 不再补一次 Message：401 走 log_out 已提示「登录已过期」，
+      // 其他错误码 afterFetch 也弹过后端 msg，这里再弹就是重复打扰。
+      return finish('/login')
+    }
     aRoutes.forEach((aRoute) => {
       if (!isHttp(aRoute.path))
         router.addRoute(aRoute as RouteRecordRaw)
