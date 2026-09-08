@@ -13,6 +13,7 @@ import { computed, unref } from 'vue'
 import { stringifyQuery } from 'vue-router'
 
 import { ErrorFlag } from '@/api/apis'
+import { ApiSysUser } from '@/api/sysApis'
 import { useToken } from '@/hooks'
 import { useSetupI18n } from '@/i18n'
 import { router } from '@/router'
@@ -94,7 +95,10 @@ export const useRequest = createFetch({
       const status = data?.code || 200
 
       // token 快过期时刷新。放在分支之前，保证失败响应也会触发（与改造前一致）。
-      if (isExpiredSoon)
+      // 排除刷新接口自身：freshToken 也是 `await execute()` 之后才写 store，
+      // 处理它的响应时读到的还是刷新前的旧 expires，于是又满足「快过期」
+      // 再发一发，形成一小串冗余请求（会自行收敛，但没有必要）。
+      if (isExpiredSoon && !isFreshTokenApi(response?.url))
         useUserStore().freshToken()
 
       if (status === 200) {
@@ -160,6 +164,16 @@ export const useRequest = createFetch({
     },
   },
 })
+
+/**
+ * 是否是刷新令牌接口本身。用于避免「处理刷新响应时又触发一次刷新」。
+ * 用 endsWith 而不是相等：response.url 是带 origin（dev 下还带代理前缀）的完整地址。
+ */
+function isFreshTokenApi(url?: string): boolean {
+  if (!url)
+    return false
+  return url.split('?')[0].endsWith(ApiSysUser.freshToken)
+}
 
 async function log_out() {
   const { i18n } = useSetupI18n()
