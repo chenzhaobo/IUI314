@@ -169,35 +169,52 @@ async function handleKdCallback(code: string) {
     return
   kdLoading.value = true
   try {
-    if (cfg.server_side_verify) {
-      // 后端用 code 换 access_token 并拉取用户信息（前端无法伪造身份）
-      await userStore.kdLogin({ code, redirect_uri: kdRedirectUri() })
+    // 内层 try 只裹「换取令牌」：只有这一段失败才算登录失败。
+    // 原来整个函数共用一个 catch，于是登录成功之后的导航异常也会被报成
+    // 「金蝶通行证登录失败：xxx」并退回登录页 —— 实际见到过
+    // 「金蝶通行证登录失败：e.filter is not a function」，那是路由守卫里
+    // 拉菜单失败抛的 TypeError 从 `await router.replace(...)` 冒出来被裹住了。
+    try {
+      if (cfg.server_side_verify) {
+        // 后端用 code 换 access_token 并拉取用户信息（前端无法伪造身份）
+        await userStore.kdLogin({ code, redirect_uri: kdRedirectUri() })
+      }
+      else {
+        // 零密钥方案：浏览器携带 passport Cookie 调 checklogin 拿到用户信息后回传
+        const res = await fetch(`${cfg.checklogin_url}?client_id=${cfg.client_id}`, {
+          credentials: 'include',
+        })
+        const body = await res.json()
+        const kdUser = body?.data as KdPassportUser | undefined
+        if (body?.code !== 0 || !kdUser || kdUser.login !== 1)
+          throw new Error('未获取到金蝶通行证登录态')
+        await userStore.kdLogin({
+          uid: kdUser.uid,
+          nickname: kdUser.nickname,
+          email: kdUser.email,
+          phone: kdUser.phone,
+          avatar: kdUser.avatar,
+        })
+      }
     }
-    else {
-      // 零密钥方案：浏览器携带 passport Cookie 调 checklogin 拿到用户信息后回传
-      const res = await fetch(`${cfg.checklogin_url}?client_id=${cfg.client_id}`, {
-        credentials: 'include',
-      })
-      const body = await res.json()
-      const kdUser = body?.data as KdPassportUser | undefined
-      if (body?.code !== 0 || !kdUser || kdUser.login !== 1)
-        throw new Error('未获取到金蝶通行证登录态')
-      await userStore.kdLogin({
-        uid: kdUser.uid,
-        nickname: kdUser.nickname,
-        email: kdUser.email,
-        phone: kdUser.phone,
-        avatar: kdUser.avatar,
-      })
+    catch (err) {
+      Message.error(`金蝶通行证登录失败：${(err as Error).message || '请重试'}`)
+      await router.replace({ path: '/login', query: {} })
+      return
     }
+
+    // 令牌已到手，直接换到目标页。
+    //
+    // 原来是 `replace('/login')` 清 code、再 `push(redirect)` 两步走，两个毛病：
+    //   · 守卫对「已登录访问 /login」的处理是重定向到 '/'，于是白跑一遍
+    //     getUserInfo + generateRoutes，还和紧随其后的 push(redirect) 抢跳转，
+    //     用户会先看到一下登录页；
+    //   · 那次 replace 触发的守卫里若有异常，会从 await 冒出来被上面的 catch
+    //     裹成「登录失败」并退回登录页 —— 明明令牌已经拿到了。
+    // 直接导航到目标页，URL 上的 code 随整条路由被替换掉，不需要中转。
+    // 用 replace 而不是 push：不让浏览器后退键回到带 code 的回调地址（code 已作废）。
     const redirect = (router.currentRoute.value.query.redirect as string) || '/index'
-    // 清掉 URL 上的 code，避免刷新重复登录
-    await router.replace({ path: '/login', query: {} })
-    await router.push({ path: redirect })
-  }
-  catch (err) {
-    Message.error(`金蝶通行证登录失败：${(err as Error).message || '请重试'}`)
-    await router.replace({ path: '/login', query: {} })
+    await router.replace({ path: redirect })
   }
   finally {
     kdLoading.value = false
