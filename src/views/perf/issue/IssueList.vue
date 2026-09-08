@@ -552,8 +552,23 @@ const severityText = (s: string) => severityMap[s] || s
 const issueTypeText = (s: string) => issueTypeMap[s] || s
 const statusColor = (s: string) => ({ recurring: 'red', observing: 'orange', resolved: 'green', excluded: 'gray' }[s] || 'gray')
 const severityColor = (s: string) => ({ critical: 'red', major: 'orange', minor: 'blue' }[s] || 'gray')
-const sourceText = (s: string) => ({ manual: '手动', diagnosis: '诊断', trace_ai: 'AI分析' }[s] || s || '手动')
-const sourceColor = (s: string) => ({ manual: 'gray', diagnosis: 'blue', trace_ai: 'purple' }[s] || 'gray')
+// 来源。`periodic_defect` 是最主要的一种（周期归因判出问题后从台账建单，
+// 见 issue_pattern.rs:760），原来映射表里没有它，界面直接显示了
+// 「periodic_defect」这个内部值。
+const sourceText = (s: string) => ({
+  manual: '手动创建',
+  periodic_defect: '归因建单',
+  auto_recommend: '自动推荐',
+  diagnosis: 'Agent 诊断',
+  trace_ai: 'AI 分析',
+}[s] || s || '手动创建')
+const sourceColor = (s: string) => ({
+  manual: 'gray',
+  periodic_defect: 'arcoblue',
+  auto_recommend: 'cyan',
+  diagnosis: 'blue',
+  trace_ai: 'purple',
+}[s] || 'gray')
 
 const getNextStatuses = (current: string) => {
   // 与后端 is_valid_transition 保持一致（service/src/perf/plan/issue.rs）
