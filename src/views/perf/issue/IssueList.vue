@@ -59,14 +59,14 @@
           </div>
 
           <div class="f-mid">
-            <a-select v-model="searchForm.status" placeholder="状态" allow-clear>
-              <a-option value="pending">待确认</a-option>
-              <a-option value="confirmed">已确认</a-option>
-              <a-option value="fixing">处理中</a-option>
-              <a-option value="fixed">已修复</a-option>
-              <a-option value="verified">已验证</a-option>
-              <a-option value="closed">已关闭</a-option>
-              <a-option value="wontfix">不修复</a-option>
+            <!-- 生产侧复现状态：回答「生产上现在还复现不复现」。
+                 与「处理」（内部进度）是两条线，会同时存在 ——
+                 内部标了已发版而生产上还在复现，那时必须还能继续追踪。 -->
+            <a-select v-model="searchForm.status" placeholder="生产状态" allow-clear>
+              <a-option value="recurring">仍复现</a-option>
+              <a-option value="observing">观察中</a-option>
+              <a-option value="resolved">已消失</a-option>
+              <a-option value="excluded">不适用</a-option>
             </a-select>
           </div>
 
@@ -126,10 +126,11 @@
           <!-- 「转交」而不是「认领」：责任人会反复变更（转给 A、A 再转给 B），
                认领只说得通第一次。转交时可以一并改项目组。 -->
           <a-button type="primary" :disabled="!selectedIds.length" @click="openClaim">转交</a-button>
-          <a-button :disabled="!selectedIds.length" status="warning" @click="openWontFix">标记不处理</a-button>
-          <a-dropdown :disabled="!selectedIds.length" @select="(v) => transition(String(v))">
+          <!-- 选到「不处理」时不能直接提交：必须先要一个字典内的类型和原因，
+               否则误报率这类统计算不出来。所以走 onProcessSelect 分流到弹窗。 -->
+          <a-dropdown :disabled="!selectedIds.length" @select="onProcessSelect">
             <a-button :disabled="!selectedIds.length" :loading="transitionLoading">
-              处理状态
+              处理
               <template #icon><icon-down /></template>
             </a-button>
             <template #content>
@@ -208,21 +209,25 @@
                     <a-tag :color="sourceColor(record.source)" size="small">{{ sourceText(record.source) }}</a-tag>
                   </template>
                 </a-table-column>
-                <a-table-column title="发现日期" data-index="found_date" :width="100" />
-                <a-table-column title="创建时间" data-index="created_at" :width="150" ellipsis tooltip />
-                <a-table-column title="更新时间" data-index="updated_at" :width="150" ellipsis tooltip />
+                <!-- 时间统一走 formatTime 转本地时区。直接绑字段会把后端的
+                     UTC 字符串原样显示（差 8 小时），看起来像数据错了。
+                     found_date 是纯日期，用 date 精度避免补出个 00:00:00。 -->
+                <a-table-column title="发现日期" :width="100">
+                  <template #cell="{ record }">{{ formatTime(record.found_date, { precision: 'date' }) }}</template>
+                </a-table-column>
+                <a-table-column title="创建时间" :width="150" ellipsis tooltip>
+                  <template #cell="{ record }">{{ formatTime(record.created_at) }}</template>
+                </a-table-column>
+                <a-table-column title="更新时间" :width="150" ellipsis tooltip>
+                  <template #cell="{ record }">{{ formatTime(record.updated_at) }}</template>
+                </a-table-column>
                 <a-table-column title="操作" :width="180" fixed="right">
                   <template #cell="{ record }">
                     <a-space>
                       <a-link @click="handleDetail(record)">详情</a-link>
-                      <a-dropdown>
-                        <a-link>状态</a-link>
-                        <template #content>
-                          <a-doption v-for="s in getNextStatuses(record.status)" :key="s" @click="handleChangeStatus(record, s)">
-                            {{ statusText(s) }}
-                          </a-doption>
-                        </template>
-                      </a-dropdown>
+                      <!-- 状态下拉已移除：生产侧状态主要由归因数据驱动
+                           （发版后进观察、同指纹又出现自动打回仍复现），
+                           逐行手点容易和自动判定打架。要改在详情里改。 -->
                       <!-- 删除按钮已移除：问题不支持删除。归因产生的问题是分析结论的
                            载体，删掉后下轮归因判出同一指纹会当成新问题重做源码调研。
                            不需要处理的用「标记不处理」，理由会留在流转记录里。 -->
@@ -257,8 +262,8 @@
           <a-descriptions-item label="客户">{{ currentRecord?.customer_name }}</a-descriptions-item>
           <a-descriptions-item label="项目组">{{ currentRecord?.project_group_name }}</a-descriptions-item>
           <a-descriptions-item label="负责人">{{ currentRecord?.assignee }}</a-descriptions-item>
-          <a-descriptions-item label="发现日期">{{ currentRecord?.found_date }}</a-descriptions-item>
-          <a-descriptions-item label="修复日期">{{ currentRecord?.fixed_date }}</a-descriptions-item>
+          <a-descriptions-item label="发现日期">{{ formatTime(currentRecord?.found_date, { precision: 'date' }) }}</a-descriptions-item>
+          <a-descriptions-item label="修复日期">{{ formatTime(currentRecord?.fixed_date, { precision: 'date' }) }}</a-descriptions-item>
           <a-descriptions-item label="来源">{{ sourceText(currentRecord?.source) }}</a-descriptions-item>
           <a-descriptions-item label="出现次数">{{ currentRecord?.recurrence_count || 1 }}</a-descriptions-item>
           <a-descriptions-item label="归因标签">{{ currentRecord?.attribution_tag || '--' }}</a-descriptions-item>
@@ -484,6 +489,7 @@ import 'md-editor-v3/lib/style.css'
 import { ApiPerfIssue, ApiPerfPatternLedger } from '@/api/perfApis'
 import ListPage from '@/components/common/ListPage.vue'
 import { ApiSysUser } from '@/api/sysApis'
+import { ApiSecProjectGroup } from '@/api/sechubApis'
 import { formatTime, useDelete, useDicts, useDownload, useGet, usePost, usePut } from '@/hooks'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
 import { useUserStore } from '@/stores'
@@ -534,22 +540,28 @@ const formData = reactive<any>({
   app_number: '', form_id: '', form_name: '', tenant_code: '', customer_name: '', description: '',
 })
 
-const statusMap: Record<string, string> = { pending: '待确认', confirmed: '已确认', fixing: '处理中', fixed: '已修复', verified: '已验证', closed: '已关闭', wontfix: '不修复' }
+// 生产侧复现状态。原来七个值（待确认/已确认/处理中/已修复/已验证/已关闭/不修复）
+// 全是处理流程且与「处理」那套撞车，反而说不出「仍复现」——
+// 而那正是最需要表达的：内部发版了但生产上问题还在。
+const statusMap: Record<string, string> = { recurring: '仍复现', observing: '观察中', resolved: '已消失', excluded: '不适用' }
 const severityMap: Record<string, string> = { critical: '严重', major: '重要', minor: '一般' }
 const issueTypeMap: Record<string, string> = { slow_sql: '慢SQL', index_loop: '索引循环', rpc_slow: 'RPC慢调用', accumulated: '累积耗时', other: '其他' }
 
 const statusText = (s: string) => statusMap[s] || s
 const severityText = (s: string) => severityMap[s] || s
 const issueTypeText = (s: string) => issueTypeMap[s] || s
-const statusColor = (s: string) => ({ pending: 'orange', confirmed: 'blue', fixing: 'purple', fixed: 'cyan', verified: 'green', closed: 'gray', wontfix: 'red' }[s] || 'gray')
+const statusColor = (s: string) => ({ recurring: 'red', observing: 'orange', resolved: 'green', excluded: 'gray' }[s] || 'gray')
 const severityColor = (s: string) => ({ critical: 'red', major: 'orange', minor: 'blue' }[s] || 'gray')
 const sourceText = (s: string) => ({ manual: '手动', diagnosis: '诊断', trace_ai: 'AI分析' }[s] || s || '手动')
 const sourceColor = (s: string) => ({ manual: 'gray', diagnosis: 'blue', trace_ai: 'purple' }[s] || 'gray')
 
 const getNextStatuses = (current: string) => {
+  // 与后端 is_valid_transition 保持一致（service/src/perf/plan/issue.rs）
   const transitions: Record<string, string[]> = {
-    pending: ['confirmed', 'wontfix'], confirmed: ['fixing', 'wontfix'], fixing: ['fixed'],
-    fixed: ['verified', 'fixing'], verified: ['closed'], wontfix: ['pending'],
+    recurring: ['observing', 'excluded'],
+    observing: ['recurring', 'resolved', 'excluded'],
+    resolved: ['recurring'],
+    excluded: ['recurring'],
   }
   return transitions[current] || []
 }
@@ -613,14 +625,16 @@ const userOptions = computed(() => {
   }))
 })
 
-// 项目组下拉：从当前列表数据归集，选了查得到东西
+// 项目组下拉取自基础配置的项目组表（314 个），不从当前页数据归集 ——
+// 归集只能拿到当页出现过的两三个组，要转交给别的组就选不到
+const { data: allGroupsRes } = useGet<any>(ApiSecProjectGroup.getAll, {}, { immediate: true })
 const groupOptions = computed(() => {
-  const seen = new Map<string, string>()
-  for (const r of tableData.value as any[]) {
-    const code = r.project_group_code
-    if (code && !seen.has(code)) seen.set(code, r.project_group_name || code)
-  }
-  return [...seen].map(([value, label]) => ({ value, label }))
+  const list = allGroupsRes.value
+  if (!Array.isArray(list)) return []
+  return list.map((g: any) => ({
+    value: g.code,
+    label: g.name ? `${g.name}（${g.code}）` : g.code,
+  }))
 })
 
 // 流转记录
@@ -668,6 +682,20 @@ function openClaim() {
   claimGroup.value = first?.project_group_code || ''
   claimRemark.value = ''
   claimVisible.value = true
+}
+
+/** 处理下拉的分流：不处理要走弹窗，其余直接提交。
+ *
+ *  不处理必须带字典内的类型和原因 —— 直接提交会被后端拒绝
+ *  （wont_fix 缺类型时 bail），而且「误报占比」这个衡量归因质量的
+ *  指标要靠类型才算得出来。 */
+function onProcessSelect(v: string | number | Record<string, any> | undefined) {
+  const target = String(v)
+  if (target === 'wont_fix') {
+    openWontFix()
+    return
+  }
+  transition(target)
 }
 
 function openWontFix() {

@@ -69,9 +69,10 @@
           </a-select>
         </a-col>
         <a-col :span="6">
-          <!-- 按钮区右对齐。「修改」需要先勾选行，所以显示已选条数，
-               让人知道这次会改几条 —— 批量操作最怕不知道影响范围。 -->
-          <a-space style="display: flex; justify-content: flex-end">
+          <!-- 按钮紧跟筛选控件，不做整行右推：
+               原来用 justify-content: flex-end 把按钮顶到最右端，
+               和左边的筛选框之间空出一大片，反而更难看。 -->
+          <a-space>
             <a-button type="primary" @click="handleSearch">查询</a-button>
             <a-button @click="handleReset">重置</a-button>
             <a-button
@@ -249,8 +250,14 @@
               </a-table-column>
               <!-- 时间列放最后：排查「这条台账是什么时候建的、最近一次命中是什么时候」
                    靠周趋势看不出来，而回填/合并过的台账更需要看 updated_at。 -->
-              <a-table-column title="创建时间" data-index="created_at" :width="150" ellipsis tooltip />
-              <a-table-column title="更新时间" data-index="updated_at" :width="150" ellipsis tooltip />
+              <!-- 时间统一走 formatTime 转本地时区。直接绑字段会把后端的
+                   UTC 字符串原样显示（差 8 小时），看起来像数据错了。 -->
+              <a-table-column title="创建时间" :width="150" ellipsis tooltip>
+                <template #cell="{ record }">{{ formatTime(record.created_at) }}</template>
+              </a-table-column>
+              <a-table-column title="更新时间" :width="150" ellipsis tooltip>
+                <template #cell="{ record }">{{ formatTime(record.updated_at) }}</template>
+              </a-table-column>
               <a-table-column title="操作" :width="200" fixed="right">
                 <template #cell="{ record }">
                   <a-space>
@@ -463,15 +470,25 @@
       </a-alert>
       <a-form :model="editForm" layout="vertical">
         <a-form-item label="项目组">
-          <a-select v-model="editForm.project_group_code" placeholder="不修改" allow-clear allow-search allow-create>
+          <a-select
+            v-model="editForm.project_group_code"
+            placeholder="不修改"
+            allow-clear
+            allow-search
+            @change="onEditGroupChange"
+          >
             <a-option v-for="g in groupOptions" :key="g.value" :value="g.value">{{ g.label }}</a-option>
           </a-select>
         </a-form-item>
         <a-form-item label="应用">
-          <a-input v-model="editForm.app_number" placeholder="不修改" allow-clear />
+          <a-select v-model="editForm.app_number" placeholder="不修改" allow-clear allow-search>
+            <a-option v-for="a in appOptions" :key="a.value" :value="a.value">{{ a.label }}</a-option>
+          </a-select>
         </a-form-item>
         <a-form-item label="业务领域">
-          <a-select v-model="editForm.business_area" placeholder="不修改" allow-clear allow-search allow-create>
+          <!-- 选了项目组会自动带出，因为两者是固定关系（库里 314 个组对应 4 个领域）。
+               仍可手改：历史数据里有和项目组表不一致的组合。 -->
+          <a-select v-model="editForm.business_area" placeholder="选项目组后自动带出" allow-clear allow-search>
             <a-option v-for="a in areaOptions" :key="a" :value="a">{{ a }}</a-option>
           </a-select>
         </a-form-item>
@@ -484,7 +501,8 @@
 import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message, Modal } from '@arco-design/web-vue'
-import { ApiPerfPatternLedger } from '@/api/perfApis'
+import { ApiPerfApp, ApiPerfPatternLedger } from '@/api/perfApis'
+import { ApiSecProjectGroup } from '@/api/sechubApis'
 import { formatTime, isRequestFailed, useAutoHeight, useDicts, useDownload, useGet, usePost, useTableAutoHeight } from '@/hooks'
 import { MdPreview } from 'md-editor-v3'
 // 必须导入样式，否则 MdPreview 渲染出来没有任何格式（表格无边框、标题不分级）
@@ -632,27 +650,51 @@ const tagOptions = computed(() => {
   return raw.map((d: any) => ({ value: d.value ?? d.dict_value, label: d.label ?? d.dict_label }))
 })
 
-// 项目组与业务领域的取值直接从当前列表数据里归集。
+// 项目组、应用、业务领域都从**基础数据表**取，不从当前列表数据归集。
 //
-// 为什么不另外调接口：台账的归属就在列表数据里，归集一次即可；
-// 单独拉全量项目组表会把没有台账的组也列出来，选了查不到任何东西。
+// 原来按当前页 20 条归集，结果下拉里只有 2 个项目组 —— 库里有 314 个。
+// 归集的做法对「筛选已有数据」勉强够用，对「修改归属」是错的：
+// 要把问题改到一个当前页没出现过的项目组就选不到。
+const { data: allGroupsRes } = useGet<any>(ApiSecProjectGroup.getAll, {}, { immediate: true })
 const groupOptions = computed(() => {
-  const seen = new Map<string, string>()
-  for (const r of tableData.value) {
-    const code = r.project_group_code
-    if (code && !seen.has(code)) seen.set(code, r.project_group_name || code)
-  }
-  return [...seen].map(([value, label]) => ({ value, label }))
+  const list = allGroupsRes.value
+  if (!Array.isArray(list)) return []
+  return list
+    .filter((g: any) => g.status === '1' || g.status === 1 || g.status === undefined)
+    .map((g: any) => ({ value: g.code, label: g.name ? `${g.name}（${g.code}）` : g.code, area: g.business_area }))
 })
+
+// 业务领域由项目组带出，不让人单独填 ——
+// 项目组与业务领域是一对多的固定关系（库里 314 个组对应 4 个领域），
+// 两边分别填会出现「PM013 + 预算」这种项目组表里不存在的组合。
 const areaOptions = computed(() => {
   const s = new Set<string>()
-  for (const r of tableData.value) if (r.business_area) s.add(r.business_area)
+  for (const g of groupOptions.value) if (g.area) s.add(g.area)
   return [...s]
+})
+
+// 应用取自基础配置的应用表（菜单「应用管理」那张），不是台账里出现过的值
+const appQuery = ref({ page_num: 1, page_size: 500 })
+const { data: allAppsRes } = useGet<any>(ApiPerfApp.getList, appQuery, { immediate: true })
+const appOptions = computed(() => {
+  const list = allAppsRes.value?.list || allAppsRes.value || []
+  if (!Array.isArray(list)) return []
+  return list.map((a: any) => ({
+    value: a.app_number,
+    label: a.app_name ? `${a.app_number} ${a.app_name}` : a.app_number,
+  }))
 })
 
 // ── 批量修改归属 ──────────────────────────────────────
 const editVisible = ref(false)
 const editForm = reactive({ project_group_code: '', app_number: '', business_area: '' })
+
+/** 选了项目组就自动带出业务领域 —— 两者是项目组表里的固定关系，
+ *  分别填会造出「PM013 + 预算」这种表里不存在的组合。 */
+const onEditGroupChange = (code: unknown) => {
+  const g = groupOptions.value.find(x => x.value === code)
+  if (g?.area) editForm.business_area = g.area
+}
 
 const openEditAttribution = () => {
   // 单选时用当前值预填，批量时留空（避免把不同的值统一覆盖成第一条的值）
