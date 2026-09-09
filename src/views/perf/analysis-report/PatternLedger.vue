@@ -707,8 +707,10 @@ const areaOptions = computed(() => {
 })
 
 // 应用取自基础配置的应用表（菜单「应用管理」那张），不是台账里出现过的值
-const appQuery = ref({ page_num: 1, page_size: 500 })
-const { data: allAppsRes } = useGet<any>(ApiPerfApp.getList, appQuery, { immediate: true })
+// 应用目录接口按产品线查询；页面首次刷新时范围树尚未 emit，必须显式带默认值，
+// 否则请求会在 Axum Query 反序列化阶段因缺少 product_line 直接失败。
+const appQuery = ref({ product_line: '星瀚' })
+const { data: allAppsRes, execute: fetchApps } = useGet<any>(ApiPerfApp.getList, appQuery, { immediate: true })
 const appOptions = computed(() => {
   const list = allAppsRes.value?.list || allAppsRes.value || []
   if (!Array.isArray(list)) return []
@@ -856,6 +858,11 @@ const handleScopeChange = (scope: {
   app_number?: string
   form_id?: string
 }) => {
+  // 左侧范围树可切换星瀚/星空；应用下拉必须跟着产品线重取，不能一直显示首次加载的数据。
+  if (scope.product_line && appQuery.value.product_line !== scope.product_line) {
+    appQuery.value = { product_line: scope.product_line }
+    void fetchApps()
+  }
   Object.assign(searchForm, {
     project_group_code: '',
     cloud_number: '',
