@@ -82,6 +82,9 @@
             >
               修改{{ selectedKeys.length ? ` (${selectedKeys.length})` : '' }}
             </a-button>
+            <a-button status="warning" :loading="impactRecomputing" @click="handleRecomputeImpact">
+              重算影响面
+            </a-button>
             <a-button status="success" @click="handleExport">导出 Excel</a-button>
           </a-space>
         </a-col>
@@ -618,6 +621,36 @@ const queryParams = computed(() => ({ ...searchForm, page_num: pageNum.value, pa
 const { isFetching: loading, data: rawData, execute: fetchData } = useGet<any>(ApiPerfPatternLedger.list, queryParams, { immediate: true })
 const tableData = computed(() => rawData.value?.list || [])
 
+
+// 全量影响面重算是后台任务：接口只负责启动并返回尚未计算的数量。
+const impactRecomputing = ref(false)
+const impactRecomputePayload = ref<Record<string, never>>({})
+const { data: impactRecomputeRes, execute: doRecomputeImpact } = usePost<any>(
+  ApiPerfPatternLedger.recomputeImpact,
+  impactRecomputePayload,
+  { immediate: false },
+)
+let impactRefreshTimer: ReturnType<typeof setTimeout> | null = null
+const stopImpactRefresh = () => {
+  if (impactRefreshTimer) {
+    clearTimeout(impactRefreshTimer)
+    impactRefreshTimer = null
+  }
+}
+const handleRecomputeImpact = async () => {
+  impactRecomputing.value = true
+  try {
+    await doRecomputeImpact()
+    if (isRequestFailed(impactRecomputeRes.value)) return
+    const pending = Number(impactRecomputeRes.value?.pending || 0)
+    Message.success(pending > 0 ? `已开始后台重算，待计算 ${pending} 条` : '没有待计算的台账，已启动全量校准')
+    stopImpactRefresh()
+    impactRefreshTimer = setTimeout(() => { void fetchData() }, 3000)
+  } finally {
+    impactRecomputing.value = false
+  }
+}
+onUnmounted(stopImpactRefresh)
 /** 表头点击排序 → 转成后端参数重新查询。
  *
  * 必须走后端：表格自带的 sortable 只排当前页 20 条，
