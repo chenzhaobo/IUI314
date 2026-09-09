@@ -82,6 +82,14 @@
             >
               修改{{ selectedKeys.length ? ` (${selectedKeys.length})` : '' }}
             </a-button>
+            <a-button
+              status="danger"
+              :loading="discarding"
+              :disabled="selectedKeys.length === 0"
+              @click="handleDiscardSelected"
+            >
+              废弃{{ selectedKeys.length ? ` (${selectedKeys.length})` : '' }}
+            </a-button>
             <a-button status="warning" :loading="impactRecomputing" @click="handleRecomputeImpact">
               重算影响面
             </a-button>
@@ -774,6 +782,52 @@ const handleEditSubmit = async () => {
   editVisible.value = false
   selectedKeys.value = []
   await fetchData()
+}
+
+// ── 批量废弃 ──────────────────────────────────────
+const discarding = ref(false)
+const discardPayload = ref<{ ids: string[] }>({ ids: [] })
+const { data: discardRes, execute: doDiscard } = usePost<any>(
+  ApiPerfPatternLedger.discard,
+  discardPayload,
+  { immediate: false },
+)
+
+const handleDiscardSelected = () => {
+  const ids = [...selectedKeys.value]
+  if (!ids.length) {
+    Message.warning('请先勾选要废弃的问题台账')
+    return
+  }
+  const selectedRows = tableData.value.filter((row: any) => ids.includes(row.id))
+  const linkedIssues = selectedRows.filter((row: any) => !!row.issue_id).length
+  Modal.warning({
+    title: `确认废弃 ${ids.length} 条问题台账？`,
+    content: [
+      '废弃后这些台账将从列表、统计、报告和影响面计算中排除，后续归因也不会再匹配它们；同一根因再次出现时会重新创建台账。',
+      linkedIssues > 0
+        ? `其中 ${linkedIssues} 条已生成问题单；问题单不会随台账删除，避免破坏已进入治理的记录。`
+        : '已生成的问题单不会随台账删除。',
+      '页面不提供恢复入口，请确认选中的确是低质量历史台账。',
+    ].join('\n'),
+    okText: '确认废弃',
+    cancelText: '取消',
+    okButtonProps: { status: 'danger' },
+    onOk: async () => {
+      discarding.value = true
+      try {
+        discardPayload.value = { ids }
+        await doDiscard()
+        if (isRequestFailed(discardRes.value)) return false
+        Message.success(discardRes.value?.message || `已废弃 ${discardRes.value?.discarded ?? ids.length} 条台账`)
+        selectedKeys.value = []
+        await fetchData()
+        return true
+      } finally {
+        discarding.value = false
+      }
+    },
+  })
 }
 
 const handleExport = async () => {
