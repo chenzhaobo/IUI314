@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import SecCrudPage from './components/SecCrudPage.vue'
-import { useGet, postAction, withTableDefaults } from '@/hooks'
+import { useGet, postAction, putAction, withTableDefaults } from '@/hooks'
 import { ApiSecProjectGroup, ApiSysDictData } from '@/api/apis'
 
 defineOptions({ name: 'project-group' })
@@ -13,6 +13,95 @@ const { data: areaDict } = useGet<any>(ApiSysDictData.getByType, { dict_type: 's
 
 const domainOptions = computed(() => (Array.isArray(domainDict.value) ? domainDict.value : []).map((d: any) => ({ label: d.dict_label, value: d.dict_value })))
 const areaOptions = computed(() => (Array.isArray(areaDict.value) ? areaDict.value : []).map((d: any) => ({ label: d.dict_label, value: d.dict_value })))
+
+// ── 项目组人员分录 ──────────────────────────────────
+interface MemberRow {
+  _key: number
+  user_id: string
+  business_role_codes: string[]
+  remark?: string
+}
+
+const { data: memberRoleDict } = useGet<any>(ApiSysDictData.getByType, { dict_type: 'static_scan_business_role' }, { immediate: true })
+const { data: memberCandidateData } = useGet<any[]>(ApiSecProjectGroup.memberCandidates, {}, { immediate: true })
+const memberRoleOptions = computed(() => (Array.isArray(memberRoleDict.value) ? memberRoleDict.value : []).map((d: any) => ({ label: d.dict_label, value: d.dict_value })))
+const memberCandidateOptions = computed(() => (Array.isArray(memberCandidateData.value) ? memberCandidateData.value : []).map((user: any) => ({
+  label: `${user.user_nickname}（${user.user_name}）`,
+  value: user.user_id,
+})))
+
+const memberVisible = ref(false)
+const memberLoading = ref(false)
+const memberSaving = ref(false)
+const activeProjectGroup = ref<any>(null)
+const memberRows = ref<MemberRow[]>([])
+const memberQuery = computed(() => ({ id: activeProjectGroup.value?.id || '' }))
+const { data: memberData, execute: fetchMembers } = useGet<any[]>(ApiSecProjectGroup.members, memberQuery, { immediate: false })
+let memberRowKey = 0
+
+async function openMemberModal(record: any) {
+  activeProjectGroup.value = record
+  memberVisible.value = true
+  memberLoading.value = true
+  try {
+    await fetchMembers()
+    memberRows.value = (Array.isArray(memberData.value) ? memberData.value : []).map((member: any) => ({
+      _key: ++memberRowKey,
+      user_id: member.user_id,
+      business_role_codes: Array.isArray(member.business_role_codes) ? [...member.business_role_codes] : [],
+      remark: member.remark || '',
+    }))
+  }
+  finally {
+    memberLoading.value = false
+  }
+}
+
+function addMemberRow() {
+  memberRows.value.push({ _key: ++memberRowKey, user_id: '', business_role_codes: [], remark: '' })
+}
+
+function removeMemberRow(index: number) {
+  memberRows.value.splice(index, 1)
+}
+
+function candidateDisabled(userId: string, rowKey: number) {
+  return memberRows.value.some(row => row._key !== rowKey && row.user_id === userId)
+}
+
+async function saveMembers() {
+  if (memberRows.value.some(row => !row.user_id)) {
+    Message.warning('请选择人员')
+    return
+  }
+  if (memberRows.value.some(row => !row.business_role_codes.length)) {
+    Message.warning('每位人员至少选择一个角色')
+    return
+  }
+  if (new Set(memberRows.value.map(row => row.user_id)).size !== memberRows.value.length) {
+    Message.warning('同一人员不能重复添加')
+    return
+  }
+
+  memberSaving.value = true
+  try {
+    const res = await putAction(ApiSecProjectGroup.members, {
+      project_group_id: activeProjectGroup.value.id,
+      members: memberRows.value.map(row => ({
+        user_id: row.user_id,
+        business_role_codes: row.business_role_codes,
+        remark: row.remark || null,
+      })),
+    })
+    if (!res)
+      return
+    Message.success('项目组人员保存成功')
+    memberVisible.value = false
+  }
+  finally {
+    memberSaving.value = false
+  }
+}
 
 const columns = withTableDefaults([
   { title: '名称', dataIndex: 'name', width: 160 },
@@ -27,7 +116,7 @@ const columns = withTableDefaults([
   { title: '领域架构师', dataIndex: 'domain_architect', width: 100 },
   { title: '排序', dataIndex: 'order_num', width: 60 },
   { title: '状态', dataIndex: 'status', width: 60 },
-  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 120, fixed: 'right' as const },
+  { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 200, fixed: 'right' as const },
 ])
 
 const filters = computed(() => [
@@ -149,6 +238,11 @@ async function handleImportSubmit() {
 <template>
 <div>
     <SecCrudPage :key="crudKey" title="项目组" :api-list="ApiSecProjectGroup.getList" :api-add="ApiSecProjectGroup.add" :api-edit="ApiSecProjectGroup.edit" :api-delete="ApiSecProjectGroup.delete" :columns="columns" :fields="fields" :filters="filters" id-field="id" name-field="name">
+      <template #row-actions="{ record }">
+        <a-button type="text" size="small" @click="openMemberModal(record)">
+          人员维护
+        </a-button>
+      </template>
       <template #extra-actions>
         <a-button type="primary" status="normal" @click="openImportModal">
           <template #icon><icon-upload /></template>
@@ -160,6 +254,60 @@ async function handleImportSubmit() {
         </a-button>
       </template>
     </SecCrudPage>
+
+    <a-modal
+      v-model:visible="memberVisible"
+      :title="`${activeProjectGroup?.name || ''} - 人员维护`"
+      :width="920"
+      :ok-loading="memberSaving"
+      @ok="saveMembers"
+    >
+      <a-spin :loading="memberLoading" style="width: 100%">
+        <div style="margin-bottom: 12px">
+          <a-button type="primary" size="small" @click="addMemberRow">
+            <template #icon><icon-plus /></template>
+            增加人员
+          </a-button>
+        </div>
+        <a-table :data="memberRows" :pagination="false" row-key="_key" :scroll="{ y: 420 }">
+          <a-table-column title="人员" :width="240">
+            <template #cell="{ record }">
+              <a-select v-model="record.user_id" placeholder="选择扫描登录用户" allow-search>
+                <a-option
+                  v-for="option in memberCandidateOptions"
+                  :key="option.value"
+                  :value="option.value"
+                  :disabled="candidateDisabled(option.value, record._key)"
+                >
+                  {{ option.label }}
+                </a-option>
+              </a-select>
+            </template>
+          </a-table-column>
+          <a-table-column title="角色" :width="300">
+            <template #cell="{ record }">
+              <a-select v-model="record.business_role_codes" multiple placeholder="可选择多个角色">
+                <a-option v-for="option in memberRoleOptions" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </a-option>
+              </a-select>
+            </template>
+          </a-table-column>
+          <a-table-column title="备注">
+            <template #cell="{ record }">
+              <a-input v-model="record.remark" placeholder="可选" />
+            </template>
+          </a-table-column>
+          <a-table-column title="操作" :width="80">
+            <template #cell="{ rowIndex }">
+              <a-button type="text" status="danger" size="small" @click="removeMemberRow(rowIndex)">
+                删除
+              </a-button>
+            </template>
+          </a-table-column>
+        </a-table>
+      </a-spin>
+    </a-modal>
 
     <a-modal v-model:visible="importVisible" title="导入项目组" @ok="handleImportSubmit" :ok-loading="importLoading" :width="460">
       <a-alert type="info" :show-icon="true" style="margin-bottom: 12px">

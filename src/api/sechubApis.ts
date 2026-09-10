@@ -76,6 +76,8 @@ export enum ApiSecProjectGroup {
   edit = '/sechub/project-group/edit',
   delete = '/sechub/project-group/delete',
   batchImport = '/sechub/project-group/import',
+  memberCandidates = '/sechub/project-group/member-candidates',
+  members = '/sechub/project-group/members',
 }
 
 // ── 发布窗口 ──────────────────────────────────────

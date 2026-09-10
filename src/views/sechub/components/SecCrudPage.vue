@@ -291,6 +291,7 @@ function handlePageSizeChange(size: number) {
         >
           <template #operations="{ record }">
             <a-space>
+              <slot name="row-actions" :record="record" />
               <a-button
                 v-if="apiEdit"
                 type="text"
