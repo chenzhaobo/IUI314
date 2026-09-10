@@ -1,0 +1,422 @@
+<script setup lang="ts">
+/**
+ * 安全扫描 — 执行记录
+ *
+ * 对应后端 `/sechub/scan/runs`（api/src/sechub/scan_task.rs + service/sec_run.rs）：
+ *   - 列表：GET /sechub/scan/runs（page_num / page_size / keyword / filters）
+ *   - 详情：GET /sechub/scan/runs/{id}
+ *   - 结果：GET /sechub/scan/runs/{id}/results（不分页，每条结果内嵌 `case` 用例信息）
+ *   - 取消：POST /sechub/scan/runs/{id}/cancel
+ */
+import { Message, Modal } from '@arco-design/web-vue'
+import { computed, reactive, ref } from 'vue'
+
+import { ApiSecScan, resolveStaticScanApi } from '@/api/sechubApis'
+import ListPage from '@/components/common/ListPage.vue'
+import { formatTime, getAction, postAction, useGet } from '@/hooks'
+
+// 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
+// （见 components/layout/app-main.vue 的注释）。lint 的 PascalCase 提示只是警告，
+// 改名却会让页签缓存失效，所以此处保持 kebab-case。
+// eslint-disable-next-line vue/component-definition-name-casing
+defineOptions({ name: 'scan-runs' })
+
+// ── 运行状态 ──────────────────────────────────────
+// 取值域与 sec_sec_run.status 一致（迁移脚本 sec_sec_run.sql 注释）
+const RUN_STATUS_OPTIONS = [
+  { value: 'pending', label: '待执行' },
+  { value: 'running', label: '运行中' },
+  { value: 'success', label: 'PASS' },
+  { value: 'failed', label: 'FAIL' },
+  { value: 'partial', label: '部分通过' },
+  { value: 'cancelled', label: '已取消' },
+]
+
+const RUN_STATUS: Record<string, { label: string, color: string }> = {
+  pending: { label: '待执行', color: 'gray' },
+  running: { label: '运行中', color: 'blue' },
+  success: { label: 'PASS', color: 'green' },
+  failed: { label: 'FAIL', color: 'red' },
+  partial: { label: '部分通过', color: 'orange' },
+  cancelled: { label: '已取消', color: 'gray' },
+}
+
+/** 存在这些状态的运行时后端拒绝再次触发任务执行，也允许取消 */
+const ACTIVE_STATUSES = ['pending', 'running']
+
+function runStatusMeta(status?: string | null) {
+  return RUN_STATUS[status || ''] ?? { label: status || '--', color: 'gray' }
+}
+
+// ── 结果判定（sec_sec_result.verdict）──────────────
+const VERDICT: Record<string, { color: string }> = {
+  PASS: { color: 'green' },
+  FAIL: { color: 'red' },
+  REVIEW: { color: 'orange' },
+  BLOCKED: { color: 'gray' },
+  ERROR: { color: 'orangered' },
+}
+const verdictColor = (v?: string | null) => VERDICT[v || '']?.color ?? 'gray'
+
+// ── 用例类型 / 测试类型展示 ────────────────────────
+const CASE_TYPE_LABELS: Record<string, string> = {
+  form_perm: '表单权限',
+  form_inject: '表单注入',
+  openapi_perm: 'OpenAPI权限',
+  openapi_inject: 'OpenAPI注入',
+  script: 'Python脚本',
+}
+const TEST_TYPE_LABELS: Record<string, string> = {
+  perm: '权限',
+  xss: 'XSS注入',
+  sqli: 'SQL注入',
+  java_reflect: 'Java反射',
+  idor: '越权(IDOR)',
+  base: '正向基线',
+  robustness: '健壮性',
+}
+/** 结果行优先展示测试类型（越权/注入/正向），没有时退回用例类型 */
+function resultTypeText(c: any): string {
+  if (!c)
+    return '--'
+  if (c.test_type)
+    return TEST_TYPE_LABELS[c.test_type] || c.test_type
+  if (c.case_type)
+    return CASE_TYPE_LABELS[c.case_type] || c.case_type
+  return '--'
+}
+
+// ── 筛选 ──────────────────────────────────────────
+const searchForm = reactive({
+  keyword: '',
+  status: '',
+})
+
+const pageNum = ref(1)
+const pageSize = ref(20)
+
+/**
+ * `filters` 是后端 dyn_filter 的通用筛选协议：JSON 数组字符串（{field, op, value}），
+ * 字段名必须能在实体 Column 上解析出来，否则后端报错（db/src/common/dyn_filter.rs）。
+ */
+const queryParams = computed(() => ({
+  page_num: pageNum.value,
+  page_size: pageSize.value,
+  keyword: searchForm.keyword,
+  filters: searchForm.status
+    ? JSON.stringify([{ field: 'status', op: 'eq', value: searchForm.status }])
+    : '',
+}))
+
+const {
+  isFetching: loading,
+  data: rawData,
+  execute: fetchData,
+} = useGet<any>(ApiSecScan.runList, queryParams, { immediate: true })
+
+const tableData = computed(() => rawData.value?.list || [])
+const pagination = computed(() => ({
+  current: pageNum.value,
+  pageSize: pageSize.value,
+  total: rawData.value?.total || 0,
+  showTotal: true,
+  showPageSize: true,
+}))
+
+// ── 任务名称：运行记录只存 task_id，拉一次任务列表建映射 ──────────
+const { data: taskRes } = useGet<any>(ApiSecScan.taskList, { page_num: 1, page_size: 200 }, { immediate: true })
+const taskNameMap = computed(() => {
+  const map: Record<string, string> = {}
+  const list = taskRes.value?.list
+  if (Array.isArray(list)) {
+    for (const t of list)
+      map[t.id] = t.name
+  }
+  return map
+})
+function taskName(taskId?: string | null) {
+  return taskId ? taskNameMap.value[taskId] || taskId : '--'
+}
+
+// ── 查看结果 ──────────────────────────────────────
+const drawerVisible = ref(false)
+const drawerLoading = ref(false)
+const resultsLoading = ref(false)
+const currentRun = ref<any>(null)
+const results = ref<any[]>([])
+
+async function openResults(record: any) {
+  currentRun.value = record
+  results.value = []
+  drawerVisible.value = true
+
+  drawerLoading.value = true
+  resultsLoading.value = true
+  try {
+    // 详情单独拉一次：列表字段与详情同构，但执行中统计会不断变化
+    const detail = await getAction<any>(resolveStaticScanApi(ApiSecScan.runGetById, { id: record.id }))
+    if (detail)
+      currentRun.value = detail
+
+    const res = await getAction<any>(resolveStaticScanApi(ApiSecScan.runResults, { id: record.id }))
+    results.value = res?.list || []
+  }
+  finally {
+    drawerLoading.value = false
+    resultsLoading.value = false
+  }
+}
+
+// ── 取消运行 ──────────────────────────────────────
+function handleCancel(record: any) {
+  Modal.confirm({
+    title: '取消运行',
+    content: `确认取消「${record.run_name}」？已产生的用例结果会保留。`,
+    okText: '取消运行',
+    cancelText: '返回',
+    onOk: async () => {
+      const res = await postAction<string>(resolveStaticScanApi(ApiSecScan.runCancel, { id: record.id }))
+      if (res === null)
+        return
+      Message.success('已取消')
+      await fetchData()
+      // 抽屉里正看着这条运行时同步刷新状态
+      if (currentRun.value?.id === record.id)
+        await openResults(currentRun.value)
+    },
+  })
+}
+
+// ── 分页 / 查询 ───────────────────────────────────
+function handleSearch() {
+  pageNum.value = 1
+  fetchData()
+}
+
+function handleReset() {
+  searchForm.keyword = ''
+  searchForm.status = ''
+  handleSearch()
+}
+
+function handlePageChange(page: number) {
+  pageNum.value = page
+  fetchData()
+}
+
+// 改每页条数必须同时回到第 1 页（否则新页可能已超出总页数，看起来像"数据没了"）
+function handlePageSizeChange(size: number) {
+  pageSize.value = size
+  pageNum.value = 1
+  fetchData()
+}
+</script>
+
+<template>
+  <div>
+    <ListPage>
+      <!-- 筛选区：控件外层必须是原生 div，Arco Input/Select 的 inheritAttrs: false 会吞掉 class -->
+      <template #filter>
+        <div class="filter-bar">
+          <div class="f-wide">
+            <a-input
+              v-model="searchForm.keyword"
+              placeholder="运行名称 / 迭代阶段"
+              allow-clear
+              @press-enter="handleSearch"
+              @clear="handleSearch"
+            />
+          </div>
+          <div class="f-mid">
+            <a-select v-model="searchForm.status" placeholder="状态" allow-clear @change="handleSearch">
+              <a-option v-for="s in RUN_STATUS_OPTIONS" :key="s.value" :value="s.value">
+                {{ s.label }}
+              </a-option>
+            </a-select>
+          </div>
+          <a-button type="primary" @click="handleSearch">
+            查询
+          </a-button>
+          <a-button @click="handleReset">
+            重置
+          </a-button>
+        </div>
+      </template>
+
+      <template #default="{ tableHeight }">
+        <a-table
+          :data="tableData"
+          :loading="loading"
+          :pagination="pagination"
+          :scroll="{ minWidth: 1140, y: tableHeight }"
+          row-key="id"
+          @page-change="handlePageChange"
+          @page-size-change="handlePageSizeChange"
+        >
+          <template #columns>
+            <a-table-column title="运行名称" data-index="run_name" :width="240" ellipsis tooltip />
+            <a-table-column title="任务" data-index="task_id" :width="200" ellipsis tooltip>
+              <template #cell="{ record }">
+                {{ taskName(record.task_id) }}
+              </template>
+            </a-table-column>
+            <a-table-column title="迭代阶段" data-index="iteration_phase" :width="130" ellipsis tooltip>
+              <template #cell="{ record }">
+                {{ record.iteration_phase || '--' }}
+              </template>
+            </a-table-column>
+            <a-table-column title="状态" data-index="status" :width="90">
+              <template #cell="{ record }">
+                <a-tag :color="runStatusMeta(record.status).color">
+                  {{ runStatusMeta(record.status).label }}
+                </a-tag>
+              </template>
+            </a-table-column>
+            <a-table-column title="用例统计" :width="150">
+              <template #cell="{ record }">
+                <a-tooltip content="总用例 / 通过 / 失败" mini>
+                  <span>{{ record.total_cases }} / {{ record.pass_cnt }} / {{ record.fail_cnt }}</span>
+                </a-tooltip>
+              </template>
+            </a-table-column>
+            <a-table-column title="开始时间" data-index="started_at" :width="160">
+              <template #cell="{ record }">
+                {{ formatTime(record.started_at) }}
+              </template>
+            </a-table-column>
+            <a-table-column title="操作" :width="160" fixed="right">
+              <template #cell="{ record }">
+                <a-space>
+                  <a-link @click="openResults(record)">
+                    查看结果
+                  </a-link>
+                  <a-link
+                    v-if="ACTIVE_STATUSES.includes(record.status)"
+                    status="warning"
+                    @click="handleCancel(record)"
+                  >
+                    取消
+                  </a-link>
+                </a-space>
+              </template>
+            </a-table-column>
+          </template>
+        </a-table>
+      </template>
+    </ListPage>
+
+    <!-- 执行详情 + 结果清单 -->
+    <a-drawer
+      v-model:visible="drawerVisible"
+      width="80vw"
+      :title="`执行详情 · ${currentRun?.run_name || ''}`"
+      :body-style="{ maxHeight: 'calc(100vh - 120px)', overflow: 'auto' }"
+    >
+      <a-spin :loading="drawerLoading" style="display: block; min-height: 80px">
+        <a-descriptions :column="2" bordered size="small">
+          <a-descriptions-item label="运行名称">
+            {{ currentRun?.run_name || '--' }}
+          </a-descriptions-item>
+          <a-descriptions-item label="状态">
+            <a-tag :color="runStatusMeta(currentRun?.status).color">
+              {{ runStatusMeta(currentRun?.status).label }}
+            </a-tag>
+          </a-descriptions-item>
+          <a-descriptions-item label="所属任务">
+            {{ taskName(currentRun?.task_id) }}
+          </a-descriptions-item>
+          <a-descriptions-item label="迭代阶段">
+            {{ currentRun?.iteration_phase || '--' }}
+          </a-descriptions-item>
+          <a-descriptions-item label="触发方式">
+            {{ currentRun?.trigger_mode === 'scheduled' ? '定时' : '手动' }}
+          </a-descriptions-item>
+          <a-descriptions-item label="开始时间">
+            {{ formatTime(currentRun?.started_at) }}
+          </a-descriptions-item>
+          <a-descriptions-item label="结束时间">
+            {{ formatTime(currentRun?.finished_at) }}
+          </a-descriptions-item>
+          <a-descriptions-item label="用例统计">
+            总 {{ currentRun?.total_cases ?? 0 }}
+            ｜ 通过 {{ currentRun?.pass_cnt ?? 0 }}
+            ｜ 失败 {{ currentRun?.fail_cnt ?? 0 }}
+            ｜ 复核 {{ currentRun?.review_cnt ?? 0 }}
+            ｜ 阻塞 {{ currentRun?.block_cnt ?? 0 }}
+            ｜ 错误 {{ currentRun?.error_cnt ?? 0 }}
+          </a-descriptions-item>
+          <a-descriptions-item label="新增资产" :span="2">
+            表单 {{ currentRun?.new_forms_cnt ?? 0 }}
+            ｜ 按钮 {{ currentRun?.new_buttons_cnt ?? 0 }}
+            ｜ 接口 {{ currentRun?.new_apis_cnt ?? 0 }}
+          </a-descriptions-item>
+        </a-descriptions>
+      </a-spin>
+
+      <a-divider>用例结果（{{ results.length }} 条）</a-divider>
+      <a-spin :loading="resultsLoading" style="display: block; min-height: 60px">
+        <a-table
+          :data="results"
+          :pagination="false"
+          :scroll="{ minWidth: 760 }"
+          row-key="id"
+          size="small"
+        >
+          <template #columns>
+            <a-table-column title="表单 / API" :width="200" ellipsis tooltip>
+              <template #cell="{ record }">
+                {{ record.case?.entity_number || record.case?.api_path || '--' }}
+              </template>
+            </a-table-column>
+            <a-table-column title="用例ID" data-index="case_id" :width="200" ellipsis tooltip />
+            <a-table-column title="类型" :width="110">
+              <template #cell="{ record }">
+                {{ resultTypeText(record.case) }}
+              </template>
+            </a-table-column>
+            <a-table-column title="结果" :width="90">
+              <template #cell="{ record }">
+                <a-tooltip v-if="record.detail || record.error_message" :content="record.error_message || record.detail" mini>
+                  <a-tag :color="verdictColor(record.verdict)">
+                    {{ record.verdict }}
+                  </a-tag>
+                </a-tooltip>
+                <a-tag v-else :color="verdictColor(record.verdict)">
+                  {{ record.verdict }}
+                </a-tag>
+              </template>
+            </a-table-column>
+            <a-table-column title="耗时" :width="90">
+              <template #cell="{ record }">
+                {{ record.response_time_ms != null ? `${record.response_time_ms} ms` : '--' }}
+              </template>
+            </a-table-column>
+          </template>
+        </a-table>
+        <a-empty v-if="!resultsLoading && !results.length" description="暂无执行结果" />
+      </a-spin>
+    </a-drawer>
+  </div>
+</template>
+
+<style scoped>
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+/* 宽度必须落在包裹 div 上：Arco 的 Input / Select 是 inheritAttrs: false */
+.f-wide {
+  width: 240px;
+}
+.f-mid {
+  width: 150px;
+}
+
+.filter-bar > div :deep(.arco-select),
+.filter-bar > div :deep(.arco-input-wrapper) {
+  width: 100%;
+}
+</style>

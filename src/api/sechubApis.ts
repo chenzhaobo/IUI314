@@ -311,3 +311,25 @@ export enum ApiSecDecompile {
   importExisting = '/sechub/decompile/import-existing',
   rebuildIndex = '/sechub/decompile/rebuild-index',
 }
+
+// ── 安全自动化回归（安全扫描） ──────────────────────
+export enum ApiSecScan {
+  // 扫描任务
+  taskList = '/sechub/scan/tasks',
+  taskAdd = '/sechub/scan/tasks',
+  taskGetById = '/sechub/scan/tasks/{id}',
+  taskUpdate = '/sechub/scan/tasks/{id}',
+  taskDelete = '/sechub/scan/tasks/{id}/delete',
+  taskRun = '/sechub/scan/tasks/{id}/run',
+  // 运行记录
+  runList = '/sechub/scan/runs',
+  runGetById = '/sechub/scan/runs/{id}',
+  runResults = '/sechub/scan/runs/{id}/results',
+  runCancel = '/sechub/scan/runs/{id}/cancel',
+  // 用例
+  caseList = '/sechub/scan/cases',
+  caseAdd = '/sechub/scan/cases',
+  caseDelete = '/sechub/scan/cases/{id}/delete',
+  // 范围树
+  scopeTree = '/sechub/scan/scope-tree',
+}
