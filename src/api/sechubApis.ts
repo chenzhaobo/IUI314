@@ -332,4 +332,13 @@ export enum ApiSecScan {
   caseDelete = '/sechub/scan/cases/{id}/delete',
   // 范围树
   scopeTree = '/sechub/scan/scope-tree',
+  // Payload 库
+  payloadList = '/sechub/scan/payloads',
+  payloadAdd = '/sechub/scan/payloads',
+  payloadSeed = '/sechub/scan/payloads/seed',
+  payloadToggle = '/sechub/scan/payloads/{id}/toggle',
+  payloadDelete = '/sechub/scan/payloads/{id}/delete',
+  // 环境角色账号（脱敏列表 / 新增或更新 / 删除）
+  envAccounts = '/sechub/scan/env-accounts',
+  envAccountDelete = '/sechub/scan/env-accounts/{id}/delete',
 }
