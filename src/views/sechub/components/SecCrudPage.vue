@@ -22,11 +22,15 @@ const props = withDefaults(
     idField?: string
     nameField?: string
     extraActions?: boolean
+    modalWidth?: number
+    onEditOpen?: (record: any) => void | Promise<void>
+    afterSubmit?: (formData: Record<string, any>, isEdit: boolean) => boolean | void | Promise<boolean | void>
   }>(),
   {
     idField: 'id',
     nameField: 'name',
     extraActions: false,
+    modalWidth: 640,
   },
 )
 // 表格高度自适应：滚动条出现在表格内、表头固定，页面本身不产生长滚动条。
@@ -107,11 +111,13 @@ function handleAdd() {
   modalVisible.value = true
 }
 
-function handleEdit(record: any) {
+async function handleEdit(record: any) {
   isEdit.value = true
   modalTitle.value = `编辑${props.title}`
   formData.value = { ...record }
   modalVisible.value = true
+  if (props.onEditOpen)
+    await props.onEditOpen(record)
 }
 
 async function handleSubmit() {
@@ -123,13 +129,14 @@ async function handleSubmit() {
     }
   }
 
+  let successMessage = ''
   if (isEdit.value && props.apiEdit) {
     const { execute, data, error } = usePut(props.apiEdit, formData)
     await execute()
     if (error.value || data.value === ErrorFlag) {
       return
     }
-    Message.success('编辑成功')
+    successMessage = '编辑成功'
   }
   else if (props.apiAdd) {
     const { execute, data, error } = usePost(props.apiAdd, formData)
@@ -137,8 +144,17 @@ async function handleSubmit() {
     if (error.value || data.value === ErrorFlag) {
       return
     }
-    Message.success('新增成功')
+    successMessage = '新增成功'
   }
+
+  if (props.afterSubmit) {
+    const shouldClose = await props.afterSubmit(formData.value, isEdit.value)
+    if (shouldClose === false)
+      return
+  }
+
+  if (successMessage)
+    Message.success(successMessage)
   modalVisible.value = false
   await getList()
 }
@@ -291,7 +307,6 @@ function handlePageSizeChange(size: number) {
         >
           <template #operations="{ record }">
             <a-space>
-              <slot name="row-actions" :record="record" />
               <a-button
                 v-if="apiEdit"
                 type="text"
@@ -320,7 +335,7 @@ function handlePageSizeChange(size: number) {
     <a-modal
       v-model:visible="modalVisible"
       :title="modalTitle"
-      :width="640"
+      :width="modalWidth"
       @ok="handleSubmit"
       @cancel="modalVisible = false"
     >
@@ -365,6 +380,7 @@ function handlePageSizeChange(size: number) {
               />
             </a-form-item>
           </a-col>
+          <slot name="form-extra" :form-data="formData" :is-edit="isEdit" />
         </a-row>
       </a-form>
     </a-modal>
