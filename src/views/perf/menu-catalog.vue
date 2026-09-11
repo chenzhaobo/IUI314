@@ -110,7 +110,7 @@ const menuColumns = withTableDefaults([
   { title: '实体ID', dataIndex: 'entity_id', width: 100 },
   { title: '项目组', dataIndex: 'project_group_name', width: 130 },
   { title: '来源环境', dataIndex: 'source_env_name', width: 90 },
-  { title: '同步时间', dataIndex: 'synced_at', width: 140, slotName: 'synced_at' },
+  { title: '同步时间', dataIndex: 'synced_at', width: 170, slotName: 'synced_at', ellipsis: true },
   { title: '同步人', dataIndex: 'synced_by_name', width: 70 },
   { title: '测试范围', dataIndex: 'in_test_scope', width: 90, slotName: 'in_test_scope' },
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 90, fixed: 'right' as const },
@@ -149,6 +149,11 @@ const { data: statsData, isFetching: statsLoading, execute: fetchStats } = useGe
 // ── 左侧树 ──────────────────────────────────
 const treePanel = ref<HTMLElement>()
 const { style: treeStyle } = useAutoHeight(treePanel)
+// 左树用 height 而非 maxHeight：内容不足时也撑满可用空间，不留大面积空白
+const treePanelStyle = computed(() => {
+  const h = treeStyle.value?.maxHeight
+  return h ? { height: h } : {}
+})
 const treeData = ref<any[]>([])
 const selectedKeys = ref<string[]>([])
 const expandedKeys = ref<string[]>([])
@@ -530,7 +535,7 @@ const { tableHeight: buttonTableHeight } = useTableAutoHeight(buttonTableWrap)
 
     <div v-else class="catalog-layout">
       <!-- 左侧树 -->
-      <div ref="treePanel" class="tree-panel panel-scroll-y" :style="treeStyle">
+      <div ref="treePanel" class="tree-panel panel-scroll-y" :style="treePanelStyle">
         <a-card :bordered="false">
           <template #title>云 / 应用 / 菜单</template>
           <a-spin :loading="treeLoading" style="width: 100%">
