@@ -19,8 +19,10 @@ import { formatTime, postAction, putAction, useGet } from '@/hooks'
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
 // （见 components/layout/app-main.vue 的注释）。lint 的 PascalCase 提示只是警告，
 // 改名却会让页签缓存失效，所以此处保持 kebab-case。
+// 注意：scan-tasks 段名已被「静态扫描→定时扫描任务」占用（路由 name 全局唯一），
+// 故此处用 scan-task-list。
 // eslint-disable-next-line vue/component-definition-name-casing
-defineOptions({ name: 'scan-tasks' })
+defineOptions({ name: 'scan-task-list' })
 
 // ── 测试类型 ──────────────────────────────────────
 // 与 sec_sec_task.test_types 的 JSON 数组取值一一对应（设计文档 §3.1）
