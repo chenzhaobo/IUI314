@@ -11,8 +11,9 @@
  * 交互：左树按维度（应用/项目组/业务领域/产品领域）过滤右表；右表可再按版本/关键词过滤。
  */
 import { Message } from '@arco-design/web-vue'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 
+import { ApiSysDictData } from '@/api/apis'
 import { ApiMetadataInventory } from '@/api/metadataApis'
 import { ApiPerfEnv } from '@/api/perfApis'
 import ListPage from '@/components/common/ListPage.vue'
@@ -21,6 +22,19 @@ import { formatTime, getAction, postAction, useGet } from '@/hooks'
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
 // eslint-disable-next-line vue/component-definition-name-casing
 defineOptions({ name: 'api-inventory' })
+
+/** 产品线（星瀚 / 星空）：与菜单目录/实体元数据一致，用字典 perf_product_line */
+const productLine = ref('')
+const { data: productLineDict } = useGet<any>(ApiSysDictData.getByType, { dict_type: 'perf_product_line' }, { immediate: true })
+const productLineOptions = computed(() => (Array.isArray(productLineDict.value) ? productLineDict.value : [])
+  .map((d: any) => ({ label: d.dict_label, value: d.dict_value })))
+
+watch(productLineDict, (val) => {
+  if (productLine.value || !Array.isArray(val) || !val.length)
+    return
+  const fallback = val.find((d: any) => d.is_default === 'Y') || val[0]
+  productLine.value = fallback?.dict_value || ''
+})
 
 const VERSION_OPTIONS = [
   { value: 'v1', label: 'v1（旧版）' },
@@ -78,6 +92,7 @@ const scopeParams = computed(() => {
 const queryParams = computed(() => ({
   ...scopeParams.value,
   env_id: activeEnvId.value || undefined,
+  product_line: productLine.value || undefined,
   page_num: pageNum.value,
   page_size: pageSize.value,
   version: filters.version,
@@ -168,6 +183,7 @@ async function fetchTree() {
     const res = await getAction<any>(ApiMetadataInventory.tree, {
       dimension: dimension.value,
       env_id: activeEnvId.value || undefined,
+      product_line: productLine.value || undefined,
     })
     if (!res)
       return
@@ -187,6 +203,12 @@ function handleTreeSelect(keys: any) {
   handleSearch()
 }
 
+function handleProductLineChange() {
+  selectedKeys.value = ['all']
+  pageNum.value = 1
+  void fetchTree().then(() => fetchList())
+}
+
 function handleDimensionChange() {
   selectedKeys.value = ['all']
   pageNum.value = 1
@@ -200,7 +222,11 @@ const syncing = ref(false)
 const envOptions = ref<any[]>([])
 
 // 注意：`execute()` 不返回数据，必须读 hook 暴露的 data（其它写法会拿到 undefined → 下拉为空）
-const { data: envRaw, execute: fetchEnvs } = useGet<any>(ApiPerfEnv.getList, { page_num: 1, page_size: 100 }, { immediate: false })
+const { data: envRaw, execute: fetchEnvs } = useGet<any>(
+  ApiPerfEnv.getList,
+  computed(() => ({ page_num: 1, page_size: 100, product_line: productLine.value || undefined })),
+  { immediate: false },
+)
 
 async function openSync() {
   syncVisible.value = true
@@ -265,15 +291,19 @@ onMounted(async () => {
     <!-- 单根模板：布局的 app-main-content class 只能继承到单根，
          多根（含根上的注释）会让 class 被静默丢弃，页面占不满并出现空白块 -->
 
-    <ListPage aside-title="归属维度" :aside-width="320" aside-resizable :aside-max-width="520">
-      <template #aside>
-        <div class="dimension-bar">
-          <a-select v-model="dimension" size="small" @change="handleDimensionChange">
+    <ListPage :aside-width="320" aside-resizable :aside-max-width="520">
+      <!-- 标题条与下拉同一行：该区域在滚动区之外，树滚动时下拉不会跟着滚走 -->
+      <template #aside-title>
+        <div class="aside-title-row">
+          <span>归属维度</span>
+          <a-select v-model="dimension" size="small" class="dimension-select" @change="handleDimensionChange">
             <a-option v-for="d in DIMENSION_OPTIONS" :key="d.value" :value="d.value">
               {{ d.label }}
             </a-option>
           </a-select>
         </div>
+      </template>
+      <template #aside>
         <a-spin :loading="treeLoading" style="display: block">
           <a-tree
             :data="treeData"
@@ -287,6 +317,13 @@ onMounted(async () => {
 
       <template #filter>
         <div class="filter-bar">
+          <div class="f-mid">
+            <a-select v-model="productLine" placeholder="产品线" @change="handleProductLineChange">
+              <a-option v-for="p in productLineOptions" :key="p.value" :value="p.value">
+                {{ p.label }}
+              </a-option>
+            </a-select>
+          </div>
           <div class="f-wide">
             <a-input
               v-model="filters.keyword"
@@ -424,7 +461,8 @@ onMounted(async () => {
         </a-form-item>
         <div class="sync-hint">
           同步语义：已存在则更新、不存在则新增、源侧已删除则标记删除。<br>
-          数据来源：该环境的 OpenAPI 定义库；应用/云归属随同步刷新，项目组/领域在查看时动态关联。
+          数据来源：该环境的 OpenAPI 定义库；应用/云归属随同步刷新，项目组/领域在查看时动态关联。<br>
+          环境列表按上方选择的「产品线（{{ productLine || '--' }}）」过滤。
         </div>
       </a-form>
     </a-modal>
@@ -504,8 +542,21 @@ onMounted(async () => {
   width: 100%;
 }
 
-.dimension-bar {
-  margin-bottom: 8px;
+.aside-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* 标题不许折行（左栏 320px 里「归属维度」+ 下拉要同一行） */
+.aside-title-row > span {
+  white-space: nowrap;
+}
+
+.dimension-select {
+  width: 140px;
+  font-weight: 400;
 }
 
 .inventory-meta {
