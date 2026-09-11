@@ -313,12 +313,13 @@ export enum ApiSecDecompile {
 }
 
 // ── 安全自动化回归（安全扫描） ──────────────────────
+// 同一路径上的 GET/POST（或 GET/PUT）共用一个成员：枚举值不能重复
+// （ts/no-duplicate-enum-values），方法由调用点决定。
 export enum ApiSecScan {
-  // 扫描任务
+  // 扫描任务（GET 列表 / POST 新建）
   taskList = '/sechub/scan/tasks',
-  taskAdd = '/sechub/scan/tasks',
-  taskGetById = '/sechub/scan/tasks/{id}',
-  taskUpdate = '/sechub/scan/tasks/{id}',
+  // 任务（GET 详情 / PUT 更新）
+  taskById = '/sechub/scan/tasks/{id}',
   taskDelete = '/sechub/scan/tasks/{id}/delete',
   taskRun = '/sechub/scan/tasks/{id}/run',
   // 运行记录
@@ -330,17 +331,18 @@ export enum ApiSecScan {
   // 报告导出（CSV 文件下载，需带 Authorization 头）
   runExport = '/sechub/scan/runs/{id}/export',
   runCancel = '/sechub/scan/runs/{id}/cancel',
-  // 用例
+  // 用例（GET 列表 / POST 新建）
   caseList = '/sechub/scan/cases',
-  caseAdd = '/sechub/scan/cases',
+  caseUpdate = '/sechub/scan/cases/{id}',
   caseDelete = '/sechub/scan/cases/{id}/delete',
+  // Python 脚本（multipart 上传，字段名 file，仅 .py；GET 列出 {name,size_bytes,modified_at}）
+  scripts = '/sechub/scan/scripts',
   // 测试域视图（表单安全遍历 / OpenAPI测试）
   domainCases = '/sechub/scan/domain/cases',
   // 范围树
   scopeTree = '/sechub/scan/scope-tree',
-  // Payload 库
+  // Payload 库（GET 列表 / POST 新增）
   payloadList = '/sechub/scan/payloads',
-  payloadAdd = '/sechub/scan/payloads',
   payloadSeed = '/sechub/scan/payloads/seed',
   payloadToggle = '/sechub/scan/payloads/{id}/toggle',
   payloadDelete = '/sechub/scan/payloads/{id}/delete',

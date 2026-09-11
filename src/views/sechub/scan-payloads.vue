@@ -136,7 +136,7 @@ async function handleSubmit() {
 
   modalLoading.value = true
   try {
-    const res = await postAction<string>(ApiSecScan.payloadAdd, {
+    const res = await postAction<string>(ApiSecScan.payloadList, {
       vuln_type: form.vuln_type,
       payload: form.payload.trim(),
       description: form.description || null,

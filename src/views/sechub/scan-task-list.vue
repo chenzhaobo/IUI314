@@ -187,13 +187,13 @@ async function handleSubmit() {
       // 后端 PUT 的 body 是完整 SecSecTaskModel（Rust 端 id/name/test_types/status/create_by
       // 是非 Option 字段，缺一项就反序列化失败），所以必须带上原记录里的其余字段
       const payload = { ...editingRecord.value, ...base }
-      const res = await putAction<string>(resolveStaticScanApi(ApiSecScan.taskUpdate, { id: editingId.value }), payload)
+      const res = await putAction<string>(resolveStaticScanApi(ApiSecScan.taskById, { id: editingId.value }), payload)
       if (res === null)
         return
       Message.success('已保存')
     }
     else {
-      const res = await postAction<string>(ApiSecScan.taskAdd, {
+      const res = await postAction<string>(ApiSecScan.taskList, {
         ...base,
         id: '',
         account_overrides: null,
