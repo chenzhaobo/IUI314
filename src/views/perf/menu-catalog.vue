@@ -9,7 +9,7 @@ interface CatalogTreeNode extends TreeNodeData {
   is_leaf?: boolean
   children?: CatalogTreeNode[]
 }
-import { formatTime, postAction, putAction, useGet, useAutoHeight, useTableAutoHeight, withTableDefaults } from '@/hooks'
+import { formatTime, postAction, putAction, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiPerfEnv, ApiPerfApp, ApiPerfMenu, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
 import SyncMenuModal from './components/SyncMenuModal.vue'
 import AutoMatchModal from './components/AutoMatchModal.vue'
@@ -456,11 +456,6 @@ watch([sourceEnvId, currentFormNumber], () => {
   }
 }, { immediate: false })
 
-// 布局行实测定高：左右两栏由它派生高度，各自内部滚动。
-// 没有确定高度时：右表从视口反推会多算一截 → 把页面顶出滚动条；左树按内容撑高 → 展开后整页变长。
-const layoutRow = ref<HTMLElement>()
-const { height: layoutRowH } = useAutoHeight(layoutRow)
-
 // 表格高度自适应（滚动条在表格内、表头固定）；右侧按钮面板与菜单列表面板各一个容器，
 // 因为两者上方的信息条/操作栏高度不同，分别测量才准。
 // fillParent：容器是定高 flex 列里的 flex:1 子项，高度已确定；从视口反推会与这块空间差一截。
@@ -532,7 +527,7 @@ const { tableHeight: buttonTableHeight } = useTableAutoHeight(buttonTableWrap, {
       <a-empty description="请先选择产品线" />
     </a-card>
 
-    <div v-else ref="layoutRow" class="catalog-layout" :style="{ height: layoutRowH + 'px' }">
+    <div v-else class="catalog-layout">
       <!-- 左侧树：卡片撑满栏高，树在卡片内部滚 -->
       <div class="tree-col">
         <a-card :bordered="false" class="fill-card">
@@ -735,17 +730,18 @@ const { tableHeight: buttonTableHeight } = useTableAutoHeight(buttonTableWrap, {
 .stats-spin {
   /* Arco spin centered in stats row */
 }
-/* 布局行：高度由 layoutRowH 实测给出（inline style），左右两栏由它派生高度 */
+/* 布局行：行高由左树列（定高 650px）驱动，右卡片拉伸对齐 */
 .catalog-layout {
   display: flex;
   gap: 8px;
-  min-height: 360px;
 }
 .tree-col {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
   width: 320px;
+  /* 定高：树数据展开后在框内滚动，不再把整行/页面撑开 */
+  height: 650px;
   /* min-height:0 是子项能被压缩到内容以下的前提，缺了它树会撑高整行 */
   min-height: 0;
 }
