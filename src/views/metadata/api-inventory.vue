@@ -199,12 +199,13 @@ const syncEnvId = ref('')
 const syncing = ref(false)
 const envOptions = ref<any[]>([])
 
-const { execute: fetchEnvs } = useGet<any>(ApiPerfEnv.getList, { page_num: 1, page_size: 100 }, { immediate: false })
+// 注意：`execute()` 不返回数据，必须读 hook 暴露的 data（其它写法会拿到 undefined → 下拉为空）
+const { data: envRaw, execute: fetchEnvs } = useGet<any>(ApiPerfEnv.getList, { page_num: 1, page_size: 100 }, { immediate: false })
 
 async function openSync() {
   syncVisible.value = true
-  const res: any = await fetchEnvs()
-  const list = res?.list || []
+  await fetchEnvs()
+  const list = envRaw.value?.list || []
   envOptions.value = list
   if (!syncEnvId.value && list.length)
     syncEnvId.value = list[0].id
@@ -260,210 +261,230 @@ onMounted(async () => {
 </script>
 
 <template>
-  <ListPage aside-title="归属维度" :aside-width="320" aside-resizable :aside-max-width="520">
-    <template #aside>
-      <div class="dimension-bar">
-        <a-select v-model="dimension" size="small" @change="handleDimensionChange">
-          <a-option v-for="d in DIMENSION_OPTIONS" :key="d.value" :value="d.value">
-            {{ d.label }}
-          </a-option>
-        </a-select>
-      </div>
-      <a-spin :loading="treeLoading" style="display: block">
-        <a-tree
-          :data="treeData"
-          :selected-keys="selectedKeys"
-          block-node
-          @select="handleTreeSelect"
-        />
-        <a-empty v-if="!treeLoading && !groups.length && !unclassified.length" description="暂无数据，请先同步" />
-      </a-spin>
-    </template>
+  <div class="api-inventory">
+    <!-- 单根模板：布局的 app-main-content class 只能继承到单根，
+         多根（含根上的注释）会让 class 被静默丢弃，页面占不满并出现空白块 -->
 
-    <template #filter>
-      <div class="filter-bar">
-        <div class="f-wide">
-          <a-input
-            v-model="filters.keyword"
-            placeholder="接口编号 / 名称 / 路径"
-            allow-clear
-            @press-enter="handleSearch"
-            @clear="handleSearch"
-          />
-        </div>
-        <div class="f-mid">
-          <a-select v-model="filters.version" placeholder="版本" allow-clear @change="handleSearch">
-            <a-option v-for="v in VERSION_OPTIONS" :key="v.value" :value="v.value">
-              {{ v.label }}
+    <ListPage aside-title="归属维度" :aside-width="320" aside-resizable :aside-max-width="520">
+      <template #aside>
+        <div class="dimension-bar">
+          <a-select v-model="dimension" size="small" @change="handleDimensionChange">
+            <a-option v-for="d in DIMENSION_OPTIONS" :key="d.value" :value="d.value">
+              {{ d.label }}
             </a-option>
           </a-select>
         </div>
-        <a-button type="primary" @click="handleSearch">
-          查询
-        </a-button>
-        <a-button @click="handleReset">
-          重置
-        </a-button>
-      </div>
-    </template>
+        <a-spin :loading="treeLoading" style="display: block">
+          <a-tree
+            :data="treeData"
+            :selected-keys="selectedKeys"
+            block-node
+            @select="handleTreeSelect"
+          />
+          <a-empty v-if="!treeLoading && !groups.length && !unclassified.length" description="暂无数据，请先同步" />
+        </a-spin>
+      </template>
 
-    <template #toolbar>
-      <div class="inventory-meta">
-        <span>数据源：{{ envName || '--' }}（OpenAPI 定义库）｜ 当前范围 {{ total }} 条 ／ 全部 {{ totalApis }} 条</span>
-        <a-space>
-          <a-button size="small" @click="openRecords">
-            同步记录
+      <template #filter>
+        <div class="filter-bar">
+          <div class="f-wide">
+            <a-input
+              v-model="filters.keyword"
+              placeholder="接口编号 / 名称 / 路径"
+              allow-clear
+              @press-enter="handleSearch"
+              @clear="handleSearch"
+            />
+          </div>
+          <div class="f-mid">
+            <a-select v-model="filters.version" placeholder="版本" allow-clear @change="handleSearch">
+              <a-option v-for="v in VERSION_OPTIONS" :key="v.value" :value="v.value">
+                {{ v.label }}
+              </a-option>
+            </a-select>
+          </div>
+          <a-button type="primary" @click="handleSearch">
+            查询
           </a-button>
-          <a-button type="primary" size="small" @click="openSync">
-            同步
+          <a-button @click="handleReset">
+            重置
           </a-button>
-        </a-space>
-      </div>
-    </template>
+        </div>
+      </template>
 
-    <template #default="{ tableHeight }">
+      <template #toolbar>
+        <div class="inventory-meta">
+          <span>数据源：{{ envName || '--' }}（OpenAPI 定义库）｜ 当前范围 {{ total }} 条 ／ 全部 {{ totalApis }} 条</span>
+          <a-space>
+            <a-button size="small" @click="openRecords">
+              同步记录
+            </a-button>
+            <a-button type="primary" size="small" @click="openSync">
+              同步
+            </a-button>
+          </a-space>
+        </div>
+      </template>
+
+      <template #default="{ tableHeight }">
+        <a-table
+          :data="rows"
+          :loading="loading"
+          :pagination="pagination"
+          :scroll="{ x: 1698, y: tableHeight }"
+          row-key="id"
+          @page-change="handlePageChange"
+          @page-size-change="handlePageSizeChange"
+        >
+          <template #columns>
+            <a-table-column title="编号" data-index="number" :width="180" ellipsis tooltip />
+            <a-table-column title="名称" data-index="name" :width="190" ellipsis tooltip />
+            <a-table-column title="版本" data-index="api_version" :width="70" />
+            <a-table-column title="方法" data-index="http_method" :width="80" />
+            <a-table-column title="调用路径" data-index="call_path" :width="260" ellipsis tooltip />
+            <a-table-column title="开发模式" :width="100" ellipsis tooltip>
+              <template #cell="{ record }">
+                <a-tooltip v-if="record.dev_mode" :content="`原始值：${record.dev_mode}`" mini>
+                  <span>{{ record.dev_mode_label || record.dev_mode }}</span>
+                </a-tooltip>
+                <span v-else>--</span>
+              </template>
+            </a-table-column>
+            <a-table-column title="状态" :width="76">
+              <template #cell="{ record }">
+                <a-tooltip v-if="record.status" :content="`原始值：${record.status}`" mini>
+                  <a-tag :color="record.status === 'C' || record.status === 'enabled' ? 'green' : record.status === 'D' || record.status === 'disabled' ? 'gray' : 'blue'">
+                    {{ record.status_label || record.status }}
+                  </a-tag>
+                </a-tooltip>
+                <span v-else>--</span>
+              </template>
+            </a-table-column>
+            <a-table-column title="第三方应用授权" :width="120">
+              <template #cell="{ record }">
+                <a-tag :color="record.thirdapp_auth ? 'orange' : 'gray'">
+                  {{ record.thirdapp_auth ? '是' : '否' }}
+                </a-tag>
+              </template>
+            </a-table-column>
+            <a-table-column title="业务对象" :width="140" ellipsis tooltip>
+              <template #cell="{ record }">
+                {{ record.biz_object || '--' }}
+              </template>
+            </a-table-column>
+            <a-table-column title="数据源" :width="150" ellipsis tooltip>
+              <template #cell="{ record }">
+                {{ record.env_name || '--' }}
+              </template>
+            </a-table-column>
+            <a-table-column title="应用" :width="160" ellipsis tooltip>
+              <template #cell="{ record }">
+                {{ record.app_number ? `${record.app_number} ${record.app_name || ''}` : '未归属' }}
+              </template>
+            </a-table-column>
+            <a-table-column title="云" :width="100" ellipsis tooltip>
+              <template #cell="{ record }">
+                {{ record.cloud_name || '--' }}
+              </template>
+            </a-table-column>
+            <a-table-column title="创建时间" :width="156">
+              <template #cell="{ record }">
+                {{ formatTime(record.source_created_at) }}
+              </template>
+            </a-table-column>
+            <a-table-column title="更新时间" :width="156">
+              <template #cell="{ record }">
+                {{ formatTime(record.source_updated_at) }}
+              </template>
+            </a-table-column>
+          </template>
+          <template #empty>
+            <a-empty description="暂无数据：点右上角「同步」从测试环境拉取接口定义" />
+          </template>
+        </a-table>
+      </template>
+    </ListPage>
+
+    <!-- 同步：选环境 → 拉取定义库（存在则更新/不存在新增/源侧删除则标记删除） -->
+    <a-modal
+      v-model:visible="syncVisible"
+      title="同步 API 清单"
+      :width="520"
+      :ok-loading="syncing"
+      ok-text="开始同步"
+      @ok="handleSync"
+    >
+      <a-form :model="{ env_id: syncEnvId }" layout="vertical">
+        <a-form-item label="测试环境（基础配置 → 测试环境）" required>
+          <a-select v-model="syncEnvId" placeholder="选择要同步的环境" allow-search>
+            <a-option v-for="e in envOptions" :key="e.id" :value="e.id">
+              {{ e.env_name }}（{{ e.env_code }}）
+            </a-option>
+          </a-select>
+        </a-form-item>
+        <div class="sync-hint">
+          同步语义：已存在则更新、不存在则新增、源侧已删除则标记删除。<br>
+          数据来源：该环境的 OpenAPI 定义库；应用/云归属随同步刷新，项目组/领域在查看时动态关联。
+        </div>
+      </a-form>
+    </a-modal>
+
+    <!-- 同步记录：时间 / 环境 / 新增 / 更新 / 标记删除 -->
+    <a-modal
+      v-model:visible="recordsVisible"
+      title="同步记录"
+      :width="760"
+      :footer="false"
+    >
       <a-table
-        :data="rows"
-        :loading="loading"
-        :pagination="pagination"
-        :scroll="{ x: 1698, y: tableHeight }"
+        :data="records"
+        :loading="recordsLoading"
+        :pagination="false"
+        :scroll="{ y: 420 }"
         row-key="id"
-        @page-change="handlePageChange"
-        @page-size-change="handlePageSizeChange"
+        size="small"
       >
         <template #columns>
-          <a-table-column title="编号" data-index="number" :width="180" ellipsis tooltip />
-          <a-table-column title="名称" data-index="name" :width="190" ellipsis tooltip />
-          <a-table-column title="版本" data-index="api_version" :width="70" />
-          <a-table-column title="方法" data-index="http_method" :width="80" />
-          <a-table-column title="调用路径" data-index="call_path" :width="260" ellipsis tooltip />
-          <a-table-column title="开发模式" :width="100" ellipsis tooltip>
+          <a-table-column title="同步时间" :width="170">
             <template #cell="{ record }">
-              <a-tooltip v-if="record.dev_mode" :content="`原始值：${record.dev_mode}`" mini>
-                <span>{{ record.dev_mode_label || record.dev_mode }}</span>
-              </a-tooltip>
-              <span v-else>--</span>
+              {{ formatTime(record.finished_at || record.started_at) }}
             </template>
           </a-table-column>
-          <a-table-column title="状态" :width="76">
+          <a-table-column title="测试环境" :width="170" ellipsis tooltip>
             <template #cell="{ record }">
-              <a-tooltip v-if="record.status" :content="`原始值：${record.status}`" mini>
-                <a-tag :color="record.status === 'C' || record.status === 'enabled' ? 'green' : record.status === 'D' || record.status === 'disabled' ? 'gray' : 'blue'">
-                  {{ record.status_label || record.status }}
-                </a-tag>
-              </a-tooltip>
-              <span v-else>--</span>
+              {{ record.env_name || record.env_id }}
             </template>
           </a-table-column>
-          <a-table-column title="第三方应用授权" :width="120">
-            <template #cell="{ record }">
-              <a-tag :color="record.thirdapp_auth ? 'orange' : 'gray'">
-                {{ record.thirdapp_auth ? '是' : '否' }}
-              </a-tag>
-            </template>
-          </a-table-column>
-          <a-table-column title="业务对象" :width="140" ellipsis tooltip>
-            <template #cell="{ record }">
-              {{ record.biz_object || '--' }}
-            </template>
-          </a-table-column>
-          <a-table-column title="数据源" :width="150" ellipsis tooltip>
-            <template #cell="{ record }">
-              {{ record.env_name || '--' }}
-            </template>
-          </a-table-column>
-          <a-table-column title="应用" :width="160" ellipsis tooltip>
-            <template #cell="{ record }">
-              {{ record.app_number ? `${record.app_number} ${record.app_name || ''}` : '未归属' }}
-            </template>
-          </a-table-column>
-          <a-table-column title="云" :width="100" ellipsis tooltip>
-            <template #cell="{ record }">
-              {{ record.cloud_name || '--' }}
-            </template>
-          </a-table-column>
-          <a-table-column title="创建时间" :width="156">
-            <template #cell="{ record }">
-              {{ formatTime(record.source_created_at) }}
-            </template>
-          </a-table-column>
-          <a-table-column title="更新时间" :width="156">
-            <template #cell="{ record }">
-              {{ formatTime(record.source_updated_at) }}
-            </template>
-          </a-table-column>
+          <a-table-column title="接口总数" data-index="total" :width="90" />
+          <a-table-column title="新增" data-index="inserted" :width="76" />
+          <a-table-column title="更新" data-index="updated" :width="76" />
+          <a-table-column title="标记删除" data-index="deleted" :width="90" />
+          <a-table-column title="合并重复" data-index="deduped" :width="90" />
         </template>
         <template #empty>
-          <a-empty description="暂无数据：点右上角「同步」从测试环境拉取接口定义" />
+          <a-empty description="暂无同步记录" />
         </template>
       </a-table>
-    </template>
-  </ListPage>
-
-  <!-- 同步：选环境 → 拉取定义库（存在则更新/不存在新增/源侧删除则标记删除） -->
-  <a-modal
-    v-model:visible="syncVisible"
-    title="同步 API 清单"
-    :width="520"
-    :ok-loading="syncing"
-    ok-text="开始同步"
-    @ok="handleSync"
-  >
-    <a-form :model="{ env_id: syncEnvId }" layout="vertical">
-      <a-form-item label="测试环境（基础配置 → 测试环境）" required>
-        <a-select v-model="syncEnvId" placeholder="选择要同步的环境" allow-search>
-          <a-option v-for="e in envOptions" :key="e.id" :value="e.id">
-            {{ e.env_name }}（{{ e.env_code }}）
-          </a-option>
-        </a-select>
-      </a-form-item>
-      <div class="sync-hint">
-        同步语义：已存在则更新、不存在则新增、源侧已删除则标记删除。<br>
-        数据来源：该环境的 OpenAPI 定义库；应用/云归属随同步刷新，项目组/领域在查看时动态关联。
-      </div>
-    </a-form>
-  </a-modal>
-
-  <!-- 同步记录：时间 / 环境 / 新增 / 更新 / 标记删除 -->
-  <a-modal
-    v-model:visible="recordsVisible"
-    title="同步记录"
-    :width="760"
-    :footer="false"
-  >
-    <a-table
-      :data="records"
-      :loading="recordsLoading"
-      :pagination="false"
-      :scroll="{ y: 420 }"
-      row-key="id"
-      size="small"
-    >
-      <template #columns>
-        <a-table-column title="同步时间" :width="170">
-          <template #cell="{ record }">
-            {{ formatTime(record.finished_at || record.started_at) }}
-          </template>
-        </a-table-column>
-        <a-table-column title="测试环境" :width="170" ellipsis tooltip>
-          <template #cell="{ record }">
-            {{ record.env_name || record.env_id }}
-          </template>
-        </a-table-column>
-        <a-table-column title="接口总数" data-index="total" :width="90" />
-        <a-table-column title="新增" data-index="inserted" :width="76" />
-        <a-table-column title="更新" data-index="updated" :width="76" />
-        <a-table-column title="标记删除" data-index="deleted" :width="90" />
-        <a-table-column title="合并重复" data-index="deduped" :width="90" />
-      </template>
-      <template #empty>
-        <a-empty description="暂无同步记录" />
-      </template>
-    </a-table>
-  </a-modal>
+    </a-modal>
+  </div>
 </template>
 
 <style scoped>
+/* 根 div 承接布局的 app-main-content（flex:1 + min-height:0），
+   这里做纵向 flex 容器让 ListPage 撑满，内部自己滚 */
+.api-inventory {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* 子组件根节点会带上父级 scope，可直接命中 */
+.api-inventory > .list-page {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .filter-bar {
   display: flex;
   flex-wrap: wrap;
