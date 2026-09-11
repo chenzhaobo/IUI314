@@ -22,7 +22,7 @@ const emit = defineEmits<{
   (e: 'context', record: any): void
 }>()
 
-/** 概览模式的状态列：pass=全部用例执行成功 / fail / none=无用例 */
+/** 概览模式的「测试状态」列（后端字段 test_status）：pass=全部用例执行成功 / fail / none=无用例 */
 const STATUS_META: Record<string, { label: string, color: string }> = {
   pass: { label: '通过', color: 'green' },
   fail: { label: '不通过', color: 'red' },
@@ -131,8 +131,9 @@ function statusMeta(s?: string | null) {
         </a-table-column>
         <a-table-column title="测试状态" :width="90">
           <template #cell="{ record }">
-            <a-tag :color="statusMeta(record.status).color">
-              {{ statusMeta(record.status).label }}
+            <!-- 注意用 test_status：status 是清单自身的发布状态（A/B/C/D） -->
+            <a-tag :color="statusMeta(record.test_status).color">
+              {{ statusMeta(record.test_status).label }}
             </a-tag>
           </template>
         </a-table-column>
