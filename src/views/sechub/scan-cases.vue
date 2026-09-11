@@ -23,13 +23,17 @@ import { postAction, useGet } from '@/hooks'
 defineOptions({ name: 'scan-cases' })
 
 // ── 用例类型（sec_sec_case.case_type）─────────────
+// 本页已挪入「表单测试」分组（菜单名=表单测试用例），只列表单测试域类型：
+// 表单权限/表单注入 + 元数据直扫生成的静态检查用例。API 域用例在「API测试用例」页。
 const CASE_TYPE_OPTIONS = [
   { value: 'form_perm', label: '表单权限' },
   { value: 'form_inject', label: '表单注入' },
-  { value: 'openapi_perm', label: 'OpenAPI权限' },
-  { value: 'openapi_inject', label: 'OpenAPI注入' },
-  { value: 'script', label: 'Python脚本' },
+  { value: 'meta_perm_check', label: '静态权限检查' },
+  { value: 'meta_log_check', label: '静态日志检查' },
+  { value: 'meta_anon_check', label: '静态匿名访问' },
 ]
+/** 表单测试域用例类型（后端 sec_case::FORM_CASE_TYPES + 元数据静态检查） */
+const FORM_DOMAIN_TYPES = CASE_TYPE_OPTIONS.map(o => o.value).join(',')
 
 // ── 测试类型（sec_sec_case.test_type）─────────────
 const TEST_TYPE_LABELS: Record<string, string> = {
@@ -40,6 +44,9 @@ const TEST_TYPE_LABELS: Record<string, string> = {
   idor: '越权(IDOR)',
   base: '正向基线',
   robustness: '健壮性',
+  meta_perm: '静态权限',
+  meta_log: '静态日志',
+  meta_anon: '静态匿名',
 }
 
 // ── 测试角色 / 执行方式 ───────────────────────────
@@ -76,9 +83,10 @@ const queryParams = computed(() => ({
   page_num: pageNum.value,
   page_size: pageSize.value,
   keyword: searchForm.keyword,
-  filters: searchForm.case_type
-    ? JSON.stringify([{ field: 'case_type', op: 'eq', value: searchForm.case_type }])
-    : '',
+  filters: JSON.stringify([
+    { field: 'case_type', op: 'in', value: FORM_DOMAIN_TYPES },
+    ...(searchForm.case_type ? [{ field: 'case_type', op: 'eq', value: searchForm.case_type }] : []),
+  ]),
 }))
 
 const {

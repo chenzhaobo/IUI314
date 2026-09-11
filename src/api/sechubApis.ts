@@ -355,6 +355,19 @@ export enum ApiSecScan {
   iterationDashboard = '/sechub/scan/dashboard/iterations',
 }
 
+// ── 表单测试分组（表单概览 / 表单测试结果 / 测试类型维护）──
+// 概览：每个表单 × 测试类型的用例数/执行情况 + 元数据扫描三态（不通过/不涉及/总数）；
+// 结果：一条条原始结果（sec_sec_result join 用例）；类型：测试类型字典（内置不可删/不可改 code）。
+export enum ApiSecFormTest {
+  overview = '/sechub/form-test/overview',
+  // 单个表单的元数据扫描明细（概览下钻：权限 + 6 敏感操作逐个三态）
+  formDetail = '/sechub/form-test/form-detail',
+  results = '/sechub/form-test/results',
+  typeList = '/sechub/form-test/types',
+  typeAll = '/sechub/form-test/types/all',
+  typeDelete = '/sechub/form-test/types/delete',
+}
+
 // ── 领域资产（表单 / 微服务统一资产，AS-03 真实契约） ──
 // 列表 / 详情 / 文件 / 候选 / 问题（三者各自独立服务端分页）/ 同步历史（sync-runs）。
 // 动态段（{id}）统一由 resolveStaticScanApi 拼装。

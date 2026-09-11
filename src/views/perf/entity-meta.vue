@@ -1,667 +1,326 @@
 <script lang="ts" setup>
-import { ref, computed, watch, onUnmounted } from 'vue'
-import { Message, type TableColumnData } from '@arco-design/web-vue'
-import { formatTime, getAction, postAction, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
-import { ApiPerfEnv, ApiPerfTableStats, ApiSysDictData } from '@/api/apis'
+/**
+ * 实体元数据（基础配置 → 元数据管理）
+ *
+ * 数据：GET /metadata/entity-meta/{tree,list}
+ *   · 左树：云（或项目组/业务领域/产品领域）→ 应用 → 菜单；应用下「未归类」= 没挂菜单的实体；
+ *   · 右表：产品线 + 编码/名称 + 树 scope 过滤，行上带表统计的行数/空间。
+ *
+ * 本页只看实体本身；「表统计列表 / 数据库概览 / 同步表统计」在「环境数据量信息」菜单。
+ * 环境不在查询条件里：后端缺省取「该产品线下已有实体数据的环境」，与左树同源。
+ */
+import { computed, ref, watch } from 'vue'
+import { type TableColumnData } from '@arco-design/web-vue'
 
+import { ApiSysDictData } from '@/api/apis'
+import { ApiMetadataEntityMeta } from '@/api/metadataApis'
+import ListPage from '@/components/common/ListPage.vue'
+import { useGet, withTableDefaults } from '@/hooks'
+import EntityMetaTree, { type TreeScope } from '@/views/metadata/components/EntityMetaTree.vue'
+
+// 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
+// eslint-disable-next-line vue/component-definition-name-casing
 defineOptions({ name: 'entity-meta' })
 
-// ── 产品线选择（数据字典）──────────────────────────
+const DIMENSION_OPTIONS = [
+  { value: 'app', label: '按应用' },
+  { value: 'project_group', label: '按项目组' },
+  { value: 'business_area', label: '按业务领域' },
+  { value: 'product_domain', label: '按产品领域' },
+]
+/** 「未分类」哨兵：与后端 UNCLASSIFIED_FILTER 一致 */
+const UNCLASSIFIED_FILTER = '__unclassified__'
+
+const treeRef = ref<InstanceType<typeof EntityMetaTree>>()
+const dimension = ref('app')
+const scope = ref<TreeScope>({ dimension: 'app', kind: 'all', code: '', label: '全部实体', appNumber: '' })
+
+// ── 产品线（数据字典，缺省星瀚）────────────────────
 const productLine = ref('')
-const { data: dictRaw } = useGet<any>(ApiSysDictData.getByType, { dict_type: 'perf_product_line' }, { immediate: true })
-const productLineOptions = computed(() => (Array.isArray(dictRaw.value) ? dictRaw.value : []).map((d: any) => ({ label: d.dict_label, value: d.dict_value })))
+const { data: dictRaw } = useGet<Array<Record<string, string>>>(ApiSysDictData.getByType, { dict_type: 'perf_product_line' }, { immediate: true })
+const productLineOptions = computed(() => (Array.isArray(dictRaw.value) ? dictRaw.value : []).map(d => ({ label: d.dict_label, value: d.dict_value })))
 
 watch(dictRaw, (val) => {
   if (!productLine.value && Array.isArray(val) && val.length > 0) {
-    const defaultItem = val.find((d: any) => d.is_default === 'Y')
-    productLine.value = defaultItem?.dict_value || val[0]?.dict_value || ''
+    const def = val.find(d => d.is_default === 'Y')
+    productLine.value = def?.dict_value || val[0]?.dict_value || ''
   }
 }, { immediate: true })
 
-// ── 环境选择（按产品线过滤）──────────────────────────
-const sourceEnvId = ref('')
-const { data: envData, execute: fetchEnvList } = useGet<any>(ApiPerfEnv.getList, computed(() => ({ page_num: 1, page_size: 100, product_line: productLine.value })), { immediate: false })
-const envOptions = computed(() => (envData.value?.list || []).map((e: any) => ({ label: e.env_name, value: e.id })))
+// ── 右表筛选 / 分页 ───────────────────────────────
+const searchForm = ref({ keyword: '' })
+const pageNum = ref(1)
+const pageSize = ref(20)
 
-watch(productLine, () => {
-  sourceEnvId.value = ''
-  if (productLine.value) {
-    fetchEnvList()
+/** 左树选中 → 查询参数 */
+const scopeParams = computed<Record<string, string | boolean>>(() => {
+  const s = scope.value
+  const p: Record<string, string | boolean> = {}
+  if (s.kind === 'group') {
+    if (dimension.value === 'app')
+      p.cloud = s.code
+    else
+      p[dimension.value] = s.code
   }
+  else if (s.kind === 'app') {
+    p.app_number = s.code
+  }
+  else if (s.kind === 'menu') {
+    p.form_number = s.code
+  }
+  else if (s.kind === 'unclassified') {
+    p.app_number = s.code
+    p.unclassified = true
+  }
+  return p
 })
 
-// ── Tab 切换 ──────────────────────────────────
-const activeTab = ref<'stats' | 'entity' | 'dbsizes'>('stats')
+const { isFetching: loading, data: rawData, execute: fetchList } = useGet<Record<string, unknown>>(
+  ApiMetadataEntityMeta.list,
+  computed(() => ({
+    product_line: productLine.value || undefined,
+    page_num: pageNum.value,
+    page_size: pageSize.value,
+    keyword: searchForm.value.keyword || undefined,
+    ...scopeParams.value,
+  })),
+  { immediate: false },
+)
 
-// ── 统计汇总（全局统计，从预检查API获取）──────────────────────────
-const statsSummary = ref<any>(null)
-const { data: statsSummaryData, isFetching: statsSummaryLoading, execute: fetchStatsSummary } = useGet<any>(ApiPerfTableStats.syncPreview, computed(() => ({
-  env_id: sourceEnvId.value,
-  product_line: productLine.value,
-})), { immediate: false })
+const rows = computed<Array<Record<string, unknown>>>(() => (rawData.value?.list as Array<Record<string, unknown>>) || [])
+const total = computed(() => Number(rawData.value?.total || 0))
 
-watch(statsSummaryData, (val) => {
-  if (val) statsSummary.value = val
-})
-
-// 格式化字节为人类可读
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+function handleSearch() {
+  pageNum.value = 1
+  fetchList()
 }
 
-// 数字千分位格式化
-function formatNumber(val: any): string {
+function handleReset() {
+  searchForm.value.keyword = ''
+  handleSearch()
+}
+
+function handleTreeSelect(s: TreeScope) {
+  scope.value = s
+  handleSearch()
+}
+
+function handlePageChange(page: number) {
+  pageNum.value = page
+  fetchList()
+}
+
+function handlePageSizeChange(size: number) {
+  pageSize.value = size
+  pageNum.value = 1
+  fetchList()
+}
+
+// 产品线变化：树会重拉并 emit select('all')，列表由 handleTreeSelect 刷新
+function handleProductLineChange() {
+  void treeRef.value?.reload()
+}
+
+function formatNumber(val: unknown): string {
   const n = Number(val)
-  return isNaN(n) ? '-' : n.toLocaleString('en-US')
+  return val === null || val === undefined || Number.isNaN(n) ? '--' : n.toLocaleString('en-US')
 }
 
-// ── 表统计列表（主 Tab，分页）──────────────────────────
-const statsQuery = ref({
-  keyword: '',
-  db_route_key: '',
-  row_count_type: '',
-})
-const statsPage = ref(1)
-const statsPageSize = ref(50)
-
-const { isFetching: statsLoading, data: statsRawData, execute: fetchTableStatsList } = useGet<any>(ApiPerfTableStats.list, computed(() => {
-  const params: Record<string, any> = {
-    env_id: sourceEnvId.value,
-    product_line: productLine.value,
-    page_num: statsPage.value,
-    page_size: statsPageSize.value,
-  }
-  if (statsQuery.value.keyword) params.keyword = statsQuery.value.keyword
-  if (statsQuery.value.db_route_key) params.db_route_key = statsQuery.value.db_route_key
-  if (statsQuery.value.row_count_type) params.row_count_type = statsQuery.value.row_count_type
-  return params
-}), { immediate: false })
-
-const statsList = computed(() => statsRawData.value?.list || [])
-const statsTotal = computed(() => statsRawData.value?.total || 0)
-
-function handleStatsSearch() {
-  statsPage.value = 1
-  fetchTableStatsList()
+function formatTimeText(val: unknown): string {
+  if (!val)
+    return '--'
+  const d = new Date(String(val))
+  return Number.isNaN(d.getTime()) ? String(val) : d.toLocaleString('zh-CN', { hour12: false })
 }
 
-function handleStatsPageChange(page: number) {
-  statsPage.value = page
-  fetchTableStatsList()
-}
-
-function handleStatsPageSizeChange(size: number) {
-  statsPageSize.value = size
-  statsPage.value = 1
-  fetchTableStatsList()
-}
-
-const statsColumns: TableColumnData[] = withTableDefaults([
-  { title: '数据库', dataIndex: 'db_route_key', width: 100 },
-  { title: 'Schema', dataIndex: 'schema_name', width: 90 },
-  { title: '表名', dataIndex: 'table_name', width: 220 },
-  { title: '行数', dataIndex: 'row_count', width: 120, align: 'right' as const, sortable: { sortDirections: ['descend', 'ascend'] }, render: ({ record }: any) => formatNumber(record.row_count) },
-  { title: '字段数', dataIndex: 'column_count', width: 80, align: 'right' as const, sortable: { sortDirections: ['descend', 'ascend'] }, render: ({ record }: any) => formatNumber(record.column_count) },
-  { title: '类型', dataIndex: 'row_count_type', width: 80, slotName: 'row_count_type' },
-  { title: '空间大小', dataIndex: 'total_size_human', width: 100, sortable: { sortDirections: ['descend', 'ascend'], sorter: (a: any, b: any) => (a.total_size_bytes || 0) - (b.total_size_bytes || 0) }},
-  { title: '同步时间', dataIndex: 'synced_at', width: 160, slotName: 'synced_at' },
+const columns: TableColumnData[] = withTableDefaults([
+  { title: '元数据编码', dataIndex: 'form_number', width: 180, ellipsis: true, tooltip: true },
+  { title: '名称', dataIndex: 'entity_name', width: 170, ellipsis: true, tooltip: true },
+  { title: '类型', dataIndex: 'entity_type', width: 80, slotName: 'entity_type' },
+  { title: '模型类型', dataIndex: 'model_type', width: 130, slotName: 'model_type' },
+  { title: '应用', dataIndex: 'app_name', width: 150, slotName: 'app' },
+  { title: '云', dataIndex: 'cloud_name', width: 110, ellipsis: true, tooltip: true },
+  { title: '菜单', dataIndex: 'menu_name', width: 170, slotName: 'menu' },
+  { title: '主表', dataIndex: 'main_table', width: 180, ellipsis: true, tooltip: true },
+  { title: '行数', dataIndex: 'row_count', width: 110, align: 'right' as const, render: ({ record }: { record: Record<string, unknown> }) => formatNumber(record.row_count) },
+  { title: '空间大小', dataIndex: 'total_size_human', width: 100, render: ({ record }: { record: Record<string, unknown> }) => (record.total_size_human as string) || '--' },
+  { title: '实体同步时间', dataIndex: 'entity_synced_at', width: 170, slotName: 'entity_synced_at' },
 ])
-
-// ── 实体元数据列表（次 Tab，分页）──────────────────────────
-const entityQuery = ref({
-  keyword: '',
-  db_route_key: '',
-})
-const entityPage = ref(1)
-const entityPageSize = ref(50)
-
-const { isFetching: entityLoading, data: entityRawData, execute: getEntityList } = useGet<any>(ApiPerfTableStats.entityList, computed(() => {
-  const params: Record<string, any> = {
-    env_id: sourceEnvId.value,
-    product_line: productLine.value,
-    page_num: entityPage.value,
-    page_size: entityPageSize.value,
-  }
-  if (entityQuery.value.keyword) params.keyword = entityQuery.value.keyword
-  if (entityQuery.value.db_route_key) params.db_route_key = entityQuery.value.db_route_key
-  return params
-}), { immediate: false })
-
-const entityList = computed(() => entityRawData.value?.list || [])
-const entityTotal = computed(() => entityRawData.value?.total || 0)
-
-function handleEntitySearch() {
-  entityPage.value = 1
-  getEntityList()
-}
-
-function handleEntityPageChange(page: number) {
-  entityPage.value = page
-  getEntityList()
-}
-
-function handleEntityPageSizeChange(size: number) {
-  entityPageSize.value = size
-  entityPage.value = 1
-  getEntityList()
-}
-
-const entityColumns: TableColumnData[] = withTableDefaults([
-  { title: '元数据编码', dataIndex: 'form_number', width: 160 },
-  { title: '名称', dataIndex: 'entity_name', width: 150 },
-  { title: '类型', dataIndex: 'entity_type', width: 100, slotName: 'entity_type' },
-  { title: '模型类型', dataIndex: 'model_type', width: 120, slotName: 'model_type' },
-  { title: 'DB路由键', dataIndex: 'db_route_key', width: 120 },
-  { title: '主表名', dataIndex: 'main_table', width: 200 },
-  { title: '行数', dataIndex: 'row_count', width: 120, align: 'right' as const, sortable: { sortDirections: ['descend', 'ascend'] }, render: ({ record }: any) => formatNumber(record.row_count) },
-  { title: '行数类型', dataIndex: 'row_count_type', width: 80, slotName: 'entity_row_count_type' },
-  { title: '空间大小', dataIndex: 'total_size_human', width: 100 },
-  { title: '表统计同步时间', dataIndex: 'stats_synced_at', width: 160, slotName: 'stats_synced_at' },
-  { title: '实体同步时间', dataIndex: 'entity_synced_at', width: 160, slotName: 'entity_synced_at' },
-])
-
-watch(activeTab, (val) => {
-  if (val === 'entity' && entityList.value.length === 0 && sourceEnvId.value) {
-    getEntityList()
-  }
-  if (val === 'dbsizes' && !dbSizesRawData.value && sourceEnvId.value) {
-    getDbSizes()
-  }
-})
-
-// ── 数据库大小（第三个 Tab）──────────────────────────
-const { isFetching: dbSizesLoading, data: dbSizesRawData, execute: getDbSizes } = useGet<any>(ApiPerfTableStats.dbSizes, computed(() => ({
-  env_id: sourceEnvId.value,
-  product_line: productLine.value,
-})), { immediate: false })
-
-const dbSizesList = computed(() => Array.isArray(dbSizesRawData.value) ? dbSizesRawData.value : [])
-const dbSizesTotalBytes = computed(() => dbSizesList.value.reduce((sum: number, d: any) => sum + (d.size_bytes || 0), 0))
-const dbSizesTotalHuman = computed(() => formatBytes(dbSizesTotalBytes.value))
-const dbSizesTableTotal = computed(() => dbSizesList.value.reduce((sum: number, d: any) => sum + (d.table_count || 0), 0))
-
-const dbSizesColumns: TableColumnData[] = withTableDefaults([
-  { title: '数据库名', dataIndex: 'db_name', width: 250 },
-  { title: '路由键', dataIndex: 'db_route_key', width: 120 },
-  { title: '空间大小', dataIndex: 'size_human', width: 120, align: 'right' as const, sortable: { sortDirections: ['descend', 'ascend'], sorter: (a: any, b: any) => (a.size_bytes || 0) - (b.size_bytes || 0) }},
-  { title: '表数量', dataIndex: 'table_count', width: 100, align: 'right' as const, sortable: { sortDirections: ['descend', 'ascend'], sorter: (a: any, b: any) => (a.table_count || 0) - (b.table_count || 0) }, render: ({ record }: any) => formatNumber(record.table_count) },
-])
-
-watch(sourceEnvId, () => {
-  statsPage.value = 1
-  entityPage.value = 1
-  dbSizesRawData.value = null
-  fetchTableStatsList()
-  fetchSyncStatusIfNeeded()
-  fetchStatsSummary()
-})
-
-// ════════════════════════════════════════════════════
-// 同步表统计 — 弹窗 + 预检查
-// ════════════════════════════════════════════════════
-
-const syncStatsVisible = ref(false)
-const syncStatsLoading = ref(false)
-const syncStatsProductLine = ref('')
-const syncStatsEnvId = ref('')
-const syncMode = ref<'estimated' | 'actual'>('estimated')
-const statsConcurrency = ref(4)
-const syncStatsEnvIdForPolling = ref('')
-
-// 弹窗内的环境列表
-const { data: syncStatsEnvData, execute: fetchSyncStatsEnvList } = useGet<any>(ApiPerfEnv.getList, computed(() => ({ page_num: 1, page_size: 100, product_line: syncStatsProductLine.value })), { immediate: false })
-const syncStatsEnvOptions = computed(() => (syncStatsEnvData.value?.list || []).map((e: any) => ({ label: e.env_name, value: e.id })))
-
-// 预检查数据
-const syncPreviewLoading = ref(false)
-const syncPreviewData = ref<any>(null)
-
-function openSyncStatsModal() {
-  if (isSyncing.value) { Message.warning('当前已有同步任务在运行'); return }
-  syncStatsProductLine.value = productLine.value
-  syncStatsEnvId.value = sourceEnvId.value
-  syncMode.value = 'estimated'
-  syncPreviewData.value = null
-  syncStatsVisible.value = true
-  if (syncStatsProductLine.value) {
-    fetchSyncStatsEnvList()
-  }
-}
-
-watch(syncStatsProductLine, () => {
-  syncStatsEnvId.value = ''
-  syncPreviewData.value = null
-  if (syncStatsProductLine.value) {
-    fetchSyncStatsEnvList()
-  }
-})
-
-// 选择环境后自动预检查
-watch(syncStatsEnvId, async (val) => {
-  syncPreviewData.value = null
-  if (!val || !syncStatsProductLine.value) return
-  // 如果与当前页面环境一致，复用 statsSummary
-  if (val === sourceEnvId.value && syncStatsProductLine.value === productLine.value && statsSummary.value) {
-    syncPreviewData.value = statsSummary.value
-    return
-  }
-  syncPreviewLoading.value = true
-  try {
-    const res = await getAction<any>(ApiPerfTableStats.syncPreview, { env_id: val, product_line: syncStatsProductLine.value })
-    if (res) {
-      syncPreviewData.value = res
-    }
-  } finally {
-    syncPreviewLoading.value = false
-  }
-})
-
-async function confirmTableStatsSync() {
-  if (!syncStatsProductLine.value) { Message.warning('请选择产品线'); return }
-  if (!syncStatsEnvId.value) { Message.warning('请选择环境'); return }
-  syncStatsLoading.value = true
-  try {
-    const payload: any = {
-      env_id: syncStatsEnvId.value,
-      product_line: syncStatsProductLine.value,
-      sync_mode: syncMode.value,
-    }
-    if (syncMode.value === 'actual') {
-      payload.concurrency = statsConcurrency.value
-    }
-    const res = await postAction<string>(ApiPerfTableStats.sync, payload)
-    if (!res) return
-    Message.success(syncMode.value === 'estimated' ? '估算同步已启动' : '精确同步已启动')
-    syncStatsEnvIdForPolling.value = syncStatsEnvId.value
-    syncStatsVisible.value = false
-    startPolling()
-  } finally {
-    syncStatsLoading.value = false
-  }
-}
-
-async function handleTableStatsCancel() {
-  const res = await postAction(ApiPerfTableStats.cancel, { env_id: syncStatsEnvIdForPolling.value })
-  if (!res) return
-  Message.info('已发送取消信号')
-}
-
-// ── 同步状态轮询 ──────────────────────────────────
-const syncStatus = ref<any>({ status: 'idle', done_count: 0, total_count: 0, error_count: 0, sync_mode: null })
-let syncPollTimer: ReturnType<typeof setInterval> | null = null
-
-const isSyncing = computed(() => syncStatus.value?.status === 'running')
-const syncProgress = computed(() => {
-  if (!syncStatus.value || syncStatus.value.total_count === 0) return 0
-  return syncStatus.value.done_count / syncStatus.value.total_count
-})
-
-const { data: syncStatusData, execute: fetchSyncStatus } = useGet<any>(ApiPerfTableStats.status, computed(() => ({ env_id: syncStatsEnvIdForPolling.value })), { immediate: false })
-
-watch(syncStatusData, (val) => {
-  if (val) syncStatus.value = val
-})
-
-function startPolling() {
-  stopPolling()
-  fetchSyncStatus()
-  syncPollTimer = setInterval(() => {
-    fetchSyncStatus()
-    if (syncStatus.value && ['completed', 'failed', 'cancelled', 'idle'].includes(syncStatus.value.status)) {
-      stopPolling()
-      // 同步完成后刷新列表和统计
-      fetchTableStatsList()
-      fetchStatsSummary()
-      if (activeTab.value === 'entity') {
-        getEntityList()
-      }
-      if (activeTab.value === 'dbsizes') {
-        getDbSizes()
-      }
-    }
-  }, 3000)
-}
-
-function stopPolling() {
-  if (syncPollTimer) {
-    clearInterval(syncPollTimer)
-    syncPollTimer = null
-  }
-}
-
-function fetchSyncStatusIfNeeded() {
-  if (sourceEnvId.value) {
-    syncStatsEnvIdForPolling.value = sourceEnvId.value
-    fetchSyncStatus()
-  }
-}
-
-// 表格高度自适应（滚动条在表格内、表头固定）；三张表分属不同 tab，同一时刻只显示一张，
-// 共用一个容器 ref 即可，容器 top 由当前显示的那张表决定
-const tableWrap = ref<HTMLElement>()
-const { tableHeight } = useTableAutoHeight(tableWrap)
-
-// 数据库概览表上方还有一行统计（数据库总数/总空间/表总数），单独一个容器测量即可精确扣除
-const dbSizesWrap = ref<HTMLElement>()
-const { tableHeight: dbSizesTableHeight } = useTableAutoHeight(dbSizesWrap)
-
-onUnmounted(() => {
-  stopPolling()
-})
 </script>
 
 <template>
-  <div class="perf-entity-meta">
-    <!-- 顶部操作栏 -->
-    <a-card :bordered="false" class="m-b-8px top-bar">
-      <!-- 查询筛选行 -->
-      <div class="filter-row">
-        <div class="filter-item">
-          <span class="filter-label">产品线</span>
-          <a-select v-model="productLine" :options="productLineOptions" placeholder="选择产品线" allow-search style="width: 150px" />
-        </div>
-        <div class="filter-item">
-          <span class="filter-label">环境</span>
-          <a-select v-model="sourceEnvId" :options="envOptions" placeholder="选择环境" allow-search :disabled="!productLine" style="width: 180px" />
-        </div>
-        <template v-if="activeTab === 'stats'">
-          <div class="filter-item">
-            <span class="filter-label">表名</span>
-            <a-input v-model="statsQuery.keyword" placeholder="搜索表名" allow-clear style="width: 160px" @press-enter="handleStatsSearch" />
-          </div>
-          <div class="filter-item">
-            <span class="filter-label">数据库</span>
-            <a-input v-model="statsQuery.db_route_key" placeholder="筛选库" allow-clear style="width: 120px" @press-enter="handleStatsSearch" />
-          </div>
-          <a-select v-model="statsQuery.row_count_type" placeholder="行数类型" allow-clear style="width: 120px">
-            <a-option value="estimated">估算</a-option>
-            <a-option value="actual">精确</a-option>
+  <div class="entity-meta">
+    <ListPage :aside-width="320" aside-resizable :aside-max-width="520">
+      <!-- 标题条与下拉同一行：该区域在滚动区之外，树滚动时下拉不会跟着滚走 -->
+      <template #aside-title>
+        <div class="aside-title-row">
+          <span>归属维度</span>
+          <a-select v-model="dimension" size="small" class="dimension-select">
+            <a-option v-for="d in DIMENSION_OPTIONS" :key="d.value" :value="d.value">
+              {{ d.label }}
+            </a-option>
           </a-select>
-        </template>
-        <template v-else-if="activeTab === 'entity'">
-          <div class="filter-item">
-            <span class="filter-label">编码/名称</span>
-            <a-input v-model="entityQuery.keyword" placeholder="搜索编码或名称" allow-clear style="width: 180px" @press-enter="handleEntitySearch" />
-          </div>
-          <div class="filter-item">
-            <span class="filter-label">DB路由键</span>
-            <a-input v-model="entityQuery.db_route_key" placeholder="筛选路由键" allow-clear style="width: 140px" @press-enter="handleEntitySearch" />
-          </div>
-        </template>
-        <a-button v-if="activeTab !== 'dbsizes'" type="primary" :disabled="!sourceEnvId" @click="activeTab === 'stats' ? handleStatsSearch() : handleEntitySearch()">
-          <template #icon><icon-search /></template>
-          搜索
-        </a-button>
-      </div>
-
-     <!-- 统计数字 -->
-      <div class="stats-row" :class="{ 'stats-loading': statsSummaryLoading }" v-if="sourceEnvId && activeTab === 'stats'">
-        <a-spin v-if="statsSummaryLoading" class="stats-spin" />
-        <template v-if="statsSummary && !statsSummaryLoading">
-        <a-statistic title="表总数" :value="statsSummary.stats_existing ?? 0" show-group-separator />
-        <a-divider direction="vertical" />
-        <a-statistic title="估算行数" :value="statsSummary.estimated_row_sum ?? 0" :value-style="{ color: '#00b42a' }" show-group-separator />
-        <a-divider direction="vertical" />
-        <a-statistic title="精确行数" :value="statsSummary.actual_row_sum ?? 0" :value-style="{ color: '#165dff' }" show-group-separator />
-        <a-divider direction="vertical" />
-        <div class="stat-item">
-          <div class="stat-title">总空间大小</div>
-          <div class="stat-value">{{ statsSummary.total_size_human ?? '-' }}</div>
         </div>
-        </template>
-      </div>
-
-      <!-- 表统计同步进度条 -->
-      <a-progress
-        v-if="isSyncing || (syncStatus.status === 'completed' && syncStatus.total_count > 0)"
-        :percent="syncProgress"
-        :status="syncStatus.status === 'completed' ? 'success' : 'normal'"
-        :format="() => `${syncStatus.done_count || 0} / ${syncStatus.total_count || 0}${syncStatus.sync_mode ? ' (' + (syncStatus.sync_mode === 'estimated' ? '估算' : '精确') + ')' : ''}`"
-        style="margin-top: 8px"
-      />
-    </a-card>
-
-    <a-card :bordered="false" v-if="!productLine">
-      <a-empty description="请先选择产品线" />
-    </a-card>
-
-    <a-card :bordered="false" v-else-if="!sourceEnvId">
-      <a-empty description="请选择环境" />
-    </a-card>
-
-    <a-card :bordered="false" v-else>
-      <!-- 操作按钮行 -->
-      <div class="action-bar">
-        <a-button
-          :type="isSyncing ? 'outline' : 'primary'"
-          :status="isSyncing ? 'warning' : 'normal'"
-          :disabled="!productLine || isSyncing"
-          @click="openSyncStatsModal"
-        >
-          <template #icon><icon-storage /></template>
-          同步表统计
-        </a-button>
-        <a-button v-if="isSyncing" status="danger" @click="handleTableStatsCancel">停止</a-button>
-        <a-tabs v-model:active-key="activeTab" type="rounded" style="margin-left: auto">
-          <a-tab-pane key="stats" title="表统计列表" />
-          <a-tab-pane key="entity" title="实体元数据" />
-          <a-tab-pane key="dbsizes" title="数据库概览" />
-        </a-tabs>
-      </div>
-
-      <div ref="tableWrap">
-      <!-- 表统计列表 -->
-<a-table
-  column-resizable
-        v-if="activeTab === 'stats'"
-        :loading="statsLoading"
-        :data="statsList"
-        :columns="statsColumns"
-        :pagination="{
-          total: statsTotal,
-          current: statsPage,
-          pageSize: statsPageSize,
-          showTotal: true,
-          showPageSize: true,
-        }"
-        @page-change="handleStatsPageChange"
-        @page-size-change="handleStatsPageSizeChange"
-        :scroll="{ y: tableHeight, minWidth: 1050 }"
-        row-key="id"
-      >
-        <template #row_count_type="{ record }">
-          <a-tag v-if="record.row_count_type === 'actual'" color="blue" size="small">精确</a-tag>
-          <a-tag v-else color="green" size="small">估算</a-tag>
-        </template>
-        <template #synced_at="{ record }">{{ formatTime(record.synced_at) }}</template>
-      </a-table>
-
-      <!-- 实体元数据列表 -->
-<a-table
-  column-resizable
-        v-else-if="activeTab === 'entity'"
-        :loading="entityLoading"
-        :data="entityList"
-        :columns="entityColumns"
-        :pagination="{
-          total: entityTotal,
-          current: entityPage,
-          pageSize: entityPageSize,
-          showTotal: true,
-          showPageSize: true,
-        }"
-        @page-change="handleEntityPageChange"
-        @page-size-change="handleEntityPageSizeChange"
-        :scroll="{ y: tableHeight, minWidth: 1570 }"
-        row-key="id"
-      >
-        <template #entity_type="{ record }">
-          <a-tag v-if="record.entity_type === 'MainEntityType'" color="arcoblue" size="small">主实体</a-tag>
-          <a-tag v-else-if="record.entity_type === 'BasedataEntityType'" color="green" size="small">基础资料</a-tag>
-          <a-tag v-else-if="record.entity_type === 'BillEntityType'" color="orange" size="small">业务单据</a-tag>
-          <a-tag v-else-if="record.entity_type === 'ParameterEntityType'" color="purple" size="small">参数实体</a-tag>
-          <a-tag v-else-if="record.entity_type === 'QueryEntityType'" color="cyan" size="small">查询实体</a-tag>
-          <a-tag v-else-if="record.entity_type === 'LogBillEntityType'" color="gray" size="small">日志单据</a-tag>
-          <a-tag v-else-if="record.entity_type === 'ReportQueryEntityType'" color="pinkpurple" size="small">报表查询</a-tag>
-          <a-tag v-else-if="record.entity_type === 'KMEntityType'" color="magenta" size="small">知识管理</a-tag>
-          <span v-else>-</span>
-        </template>
-        <template #model_type="{ record }">
-          <a-tag v-if="record.model_type === 'BaseFormModel'" color="green" size="small">BaseForm</a-tag>
-          <a-tag v-else-if="record.model_type === 'BillFormModel'" color="orange" size="small">BillForm</a-tag>
-          <a-tag v-else-if="record.model_type === 'DynamicFormModel'" color="blue" size="small">DynamicForm</a-tag>
-          <a-tag v-else-if="record.model_type === 'MobileFormModel'" color="purple" size="small">MobileForm</a-tag>
-          <a-tag v-else-if="record.model_type === 'ReportFormModel'" color="cyan" size="small">ReportForm</a-tag>
-          <a-tag v-else-if="record.model_type" size="small">{{ record.model_type }}</a-tag>
-          <span v-else>-</span>
-        </template>
-        <template #entity_row_count_type="{ record }">
-          <a-tag v-if="record.row_count_type === 'actual'" color="blue" size="small">精确</a-tag>
-          <a-tag v-else-if="record.row_count_type === 'estimated'" color="green" size="small">估算</a-tag>
-          <span v-else>-</span>
-        </template>
-        <template #stats_synced_at="{ record }">{{ formatTime(record.stats_synced_at) }}</template>
-        <template #entity_synced_at="{ record }">{{ formatTime(record.entity_synced_at) }}</template>
-      </a-table>
-
-      <!-- 数据库概览 -->
-      <div v-else-if="activeTab === 'dbsizes'">
-        <div class="stats-row" style="border-top: none; padding-top: 0; margin-bottom: 10px">
-          <a-statistic title="数据库总数" :value="dbSizesList.length" />
-          <a-divider direction="vertical" />
-          <div class="stat-item">
-            <div class="stat-title">总空间大小</div>
-            <div class="stat-value">{{ dbSizesTotalHuman }}</div>
-          </div>
-          <a-divider direction="vertical" />
-          <a-statistic title="表总数" :value="dbSizesTableTotal" show-group-separator />
-        </div>
-        <div ref="dbSizesWrap">
-<a-table
-  column-resizable
-          :loading="dbSizesLoading"
-          :data="dbSizesList"
-          :columns="dbSizesColumns"
-          :pagination="false"
-          :scroll="{ y: dbSizesTableHeight }"
-          row-key="db_name"
+      </template>
+      <template #aside>
+        <EntityMetaTree
+          ref="treeRef"
+          :dimension="dimension"
+          :product-line="productLine"
+          @select="handleTreeSelect"
         />
+      </template>
+
+      <template #filter>
+        <div class="filter-bar">
+          <div class="f-mid">
+            <a-select v-model="productLine" placeholder="产品线" @change="handleProductLineChange">
+              <a-option v-for="p in productLineOptions" :key="p.value" :value="p.value">
+                {{ p.label }}
+              </a-option>
+            </a-select>
+          </div>
+          <div class="f-wide">
+            <a-input
+              v-model="searchForm.keyword"
+              placeholder="元数据编码 / 名称"
+              allow-clear
+              @press-enter="handleSearch"
+              @clear="handleSearch"
+            />
+          </div>
+          <a-button type="primary" @click="handleSearch">
+            查询
+          </a-button>
+          <a-button @click="handleReset">
+            重置
+          </a-button>
         </div>
-      </div>
-      </div>
-    </a-card>
+      </template>
 
-    <!-- 同步表统计弹窗 -->
-    <a-modal v-model:visible="syncStatsVisible" title="同步表统计" @ok="confirmTableStatsSync" :ok-loading="syncStatsLoading" :width="540">
-      <a-alert type="info" :show-icon="true" style="margin-bottom: 12px">
-        估算模式用 pg_class 系统目录快速获取行数（快），精确模式执行实际 COUNT(*)（慢但准确）。
-      </a-alert>
-      <a-form :model="{ }" layout="vertical">
-        <a-form-item label="产品线">
-          <a-select v-model="syncStatsProductLine" :options="productLineOptions" placeholder="选择产品线" allow-search />
-        </a-form-item>
-        <a-form-item label="来源环境">
-          <a-select v-model="syncStatsEnvId" :options="syncStatsEnvOptions" placeholder="选择环境" allow-search :disabled="!syncStatsProductLine" />
-        </a-form-item>
-        <a-form-item label="同步模式">
-          <a-radio-group v-model="syncMode">
-            <a-radio value="estimated">快速同步（估算行数）</a-radio>
-            <a-radio value="actual">精确同步（实际COUNT）</a-radio>
-          </a-radio-group>
-        </a-form-item>
-      </a-form>
-
-      <!-- 预检查结果 -->
-      <a-spin :loading="syncPreviewLoading" style="width: 100%">
-        <div v-if="syncPreviewData" style="margin-bottom: 12px">
-          <a-divider orientation="left" :style="{ fontSize: '13px', margin: '8px 0' }">数据概览</a-divider>
-          <a-descriptions :column="2" layout="inline-horizontal" bordered size="small">
-            <a-descriptions-item label="数据库数量">{{ formatNumber(syncPreviewData.db_count) }}</a-descriptions-item>
-            <a-descriptions-item label="表总数">{{ formatNumber(syncPreviewData.stats_existing) }}</a-descriptions-item>
-            <a-descriptions-item label="估算行数表数">
-              <a-tag color="green" size="small">{{ formatNumber(syncPreviewData.estimated_count) }}</a-tag>
-            </a-descriptions-item>
-            <a-descriptions-item label="精确行数表数">
-              <a-tag color="blue" size="small">{{ formatNumber(syncPreviewData.actual_count) }}</a-tag>
-            </a-descriptions-item>
-            <a-descriptions-item label="总空间大小">{{ syncPreviewData.total_size_human ?? '-' }}</a-descriptions-item>
-            <a-descriptions-item label="估算行数总和">{{ formatNumber(syncPreviewData.estimated_row_sum) }}</a-descriptions-item>
-            <a-descriptions-item label="精确行数总和">{{ formatNumber(syncPreviewData.actual_row_sum) }}</a-descriptions-item>
-            <a-descriptions-item label="总空间大小(字节)">{{ formatNumber(syncPreviewData.total_size_bytes) }}</a-descriptions-item>
-          </a-descriptions>
-          <a-alert v-if="syncPreviewData.last_synced_at" type="normal" :show-icon="true" style="margin-top: 8px">
-            上次同步时间: {{ formatTime(syncPreviewData.last_synced_at) }}
-          </a-alert>
+      <template #toolbar>
+        <div class="entity-meta-info">
+          <span>
+            数据源：{{ treeRef?.envName || '--' }} ｜ 当前范围 {{ total.toLocaleString('en-US') }} 条 ／ 全部 {{ (treeRef?.totalEntities || 0).toLocaleString('en-US') }} 条
+          </span>
+          <a-tag v-if="scope.kind !== 'all'" size="small" color="arcoblue">
+            已选：{{ scope.label }}
+          </a-tag>
         </div>
-      </a-spin>
+        <div class="toolbar-spacer" />
+      </template>
 
-      <a-form v-if="syncMode === 'actual'" :model="{ }" layout="vertical">
-        <a-form-item label="并发数" help="同时连接的业务库数量，建议 2~8">
-          <a-input-number v-model="statsConcurrency" :min="1" :max="20" style="width: 100%" />
-        </a-form-item>
-      </a-form>
-    </a-modal>
+      <template #default="{ tableHeight }">
+        <a-table
+          :data="rows"
+          :columns="columns"
+          :loading="loading"
+          :pagination="{
+            current: pageNum,
+            pageSize,
+            total,
+            showTotal: true,
+            showPageSize: true,
+          }"
+          :scroll="{ y: tableHeight, x: 1450 }"
+          row-key="id"
+          size="small"
+          @page-change="handlePageChange"
+          @page-size-change="handlePageSizeChange"
+        >
+          <template #entity_type="{ record }">
+            <a-tag v-if="record.entity_type" size="small">
+              {{ record.entity_type }}
+            </a-tag>
+            <span v-else>--</span>
+          </template>
+          <template #model_type="{ record }">
+            <a-tag v-if="record.model_type" size="small" color="arcoblue">
+              {{ record.model_type }}
+            </a-tag>
+            <span v-else>--</span>
+          </template>
+          <template #app="{ record }">
+            <span v-if="record.app_number">{{ record.app_number }} {{ record.app_name }}</span>
+            <span v-else class="text-muted">未分类</span>
+          </template>
+          <template #menu="{ record }">
+            <a-tooltip v-if="record.menu_name" :content="record.menu_path || record.menu_name">
+              <span>{{ record.menu_name }}</span>
+            </a-tooltip>
+            <span v-else class="text-muted">未归类</span>
+          </template>
+          <template #entity_synced_at="{ record }">
+            {{ formatTimeText(record.entity_synced_at) }}
+          </template>
+        </a-table>
+      </template>
+    </ListPage>
   </div>
 </template>
 
 <style scoped>
-.perf-entity-meta { padding: 0; }
-.filter-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-  margin-bottom: 10px;
-}
-.filter-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.filter-label {
-  font-size: 13px;
-  color: var(--color-text-2);
-  white-space: nowrap;
-}
-.action-bar {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  margin-bottom: 10px;
-}
-.stats-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding-top: 10px;
-  border-top: 1px solid var(--color-border-2);
-  position: relative;
-  min-height: 48px;
-}
-.stats-loading {
-  justify-content: center;
-}
-.stats-spin {
-  /* Arco spin centered in stats row */
-}
-.stat-item {
+.entity-meta {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  height: 100%;
+  min-height: 0;
 }
-.stat-title {
+
+.entity-meta > :deep(.list-page) {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.f-wide {
+  width: 260px;
+}
+
+.f-mid {
+  width: 150px;
+}
+
+.filter-bar > div :deep(.arco-select),
+.filter-bar > div :deep(.arco-input-wrapper) {
+  width: 100%;
+}
+
+.aside-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.aside-title-row > span {
+  white-space: nowrap;
+}
+
+.dimension-select {
+  width: 128px;
+  font-weight: 400;
+}
+
+.entity-meta-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-text-3);
   font-size: 12px;
-  color: var(--color-text-2);
-  white-space: nowrap;
 }
-.stat-value {
-  font-size: 24px;
-  font-weight: 500;
-  line-height: 1.5;
-  color: var(--color-text-1);
-  white-space: nowrap;
+
+.toolbar-spacer {
+  flex: 1;
+}
+
+.text-muted {
+  color: var(--color-text-3);
 }
 </style>
