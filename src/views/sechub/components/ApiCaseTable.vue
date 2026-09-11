@@ -3,8 +3,10 @@
  * API 用例表格（API测试用例页）
  *
  * 列：用例ID / 标题 / 接口 / 测试类型 / 角色 / 断言 / 执行方式 / 启用 / 操作。
- * 纯展示组件：分页与行操作都 emit 给页面，避免把数据加载逻辑散到子组件里。
+ * 纯展示组件：分页、勾选与行操作都 emit 给页面，避免把数据加载逻辑散到子组件里。
  */
+import type { TableRowSelection } from '@arco-design/web-vue'
+
 import {
   ASSERTION_LABELS,
   caseIdText,
@@ -13,11 +15,13 @@ import {
   TEST_TYPE_LABELS,
 } from './apiTestShared'
 
-defineProps<{
+const props = defineProps<{
   rows: any[]
   loading?: boolean
   pagination: Record<string, any>
   tableHeight?: number
+  /** 勾选中的用例 id（受控，页面持有以便批量执行） */
+  selectedKeys?: (string | number)[]
 }>()
 
 const emit = defineEmits<{
@@ -26,7 +30,22 @@ const emit = defineEmits<{
   (e: 'pageSizeChange', size: number): void
   (e: 'edit', record: any): void
   (e: 'delete', record: any): void
+  (e: 'selectionChange', keys: (string | number)[]): void
+  (e: 'run', record: any): void
 }>()
+
+const rowSelection: TableRowSelection = {
+  type: 'checkbox',
+  showCheckedAll: true,
+}
+
+/** 可试跑：平台编排（配了断言）或 Python 脚本（与后端 case_trial::classify 同规则） */
+function runnable(record: any): boolean {
+  if (record.case_type === 'script')
+    return !!record.script_path
+  const isOrch = record.case_type === 'openapi_perm' || record.case_type === 'openapi_inject'
+  return isOrch && !!String(record.assertion || '').trim()
+}
 </script>
 
 <template>
@@ -34,10 +53,13 @@ const emit = defineEmits<{
     :data="rows"
     :loading="loading"
     :pagination="pagination"
-    :scroll="{ minWidth: 1320, y: tableHeight }"
+    :row-selection="rowSelection"
+    :selected-keys="props.selectedKeys || []"
+    :scroll="{ minWidth: 1400, y: tableHeight }"
     row-key="id"
     @page-change="emit('pageChange', $event)"
     @page-size-change="emit('pageSizeChange', $event)"
+    @selection-change="emit('selectionChange', $event)"
   >
     <template #columns>
       <a-table-column title="用例ID" :width="160" ellipsis tooltip>
@@ -78,9 +100,17 @@ const emit = defineEmits<{
           </a-tag>
         </template>
       </a-table-column>
-      <a-table-column title="操作" :width="110" fixed="right">
+      <a-table-column title="操作" :width="150" fixed="right">
         <template #cell="{ record }">
           <a-space>
+            <a-tooltip v-if="!runnable(record)" content="仅平台编排（配了断言）与已配脚本的 Python 用例可试跑">
+              <a-link disabled>
+                执行
+              </a-link>
+            </a-tooltip>
+            <a-link v-else @click="emit('run', record)">
+              执行
+            </a-link>
             <a-link @click="emit('edit', record)">
               编辑
             </a-link>

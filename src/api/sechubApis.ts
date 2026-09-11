@@ -335,6 +335,8 @@ export enum ApiSecScan {
   caseList = '/sechub/scan/cases',
   caseUpdate = '/sechub/scan/cases/{id}',
   caseDelete = '/sechub/scan/cases/{id}/delete',
+  // 用例试跑（单条/批量：POST { case_ids: [...] } → { run_id, run_name, case_count }）
+  caseTrial = '/sechub/scan/cases/trial',
   // Python 脚本（multipart 上传，字段名 file，仅 .py；GET 列出 {name,size_bytes,modified_at}）
   scripts = '/sechub/scan/scripts',
   // 测试域视图（表单安全遍历 / OpenAPI测试）

@@ -293,7 +293,7 @@ function handleContextSaved() {
 }
 
 /* 子组件根节点会带上父级 scope，可直接命中 */
-.api-inventory > .list-page {
+.api-inventory > :deep(.list-page) {
   flex: 1 1 auto;
   min-height: 0;
 }

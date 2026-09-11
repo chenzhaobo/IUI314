@@ -14,14 +14,15 @@
  * 新建用例必须归属扫描任务（后端强校验），编辑走 PUT /sechub/scan/cases/{id}。
  */
 import { Message, Modal } from '@arco-design/web-vue'
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 
 import { ApiSecScan, resolveStaticScanApi } from '@/api/sechubApis'
 import ListPage from '@/components/common/ListPage.vue'
-import { postAction, useGet } from '@/hooks'
+import { getAction, postAction, useGet } from '@/hooks'
 import ApiInventoryTree from '@/views/metadata/components/ApiInventoryTree.vue'
 import ApiCaseEditorDrawer from './components/ApiCaseEditorDrawer.vue'
 import ApiCaseTable from './components/ApiCaseTable.vue'
+import ApiRunResultsDrawer from './components/ApiRunResultsDrawer.vue'
 import ApiScriptCaseDrawer from './components/ApiScriptCaseDrawer.vue'
 import { ASSERTION_OPTIONS, TEST_TYPE_LABELS } from './components/apiTestShared'
 
@@ -187,6 +188,88 @@ function handleDelete(record: any) {
 function onSaved() {
   fetchList()
 }
+
+// ── 试跑（单条 / 勾选批量）────────────────────────────────
+// 后端只跑选中用例（平台编排 / Python 脚本），结果落一条「试跑」运行记录；
+// 这里轮询到终态后弹摘要，并复用结果页抽屉展示逐条证据。
+
+const selectedKeys = ref<(string | number)[]>([])
+const trialRunning = ref(false)
+const trialDrawerVisible = ref(false)
+const trialRun = ref<any>(null)
+
+// 换筛选/换左树范围/翻页后勾选已不可见，直接清空避免误执行
+watch(queryParams, () => {
+  selectedKeys.value = []
+})
+
+function handleSelectionChange(keys: (string | number)[]) {
+  selectedKeys.value = keys
+}
+
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+/** 轮询试跑运行直到终态（最长 5 分钟）；超时返回 null */
+async function pollTrial(runId: string): Promise<any | null> {
+  for (let i = 0; i < 150; i++) {
+    await sleep(2000)
+    const detail = await getAction<any>(resolveStaticScanApi(ApiSecScan.runGetById, { id: runId }))
+    if (!detail)
+      return null
+    if (detail.status !== 'pending' && detail.status !== 'running')
+      return detail
+  }
+  return null
+}
+
+async function startTrial(ids: string[]) {
+  if (!ids.length)
+    return
+  trialRunning.value = true
+  try {
+    const started = await postAction<any>(ApiSecScan.caseTrial, { case_ids: ids })
+    if (!started)
+      return
+    Message.info(`已开始试跑「${started.run_name}」，等待结果…`)
+    const detail = await pollTrial(started.run_id)
+    if (!detail) {
+      Message.warning('试跑仍在执行，可稍后在「API测试结果」查看')
+      return
+    }
+    const summary = `PASS ${detail.pass_cnt ?? 0} / FAIL ${detail.fail_cnt ?? 0} / REVIEW ${detail.review_cnt ?? 0} / BLOCKED ${detail.block_cnt ?? 0} / ERROR ${detail.error_cnt ?? 0}`
+    if (detail.fail_cnt > 0 || detail.error_cnt > 0)
+      Message.warning(`试跑完成：${summary}`)
+    else
+      Message.success(`试跑完成：${summary}`)
+    trialRun.value = detail
+    trialDrawerVisible.value = true
+    await fetchList()
+  }
+  finally {
+    trialRunning.value = false
+  }
+}
+
+function runOne(record: any) {
+  startTrial([String(record.id)])
+}
+
+function runBatch() {
+  const ids = selectedKeys.value.map(String)
+  if (!ids.length) {
+    Message.warning('请先勾选要执行的用例')
+    return
+  }
+  Modal.confirm({
+    title: '批量试跑',
+    content: `将对勾选的 ${ids.length} 条用例按任务配置的环境立即执行一次（只读探测），确认开始？`,
+    okText: '开始执行',
+    cancelText: '取消',
+    onOk: () => startTrial(ids),
+  })
+}
 </script>
 
 <template>
@@ -246,6 +329,9 @@ function onSaved() {
         </a-tag>
         <span v-else-if="scopeHint" class="scope-hint">{{ scopeHint }}</span>
         <div class="toolbar-spacer" />
+        <a-button :loading="trialRunning" :disabled="!selectedKeys.length" @click="runBatch">
+          批量执行{{ selectedKeys.length ? `（${selectedKeys.length}）` : '' }}
+        </a-button>
         <a-button @click="openCreate('script')">
           上传脚本
         </a-button>
@@ -273,13 +359,23 @@ function onSaved() {
           :loading="loading"
           :pagination="pagination"
           :table-height="tableHeight"
+          :selected-keys="selectedKeys"
           @page-change="handlePageChange"
           @page-size-change="handlePageSizeChange"
+          @selection-change="handleSelectionChange"
+          @run="runOne"
           @edit="openEdit"
           @delete="handleDelete"
         />
       </template>
     </ListPage>
+
+    <!-- 试跑结果（逐条判定/证据，复用结果页抽屉） -->
+    <ApiRunResultsDrawer
+      v-model:visible="trialDrawerVisible"
+      :run="trialRun"
+      :preset-keyword="selectedApiPath"
+    />
 
     <!-- 编排编辑器 / 脚本用例 -->
     <ApiCaseEditorDrawer
@@ -305,7 +401,7 @@ function onSaved() {
   min-height: 0;
 }
 
-.api-test-cases > .list-page {
+.api-test-cases > :deep(.list-page) {
   flex: 1 1 auto;
   min-height: 0;
 }

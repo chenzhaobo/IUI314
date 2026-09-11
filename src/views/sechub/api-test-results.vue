@@ -244,7 +244,7 @@ function openResults(record: any) {
   min-height: 0;
 }
 
-.api-test-results > .list-page {
+.api-test-results > :deep(.list-page) {
   flex: 1 1 auto;
   min-height: 0;
 }
