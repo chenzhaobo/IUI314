@@ -149,11 +149,6 @@ const { data: statsData, isFetching: statsLoading, execute: fetchStats } = useGe
 // ── 左侧树 ──────────────────────────────────
 const treePanel = ref<HTMLElement>()
 const { style: treeStyle } = useAutoHeight(treePanel)
-// 左树用 height 而非 maxHeight：内容不足时也撑满可用空间，不留大面积空白
-const treePanelStyle = computed(() => {
-  const h = treeStyle.value?.maxHeight
-  return h ? { height: h } : {}
-})
 const treeData = ref<any[]>([])
 const selectedKeys = ref<string[]>([])
 const expandedKeys = ref<string[]>([])
@@ -466,9 +461,9 @@ watch([sourceEnvId, currentFormNumber], () => {
 // 表格高度自适应（滚动条在表格内、表头固定）；右侧按钮面板与菜单列表面板各一个容器，
 // 因为两者上方的信息条/操作栏高度不同，分别测量才准
 const menuTableWrap = ref<HTMLElement>()
-const { tableHeight: menuTableHeight } = useTableAutoHeight(menuTableWrap)
+const { tableHeight: menuTableHeight } = useTableAutoHeight(menuTableWrap, { reserve: 8 })
 const buttonTableWrap = ref<HTMLElement>()
-const { tableHeight: buttonTableHeight } = useTableAutoHeight(buttonTableWrap)
+const { tableHeight: buttonTableHeight } = useTableAutoHeight(buttonTableWrap, { reserve: 8 })
 </script>
 
 <template>
@@ -535,7 +530,7 @@ const { tableHeight: buttonTableHeight } = useTableAutoHeight(buttonTableWrap)
 
     <div v-else class="catalog-layout">
       <!-- 左侧树 -->
-      <div ref="treePanel" class="tree-panel panel-scroll-y" :style="treePanelStyle">
+      <div ref="treePanel" class="tree-panel panel-scroll-y" :style="treeStyle">
         <a-card :bordered="false">
           <template #title>云 / 应用 / 菜单</template>
           <a-spin :loading="treeLoading" style="width: 100%">
@@ -695,7 +690,13 @@ const { tableHeight: buttonTableHeight } = useTableAutoHeight(buttonTableWrap)
 </template>
 
 <style scoped>
-.perf-menu-catalog { padding: 0; }
+.perf-menu-catalog {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
 .filter-row {
   display: flex;
   flex-wrap: wrap;
@@ -737,10 +738,21 @@ const { tableHeight: buttonTableHeight } = useTableAutoHeight(buttonTableWrap)
 .catalog-layout {
   display: flex;
   gap: 8px;
+  flex: 1;
+  min-height: 0;
 }
 .tree-panel {
   width: 320px;
   min-width: 320px;
+  display: flex;
+  flex-direction: column;
+}
+.tree-panel :deep(.arco-card) {
+  flex: 1;
+  min-height: 0;
+}
+.tree-panel :deep(.arco-card-body) {
+  overflow-y: auto;
 }
 :deep(.arco-tree-node-switcher) {
   width: 22px !important;
@@ -758,5 +770,7 @@ const { tableHeight: buttonTableHeight } = useTableAutoHeight(buttonTableWrap)
   flex: 1;
   min-width: 0;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 </style>
