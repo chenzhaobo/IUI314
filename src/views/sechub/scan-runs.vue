@@ -5,7 +5,8 @@
  * 对应后端 `/sechub/scan/runs`（api/src/sechub/scan_task.rs + service/sec_run.rs）：
  *   - 列表：GET /sechub/scan/runs（page_num / page_size / keyword / filters）
  *   - 详情：GET /sechub/scan/runs/{id}
- *   - 结果：GET /sechub/scan/runs/{id}/results（不分页，每条结果内嵌 `case` 用例信息）
+ *   - 结果：GET /sechub/scan/runs/{id}/results（分页 + verdict/test_type/keyword 筛选，
+ *     每条结果内嵌 `case` 用例信息。全量运行可达数万条，绝不能一次全取）
  *   - 取消：POST /sechub/scan/runs/{id}/cancel
  */
 import { Message, Modal } from '@arco-design/web-vue'
@@ -68,13 +69,35 @@ const CASE_TYPE_LABELS: Record<string, string> = {
 }
 const TEST_TYPE_LABELS: Record<string, string> = {
   perm: '权限',
+  anon: '未鉴权访问',
   xss: 'XSS注入',
   sqli: 'SQL注入',
   java_reflect: 'Java反射',
   idor: '越权(IDOR)',
   base: '正向基线',
   robustness: '健壮性',
+  // 静态扫描（meta_collect）产出的用例类型
+  meta_perm: '元数据-权限配置',
+  meta_anon: '元数据-匿名访问',
+  meta_log: '元数据-操作日志',
 }
+
+/** 结果筛选下拉的选项（值与 case.test_type 一致） */
+const RESULT_TEST_TYPE_OPTIONS = [
+  { value: 'perm', label: '权限' },
+  { value: 'anon', label: '未鉴权访问' },
+  { value: 'idor', label: '越权(IDOR)' },
+  { value: 'base', label: '正向基线' },
+  { value: 'robustness', label: '健壮性' },
+  { value: 'xss', label: 'XSS注入' },
+  { value: 'sqli', label: 'SQL注入' },
+  { value: 'java_reflect', label: 'Java反射' },
+  { value: 'meta_perm', label: '元数据-权限配置' },
+  { value: 'meta_anon', label: '元数据-匿名访问' },
+  { value: 'meta_log', label: '元数据-操作日志' },
+]
+
+const VERDICT_OPTIONS = ['PASS', 'FAIL', 'REVIEW', 'BLOCKED', 'ERROR']
 /** 结果行优先展示测试类型（越权/注入/正向），没有时退回用例类型 */
 function resultTypeText(c: any): string {
   if (!c)
@@ -145,26 +168,89 @@ const resultsLoading = ref(false)
 const currentRun = ref<any>(null)
 const results = ref<any[]>([])
 
+// 结果分页 + 筛选：一次全量运行有 4 万+ 条结果，必须分页拉取
+const resultPageNum = ref(1)
+const resultPageSize = ref(20)
+const resultTotal = ref(0)
+const resultFilter = reactive({
+  verdict: '',
+  test_type: '',
+  keyword: '',
+})
+const resultPagination = computed(() => ({
+  current: resultPageNum.value,
+  pageSize: resultPageSize.value,
+  total: resultTotal.value,
+  showTotal: true,
+  showPageSize: true,
+  pageSizeOptions: [20, 50, 100],
+}))
+
+async function fetchResults() {
+  const id = currentRun.value?.id
+  if (!id)
+    return
+  resultsLoading.value = true
+  try {
+    const res = await getAction<any>(resolveStaticScanApi(ApiSecScan.runResults, { id }), {
+      page_num: resultPageNum.value,
+      page_size: resultPageSize.value,
+      verdict: resultFilter.verdict,
+      test_type: resultFilter.test_type,
+      keyword: resultFilter.keyword,
+    })
+    results.value = res?.list || []
+    resultTotal.value = res?.total || 0
+  }
+  finally {
+    resultsLoading.value = false
+  }
+}
+
 async function openResults(record: any) {
   currentRun.value = record
   results.value = []
+  resultTotal.value = 0
+  resultPageNum.value = 1
+  resultFilter.verdict = ''
+  resultFilter.test_type = ''
+  resultFilter.keyword = ''
   drawerVisible.value = true
 
   drawerLoading.value = true
-  resultsLoading.value = true
   try {
     // 详情单独拉一次：列表字段与详情同构，但执行中统计会不断变化
     const detail = await getAction<any>(resolveStaticScanApi(ApiSecScan.runGetById, { id: record.id }))
     if (detail)
       currentRun.value = detail
-
-    const res = await getAction<any>(resolveStaticScanApi(ApiSecScan.runResults, { id: record.id }))
-    results.value = res?.list || []
+    await fetchResults()
   }
   finally {
     drawerLoading.value = false
-    resultsLoading.value = false
   }
+}
+
+function handleResultSearch() {
+  resultPageNum.value = 1
+  fetchResults()
+}
+
+function handleResultReset() {
+  resultFilter.verdict = ''
+  resultFilter.test_type = ''
+  resultFilter.keyword = ''
+  handleResultSearch()
+}
+
+function handleResultPageChange(page: number) {
+  resultPageNum.value = page
+  fetchResults()
+}
+
+function handleResultPageSizeChange(size: number) {
+  resultPageSize.value = size
+  resultPageNum.value = 1
+  fetchResults()
 }
 
 // ── 取消运行 ──────────────────────────────────────
@@ -353,14 +439,47 @@ function handlePageSizeChange(size: number) {
         </a-descriptions>
       </a-spin>
 
-      <a-divider>用例结果（{{ results.length }} 条）</a-divider>
+      <a-divider>用例结果（{{ resultTotal }} 条）</a-divider>
+      <div class="filter-bar result-filter-bar">
+        <div class="f-wide">
+          <a-input
+            v-model="resultFilter.keyword"
+            placeholder="表单 / API / 用例ID / 名称"
+            allow-clear
+            @press-enter="handleResultSearch"
+            @clear="handleResultSearch"
+          />
+        </div>
+        <div class="f-mid">
+          <a-select v-model="resultFilter.verdict" placeholder="结果" allow-clear @change="handleResultSearch">
+            <a-option v-for="v in VERDICT_OPTIONS" :key="v" :value="v">
+              {{ v }}
+            </a-option>
+          </a-select>
+        </div>
+        <div class="f-mid">
+          <a-select v-model="resultFilter.test_type" placeholder="测试类型" allow-clear @change="handleResultSearch">
+            <a-option v-for="t in RESULT_TEST_TYPE_OPTIONS" :key="t.value" :value="t.value">
+              {{ t.label }}
+            </a-option>
+          </a-select>
+        </div>
+        <a-button type="primary" @click="handleResultSearch">
+          查询
+        </a-button>
+        <a-button @click="handleResultReset">
+          重置
+        </a-button>
+      </div>
       <a-spin :loading="resultsLoading" style="display: block; min-height: 60px">
         <a-table
           :data="results"
-          :pagination="false"
+          :pagination="resultPagination"
           :scroll="{ minWidth: 760 }"
           row-key="id"
           size="small"
+          @page-change="handleResultPageChange"
+          @page-size-change="handleResultPageSizeChange"
         >
           <template #columns>
             <a-table-column title="表单 / API" :width="200" ellipsis tooltip>
@@ -405,6 +524,11 @@ function handlePageSizeChange(size: number) {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+}
+
+/* 结果筛选栏在抽屉里，与上方描述区拉开间距 */
+.result-filter-bar {
+  margin-bottom: 12px;
 }
 
 /* 宽度必须落在包裹 div 上：Arco 的 Input / Select 是 inheritAttrs: false */

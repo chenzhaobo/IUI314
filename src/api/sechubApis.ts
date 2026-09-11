@@ -330,6 +330,8 @@ export enum ApiSecScan {
   caseList = '/sechub/scan/cases',
   caseAdd = '/sechub/scan/cases',
   caseDelete = '/sechub/scan/cases/{id}/delete',
+  // 测试域视图（表单安全遍历 / OpenAPI测试）
+  domainCases = '/sechub/scan/domain/cases',
   // 范围树
   scopeTree = '/sechub/scan/scope-tree',
   // Payload 库
@@ -341,4 +343,28 @@ export enum ApiSecScan {
   // 环境角色账号（脱敏列表 / 新增或更新 / 删除）
   envAccounts = '/sechub/scan/env-accounts',
   envAccountDelete = '/sechub/scan/env-accounts/{id}/delete',
+}
+
+// ── 领域资产（表单 / 微服务统一资产，AS-03 真实契约） ──
+// 列表 / 详情 / 文件 / 候选 / 问题（三者各自独立服务端分页）/ 同步历史（sync-runs）。
+// 动态段（{id}）统一由 resolveStaticScanApi 拼装。
+// 插件绑定（详情 form.surfaces[].bindings[]）、菜单（form.menus）、Helper 依赖
+// （microservice.helper_files）随详情内嵌返回，没有独立分页接口。
+// 人工字段 PATCH 仅支持 owner / tags_json / in_scope / remark 四个字段。
+export enum ApiSecDomainAsset {
+  getList = '/sechub/domain-assets',
+  getById = '/sechub/domain-assets/{id}',
+  files = '/sechub/domain-assets/{id}/files',
+  candidates = '/sechub/domain-assets/{id}/candidates',
+  issues = '/sechub/domain-assets/{id}/issues',
+  syncRuns = '/sechub/domain-assets/sync-runs',
+  manualFields = '/sechub/domain-assets/{id}/manual-fields',
+  rematch = '/sechub/domain-assets/rematch',
+}
+
+// ── 表单资产同步（env 维度：预览 → 执行 → task_id 轮询） ──
+export enum ApiSecFormAssetSync {
+  preview = '/sechub/form-assets/sync/preview',
+  sync = '/sechub/form-assets/sync',
+  status = '/sechub/form-assets/sync/{task_id}',
 }
