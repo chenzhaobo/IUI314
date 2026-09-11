@@ -325,6 +325,10 @@ export enum ApiSecScan {
   runList = '/sechub/scan/runs',
   runGetById = '/sechub/scan/runs/{id}',
   runResults = '/sechub/scan/runs/{id}/results',
+  // 执行摘要（按规则/类型聚合，OPT-2）
+  runSummary = '/sechub/scan/runs/{id}/summary',
+  // 报告导出（CSV 文件下载，需带 Authorization 头）
+  runExport = '/sechub/scan/runs/{id}/export',
   runCancel = '/sechub/scan/runs/{id}/cancel',
   // 用例
   caseList = '/sechub/scan/cases',
@@ -343,6 +347,8 @@ export enum ApiSecScan {
   // 环境角色账号（脱敏列表 / 新增或更新 / 删除）
   envAccounts = '/sechub/scan/env-accounts',
   envAccountDelete = '/sechub/scan/env-accounts/{id}/delete',
+  // 迭代阶段看板（按 iteration_phase 聚合运行记录，见 sec_dashboard.rs）
+  iterationDashboard = '/sechub/scan/dashboard/iterations',
 }
 
 // ── 领域资产（表单 / 微服务统一资产，AS-03 真实契约） ──
