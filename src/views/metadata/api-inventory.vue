@@ -2,11 +2,11 @@
 /**
  * API 清单（基础配置 → 元数据管理）
  *
- * 数据来源：`/metadata/api-inventory/{tree,list,sync}`（后端 service/src/metadata/api_inventory.rs）
+ * 数据来源：`/metadata/api-inventory/{tree,list,sync,sync-runs}`
  *   · 接口定义从所选「测试环境」的 OpenAPI 定义库同步到平台库 `meta_api_inventory`；
- *   · 同步语义：存在则更新、不存在则新增、源侧删除则标记删除（deleted_at）；
- *   · 应用归属：fappid → t_meta_bizapp（应用编码/名/云）；
- *     平台维度：应用编码 ↔ 模块管理 perf_module.module_code → 项目组 → 业务领域/产品领域。
+ *   · 同步语义：存在则更新、不存在则新增、源侧删除则标记删除；每次同步留一条同步记录；
+ *   · 应用归属（应用/云）随同步解析；项目组/业务领域/产品领域**动态关联**
+ *     （应用编码 ↔ 模块管理 perf_module.module_code → 项目组），只在左树过滤时使用，不进表格。
  *
  * 交互：左树按维度（应用/项目组/业务领域/产品领域）过滤右表；右表可再按版本/关键词过滤。
  */
@@ -55,21 +55,20 @@ const scopeParams = computed(() => {
     return { app_number: key.slice(2) }
   if (key.startsWith('g:')) {
     const value = key.slice(2)
-    const dim = dimension.value
     if (value === UNCLASSIFIED_FILTER) {
-      if (dim === 'project_group')
+      if (dimension.value === 'project_group')
         return { project_group: UNCLASSIFIED_FILTER }
-      if (dim === 'business_area')
+      if (dimension.value === 'business_area')
         return { business_area: UNCLASSIFIED_FILTER }
-      if (dim === 'product_domain')
+      if (dimension.value === 'product_domain')
         return { product_domain: UNCLASSIFIED_FILTER }
       return {}
     }
-    if (dim === 'project_group')
+    if (dimension.value === 'project_group')
       return { project_group: value }
-    if (dim === 'business_area')
+    if (dimension.value === 'business_area')
       return { business_area: value }
-    if (dim === 'product_domain')
+    if (dimension.value === 'product_domain')
       return { product_domain: value }
     return { cloud: value }
   }
@@ -130,7 +129,6 @@ const envName = ref('')
 const groups = ref<any[]>([])
 const unclassified = ref<any[]>([])
 const totalApis = ref(0)
-const syncedAt = ref<string | null>(null)
 
 const treeData = computed(() => {
   const root: any = {
@@ -167,7 +165,10 @@ const treeData = computed(() => {
 async function fetchTree() {
   treeLoading.value = true
   try {
-    const res = await getAction<any>(ApiMetadataInventory.tree, { dimension: dimension.value, env_id: activeEnvId.value || undefined })
+    const res = await getAction<any>(ApiMetadataInventory.tree, {
+      dimension: dimension.value,
+      env_id: activeEnvId.value || undefined,
+    })
     if (!res)
       return
     envName.value = res.env?.name || ''
@@ -192,7 +193,7 @@ function handleDimensionChange() {
   void fetchTree().then(() => fetchList())
 }
 
-// ── 同步（选择环境 → 拉取定义库 → 更新/新增/标记删除）────
+// ── 同步（选测试环境 → 拉定义库 → 更新/新增/标记删除）────
 const syncVisible = ref(false)
 const syncEnvId = ref('')
 const syncing = ref(false)
@@ -231,19 +232,30 @@ async function handleSync() {
   }
 }
 
-/** 列表里的数据源列：环境名 + 同步时间 */
-function syncTimeText() {
-  if (!syncedAt.value)
-    return '--'
-  return formatTime(syncedAt.value)
+// ── 同步记录（弹窗）───────────────────────────────
+const recordsVisible = ref(false)
+const recordsLoading = ref(false)
+const records = ref<any[]>([])
+
+async function openRecords() {
+  recordsVisible.value = true
+  recordsLoading.value = true
+  try {
+    const res = await getAction<any>(ApiMetadataInventory.syncRuns, {
+      env_id: activeEnvId.value || undefined,
+      page_num: 1,
+      page_size: 50,
+    })
+    records.value = res?.list || []
+  }
+  finally {
+    recordsLoading.value = false
+  }
 }
 
 onMounted(async () => {
   await fetchTree()
   await fetchList()
-  const first = rows.value[0]
-  if (first?.synced_at)
-    syncedAt.value = first.synced_at
 })
 </script>
 
@@ -298,9 +310,14 @@ onMounted(async () => {
     <template #toolbar>
       <div class="inventory-meta">
         <span>数据源：{{ envName || '--' }}（OpenAPI 定义库）｜ 当前范围 {{ total }} 条 ／ 全部 {{ totalApis }} 条</span>
-        <a-button type="primary" size="small" @click="openSync">
-          同步
-        </a-button>
+        <a-space>
+          <a-button size="small" @click="openRecords">
+            同步记录
+          </a-button>
+          <a-button type="primary" size="small" @click="openSync">
+            同步
+          </a-button>
+        </a-space>
       </div>
     </template>
 
@@ -309,33 +326,18 @@ onMounted(async () => {
         :data="rows"
         :loading="loading"
         :pagination="pagination"
-        :scroll="{ minWidth: 2200, x: 2200, y: tableHeight }"
+        :scroll="{ x: 1698, y: tableHeight }"
         row-key="id"
         @page-change="handlePageChange"
         @page-size-change="handlePageSizeChange"
       >
         <template #columns>
-          <a-table-column title="数据源" :width="160" ellipsis tooltip fixed="left">
-            <template #cell="{ record }">
-              {{ record.env_name || '--' }}
-            </template>
-          </a-table-column>
-          <a-table-column title="应用" :width="170" ellipsis tooltip fixed="left">
-            <template #cell="{ record }">
-              {{ record.app_number ? `${record.app_number} ${record.app_name || ''}` : '未归属' }}
-            </template>
-          </a-table-column>
-          <a-table-column title="云" :width="110" ellipsis tooltip>
-            <template #cell="{ record }">
-              {{ record.cloud_name || '--' }}
-            </template>
-          </a-table-column>
-          <a-table-column title="编号" data-index="number" :width="190" ellipsis tooltip />
-          <a-table-column title="名称" data-index="name" :width="200" ellipsis tooltip />
+          <a-table-column title="编号" data-index="number" :width="180" ellipsis tooltip />
+          <a-table-column title="名称" data-index="name" :width="190" ellipsis tooltip />
           <a-table-column title="版本" data-index="api_version" :width="70" />
-          <a-table-column title="方法" data-index="http_method" :width="70" />
-          <a-table-column title="调用路径" data-index="call_path" :width="280" ellipsis tooltip />
-          <a-table-column title="开发模式" :width="110" ellipsis tooltip>
+          <a-table-column title="方法" data-index="http_method" :width="80" />
+          <a-table-column title="调用路径" data-index="call_path" :width="260" ellipsis tooltip />
+          <a-table-column title="开发模式" :width="100" ellipsis tooltip>
             <template #cell="{ record }">
               <a-tooltip v-if="record.dev_mode" :content="`原始值：${record.dev_mode}`" mini>
                 <span>{{ record.dev_mode_label || record.dev_mode }}</span>
@@ -343,7 +345,7 @@ onMounted(async () => {
               <span v-else>--</span>
             </template>
           </a-table-column>
-          <a-table-column title="状态" :width="80">
+          <a-table-column title="状态" :width="76">
             <template #cell="{ record }">
               <a-tooltip v-if="record.status" :content="`原始值：${record.status}`" mini>
                 <a-tag :color="record.status === 'C' || record.status === 'enabled' ? 'green' : record.status === 'D' || record.status === 'disabled' ? 'gray' : 'blue'">
@@ -353,39 +355,39 @@ onMounted(async () => {
               <span v-else>--</span>
             </template>
           </a-table-column>
-          <a-table-column title="第三方应用授权" :width="130">
+          <a-table-column title="第三方应用授权" :width="120">
             <template #cell="{ record }">
               <a-tag :color="record.thirdapp_auth ? 'orange' : 'gray'">
                 {{ record.thirdapp_auth ? '是' : '否' }}
               </a-tag>
             </template>
           </a-table-column>
-          <a-table-column title="业务对象" data-index="biz_object" :width="150" ellipsis tooltip>
+          <a-table-column title="业务对象" :width="140" ellipsis tooltip>
             <template #cell="{ record }">
               {{ record.biz_object || '--' }}
             </template>
           </a-table-column>
-          <a-table-column title="项目组" :width="170" ellipsis tooltip>
+          <a-table-column title="数据源" :width="150" ellipsis tooltip>
             <template #cell="{ record }">
-              {{ record.project_group_name || '未分类' }}
+              {{ record.env_name || '--' }}
             </template>
           </a-table-column>
-          <a-table-column title="业务领域" :width="110">
+          <a-table-column title="应用" :width="160" ellipsis tooltip>
             <template #cell="{ record }">
-              {{ record.business_area || '未分类' }}
+              {{ record.app_number ? `${record.app_number} ${record.app_name || ''}` : '未归属' }}
             </template>
           </a-table-column>
-          <a-table-column title="产品领域" :width="130" ellipsis tooltip>
+          <a-table-column title="云" :width="100" ellipsis tooltip>
             <template #cell="{ record }">
-              {{ record.product_domain || '未分类' }}
+              {{ record.cloud_name || '--' }}
             </template>
           </a-table-column>
-          <a-table-column title="创建时间" :width="160">
+          <a-table-column title="创建时间" :width="156">
             <template #cell="{ record }">
               {{ formatTime(record.source_created_at) }}
             </template>
           </a-table-column>
-          <a-table-column title="更新时间" :width="160">
+          <a-table-column title="更新时间" :width="156">
             <template #cell="{ record }">
               {{ formatTime(record.source_updated_at) }}
             </template>
@@ -395,9 +397,6 @@ onMounted(async () => {
           <a-empty description="暂无数据：点右上角「同步」从测试环境拉取接口定义" />
         </template>
       </a-table>
-      <div class="inventory-footnote">
-        最近同步时间：{{ syncTimeText() }}
-      </div>
     </template>
   </ListPage>
 
@@ -420,9 +419,47 @@ onMounted(async () => {
       </a-form-item>
       <div class="sync-hint">
         同步语义：已存在则更新、不存在则新增、源侧已删除则标记删除。<br>
-        数据来源：该环境的 OpenAPI 定义库；应用/项目组/领域归属随同步一起刷新。
+        数据来源：该环境的 OpenAPI 定义库；应用/云归属随同步刷新，项目组/领域在查看时动态关联。
       </div>
     </a-form>
+  </a-modal>
+
+  <!-- 同步记录：时间 / 环境 / 新增 / 更新 / 标记删除 -->
+  <a-modal
+    v-model:visible="recordsVisible"
+    title="同步记录"
+    :width="760"
+    :footer="false"
+  >
+    <a-table
+      :data="records"
+      :loading="recordsLoading"
+      :pagination="false"
+      :scroll="{ y: 420 }"
+      row-key="id"
+      size="small"
+    >
+      <template #columns>
+        <a-table-column title="同步时间" :width="170">
+          <template #cell="{ record }">
+            {{ formatTime(record.finished_at || record.started_at) }}
+          </template>
+        </a-table-column>
+        <a-table-column title="测试环境" :width="170" ellipsis tooltip>
+          <template #cell="{ record }">
+            {{ record.env_name || record.env_id }}
+          </template>
+        </a-table-column>
+        <a-table-column title="接口总数" data-index="total" :width="90" />
+        <a-table-column title="新增" data-index="inserted" :width="76" />
+        <a-table-column title="更新" data-index="updated" :width="76" />
+        <a-table-column title="标记删除" data-index="deleted" :width="90" />
+        <a-table-column title="合并重复" data-index="deduped" :width="90" />
+      </template>
+      <template #empty>
+        <a-empty description="暂无同步记录" />
+      </template>
+    </a-table>
   </a-modal>
 </template>
 
@@ -457,13 +494,6 @@ onMounted(async () => {
   width: 100%;
   color: var(--color-text-3);
   font-size: 12px;
-}
-
-.inventory-footnote {
-  margin-top: 6px;
-  color: var(--color-text-3);
-  font-size: 12px;
-  text-align: right;
 }
 
 .sync-hint {

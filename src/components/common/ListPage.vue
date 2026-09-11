@@ -207,6 +207,10 @@ defineExpose({ tableHeight, bodyHeight: bodyH })
   flex-direction: column;
   flex-shrink: 0;
   min-height: 0;
+  /* 左栏是独立面板：白底 + 圆角，避免直接落在页面灰底上显得「底色不对」 */
+  padding: 8px 10px;
+  background: var(--color-bg-2);
+  border-radius: 4px;
 }
 
 .lp-aside-title {

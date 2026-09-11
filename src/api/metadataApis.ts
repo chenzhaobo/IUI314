@@ -8,4 +8,5 @@ export enum ApiMetadataInventory {
   tree = '/metadata/api-inventory/tree',
   list = '/metadata/api-inventory/list',
   sync = '/metadata/api-inventory/sync',
+  syncRuns = '/metadata/api-inventory/sync-runs',
 }
