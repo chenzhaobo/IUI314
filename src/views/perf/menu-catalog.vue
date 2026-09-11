@@ -147,8 +147,6 @@ async function handleToggleScope(record: any) {
 const { data: statsData, isFetching: statsLoading, execute: fetchStats } = useGet<any>(ApiPerfMenu.stats, computed(() => ({ product_line: productLine.value, domain_code: menuQuery.value.domain_code || undefined, project_group_name: menuQuery.value.project_group_name || undefined })), { immediate: false })
 
 // ── 左侧树 ──────────────────────────────────
-const treePanel = ref<HTMLElement>()
-const { style: treeStyle } = useAutoHeight(treePanel)
 const treeData = ref<any[]>([])
 const selectedKeys = ref<string[]>([])
 const expandedKeys = ref<string[]>([])
@@ -458,12 +456,18 @@ watch([sourceEnvId, currentFormNumber], () => {
   }
 }, { immediate: false })
 
+// 布局行实测定高：左右两栏由它派生高度，各自内部滚动。
+// 没有确定高度时：右表从视口反推会多算一截 → 把页面顶出滚动条；左树按内容撑高 → 展开后整页变长。
+const layoutRow = ref<HTMLElement>()
+const { height: layoutRowH } = useAutoHeight(layoutRow)
+
 // 表格高度自适应（滚动条在表格内、表头固定）；右侧按钮面板与菜单列表面板各一个容器，
-// 因为两者上方的信息条/操作栏高度不同，分别测量才准
+// 因为两者上方的信息条/操作栏高度不同，分别测量才准。
+// fillParent：容器是定高 flex 列里的 flex:1 子项，高度已确定；从视口反推会与这块空间差一截。
 const menuTableWrap = ref<HTMLElement>()
-const { tableHeight: menuTableHeight } = useTableAutoHeight(menuTableWrap, { reserve: 8 })
+const { tableHeight: menuTableHeight } = useTableAutoHeight(menuTableWrap, { fillParent: true })
 const buttonTableWrap = ref<HTMLElement>()
-const { tableHeight: buttonTableHeight } = useTableAutoHeight(buttonTableWrap, { reserve: 8 })
+const { tableHeight: buttonTableHeight } = useTableAutoHeight(buttonTableWrap, { fillParent: true })
 </script>
 
 <template>
@@ -528,23 +532,25 @@ const { tableHeight: buttonTableHeight } = useTableAutoHeight(buttonTableWrap, {
       <a-empty description="请先选择产品线" />
     </a-card>
 
-    <div v-else class="catalog-layout">
-      <!-- 左侧树 -->
-      <div ref="treePanel" class="tree-panel panel-scroll-y" :style="treeStyle">
-        <a-card :bordered="false">
+    <div v-else ref="layoutRow" class="catalog-layout" :style="{ height: layoutRowH + 'px' }">
+      <!-- 左侧树：卡片撑满栏高，树在卡片内部滚 -->
+      <div class="tree-col">
+        <a-card :bordered="false" class="fill-card">
           <template #title>云 / 应用 / 菜单</template>
-          <a-spin :loading="treeLoading" style="width: 100%">
-            <a-tree
-              :data="treeData"
-              v-model:selected-keys="selectedKeys"
-              v-model:expanded-keys="expandedKeys"
-              :field-names="{ key: 'key', title: 'title', children: 'children' }"
-              block-node
-              :default-expand-all="false"
-              @select="handleTreeSelect"
-              @expand="handleTreeExpand"
-            />
-          </a-spin>
+          <div class="panel-scroll-y tree-fill">
+            <a-spin :loading="treeLoading" style="width: 100%">
+              <a-tree
+                :data="treeData"
+                v-model:selected-keys="selectedKeys"
+                v-model:expanded-keys="expandedKeys"
+                :field-names="{ key: 'key', title: 'title', children: 'children' }"
+                block-node
+                :default-expand-all="false"
+                @select="handleTreeSelect"
+                @expand="handleTreeExpand"
+              />
+            </a-spin>
+          </div>
         </a-card>
       </div>
 
@@ -582,7 +588,7 @@ const { tableHeight: buttonTableHeight } = useTableAutoHeight(buttonTableWrap, {
             </a-col>
           </a-row>
 
-          <div ref="buttonTableWrap">
+          <div ref="buttonTableWrap" class="table-fill">
 <a-table
   column-resizable
             :loading="buttonLoading"
@@ -637,7 +643,7 @@ const { tableHeight: buttonTableHeight } = useTableAutoHeight(buttonTableWrap, {
             </a-button>
           </div>
 
-          <div ref="menuTableWrap">
+          <div ref="menuTableWrap" class="table-fill">
 <a-table
   column-resizable
             :loading="menuLoading"
@@ -690,13 +696,7 @@ const { tableHeight: buttonTableHeight } = useTableAutoHeight(buttonTableWrap, {
 </template>
 
 <style scoped>
-.perf-menu-catalog {
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-}
+.perf-menu-catalog { padding: 0; }
 .filter-row {
   display: flex;
   flex-wrap: wrap;
@@ -735,24 +735,40 @@ const { tableHeight: buttonTableHeight } = useTableAutoHeight(buttonTableWrap, {
 .stats-spin {
   /* Arco spin centered in stats row */
 }
+/* 布局行：高度由 layoutRowH 实测给出（inline style），左右两栏由它派生高度 */
 .catalog-layout {
   display: flex;
   gap: 8px;
-  flex: 1;
-  min-height: 0;
+  min-height: 360px;
 }
-.tree-panel {
-  width: 320px;
-  min-width: 320px;
+.tree-col {
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
+  width: 320px;
+  /* min-height:0 是子项能被压缩到内容以下的前提，缺了它树会撑高整行 */
+  min-height: 0;
 }
-.tree-panel :deep(.arco-card) {
+/* 卡片撑满栏高，树在卡片内部滚 */
+.fill-card {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
 }
-.tree-panel :deep(.arco-card-body) {
-  overflow-y: auto;
+.fill-card :deep(.arco-card-body) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.tree-fill {
+  flex: 1;
+}
+/* 表格容器吃掉右栏剩余高度，滚动落在表格体内部 */
+.table-fill {
+  flex: 1;
+  min-height: 0;
 }
 :deep(.arco-tree-node-switcher) {
   width: 22px !important;
@@ -767,10 +783,16 @@ const { tableHeight: buttonTableHeight } = useTableAutoHeight(buttonTableWrap, {
   padding: 2px 4px;
 }
 .table-panel {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-width: 0;
   min-height: 0;
+}
+.table-panel :deep(.arco-card-body) {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 </style>
