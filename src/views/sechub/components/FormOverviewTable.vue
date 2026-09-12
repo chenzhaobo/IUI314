@@ -2,11 +2,12 @@
 /**
  * 表单概览表格（动态列）
  *
- * 列由「测试类型字典」驱动：
+ * 列由「测试类型字典」驱动，一行看全各测试类型的执行/扫描结果：
  *   · source=cases      → 该类型列展示 用例数 / 通过数 + 状态（全部用例最近结果通过=通过）
- *   · source=meta_scan  → 来自元数据直扫三态：静态权限检查展示 通过/不通过/不涉及；
- *                         静态日志检查展示 不通过 / 不涉及 / 操作数
- * 行尾固定一列「元数据扫描」= 不通过/不涉及/总数（权限 1 + 6 敏感操作 = 7 检测点）。
+ *   · source=meta_scan  → 元数据直扫三态：静态权限检查展示 通过/不通过/不涉及；
+ *                         静态日志检查展示 不通过 / 不涉及 / 操作数（点单元格看逐操作明细）
+ *
+ * 不单列「元数据扫描合计」：它就是权限 + 日志两个分项的和，合计看页面顶部汇总条。
  */
 import { computed } from 'vue'
 import { type TableColumnData } from '@arco-design/web-vue'
@@ -70,10 +71,7 @@ const columns = computed<TableColumnData[]>(() => {
     width: 140,
     slotName: `type_${t.code}`,
   }))
-  const tail: TableColumnData[] = [
-    { title: '元数据扫描（不通过/不涉及/总数）', dataIndex: 'meta_scan.total', width: 210, slotName: 'meta_scan' },
-  ]
-  return [...base, ...typeCols, ...tail]
+  return [...base, ...typeCols]
 })
 
 function caseStat(row: Record<string, unknown>, code: string): CaseStat {
@@ -121,24 +119,24 @@ function lastTestedAt(row: Record<string, unknown>, code: string): string {
       #[`type_${t.code}`]="{ record }"
     >
       <template v-if="t.source === 'meta_scan'">
-        <template v-if="t.code === 'meta_perm_check'">
-          <a-tooltip :content="`权限配置检查：${PERM_STATE[metaScan(record).perm_state]?.label || '不涉及'}`">
-            <a-tag :color="PERM_STATE[metaScan(record).perm_state]?.color || 'gray'" size="small">
-              {{ PERM_STATE[metaScan(record).perm_state]?.label || '不涉及' }}
-            </a-tag>
-          </a-tooltip>
-        </template>
-        <template v-else>
-          <a-tooltip content="敏感操作的日志开关三态（不通过 / 不涉及 / 操作数）">
-            <span>
+        <a-tooltip :content="t.code === 'meta_perm_check'
+          ? `权限配置检查：${PERM_STATE[metaScan(record).perm_state]?.label || '不涉及'}（点击看逐项明细）`
+          : `敏感操作日志三态：不通过 ${metaScan(record).op_fail} / 不涉及 ${metaScan(record).op_na} / 操作数 ${metaScan(record).total - 1 - metaScan(record).op_na}（点击看逐项明细）`">
+          <a-link class="scan-link" @click="emit('scan-detail', record)">
+            <template v-if="t.code === 'meta_perm_check'">
+              <a-tag :color="PERM_STATE[metaScan(record).perm_state]?.color || 'gray'" size="small">
+                {{ PERM_STATE[metaScan(record).perm_state]?.label || '不涉及' }}
+              </a-tag>
+            </template>
+            <template v-else>
               <span :class="{ 'text-fail': metaScan(record).op_fail > 0 }">{{ metaScan(record).op_fail }}</span>
               /
               <span class="text-muted">{{ metaScan(record).op_na }}</span>
               /
               {{ metaScan(record).total - 1 - metaScan(record).op_na }}
-            </span>
-          </a-tooltip>
-        </template>
+            </template>
+          </a-link>
+        </a-tooltip>
       </template>
       <template v-else>
         <a-tooltip :content="`用例数 ${caseStat(record, t.code).case_count} ／ 通过 ${caseStat(record, t.code).pass_count} ／ 最近执行 ${lastTestedAt(record, t.code)}`">
@@ -152,17 +150,6 @@ function lastTestedAt(row: Record<string, unknown>, code: string): string {
       </template>
     </template>
 
-    <template #meta_scan="{ record }">
-      <a-tooltip :content="`权限 ${PERM_STATE[metaScan(record).perm_state]?.label || '不涉及'} ／ 日志不通过 ${metaScan(record).op_fail} ／ 操作不涉及 ${metaScan(record).op_na}（点击看逐项明细）`">
-        <a-link class="scan-link" @click="emit('scan-detail', record)">
-          <span :class="{ 'text-fail': metaScan(record).fail > 0 }">{{ metaScan(record).fail }}</span>
-          /
-          <span class="text-muted">{{ metaScan(record).na }}</span>
-          /
-          {{ metaScan(record).total }}
-        </a-link>
-      </a-tooltip>
-    </template>
   </a-table>
 </template>
 
