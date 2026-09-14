@@ -256,11 +256,13 @@ const selectedCount = computed(() => selectedNode.value?.record_count ?? null)
 
 const displayTree = computed(() => {
   const search = keyword.value.trim().toLowerCase()
-  if (!search)
-    return treeData.value
   const filter = (nodes: any[]): any[] => nodes.reduce((result: any[], node: any) => {
+    // scope-counts 已按右侧非范围条件统计；明确为 0 的节点没有可展示数据，
+    // 不再让用户展开后看到空表。null 表示计数仍在加载，先保留以避免闪烁。
+    if (node.record_count !== null && node.record_count !== undefined && Number(node.record_count) <= 0)
+      return result
     const children = node.children?.length ? filter(node.children) : []
-    const matched = `${node.title} ${node.code}`.toLowerCase().includes(search)
+    const matched = !search || `${node.title} ${node.code}`.toLowerCase().includes(search)
     if (matched || children.length)
       result.push({ ...node, children })
     return result

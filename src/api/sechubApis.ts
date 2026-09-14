@@ -252,6 +252,9 @@ export function resolveStaticScanApi(
 // ── 预扫描 ────────────────────────────────────────
 export enum ApiSecPrescan {
   trigger = '/sechub/prescan/trigger',
+  deltaPreview = '/sechub/static-prescan/delta/preview',
+  deltaPlan = '/sechub/static-prescan/delta/{plan_id}',
+  deltaExecute = '/sechub/static-prescan/delta/{plan_id}/execute',
   status = '/sechub/prescan/status',
   latestRun = '/sechub/prescan/latest-run',
   dashboard = '/sechub/prescan/dashboard',

@@ -7,15 +7,9 @@
         </a-col>
         <a-col :span="4">
           <a-select v-model="searchForm.analysis_type" placeholder="类型" allow-clear>
-            <a-option value="daily_report">日报</a-option>
-            <a-option value="weekly_report">周报</a-option>
-            <a-option value="monthly_report">月报</a-option>
-            <a-option value="monthly">月度</a-option>
-            <a-option value="weekly">周度</a-option>
-            <a-option value="adhoc">专项</a-option>
-            <a-option value="domain_diagnosis">领域诊断</a-option>
-            <a-option value="app_diagnosis">应用诊断</a-option>
-            <a-option value="root_cause">根因分析</a-option>
+            <a-option v-for="option in reportTypeOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </a-option>
           </a-select>
         </a-col>
         <a-col :span="3">
@@ -241,7 +235,22 @@ const formData = reactive<any>({ title: '', analysis_type: 'monthly', period_sta
 const tableWrap = ref<HTMLElement>()
 const { tableHeight } = useTableAutoHeight(tableWrap)
 
-const typeText = (t: string) => ({ daily_report: '日报', weekly_report: '周报', monthly_report: '月报', monthly: '月度', weekly: '周度', adhoc: '专项', domain_diagnosis: '领域诊断', app_diagnosis: '应用诊断', root_cause: '根因分析' }[t] || t)
+const reportTypeOptions = [
+  { value: 'daily_report', label: '日报' },
+  { value: 'attribution_report', label: '归因报告' },
+  { value: 'period_report', label: '周期报告' },
+  { value: 'treatment_plan', label: '治理排序' },
+  { value: 'weekly_report', label: '周报' },
+  { value: 'monthly_report', label: '月报' },
+  { value: 'monthly', label: '月度' },
+  { value: 'weekly', label: '周度' },
+  { value: 'adhoc', label: '专项' },
+  { value: 'domain_diagnosis', label: '领域诊断' },
+  { value: 'app_diagnosis', label: '应用诊断' },
+  { value: 'root_cause', label: '根因分析' },
+] as const
+const reportTypeText = Object.fromEntries(reportTypeOptions.map(option => [option.value, option.label])) as Record<string, string>
+const typeText = (type?: string) => type ? (reportTypeText[type] || type) : '--'
 const dimensionTypeText = (t: string) => ({ product_domain: '产品领域', business_area: '业务领域', project_group: '项目组' }[t] || t)
 const statusText = (s: string) => ({ draft: '草稿', published: '已发布', archived: '已归档' }[s] || s)
 const statusColor = (s: string) => ({ draft: 'gray', published: 'green', archived: 'blue' }[s] || 'gray')

@@ -74,7 +74,18 @@ const agentOptions = computed(() => (agentListRaw.value?.list ?? []).map(a => ({
 /** 格式化时间，解析失败回退原值 */
 /** 扫描策略标签 */
 function scanModeLabel(mode: string): string {
-  return mode === 'diff' ? '增量' : '全量'
+  const labels: Record<string, string> = {
+    auto_delta: '自动增量',
+    code_delta: '代码差量',
+    rule_delta: '规则差量',
+    hybrid_delta: '混合差量',
+    full_baseline: '完整基线',
+    reconfirm: '重新 AI 确认',
+    hunk_quick: '新增行快检',
+    diff: '增量（旧）',
+    full: '全量（旧）',
+  }
+  return labels[mode] ?? mode
 }
 
 /** AI 模式标签 */
@@ -137,7 +148,7 @@ const form = reactive<{
   name: '',
   repository_ids: [],
   domains: [],
-  scan_mode: 'full',
+  scan_mode: 'auto_delta',
   cron_expression: '',
   schedule_enabled: true,
   concurrency: 2,
@@ -226,7 +237,7 @@ function resetForm() {
   form.name = ''
   form.repository_ids = []
   form.domains = []
-  form.scan_mode = 'full'
+  form.scan_mode = 'auto_delta'
   form.cron_expression = ''
   form.schedule_enabled = true
   form.concurrency = 2
@@ -251,7 +262,7 @@ function openEditModal(record: PrescanTaskRow) {
   form.repository_ids = record.repository_ids ? [...record.repository_ids] : []
   // 将逗号分隔的 domains 还原为数组
   form.domains = record.domains ? record.domains.split(',').map(d => d.trim()).filter(Boolean) : []
-  form.scan_mode = record.scan_mode || 'full'
+  form.scan_mode = record.scan_mode || 'auto_delta'
   form.cron_expression = record.cron_expression ?? ''
   form.schedule_enabled = record.schedule_enabled === '1'
   form.concurrency = record.concurrency ?? 2
@@ -286,7 +297,7 @@ function buildPayload(): PrescanTaskSavePayload {
 const savePayload = ref<PrescanTaskSavePayload>({
   name: '',
   repository_ids: [],
-  scan_mode: 'full',
+  scan_mode: 'auto_delta',
   schedule_enabled: '1',
   concurrency: 2,
   auto_confirm: '1',
@@ -738,14 +749,29 @@ const columns = withTableDefaults([
           <!-- 扫描策略 -->
           <a-col :span="12">
             <a-form-item label="扫描策略">
-              <a-radio-group v-model="form.scan_mode">
-                <a-radio value="full">
-                  全量
-                </a-radio>
-                <a-radio value="diff">
-                  增量
-                </a-radio>
-              </a-radio-group>
+              <a-select v-model="form.scan_mode" style="width: 100%">
+                <a-option value="auto_delta">
+                  推荐：自动增量
+                </a-option>
+                <a-option value="code_delta">
+                  仅代码差量
+                </a-option>
+                <a-option value="rule_delta">
+                  仅规则差量
+                </a-option>
+                <a-option value="hybrid_delta">
+                  代码 + 规则混合差量
+                </a-option>
+                <a-option value="full_baseline">
+                  完整基线
+                </a-option>
+                <a-option value="reconfirm">
+                  仅重新 AI 确认
+                </a-option>
+                <a-option value="hunk_quick">
+                  高级：新增行快速检查（不关闭问题）
+                </a-option>
+              </a-select>
             </a-form-item>
           </a-col>
           <!-- 并发数 -->

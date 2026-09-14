@@ -1,10 +1,12 @@
 <script setup lang="ts">
+import type { AiAgent, AiSkill } from '@/api/aiApis'
 import type {
   AgentRunProgress,
   AiConfirmResponse,
   BranchesControlResponse,
   CandidateDetailPage,
   CodeTreeNode,
+  CrossRunAggRow,
   DashboardOverview,
   GlobalOverview,
   ModuleWithRepository,
@@ -16,29 +18,28 @@ import type {
   RunCompare,
   ScanPointSummaryRow,
   UnifiedScanRunRow,
-  CrossRunAggRow,
 } from '@/types/static-scan'
-import { computed, onUnmounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
-import { Message, Modal } from '@arco-design/web-vue'
+import { Message } from '@arco-design/web-vue'
 import { BarChart, PieChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import VChart from 'vue-echarts'
-import { ApiSecModuleRepository, ApiSecPrescan } from '@/api/sechubApis'
-import { ApiAiAgent, ApiAiSkill, type AiAgent, type AiSkill } from '@/api/aiApis'
+import { useRouter } from 'vue-router'
+import { ApiAiAgent, ApiAiSkill } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
-import { formatTime, useAutoHeight, useGet, getAction, postAction } from '@/hooks'
+import { ApiSecModuleRepository, ApiSecPrescan, resolveStaticScanApi } from '@/api/sechubApis'
+import { formatTime, getAction, postAction, useAutoHeight, useGet } from '@/hooks'
 import { domainLabels, securityCategoryLabels } from './labels'
 
 type SelectChangeValue = string | number | boolean | Record<string, unknown> | (string | number | boolean | Record<string, unknown>)[]
 
-use([BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
-
 // 组件名必须与路由名（= 菜单 path 'scan-dashboard'）一致，keep-alive :include 才能缓存本页，
 // 否则从扫描结果详情返回时看板会重新挂载、丢失已展开/选中状态（见 app-main.vue 注释）。
-defineOptions({ name: 'scan-dashboard' })
+defineOptions({ name: 'ScanDashboard' })
+
+use([BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
 const router = useRouter()
 
@@ -81,13 +82,20 @@ interface AppTreeNode {
   children?: AppTreeNode[]
 }
 
+// 先声明跨区块共享状态，避免computed/watch在初始化前引用。
+const selectedRepoId = ref('')
+const overview = ref<DashboardOverview | null>(null)
+const summaryRows = ref<ScanPointSummaryRow[]>([])
+const codeTree = ref<CodeTreeNode[]>([])
+
 // 构建树：项目组→工程；业务领域/产品领域→项目组→工程
 const treeData = computed<AppTreeNode[]>(() => {
   const dimField = dimFieldMap[dimension.value]
   const groups = new Map<string, ModuleWithRepository[]>()
   for (const repo of repositories.value) {
     const dimValue = String(repo[dimField] ?? '') || '未分类'
-    if (!groups.has(dimValue)) groups.set(dimValue, [])
+    if (!groups.has(dimValue))
+      groups.set(dimValue, [])
     groups.get(dimValue)!.push(repo)
   }
 
@@ -126,7 +134,8 @@ const treeData = computed<AppTreeNode[]>(() => {
     const subGroups = new Map<string, ModuleWithRepository[]>()
     for (const app of apps) {
       const pg = app.project_group_name || '未分类'
-      if (!subGroups.has(pg)) subGroups.set(pg, [])
+      if (!subGroups.has(pg))
+        subGroups.set(pg, [])
       subGroups.get(pg)!.push(app)
     }
     return {
@@ -149,16 +158,19 @@ const treeData = computed<AppTreeNode[]>(() => {
 function filterTree(nodes: AppTreeNode[], kw: string): AppTreeNode[] {
   return nodes
     .map((node) => {
-      if (node.title.toLowerCase().includes(kw)) return node
+      if (node.title.toLowerCase().includes(kw))
+        return node
       const children = node.children ? filterTree(node.children, kw) : []
-      if (children.length) return { ...node, children }
+      if (children.length)
+        return { ...node, children }
       return null
     })
     .filter((n): n is AppTreeNode => n !== null)
 }
 const displayTree = computed(() => {
   const kw = treeSearch.value.toLowerCase()
-  if (!kw) return treeData.value
+  if (!kw)
+    return treeData.value
   return filterTree(treeData.value, kw)
 })
 
@@ -228,12 +240,17 @@ loadGlobalOverview()
 
 // 左树应用状态圆点：红（高风险>0）/ 橙（中/低风险>0）/ 绿（无确认问题）/ 灰（未扫描）
 function appDotColor(repositoryId?: string): string {
-  if (!repositoryId || !globalData.value) return '#c9cdd4'
+  if (!repositoryId || !globalData.value)
+    return '#c9cdd4'
   const app = (globalData.value.all_apps ?? []).find(a => a.repository_id === repositoryId)
-  if (!app) return '#c9cdd4'
-  if (app.risk_high > 0) return '#f53f3f'
-  if (app.risk_medium > 0 || app.risk_low > 0) return '#ff7d00'
-  if (app.confirmed === 0) return '#00b42a'
+  if (!app)
+    return '#c9cdd4'
+  if (app.risk_high > 0)
+    return '#f53f3f'
+  if (app.risk_medium > 0 || app.risk_low > 0)
+    return '#ff7d00'
+  if (app.confirmed === 0)
+    return '#00b42a'
   return '#f53f3f'
 }
 
@@ -294,7 +311,6 @@ function onTopAppChartClick(params: { dataIndex?: number }) {
 }
 
 // ===== 当前选中应用 =====
-const selectedRepoId = ref('')
 const selectedRepo = computed(() => repositories.value.find(r => r.repository_id === selectedRepoId.value) ?? null)
 
 function onTreeSelect(keys: (string | number)[]) {
@@ -314,7 +330,6 @@ function onTreeSelect(keys: (string | number)[]) {
 // ===== 预扫描状态 =====
 const currentRunId = ref('')
 const prescanStatus = ref<PrescanStatusResponse | null>(null)
-const triggering = ref(false)
 const polling = ref(false)
 
 // ===== Run 列表（分支/commit 对比选择） =====
@@ -375,7 +390,8 @@ watch(selectedRepoId, async (repoId) => {
   summaryRows.value = []
   codeTree.value = []
   runList.value = []
-  if (!repoId) return
+  if (!repoId)
+    return
   // 加载 run 列表
   const repo = repositories.value.find(r => r.repository_id === repoId)
   if (repo) {
@@ -438,7 +454,48 @@ let commitSeq = 0
 const scanScope = ref<'full' | 'diff_last' | 'diff_commit'>('full')
 const baseCommitInput = ref('')
 const diffGranularity = ref<'file' | 'hunk'>('file')
-const hunkEnabled = ref(false)
+
+type DeltaScanMode = 'auto_delta' | 'code_delta' | 'rule_delta' | 'hybrid_delta' | 'full_baseline' | 'reconfirm' | 'hunk_quick'
+
+interface EstimateRange {
+  lower: number
+  upper: number
+}
+
+interface DeltaPlanPreview {
+  plan_id: string
+  delta_kind: string
+  base_commit?: string | null
+  target_commit?: string | null
+  added_files: number
+  modified_files: number
+  deleted_files: number
+  renamed_files: number
+  copied_files: number
+  direct_file_count: number
+  impacted_file_count: number
+  call_graph_truncated: boolean
+  affected_form_count: number
+  affected_microservice_count: number
+  added_rule_count: number
+  modified_rule_count: number
+  removed_rule_count: number
+  deterministic_pair_count: EstimateRange
+  candidate_count: EstimateRange
+  cache_hit_count: EstimateRange
+  cache_miss_count: EstimateRange
+  cache_not_eligible_count: EstimateRange
+  ai_call_count: EstimateRange
+  token_count: EstimateRange
+  estimate_basis: string[]
+  may_auto_close: boolean
+  auto_close_block_reasons: string[]
+}
+
+const deltaScanMode = ref<DeltaScanMode>('auto_delta')
+const deltaPreview = ref<DeltaPlanPreview | null>(null)
+const previewingDelta = ref(false)
+const executingDelta = ref(false)
 
 // commit 下拉标签用的紧凑时间戳 yymmddhhmmss。
 // 走统一入口按**用户时区**渲染后再压缩——旧实现用 new Date().getHours() 等取的是
@@ -515,14 +572,16 @@ async function openPrescanModal() {
   prescanBranches.value = []
   prescanCommits.value = []
   baseCommits.value = []
-  scanScope.value = 'full'
+  scanScope.value = 'diff_last'
+  deltaScanMode.value = 'auto_delta'
+  deltaPreview.value = null
   baseCommitInput.value = ''
   diffGranularity.value = 'file'
-  hunkEnabled.value = false
   prescanModalVisible.value = true
   // 用 refresh=false 加载分支（读缓存，快路径），避免打开弹窗时触发 git fetch
   const repo = selectedRepo.value
-  if (!repo) return
+  if (!repo)
+    return
   loadingBranches.value = true
   try {
     const { data, execute } = useGet<BranchesControlResponse>(
@@ -557,7 +616,8 @@ async function openPrescanModal() {
 // 显式刷新分支：点击刷新按钮才用 refresh=true 真正 git fetch
 async function refreshBranches() {
   const repo = selectedRepo.value
-  if (!repo) return
+  if (!repo)
+    return
   refreshingBranches.value = true
   try {
     const { data, execute } = useGet<BranchesControlResponse>(
@@ -595,85 +655,62 @@ async function onPrescanBranchChange(value: SelectChangeValue) {
   await loadPrescanCommits(branchName)
 }
 
-function doPrescanConfirm() {
-  // 校验：指定基准 commit 时，baseCommitInput 必须为 7~40 位 hex（下拉选的值也会写入 baseCommitInput）
+async function doPrescanConfirm() {
+  if (!selectedRepoId.value)
+    return
   if (scanScope.value === 'diff_commit') {
-    const v = baseCommitInput.value.trim()
-    if (!v || !/^[0-9a-f]{7,40}$/i.test(v)) {
+    const value = baseCommitInput.value.trim()
+    if (!value || !/^[0-9a-f]{7,40}$/i.test(value)) {
       Message.warning('基准 Commit SHA 须为 7~40 位十六进制字符')
       return
     }
   }
-  // prescanCommit 校验：若手工输入（不在下拉列表中），同样校验格式
-  if (prescanCommit.value && !prescanCommits.value.some(c => c.sha === prescanCommit.value)) {
-    if (!/^[0-9a-f]{7,40}$/i.test(prescanCommit.value.trim())) {
-      Message.warning('目标 Commit SHA 须为 7~40 位十六进制字符')
-      return
-    }
-  }
-  // 全量模式下重置 hunk 勾选
-  if (scanScope.value === 'full') {
-    hunkEnabled.value = false
-  }
-  prescanModalVisible.value = false
-  // 传给后端的必须是纯 commit sha（prescanCommit 存的就是 sha，不包含展示用的日期/标题）
-  triggerPrescan(false, prescanBranch.value || undefined, prescanCommit.value || undefined)
-}
-
-// 触发预扫描
-async function triggerPrescan(force = false, branch?: string, commitSha?: string) {
-  if (!selectedRepoId.value) {
-    Message.warning('请先在左侧树选择应用')
+  if (prescanCommit.value && !/^[0-9a-f]{7,40}$/i.test(prescanCommit.value.trim())) {
+    Message.warning('目标 Commit SHA 须为 7~40 位十六进制字符')
     return
   }
-  triggering.value = true
+  const body: Record<string, unknown> = {
+    repository_id: selectedRepoId.value,
+    requested_delta_kind: deltaScanMode.value,
+    branch: prescanBranch.value || undefined,
+    commit_sha: prescanCommit.value || undefined,
+    scan_mode: deltaScanMode.value === 'full_baseline' ? 'full' : 'diff',
+    base_commit: scanScope.value === 'diff_commit' ? baseCommitInput.value.trim() : undefined,
+    diff_granularity: deltaScanMode.value === 'hunk_quick' ? 'hunk' : 'file',
+    force: false,
+  }
+  previewingDelta.value = true
+  deltaPreview.value = null
   try {
-    const body: Record<string, unknown> = { repository_id: selectedRepoId.value, force }
-    if (branch) body.branch = branch
-    if (commitSha) body.commit_sha = commitSha
-    // 扫描范围组装
-    if (scanScope.value === 'full') {
-      body.scan_mode = 'full'
+    const preview = await postAction<DeltaPlanPreview>(ApiSecPrescan.deltaPreview, body)
+    if (preview) {
+      deltaPreview.value = preview
+      Message.success('差量计划已冻结，请核对估算与关闭资格后确认执行')
     }
-    else {
-      body.scan_mode = 'diff'
-      if (scanScope.value === 'diff_commit' && baseCommitInput.value.trim()) {
-        body.base_commit = baseCommitInput.value.trim()
-      }
-      body.diff_granularity = hunkEnabled.value ? 'hunk' : 'file'
-    }
-    const res = await postAction<PrescanTriggerResponse>(
-      ApiSecPrescan.trigger,
-      body,
-    )
-    if (!res) return
-    if (res.idempotent && !force) {
-      // 已存在相同输入的扫描结果，询问用户是否强制重扫
-      Modal.confirm({
-        title: '已存在扫描结果',
-        content: '该应用已有相同代码和规则的扫描结果，是否要强制重新扫描？',
-        okText: '重新扫描',
-        cancelText: '查看已有结果',
-        onOk: () => triggerPrescan(true),
-        onCancel: () => {
-          currentRunId.value = res.run_id
-          refreshStatus()
-        },
-      })
+  }
+  finally {
+    previewingDelta.value = false
+  }
+}
+
+async function executeDeltaPreview() {
+  const preview = deltaPreview.value
+  if (!preview)
+    return
+  executingDelta.value = true
+  try {
+    const url = resolveStaticScanApi(ApiSecPrescan.deltaExecute, { plan_id: preview.plan_id })
+    const result = await postAction<PrescanTriggerResponse>(url, {})
+    if (!result)
       return
-    }
-    currentRunId.value = res.run_id
-    if (force) {
-      Message.success('强制重扫已启动')
-    }
-    else {
-      Message.success('预扫描已启动')
-    }
+    currentRunId.value = result.run_id
+    prescanModalVisible.value = false
+    Message.success('已按冻结计划启动扫描；AI 仅确认 cache miss')
     startPolling()
     await refreshStatus()
   }
   finally {
-    triggering.value = false
+    executingDelta.value = false
   }
 }
 
@@ -711,20 +748,19 @@ function stopPolling() {
 }
 
 async function refreshStatus() {
-  if (!currentRunId.value) return
+  if (!currentRunId.value)
+    return
   const { data, execute } = useGet<PrescanStatusResponse>(
     `${ApiSecPrescan.status}?run_id=${currentRunId.value}`,
     {},
     { immediate: false },
   )
   await execute()
-  if (data.value) prescanStatus.value = data.value
+  if (data.value)
+    prescanStatus.value = data.value
 }
 
 // ===== 看板数据 =====
-const overview = ref<DashboardOverview | null>(null)
-const summaryRows = ref<ScanPointSummaryRow[]>([])
-const codeTree = ref<CodeTreeNode[]>([])
 const loadingDashboard = ref(false)
 
 async function fetchJson<T>(url: string): Promise<T | null> {
@@ -734,7 +770,8 @@ async function fetchJson<T>(url: string): Promise<T | null> {
 }
 
 async function loadDashboardData() {
-  if (!currentRunId.value) return
+  if (!currentRunId.value)
+    return
   loadingDashboard.value = true
   try {
     const [ovRes, sumRes, treeRes] = await Promise.all([
@@ -805,7 +842,8 @@ async function openDetail(scanPointId: string) {
 }
 
 async function loadCandidates() {
-  if (!currentRunId.value) return
+  if (!currentRunId.value)
+    return
   detailLoading.value = true
   try {
     const params = new URLSearchParams({
@@ -813,7 +851,8 @@ async function loadCandidates() {
       page_num: String(detailPageNum.value),
       page_size: '50',
     })
-    if (detailScanPointId.value) params.set('scan_point_id', detailScanPointId.value)
+    if (detailScanPointId.value)
+      params.set('scan_point_id', detailScanPointId.value)
     detailRows.value = await fetchJson<CandidateDetailPage>(`${ApiSecPrescan.candidates}?${params.toString()}`)
   }
   finally {
@@ -896,11 +935,11 @@ async function loadAgentList() {
 
 // 根据选中 agent 的 supported_models_json 动态生成模型选项
 const modelOptions = computed(() => {
-  const agent = agentList.value.find((a) => a.agent_code === aiAgentCode.value)
+  const agent = agentList.value.find(a => a.agent_code === aiAgentCode.value)
   if (agent?.supported_models_json) {
     try {
       const models: string[] = JSON.parse(agent.supported_models_json)
-      return models.map((m) => ({ label: m === 'auto' ? 'Agent 默认模型（auto）' : m, value: m === 'auto' ? '' : m }))
+      return models.map(m => ({ label: m === 'auto' ? 'Agent 默认模型（auto）' : m, value: m === 'auto' ? '' : m }))
     }
     catch { /* ignore */ }
   }
@@ -920,7 +959,8 @@ const agentProgress = ref<AgentRunProgress | null>(null)
 let agentPollTimer: ReturnType<typeof setInterval> | null = null
 
 async function loadAgentStatus() {
-  if (!currentRunId.value) return
+  if (!currentRunId.value)
+    return
   const progress = await fetchJson<AgentRunProgress>(`${ApiSecPrescan.agentStatus}?run_id=${currentRunId.value}`)
   if (progress) {
     agentProgress.value = progress
@@ -994,7 +1034,8 @@ async function doAiConfirm() {
       ApiSecPrescan.aiConfirm,
       body,
     )
-    if (!res) return
+    if (!res)
+      return
     Message.success(res.message)
     if (aiMode.value === 'agent') {
       startAgentPolling()
@@ -1167,8 +1208,10 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
         <!-- 预扫描按钮：放开并发限制，只在未选应用时禁用。
              原逻辑 :disabled="polling || !selectedRepoId" 导致有扫描轮询时无法触发新扫描，
              但预扫描接口本身是幂等/并发安全的，多个 run 互不干扰，无需在前端串行化。 -->
-        <a-button type="primary" :loading="triggering" :disabled="!selectedRepoId" @click="openPrescanModal()">
-          <template #icon><icon-play-arrow /></template>
+        <a-button type="primary" :loading="previewingDelta || executingDelta" :disabled="!selectedRepoId" @click="openPrescanModal()">
+          <template #icon>
+            <icon-play-arrow />
+          </template>
           预扫描
         </a-button>
         <!-- AI 确认：仅 succeeded 状态才可触发；未完成/失败/跳过时 tooltip 说明原因 -->
@@ -1180,7 +1223,9 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
             :disabled="aiConfirmDisabled"
             @click="triggerAiConfirm"
           >
-            <template #icon><icon-robot /></template>
+            <template #icon>
+              <icon-robot />
+            </template>
             AI 全量确认
           </a-button>
         </a-tooltip>
@@ -1232,13 +1277,19 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
 
     <!-- 主体：左树右表 -->
     <a-card :bordered="false" :body-style="{ padding: '16px' }">
-      <div ref="dashboardRow" style="display: flex; gap: 16px; min-height: 420px" :style="{ height: dashboardRowH + 'px' }">
+      <div ref="dashboardRow" style="display: flex; gap: 16px; min-height: 420px" :style="{ height: `${dashboardRowH}px` }">
         <!-- 左树：组织维度 -->
         <div style="width: 300px; flex-shrink: 0; border-right: 1px solid #e5e6eb; padding-right: 12px; display: flex; flex-direction: column; min-height: 0">
           <a-radio-group v-model="dimension" type="button" size="small" style="margin-bottom: 8px" @change="onDimensionChange">
-            <a-radio value="project_group">项目组</a-radio>
-            <a-radio value="business_area">业务领域</a-radio>
-            <a-radio value="product_domain">产品领域</a-radio>
+            <a-radio value="project_group">
+              项目组
+            </a-radio>
+            <a-radio value="business_area">
+              业务领域
+            </a-radio>
+            <a-radio value="product_domain">
+              产品领域
+            </a-radio>
           </a-radio-group>
           <div style="display: flex; gap: 8px; margin-bottom: 8px">
             <a-input-search v-model="treeSearch" placeholder="搜索应用" allow-clear />
@@ -1249,12 +1300,12 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
           <div style="flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0">
             <a-tree
               v-if="displayTree.length"
+              v-model:expanded-keys="expandedKeys"
               :data="displayTree"
               :field-names="{ key: 'key', title: 'title', children: 'children' }"
               show-line
               block-node
               :default-expand-all="true"
-              v-model:expanded-keys="expandedKeys"
               :selected-keys="selectedKeys"
               @select="onTreeSelect"
             >
@@ -1339,76 +1390,80 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
             <!-- 视图切换 -->
             <div style="margin-bottom: 8px">
               <a-radio-group v-model="tableView" type="button" size="small">
-                <a-radio value="scanpoint">按扫描点</a-radio>
-                <a-radio value="file">按文件</a-radio>
+                <a-radio value="scanpoint">
+                  按扫描点
+                </a-radio>
+                <a-radio value="file">
+                  按文件
+                </a-radio>
               </a-radio-group>
             </div>
 
             <!-- 按扫描点 -->
             <div v-if="tableView === 'scanpoint'" ref="scanpointTableWrap" style="flex: 1; min-height: 0">
-            <a-table
-              :data="summaryRows"
-              :columns="summaryColumns"
-              :loading="loadingDashboard"
-              :pagination="false"
-              row-key="scan_point_id"
-              size="small"
-              :scroll="{ minWidth: 1100, y: scanpointTableH }"
-            >
-              <template #domain="{ record }">
-                <a-tag size="small" :color="record.domain === 'security' ? 'red' : 'blue'">
-                  {{ domainLabels[record.domain] ?? record.domain }}
-                </a-tag>
-              </template>
-              <template #category="{ record }">
-                {{ securityCategoryLabels[record.category] ?? record.category }}
-              </template>
-              <template #operations="{ record }">
-                <a-button type="text" size="small" @click="openDetail(record.scan_point_id)">
-                  详情
-                </a-button>
-              </template>
-            </a-table>
+              <a-table
+                :data="summaryRows"
+                :columns="summaryColumns"
+                :loading="loadingDashboard"
+                :pagination="false"
+                row-key="scan_point_id"
+                size="small"
+                :scroll="{ minWidth: 1100, y: scanpointTableH }"
+              >
+                <template #domain="{ record }">
+                  <a-tag size="small" :color="record.domain === 'security' ? 'red' : 'blue'">
+                    {{ domainLabels[record.domain] ?? record.domain }}
+                  </a-tag>
+                </template>
+                <template #category="{ record }">
+                  {{ securityCategoryLabels[record.category] ?? record.category }}
+                </template>
+                <template #operations="{ record }">
+                  <a-button type="text" size="small" @click="openDetail(record.scan_point_id)">
+                    详情
+                  </a-button>
+                </template>
+              </a-table>
             </div>
 
             <!-- 按文件 -->
             <div v-else ref="fileTableWrap" style="flex: 1; min-height: 0">
-            <a-table
-              :data="codeDetail?.list ?? []"
-              :columns="fileCandidateColumns"
-              :loading="codeLoading"
-              :pagination="{ total: codeDetail?.total ?? 0, current: codePageNum, pageSize: 50 }"
-              row-key="id"
-              size="small"
-              :scroll="{ minWidth: 1200, y: fileTableH }"
-              @page-change="(page: number) => { codePageNum = page; loadCodeCandidates() }"
-            >
-              <template #domain="{ record }">
-                <a-tag size="small" :color="record.domain === 'security' ? 'red' : 'blue'">
-                  {{ domainLabels[record.domain] ?? record.domain }}
-                </a-tag>
-              </template>
-              <template #category="{ record }">
-                {{ securityCategoryLabels[record.category] ?? record.category }}
-              </template>
-              <template #aiStatus="{ record }">
-                <a-tag :color="aiStatusLabels[record.ai_status]?.color ?? 'gray'" size="small">
-                  {{ aiStatusLabels[record.ai_status]?.label ?? record.ai_status }}
-                </a-tag>
-              </template>
-              <template #aiMode="{ record }">
-                <a-tag v-if="record.ai_mode" :color="aiModeLabels[record.ai_mode]?.color ?? 'gray'" size="small">
-                  {{ aiModeLabels[record.ai_mode]?.label ?? record.ai_mode }}
-                </a-tag>
-                <span v-else>-</span>
-              </template>
-              <template #riskLevel="{ record }">
-                <a-tag v-if="record.ai_risk_level" :color="riskColors[record.ai_risk_level] ?? 'gray'" size="small">
-                  {{ record.ai_risk_level }}
-                </a-tag>
-                <span v-else>-</span>
-              </template>
-            </a-table>
+              <a-table
+                :data="codeDetail?.list ?? []"
+                :columns="fileCandidateColumns"
+                :loading="codeLoading"
+                :pagination="{ total: codeDetail?.total ?? 0, current: codePageNum, pageSize: 50 }"
+                row-key="id"
+                size="small"
+                :scroll="{ minWidth: 1200, y: fileTableH }"
+                @page-change="(page: number) => { codePageNum = page; loadCodeCandidates() }"
+              >
+                <template #domain="{ record }">
+                  <a-tag size="small" :color="record.domain === 'security' ? 'red' : 'blue'">
+                    {{ domainLabels[record.domain] ?? record.domain }}
+                  </a-tag>
+                </template>
+                <template #category="{ record }">
+                  {{ securityCategoryLabels[record.category] ?? record.category }}
+                </template>
+                <template #aiStatus="{ record }">
+                  <a-tag :color="aiStatusLabels[record.ai_status]?.color ?? 'gray'" size="small">
+                    {{ aiStatusLabels[record.ai_status]?.label ?? record.ai_status }}
+                  </a-tag>
+                </template>
+                <template #aiMode="{ record }">
+                  <a-tag v-if="record.ai_mode" :color="aiModeLabels[record.ai_mode]?.color ?? 'gray'" size="small">
+                    {{ aiModeLabels[record.ai_mode]?.label ?? record.ai_mode }}
+                  </a-tag>
+                  <span v-else>-</span>
+                </template>
+                <template #riskLevel="{ record }">
+                  <a-tag v-if="record.ai_risk_level" :color="riskColors[record.ai_risk_level] ?? 'gray'" size="small">
+                    {{ record.ai_risk_level }}
+                  </a-tag>
+                  <span v-else>-</span>
+                </template>
+              </a-table>
             </div>
           </template>
         </div>
@@ -1495,9 +1550,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
     <a-modal
       v-model:visible="prescanModalVisible"
       title="预扫描配置"
-      :ok-text="'开始扫描'"
-      :cancel-text="'取消'"
-      @ok="doPrescanConfirm"
+      :footer="false"
     >
       <a-form :model="{}" layout="vertical">
         <a-form-item label="目标分支">
@@ -1522,7 +1575,9 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
               title="刷新分支（会执行 git fetch，较慢）"
               @click="refreshBranches"
             >
-              <template #icon><icon-refresh /></template>
+              <template #icon>
+                <icon-refresh />
+              </template>
             </a-button>
           </a-space>
         </a-form-item>
@@ -1544,11 +1599,39 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
             </a-option>
           </a-select>
         </a-form-item>
-        <a-form-item label="扫描范围">
-          <a-radio-group v-model="scanScope" type="button">
-            <a-radio value="full">全量</a-radio>
-            <a-radio value="diff_last">自上次扫描（增量）</a-radio>
-            <a-radio value="diff_commit">指定基准 commit</a-radio>
+        <a-form-item label="扫描策略">
+          <a-select v-model="deltaScanMode" style="width: 100%" @change="deltaPreview = null">
+            <a-option value="auto_delta">
+              推荐：自动增量
+            </a-option>
+            <a-option value="code_delta">
+              仅代码差量
+            </a-option>
+            <a-option value="rule_delta">
+              仅规则差量
+            </a-option>
+            <a-option value="hybrid_delta">
+              代码 + 规则混合差量
+            </a-option>
+            <a-option value="full_baseline">
+              完整基线
+            </a-option>
+            <a-option value="reconfirm">
+              仅重新 AI 确认
+            </a-option>
+            <a-option value="hunk_quick">
+              高级：新增行快速检查（不关闭问题）
+            </a-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="差量基准">
+          <a-radio-group v-model="scanScope" type="button" @change="deltaPreview = null">
+            <a-radio value="diff_last">
+              自动选择可信基线
+            </a-radio>
+            <a-radio value="diff_commit">
+              指定基准 commit
+            </a-radio>
           </a-radio-group>
         </a-form-item>
         <a-form-item v-if="scanScope === 'diff_commit'" label="基准 Commit SHA">
@@ -1571,17 +1654,59 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
             </a-option>
           </a-select>
         </a-form-item>
-        <a-form-item>
-          <a-checkbox
-            v-model="hunkEnabled"
-            :disabled="scanScope === 'full'"
-          >
-            按 hunk 粒度过滤（行级差量）
-          </a-checkbox>
-          <a-tooltip v-if="scanScope === 'full'" content="仅增量扫描可用">
-            <icon-info-circle style="margin-left: 4px; color: var(--color-text-3)" />
-          </a-tooltip>
-        </a-form-item>
+        <a-alert v-if="deltaScanMode === 'hunk_quick'" type="warning" style="margin-bottom: 8px">
+          新增行快速检查固定 may_auto_close=false，不会关闭任何历史问题。
+        </a-alert>
+        <a-card v-if="deltaPreview" title="冻结计划预览" size="small" style="margin-bottom: 8px">
+          <a-descriptions :column="2" size="small" bordered>
+            <a-descriptions-item label="类型">
+              {{ deltaPreview.delta_kind }}
+            </a-descriptions-item>
+            <a-descriptions-item label="计划">
+              {{ deltaPreview.plan_id.slice(0, 12) }}
+            </a-descriptions-item>
+            <a-descriptions-item label="A/M/D/R/C">
+              {{ deltaPreview.added_files }}/{{ deltaPreview.modified_files }}/{{ deltaPreview.deleted_files }}/{{ deltaPreview.renamed_files }}/{{ deltaPreview.copied_files }}
+            </a-descriptions-item>
+            <a-descriptions-item label="直接/影响文件">
+              {{ deltaPreview.direct_file_count }}/{{ deltaPreview.impacted_file_count }}
+            </a-descriptions-item>
+            <a-descriptions-item label="规则 +/~/-">
+              {{ deltaPreview.added_rule_count }}/{{ deltaPreview.modified_rule_count }}/{{ deltaPreview.removed_rule_count }}
+            </a-descriptions-item>
+            <a-descriptions-item label="AI hit/miss/not eligible">
+              {{ deltaPreview.cache_hit_count.lower }}..{{ deltaPreview.cache_hit_count.upper }} /
+              {{ deltaPreview.cache_miss_count.lower }}..{{ deltaPreview.cache_miss_count.upper }} /
+              {{ deltaPreview.cache_not_eligible_count.lower }}..{{ deltaPreview.cache_not_eligible_count.upper }}
+            </a-descriptions-item>
+            <a-descriptions-item label="预计调用区间">
+              {{ deltaPreview.ai_call_count.lower }}..{{ deltaPreview.ai_call_count.upper }}
+            </a-descriptions-item>
+            <a-descriptions-item label="预计 Token 区间">
+              {{ deltaPreview.token_count.lower }}..{{ deltaPreview.token_count.upper }}（非账单）
+            </a-descriptions-item>
+          </a-descriptions>
+          <a-alert v-if="deltaPreview.call_graph_truncated" type="warning" style="margin-top: 8px">
+            调用图已截断，禁止自动关闭。
+          </a-alert>
+          <a-alert v-if="!deltaPreview.may_auto_close" type="warning" style="margin-top: 8px">
+            不具备自动关闭资格：{{ deltaPreview.auto_close_block_reasons.join('、') || '覆盖不完整' }}
+          </a-alert>
+          <div class="m-t-8px text-xs text-gray">
+            {{ deltaPreview.estimate_basis.join('；') }}
+          </div>
+        </a-card>
+        <a-space style="display: flex; justify-content: flex-end">
+          <a-button @click="prescanModalVisible = false">
+            取消
+          </a-button>
+          <a-button type="outline" :loading="previewingDelta" @click="doPrescanConfirm">
+            生成差量计划
+          </a-button>
+          <a-button type="primary" :disabled="!deltaPreview" :loading="executingDelta" @click="executeDeltaPreview">
+            确认执行冻结计划
+          </a-button>
+        </a-space>
         <a-alert v-if="runList.length > 0" type="info" style="margin-top: 4px">
           该应用已有 {{ runList.length }} 条扫描记录，相同代码和规则不会重复扫描（幂等保护）。
         </a-alert>
@@ -1592,8 +1717,8 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
     <a-modal
       v-model:visible="aiConfirmModalVisible"
       title="AI 确认配置"
-      :ok-text="'开始确认'"
-      :cancel-text="'取消'"
+      ok-text="开始确认"
+      cancel-text="取消"
       @ok="doAiConfirm"
     >
       <a-form :model="{}" layout="vertical">
@@ -1606,8 +1731,12 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
         </a-form-item>
         <a-form-item label="确认模式">
           <a-radio-group v-model="aiMode" type="button">
-            <a-radio value="batch">平台编排（批量）</a-radio>
-            <a-radio value="agent">Agent 自主</a-radio>
+            <a-radio value="batch">
+              平台编排（批量）
+            </a-radio>
+            <a-radio value="agent">
+              Agent 自主
+            </a-radio>
           </a-radio-group>
         </a-form-item>
         <a-form-item label="执行 Agent">

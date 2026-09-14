@@ -94,6 +94,26 @@
           </div>
 
           <div class="f-mid">
+            <a-select
+              v-model="searchForm.business_area"
+              placeholder="业务领域"
+              allow-clear
+              allow-search
+              @change="handleBusinessAreaChange"
+            >
+              <a-option v-for="area in areaOptions" :key="area" :value="area">{{ area }}</a-option>
+            </a-select>
+          </div>
+
+          <div class="f-wide">
+            <a-select v-model="searchForm.project_group_code" placeholder="项目组" allow-clear allow-search>
+              <a-option v-for="group in searchGroupOptions" :key="group.value" :value="group.value">
+                {{ group.label }}
+              </a-option>
+            </a-select>
+          </div>
+
+          <div class="f-mid">
             <a-input v-model="searchForm.app_number" placeholder="应用编码" allow-clear />
           </div>
 
@@ -153,7 +173,7 @@
             Arco 只有在有横向滚动容器时才能正确定位固定列，缺了它操作列会
             溢出到表格右边界之外。
             用 minWidth 而非 x：x 会被当成固定 width，容器更宽时表格停在那个宽度、
-            右边留白。16 个列宽合计 1965px。
+            右边留白。新增项目组、业务领域后列宽合计约 2215px。
           -->
             <a-table
               :data="tableData"
@@ -161,7 +181,7 @@
               :pagination="pagination"
               :row-selection="{ type: 'checkbox', showCheckedAll: true }"
               :selected-keys="selectedIds"
-              :scroll="{ minWidth: 1965, y: tableHeight }"
+              :scroll="{ minWidth: 2215, y: tableHeight }"
               row-key="id"
               @selection-change="onSelectionChange"
               @page-change="handlePageChange"
@@ -179,6 +199,14 @@
                   <template #cell="{ record }">{{ issueTypeText(record.issue_type) }}</template>
                 </a-table-column>
                 <a-table-column title="应用" data-index="app_number" :width="80" />
+                <a-table-column title="项目组" :width="150" ellipsis tooltip>
+                  <template #cell="{ record }">
+                    {{ record.project_group_name || record.project_group_code || '--' }}
+                  </template>
+                </a-table-column>
+                <a-table-column title="业务领域" data-index="business_area" :width="100" ellipsis tooltip>
+                  <template #cell="{ record }">{{ record.business_area || '--' }}</template>
+                </a-table-column>
                 <a-table-column title="表单" data-index="form_name" :width="150" ellipsis />
                 <a-table-column title="客户" data-index="customer_name" :width="120" ellipsis />
                 <a-table-column title="状态" data-index="status" :width="90">
@@ -260,7 +288,8 @@
           <a-descriptions-item label="表单">{{ currentRecord?.form_name }}</a-descriptions-item>
           <a-descriptions-item label="按钮">{{ currentRecord?.control_name }}</a-descriptions-item>
           <a-descriptions-item label="客户">{{ currentRecord?.customer_name }}</a-descriptions-item>
-          <a-descriptions-item label="项目组">{{ currentRecord?.project_group_name }}</a-descriptions-item>
+          <a-descriptions-item label="项目组">{{ currentRecord?.project_group_name || currentRecord?.project_group_code || '--' }}</a-descriptions-item>
+          <a-descriptions-item label="业务领域">{{ currentRecord?.business_area || '--' }}</a-descriptions-item>
           <a-descriptions-item label="负责人">{{ currentRecord?.assignee }}</a-descriptions-item>
           <a-descriptions-item label="发现日期">{{ formatTime(currentRecord?.found_date, { precision: 'date' }) }}</a-descriptions-item>
           <a-descriptions-item label="修复日期">{{ formatTime(currentRecord?.fixed_date, { precision: 'date' }) }}</a-descriptions-item>
@@ -655,11 +684,24 @@ const { data: allGroupsRes } = useGet<any>(ApiSecProjectGroup.getAll, {}, { imme
 const groupOptions = computed(() => {
   const list = allGroupsRes.value
   if (!Array.isArray(list)) return []
-  return list.map((g: any) => ({
-    value: g.code,
-    label: g.name ? `${g.name}（${g.code}）` : g.code,
-  }))
+  return list
+    .filter((g: any) => g.status === '1' || g.status === 1 || g.status === undefined)
+    .map((g: any) => ({
+      value: g.code,
+      label: g.name ? `${g.name}（${g.code}）` : g.code,
+      area: g.business_area || '',
+    }))
 })
+const areaOptions = computed(() => [...new Set(groupOptions.value.map(g => g.area).filter(Boolean))])
+const searchGroupOptions = computed(() => {
+  const area = searchForm.business_area
+  return area ? groupOptions.value.filter(group => group.area === area) : groupOptions.value
+})
+function handleBusinessAreaChange() {
+  const selected = searchForm.project_group_code
+  if (selected && !searchGroupOptions.value.some(group => group.value === selected))
+    searchForm.project_group_code = ''
+}
 
 // 流转记录
 const logsVisible = ref(false)
