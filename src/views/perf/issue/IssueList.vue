@@ -331,6 +331,14 @@
           来源：{{ mdMeta.run_date }} / {{ mdMeta.file }}（{{ Math.round((mdMeta.bytes || 0) / 1024) }} KB{{ mdMeta.truncated ? '，已截断' : '' }}）
         </div>
 
+        <!-- 再次分析：与问题台账详情同一个组件、同一套接口。
+             这边手里只有问题，所以传 issue 让后端反查台账（resolve_pattern_key）。 -->
+        <PatternReanalysis
+          :issue="currentRecord?.issue_no || currentRecord?.id"
+          :active="drawerVisible"
+          :unavailable-reason="reanalysisUnavailableReason(currentRecord)"
+        />
+
         <a-divider>技术签名</a-divider>
         <pre class="json-content">{{ prettyJson(currentRecord?.tech_signature) }}</pre>
 
@@ -521,6 +529,7 @@ import { ApiSysUser } from '@/api/sysApis'
 import { ApiSecProjectGroup } from '@/api/sechubApis'
 import { formatTime, useDelete, useDicts, useDownload, useGet, usePost, usePut } from '@/hooks'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
+import PatternReanalysis from '@/views/perf/components/PatternReanalysis.vue'
 import { useUserStore } from '@/stores'
 
 defineOptions({ name: 'issue-list' })
@@ -951,6 +960,17 @@ const bundleTip = (record: any): string =>
   hasBundle(record)
     ? '打包该问题的原始天梯日志与缺陷报告 md'
     : '该问题没有关联的归因产物（无 trace 记录，通常是手工创建的问题）'
+
+/**
+ * 「再次分析」不可用的原因；返回空串表示可用。
+ *
+ * 复核要读原始日志与报告 md，判据与 {@link hasBundle} 相同 —— 手工创建的问题
+ * 两样都没有，后端也会因为找不到关联台账而报错。提前说清比让人写完质疑再吃报错好。
+ */
+const reanalysisUnavailableReason = (record: any): string =>
+  hasBundle(record)
+    ? ''
+    : '该问题没有关联的归因台账（无 trace 记录，通常是手工创建的问题），无法发起 AI 复核。'
 
 const handleBundleDownload = async () => {
   const record = currentRecord.value
