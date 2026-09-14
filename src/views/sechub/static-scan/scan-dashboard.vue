@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { DomainAsset, DomainAssetPage } from './domain-assets/types'
 import type { AiAgent, AiSkill } from '@/api/aiApis'
 import type {
   AgentRunProgress,
@@ -29,7 +30,7 @@ import VChart from 'vue-echarts'
 import { useRouter } from 'vue-router'
 import { ApiAiAgent, ApiAiSkill } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
-import { ApiSecModuleRepository, ApiSecPrescan, resolveStaticScanApi } from '@/api/sechubApis'
+import { ApiSecDomainAsset, ApiSecModuleRepository, ApiSecPrescan, resolveStaticScanApi } from '@/api/sechubApis'
 import { formatTime, getAction, postAction, useAutoHeight, useGet } from '@/hooks'
 import { domainLabels, securityCategoryLabels } from './labels'
 
@@ -57,7 +58,7 @@ const fileTableWrap = ref<HTMLElement>()
 const { height: fileTableH } = useAutoHeight(fileTableWrap)
 
 // ===== 应用列表（模块+仓库+维度字段） =====
-const { data: repoList } = useGet<ModuleWithRepository[]>(ApiSecModuleRepository.listWithModule, {}, { immediate: true })
+const { data: repoList } = useGet<ModuleWithRepository[]>(`${ApiSecModuleRepository.listWithModule}?include_unbound_local=true`, {}, { immediate: true })
 const repositories = computed(() => repoList.value ?? [])
 
 // ===== 左树维度切换（参考达标率看板） =====
@@ -455,7 +456,26 @@ const scanScope = ref<'full' | 'diff_last' | 'diff_commit'>('full')
 const baseCommitInput = ref('')
 const diffGranularity = ref<'file' | 'hunk'>('file')
 
+type ScanTargetType = 'repository' | 'form' | 'microservice'
 type DeltaScanMode = 'auto_delta' | 'code_delta' | 'rule_delta' | 'hybrid_delta' | 'full_baseline' | 'reconfirm' | 'hunk_quick'
+
+const scanTargetType = ref<ScanTargetType>('repository')
+const domainAssets = ref<DomainAsset[]>([])
+const selectedAssetIds = ref<string[]>([])
+const includeAmbiguous = ref(false)
+const loadingDomainAssets = ref(false)
+const isLocalRepository = computed(() => selectedRepo.value?.git_url.startsWith('local-test:') ?? false)
+const isDomainTarget = computed(() => scanTargetType.value !== 'repository')
+const selectedSyncRunId = computed(() => {
+  const first = domainAssets.value.find(asset => selectedAssetIds.value.includes(asset.id))
+  return first?.last_sync_run_id ? String(first.last_sync_run_id) : ''
+})
+const assetOptions = computed(() => domainAssets.value.map(asset => ({
+  value: asset.id,
+  label: String(asset.display_name ?? asset.asset_key ?? asset.id),
+  fileCount: Number(asset.file_count ?? 0),
+  disabled: Boolean(selectedSyncRunId.value && String(asset.last_sync_run_id ?? '') !== selectedSyncRunId.value),
+})))
 
 interface EstimateRange {
   lower: number
@@ -562,6 +582,42 @@ async function loadPrescanCommits(branch: string) {
   }
 }
 
+async function loadDomainAssets() {
+  if (!selectedRepoId.value || scanTargetType.value === 'repository') {
+    domainAssets.value = []
+    return
+  }
+  loadingDomainAssets.value = true
+  try {
+    const page = await getAction<DomainAssetPage>(ApiSecDomainAsset.getList, {
+      page_num: 1,
+      page_size: 200,
+      asset_type: scanTargetType.value,
+      repository_id: selectedRepoId.value,
+      in_scope: true,
+      active: true,
+    })
+    domainAssets.value = page?.list ?? []
+    selectedAssetIds.value = selectedAssetIds.value.filter(id => domainAssets.value.some(asset => asset.id === id))
+    if (page && page.total > page.list.length)
+      Message.warning(`当前仓库有 ${page.total} 个可扫描资产，本次先展示最近更新的 ${page.list.length} 个`)
+  }
+  catch {
+    domainAssets.value = []
+  }
+  finally {
+    loadingDomainAssets.value = false
+  }
+}
+
+async function onScanTargetChange() {
+  selectedAssetIds.value = []
+  includeAmbiguous.value = false
+  deltaPreview.value = null
+  if (scanTargetType.value !== 'repository')
+    await loadDomainAssets()
+}
+
 async function openPrescanModal() {
   if (!selectedRepoId.value) {
     Message.warning('请先在左侧树选择应用')
@@ -572,12 +628,19 @@ async function openPrescanModal() {
   prescanBranches.value = []
   prescanCommits.value = []
   baseCommits.value = []
+  scanTargetType.value = 'repository'
+  selectedAssetIds.value = []
+  domainAssets.value = []
+  includeAmbiguous.value = false
   scanScope.value = 'diff_last'
-  deltaScanMode.value = 'auto_delta'
+  deltaScanMode.value = isLocalRepository.value ? 'full_baseline' : 'auto_delta'
   deltaPreview.value = null
   baseCommitInput.value = ''
   diffGranularity.value = 'file'
   prescanModalVisible.value = true
+  // 反编译源码库不是 Git 仓库，只能直接走全量扫描，不能读取分支/commit。
+  if (isLocalRepository.value)
+    return
   // 用 refresh=false 加载分支（读缓存，快路径），避免打开弹窗时触发 git fetch
   const repo = selectedRepo.value
   if (!repo)
@@ -655,9 +718,51 @@ async function onPrescanBranchChange(value: SelectChangeValue) {
   await loadPrescanCommits(branchName)
 }
 
+async function acceptDirectTrigger(result: PrescanTriggerResponse, message: string) {
+  currentRunId.value = result.run_id
+  prescanModalVisible.value = false
+  Message.success(message)
+  startPolling()
+  await refreshStatus()
+}
+
+async function triggerDirectPrescan() {
+  if (isDomainTarget.value) {
+    if (selectedAssetIds.value.length === 0) {
+      Message.warning(`请至少选择一个${scanTargetType.value === 'form' ? '表单' : '微服务'}资产`)
+      return
+    }
+    const result = await postAction<PrescanTriggerResponse>(ApiSecPrescan.domainTrigger, {
+      scope_type: scanTargetType.value,
+      asset_ids: selectedAssetIds.value,
+      include_ambiguous: includeAmbiguous.value,
+    })
+    if (result)
+      await acceptDirectTrigger(result, '已冻结领域资产范围并启动扫描')
+    return
+  }
+  const result = await postAction<PrescanTriggerResponse>(ApiSecPrescan.trigger, {
+    repository_id: selectedRepoId.value,
+    scan_mode: 'full',
+    force: false,
+  })
+  if (result)
+    await acceptDirectTrigger(result, '已启动反编译源码全量扫描')
+}
+
 async function doPrescanConfirm() {
   if (!selectedRepoId.value)
     return
+  if (isDomainTarget.value || isLocalRepository.value) {
+    executingDelta.value = true
+    try {
+      await triggerDirectPrescan()
+    }
+    finally {
+      executingDelta.value = false
+    }
+    return
+  }
   if (scanScope.value === 'diff_commit') {
     const value = baseCommitInput.value.trim()
     if (!value || !/^[0-9a-f]{7,40}$/i.test(value)) {
@@ -1553,7 +1658,43 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
       :footer="false"
     >
       <a-form :model="{}" layout="vertical">
-        <a-form-item label="目标分支">
+        <a-form-item label="扫描范围">
+          <a-radio-group v-model="scanTargetType" type="button" :disabled="isLocalRepository" @change="onScanTargetChange">
+            <a-radio value="repository">
+              整个仓库
+            </a-radio>
+            <a-radio value="form">
+              表单资产
+            </a-radio>
+            <a-radio value="microservice">
+              微服务资产
+            </a-radio>
+          </a-radio-group>
+        </a-form-item>
+        <a-form-item v-if="isDomainTarget" :label="scanTargetType === 'form' ? '表单资产' : '微服务资产'">
+          <a-select
+            v-model="selectedAssetIds"
+            multiple
+            allow-search
+            :loading="loadingDomainAssets"
+            :placeholder="assetOptions.length ? '选择本次要扫描的资产' : '当前仓库暂无可扫描资产'"
+            :max-tag-count="4"
+          >
+            <a-option v-for="asset in assetOptions" :key="asset.value" :value="asset.value" :disabled="asset.disabled">
+              {{ asset.label }}（{{ asset.fileCount }} 文件）
+            </a-option>
+          </a-select>
+          <a-checkbox v-model="includeAmbiguous" style="margin-top: 8px">
+            包含匹配证据存在歧义的资产文件
+          </a-checkbox>
+          <div class="text-xs text-gray" style="margin-top: 4px">
+            仅展示当前仓库内 active、in_scope 资产；源码证据与同步批次会在执行时由后端严格冻结校验。
+          </div>
+        </a-form-item>
+        <a-alert v-if="isLocalRepository" type="info" style="margin-bottom: 12px">
+          当前为反编译源码库，将直接扫描登记目录；不读取 Git 分支、Commit 或差量基线。
+        </a-alert>
+        <a-form-item v-if="!isDomainTarget && !isLocalRepository" label="目标分支">
           <!-- 分支选择行：下拉 + 显式刷新按钮（点击才 refresh=true 真正 git fetch） -->
           <a-space style="width: 100%">
             <a-select
@@ -1581,7 +1722,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
             </a-button>
           </a-space>
         </a-form-item>
-        <a-form-item label="目标 Commit（可选，留空则使用分支最新提交）">
+        <a-form-item v-if="!isDomainTarget && !isLocalRepository" label="目标 Commit（可选，留空则使用分支最新提交）">
           <!-- commit 下拉：支持搜索 + 手工输入不在列表中的 sha，保留 7~40 位 hex 校验。
                allow-clear 允许清空回「使用分支最新提交」语义；清空后 prescanCommit 为空串，
                doPrescanConfirm 中 prescanCommit.value || undefined 会转成 undefined，后端取分支最新 commit。 -->
@@ -1599,7 +1740,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
             </a-option>
           </a-select>
         </a-form-item>
-        <a-form-item label="扫描策略">
+        <a-form-item v-if="!isDomainTarget && !isLocalRepository" label="扫描策略">
           <a-select v-model="deltaScanMode" style="width: 100%" @change="deltaPreview = null">
             <a-option value="auto_delta">
               推荐：自动增量
@@ -1624,7 +1765,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
             </a-option>
           </a-select>
         </a-form-item>
-        <a-form-item label="差量基准">
+        <a-form-item v-if="!isDomainTarget && !isLocalRepository" label="差量基准">
           <a-radio-group v-model="scanScope" type="button" @change="deltaPreview = null">
             <a-radio value="diff_last">
               自动选择可信基线
@@ -1634,7 +1775,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
             </a-radio>
           </a-radio-group>
         </a-form-item>
-        <a-form-item v-if="scanScope === 'diff_commit'" label="基准 Commit SHA">
+        <a-form-item v-if="!isDomainTarget && !isLocalRepository && scanScope === 'diff_commit'" label="基准 Commit SHA">
           <!-- 差量基准 commit：支持下拉选同分支 commit，保留手工输入与 7~40 位 hex 校验。
                allow-clear 允许清空；disabled 联动：仅 scanScope === 'diff_commit' 时可操作，
                其他 scope 时此 form-item 整体隐藏（v-if），不破坏 disabled 联动逻辑。
@@ -1654,10 +1795,10 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
             </a-option>
           </a-select>
         </a-form-item>
-        <a-alert v-if="deltaScanMode === 'hunk_quick'" type="warning" style="margin-bottom: 8px">
+        <a-alert v-if="!isDomainTarget && !isLocalRepository && deltaScanMode === 'hunk_quick'" type="warning" style="margin-bottom: 8px">
           新增行快速检查固定 may_auto_close=false，不会关闭任何历史问题。
         </a-alert>
-        <a-card v-if="deltaPreview" title="冻结计划预览" size="small" style="margin-bottom: 8px">
+        <a-card v-if="!isDomainTarget && !isLocalRepository && deltaPreview" title="冻结计划预览" size="small" style="margin-bottom: 8px">
           <a-descriptions :column="2" size="small" bordered>
             <a-descriptions-item label="类型">
               {{ deltaPreview.delta_kind }}
@@ -1700,12 +1841,23 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
           <a-button @click="prescanModalVisible = false">
             取消
           </a-button>
-          <a-button type="outline" :loading="previewingDelta" @click="doPrescanConfirm">
-            生成差量计划
+          <a-button
+            v-if="isDomainTarget || isLocalRepository"
+            type="primary"
+            :loading="executingDelta"
+            :disabled="isDomainTarget && selectedAssetIds.length === 0"
+            @click="doPrescanConfirm"
+          >
+            {{ isDomainTarget ? '冻结资产范围并扫描' : '开始全量扫描' }}
           </a-button>
-          <a-button type="primary" :disabled="!deltaPreview" :loading="executingDelta" @click="executeDeltaPreview">
-            确认执行冻结计划
-          </a-button>
+          <template v-else>
+            <a-button type="outline" :loading="previewingDelta" @click="doPrescanConfirm">
+              生成差量计划
+            </a-button>
+            <a-button type="primary" :disabled="!deltaPreview" :loading="executingDelta" @click="executeDeltaPreview">
+              确认执行冻结计划
+            </a-button>
+          </template>
         </a-space>
         <a-alert v-if="runList.length > 0" type="info" style="margin-top: 4px">
           该应用已有 {{ runList.length }} 条扫描记录，相同代码和规则不会重复扫描（幂等保护）。
