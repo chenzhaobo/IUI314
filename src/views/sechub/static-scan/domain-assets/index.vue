@@ -34,7 +34,7 @@ import {
   flattenScalarEntries,
   IN_SCOPE_OPTIONS,
   isTerminalSyncStatus,
-  matchStatusLabels,
+  matchStatusFilterOptions,
   pickArrayTables,
   syncTaskText,
   toTableColumns,
@@ -474,8 +474,8 @@ const tableMinWidth = computed(() => COLUMN_DEFS.reduce((sum, col) => sum + (col
           </div>
           <div class="f-mid">
             <a-select v-model="query.match_status" placeholder="匹配状态" allow-clear @change="search">
-              <a-option v-for="(meta, value) in matchStatusLabels" :key="value" :value="value">
-                {{ meta.label }}
+              <a-option v-for="opt in matchStatusFilterOptions" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
               </a-option>
             </a-select>
           </div>

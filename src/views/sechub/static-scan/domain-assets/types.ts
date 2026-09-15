@@ -577,16 +577,31 @@ export const assetTypeLabels: Record<string, { label: string, color: string }> =
   micro: { label: '微服务', color: 'purple' },
 }
 
+/**
+ * 源码匹配状态（后端 `SourceMatchStatus` 落库口径，FORM-03）：
+ * exact / ambiguous / framework_template / invalid / source_missing 会写入 match 表；
+ * `source_only` 仅出现在重匹配结果里（不落表）；`unmatched` 是列表聚合的合成键
+ * （绑定没有匹配行），只用于展示计数。
+ */
 export const matchStatusLabels: Record<string, { label: string, color: string }> = {
-  matched: { label: '已匹配', color: 'green' },
-  partial: { label: '部分匹配', color: 'orange' },
+  exact: { label: '精确匹配', color: 'green' },
+  ambiguous: { label: '歧义（多候选）', color: 'orange' },
+  source_missing: { label: '源码缺失', color: 'red' },
+  source_only: { label: '仅源码', color: 'blue' },
+  framework_template: { label: '框架模板', color: 'gray' },
+  invalid: { label: '非法类名', color: 'orangered' },
   unmatched: { label: '未匹配', color: 'red' },
-  pending: { label: '待匹配', color: 'gray' },
-  conflict: { label: '冲突', color: 'orangered' },
-  ambiguous: { label: '歧义', color: 'orange' },
-  skipped: { label: '已跳过', color: 'gray' },
-  failed: { label: '匹配失败', color: 'red' },
 }
+
+/**
+ * 「匹配状态」筛选项：**只包含后端可过滤的落库状态**。
+ * `source_only` 不落 match 表、`unmatched` 是聚合合成键，后端过滤器都会判非法，
+ * 所以不放进筛选项（发出去会直接 500）。
+ */
+export const matchStatusFilterOptions: { value: string, label: string }[] = ['exact', 'ambiguous', 'source_missing', 'framework_template', 'invalid'].map(value => ({
+  value,
+  label: matchStatusLabels[value].label,
+}))
 
 /** 问题状态沿用缺陷页（defects.vue）的中文口径 */
 export const issueStatusLabels: Record<string, { label: string, color: string }> = {
