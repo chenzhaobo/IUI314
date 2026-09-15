@@ -388,6 +388,7 @@ export enum ApiSecDomainAsset {
   syncRuns = '/sechub/domain-assets/sync-runs',
   manualFields = '/sechub/domain-assets/{id}/manual-fields',
   rematch = '/sechub/domain-assets/rematch',
+  matchAll = '/sechub/domain-assets/match-all',
 }
 
 // ── 表单资产同步（env 维度：预览 → 执行 → task_id 轮询） ──

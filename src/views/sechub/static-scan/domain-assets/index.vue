@@ -199,6 +199,24 @@ function onSyncEnvChange() {
   syncPreview.value = null
 }
 
+// 全量匹配：对所有「已索引源码符号」的仓库 × 有表单资产的环境后台跑一轮匹配。
+// 同步完成 / 索引完成后服务端也会自动跟跑，这里只是手动补一次（幂等，重复提交只多花时间）。
+const matchingAll = ref(false)
+async function handleMatchAll() {
+  matchingAll.value = true
+  try {
+    const res = await postAction<{ env_count: number, repository_count: number, message: string }>(
+      ApiSecDomainAsset.matchAll,
+      {},
+    )
+    if (res)
+      Message.success(res.message || `已提交后台匹配（${res.repository_count} 个仓库 × ${res.env_count} 个环境）`)
+  }
+  finally {
+    matchingAll.value = false
+  }
+}
+
 async function handleSyncPreview() {
   if (!syncEnvId.value) {
     Message.warning('请先选择要同步的环境')
@@ -517,6 +535,14 @@ const tableMinWidth = computed(() => COLUMN_DEFS.reduce((sum, col) => sum + (col
           </template>
           资产同步
         </a-button>
+        <a-tooltip content="对所有已索引源码符号的仓库 × 有表单资产的环境后台全量匹配（同步/索引完成后也会自动跟跑）">
+          <a-button :loading="matchingAll" @click="handleMatchAll">
+            <template #icon>
+              <icon-link />
+            </template>
+            全量匹配
+          </a-button>
+        </a-tooltip>
         <template v-if="syncPolling">
           <a-tag color="arcoblue">
             同步中
