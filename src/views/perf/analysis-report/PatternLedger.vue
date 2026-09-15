@@ -74,59 +74,63 @@
       </a-row>
 
       <!--
-        业务操作工具行：修改 / 不处理 / 废弃 / 重算影响面 / 导出 Excel。
-        容器样式与 ListPage 的 .lp-toolbar 一致：flex + wrap —— 放不下时换行，
-        而不是像原来那样横向溢出到画面外。
+        业务操作工具行（容器样式与 ListPage 的 .lp-toolbar 一致：flex + wrap，
+        放不下时换行而不是横向溢出画面）。两个关键点：
+
+        1. 计数与禁用看**可操作行数**，不是勾选数 —— 选中集合里混着已提单的行时，
+           按钮上是它真能动的那几条（如「观察 (3)」），点下去也只提交这几条，
+           其余在结果里报"跳过 N 条"。原来只看勾选数，一点就是整批被后端拒绝。
+        2. 规则表在 ledgerActions.ts，与行内「更多」菜单共用同一份 —— 不再一处按
+           状态 v-if、另一处完全不判断。
       -->
       <div class="ledger-toolbar">
-        <a-button
-          type="outline"
-          :disabled="selectedKeys.length === 0"
-          @click="openEditAttribution"
-        >
-          修改{{ selectedKeys.length ? ` (${selectedKeys.length})` : '' }}
-        </a-button>
+        <a-tooltip :content="batchHint('convert')" :disabled="toolbarCount('convert') > 0">
+          <span class="toolbar-btn">
+            <a-button type="outline" status="success" :loading="converting" :disabled="toolbarCount('convert') === 0" @click="handleCreateIssueBatch">
+              转缺陷{{ countSuffix(toolbarCount('convert')) }}
+            </a-button>
+          </span>
+        </a-tooltip>
+        <a-tooltip :content="batchHint('edit')" :disabled="toolbarCount('edit') > 0">
+          <span class="toolbar-btn">
+            <a-button type="outline" :disabled="toolbarCount('edit') === 0" @click="openEditAttribution">
+              修改{{ countSuffix(toolbarCount('edit')) }}
+            </a-button>
+          </span>
+        </a-tooltip>
         <!-- 「不处理」与「废弃」分开放，措辞也刻意不同：
              不处理 = 这个问题判断不修（仍进报告与统计）；
              废弃   = 这条分析不该存在（从指纹匹配里移除）。 -->
-        <a-button
-          type="outline"
-          status="warning"
-          :loading="triaging"
-          :disabled="selectedKeys.length === 0"
-          @click="openTriageBatch"
-        >
-          不处理{{ selectedKeys.length ? ` (${selectedKeys.length})` : '' }}
-        </a-button>
-        <!-- 观察：与行内「标记观察」是同一个动作，之前只有单行菜单里有 ——
-             一批台账逐条点太慢，而"这轮先都再观察观察"恰恰是批量判断。
-             不需要原因（后端只对 wont_fix 强制要求）。 -->
-        <a-button
-          type="outline"
-          :loading="triaging"
-          :disabled="selectedKeys.length === 0"
-          @click="handleObserveSelected"
-        >
-          观察{{ selectedKeys.length ? ` (${selectedKeys.length})` : '' }}
-        </a-button>
-        <!-- 撤回待处置：把「不处理 / 观察」的判断撤掉，连同处置人一起清（见后端 triage）。
-             判断错了要能就地改回来，否则只能靠改库。中性样式：它是撤销，
-             不是又一次判断。 -->
-        <a-button
-          :loading="triaging"
-          :disabled="selectedKeys.length === 0"
-          @click="handleRestoreSelected"
-        >
-          撤回待处置{{ selectedKeys.length ? ` (${selectedKeys.length})` : '' }}
-        </a-button>
-        <a-button
-          status="danger"
-          :loading="discarding"
-          :disabled="selectedKeys.length === 0"
-          @click="handleDiscardSelected"
-        >
-          废弃{{ selectedKeys.length ? ` (${selectedKeys.length})` : '' }}
-        </a-button>
+        <a-tooltip :content="batchHint('wontFix')" :disabled="toolbarCount('wontFix') > 0">
+          <span class="toolbar-btn">
+            <a-button type="outline" status="warning" :loading="triaging" :disabled="toolbarCount('wontFix') === 0" @click="openTriageBatch">
+              不处理{{ countSuffix(toolbarCount('wontFix')) }}
+            </a-button>
+          </span>
+        </a-tooltip>
+        <a-tooltip :content="batchHint('observe')" :disabled="toolbarCount('observe') > 0">
+          <span class="toolbar-btn">
+            <a-button type="outline" :loading="triaging" :disabled="toolbarCount('observe') === 0" @click="handleObserveSelected">
+              观察{{ countSuffix(toolbarCount('observe')) }}
+            </a-button>
+          </span>
+        </a-tooltip>
+        <!-- 撤回：把「不处理 / 观察」的判断撤掉（连处置人一起清）。
+             中性样式 —— 它是撤销，不是又一次判断。 -->
+        <a-tooltip :content="batchHint('restore')" :disabled="toolbarCount('restore') > 0">
+          <span class="toolbar-btn">
+            <a-button :loading="triaging" :disabled="toolbarCount('restore') === 0" @click="handleRestoreSelected">
+              撤回待处置{{ countSuffix(toolbarCount('restore')) }}
+            </a-button>
+          </span>
+        </a-tooltip>
+        <a-tooltip :content="batchHint('discard')" :disabled="toolbarCount('discard') > 0">
+          <span class="toolbar-btn">
+            <a-button status="danger" :loading="discarding" :disabled="toolbarCount('discard') === 0" @click="handleDiscardSelected">
+              废弃{{ countSuffix(toolbarCount('discard')) }}
+            </a-button>
+          </span>
+        </a-tooltip>
         <a-button status="warning" :loading="impactRecomputing" @click="handleRecomputeImpact">
           重算影响面
         </a-button>
@@ -313,28 +317,33 @@
               <a-table-column title="更新时间" :width="150" ellipsis tooltip>
                 <template #cell="{ record }">{{ formatTime(record.updated_at) }}</template>
               </a-table-column>
-              <a-table-column title="操作" :width="200" fixed="right">
+              <a-table-column title="操作" :width="150" fixed="right">
                 <template #cell="{ record }">
                   <a-space>
                     <a-link @click="handleDetail(record)">详情</a-link>
-                    <a-tooltip :content="createIssueTip(record)">
-                      <a-link :disabled="!!record.issue_id || !hasDefectReport(record)" status="success" @click="handleCreateIssue(record)">生成问题</a-link>
-                    </a-tooltip>
+                    <!--
+                      动作全部收进「更多」：入口显隐由 ledgerActions.ts 的规则表决定，
+                      与工具栏用同一份判断（此前内联按钮一套 v-if、工具栏另一套）。
+                      已提单的行只剩「查看问题 / 下载关联文件」—— 它的生命周期
+                      已经交给问题跟踪，台账侧完全只读。
+                    -->
                     <a-dropdown @select="(key: any) => handleMoreAction(String(key), record)">
                       <a-link>更多<icon-down /></a-link>
                       <template #content>
-                        <a-doption v-if="record.issue_id" value="viewIssue">查看问题</a-doption>
-                        <a-doption v-else value="linkIssue">关联已有问题</a-doption>
-                        <!-- 处置：看完之后"不修"或"再观察"要有落点，否则「没人看过」与
-                             「看过并决定不处理」在数据上完全一样。已提单的不给改 ——
-                             那条的生命周期已经交给问题跟踪。 -->
-                        <template v-if="!record.issue_id">
-                          <a-doption v-if="record.status !== 'wont_fix'" value="wontFix">标记不处理…</a-doption>
-                          <a-doption v-if="record.status !== 'observing'" value="observing">标记观察</a-doption>
-                          <a-doption v-if="record.status !== 'new'" value="restore">撤回待处置</a-doption>
-                        </template>
-                        <a-doption value="logs" :disabled="!hasBundle(record)">
+                        <a-doption v-if="ledgerStateOf(record) === 'issued'" value="viewIssue">查看问题</a-doption>
+                        <a-doption v-if="canLedgerAction('convert', record)" value="createIssue" :disabled="!hasDefectReport(record)">
                           <!-- 提示挂在内部 span 上：禁用的 doption 本身不派发鼠标事件 -->
+                          <a-tooltip :content="createIssueTip(record)">
+                            <span style="display: inline-block; width: 100%">转缺陷…</span>
+                          </a-tooltip>
+                        </a-doption>
+                        <a-doption v-if="canLedgerAction('link', record)" value="linkIssue">关联已有问题</a-doption>
+                        <!-- 处置：看完之后"不修"或"再观察"要有落点，否则「没人看过」与
+                             「看过并决定不处理」在数据上完全一样。 -->
+                        <a-doption v-if="canLedgerAction('wontFix', record)" value="wontFix">标记不处理…</a-doption>
+                        <a-doption v-if="canLedgerAction('observe', record)" value="observing">标记观察</a-doption>
+                        <a-doption v-if="canLedgerAction('restore', record)" value="restore">撤回待处置</a-doption>
+                        <a-doption value="logs" :disabled="!hasBundle(record)">
                           <a-tooltip :content="bundleTip(record)">
                             <span style="display: inline-block; width: 100%">下载关联文件</span>
                           </a-tooltip>
@@ -512,8 +521,8 @@
     </a-modal>
     <a-modal v-model:visible="editVisible" title="修改归属" :width="520" @ok="handleEditSubmit">
       <a-alert type="normal" style="margin-bottom: 12px">
-        已选 {{ selectedKeys.length }} 条。只修改归属，不改标签与分析结论 ——
-        标签参与指纹计算，改了会让跨天判重失效。
+        本次修改 {{ toolbarCount('edit') }} 条{{ editSkipped > 0 ? `（已提单的 ${editSkipped} 条不改）` : '' }}。
+        只修改归属，不改标签与分析结论 —— 标签参与指纹计算，改了会让跨天判重失效。
         <br />留空的字段保持原值；要清空某个字段请填一个空格。
       </a-alert>
       <a-form :model="editForm" layout="vertical">
@@ -571,6 +580,7 @@
 </template>
 
 <script setup lang="ts">
+import type { LedgerAction } from '@/views/perf/analysis-report/ledgerActions'
 import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message, Modal } from '@arco-design/web-vue'
@@ -578,6 +588,7 @@ import { useDebounceFn } from '@vueuse/core'
 import { ApiPerfApp, ApiPerfIssue, ApiPerfPatternLedger } from '@/api/perfApis'
 import { ApiSecProjectGroup } from '@/api/sechubApis'
 import { formatTime, isRequestFailed, useAutoHeight, useDicts, useDownload, useGet, usePost, useTableAutoHeight } from '@/hooks'
+import { batchActionHint, canLedgerAction, filterActionable, ledgerStateOf } from '@/views/perf/analysis-report/ledgerActions'
 import { MdPreview } from 'md-editor-v3'
 // 必须导入样式，否则 MdPreview 渲染出来没有任何格式（表格无边框、标题不分级）
 import 'md-editor-v3/lib/style.css'
@@ -616,7 +627,7 @@ const searchForm = reactive({
   sort_order: '',
 })
 
-// ── 多选与批量修改 ──────────────────────────────────────
+// ── 多选与批量操作 ──────────────────────────────────────
 const selectedKeys = ref<string[]>([])
 const rowSelection = { type: 'checkbox' as const, showCheckedAll: true }
 
@@ -705,7 +716,7 @@ function onLinkIssueChange(value: unknown) {
 const getDefectReport = (record: any) => record?.evidence?.defect_report || null
 // 新链路的 evidence 是 md 报告路径数组，如 ["01_task_approve__click/defect_1.md"]。
 // 旧链路把整个 DefectReport 结构内联在 evidence.defect_report 里。
-// 两种都算「有完整报告」—— 只认旧结构会让所有新台账的「生成问题」都点不了，
+// 两种都算「有完整报告」—— 只认旧结构会让所有新台账的「转缺陷」都点不了，
 // 而且提示「旧台账没有完整缺陷报告」正好把话说反：报告是完整的，只是格式变了。
 const getReportFiles = (record: any): string[] => {
   const ev = record?.evidence
@@ -716,7 +727,7 @@ const hasDefectReport = (record: any) => !!getDefectReport(record) || getReportF
 const defectStatusText = (status: string) => ({ complete: '完整', evidence_insufficient: '证据不足', pending_retry: '待重试' }[status] || status || '--')
 // 处置状态。人工能选的只有三个（见操作列的处置项）：
 //   待处置 = 系统产出的初始态，没人下过判断
-//   已提单 = 走「生成问题」建了问题单，后续看问题跟踪
+//   已提单 = 走「转缺陷」建了问题单，后续看问题跟踪
 //   不处理 = 看过了判断不修（必填原因）
 //   观察   = 看过了，等下一轮再看
 const statusMap: Record<string, string> = {
@@ -779,6 +790,36 @@ const traceIdList = (raw: string): string[] => raw.split(/[,;\s]+/).filter(Boole
 const queryParams = computed(() => ({ ...searchForm, page_num: pageNum.value, page_size: pageSize.value }))
 const { isFetching: loading, data: rawData, execute: fetchData } = useGet<any>(ApiPerfPatternLedger.list, queryParams, { immediate: true })
 const tableData = computed(() => rawData.value?.list || [])
+
+// ── 勾选行快照 ──────────────────────────────────────
+//
+// Arco 的 selectedKeys **跨页累积**（翻页、换筛选都不清空），而 tableData 只有当前页，
+// 直接"按当前页过滤"会静默丢掉翻页前勾的行：按钮显示 3 条、实际一条都提交不了。
+// 这里按 id 累积行数据，计数与提交都从它出发；fetchData 之后行数据会跟着刷新。
+const selectedRowsById = ref(new Map<string, any>())
+watch([selectedKeys, tableData], () => {
+  const keys = new Set(selectedKeys.value.map(String))
+  const next = new Map(selectedRowsById.value)
+  for (const row of tableData.value as any[]) {
+    if (keys.has(String(row.id)))
+      next.set(String(row.id), row)
+  }
+  for (const id of [...next.keys()]) {
+    if (!keys.has(id))
+      next.delete(id)
+  }
+  selectedRowsById.value = next
+}, { immediate: true })
+
+/** 已勾选的行（按勾选顺序）。缓存里没有的行不参与计数与提交。 */
+const selectedRows = computed<any[]>(() => selectedKeys.value.map(id => selectedRowsById.value.get(String(id))).filter(Boolean))
+/** 这个动作实际能作用到的行 —— 工具栏计数与提交集合都用它，两者必须同源。 */
+const actionableRows = (action: LedgerAction) => filterActionable(selectedRows.value, action)
+const toolbarCount = (action: LedgerAction) => actionableRows(action).length
+const batchHint = (action: LedgerAction) => batchActionHint(action, selectedRows.value)
+const countSuffix = (n: number) => (n > 0 ? ` (${n})` : '')
+/** 结果提示里的跳过说明：不可操作的行不是失败，但必须让用户知道它们没被动过。 */
+const skippedNote = (n: number) => (n > 0 ? `，跳过 ${n} 条（已提单或状态不支持）` : '')
 
 
 // 全量影响面重算是后台任务：接口只负责启动并返回尚未计算的数量。
@@ -882,6 +923,8 @@ const appOptions = computed(() => {
 // ── 批量修改归属 ──────────────────────────────────────
 const editVisible = ref(false)
 const editForm = reactive({ project_group_code: '', app_number: '', business_area: '' })
+/** 本次会跳过几条（勾选集合里已提单的行）—— 提交后一并报给用户 */
+const editSkipped = ref(0)
 
 /** 选了项目组就自动带出业务领域 —— 两者是项目组表里的固定关系，
  *  分别填会造出「PM013 + 预算」这种表里不存在的组合。 */
@@ -891,24 +934,26 @@ const onEditGroupChange = (code: unknown) => {
 }
 
 const openEditAttribution = () => {
+  const rows = actionableRows('edit')
   // 单选时用当前值预填，批量时留空（避免把不同的值统一覆盖成第一条的值）
-  if (selectedKeys.value.length === 1) {
-    const row = tableData.value.find((r: any) => r.id === selectedKeys.value[0])
-    editForm.project_group_code = row?.project_group_code || ''
-    editForm.app_number = row?.app_number || ''
-    editForm.business_area = row?.business_area || ''
+  if (rows.length === 1) {
+    editForm.project_group_code = rows[0].project_group_code || ''
+    editForm.app_number = rows[0].app_number || ''
+    editForm.business_area = rows[0].business_area || ''
   } else {
     editForm.project_group_code = ''
     editForm.app_number = ''
     editForm.business_area = ''
   }
+  editSkipped.value = selectedRows.value.length - rows.length
   editVisible.value = true
 }
 
 const editPayload = computed(() => {
   // 只把填了的字段发出去：后端按 null=不动 / 空串=清空 区分，
   // 批量改项目组时不该把应用和业务领域一起清掉。
-  const body: Record<string, unknown> = { ids: selectedKeys.value }
+  // ids 只取可操作的行：已提单的不在台账侧改归属（规则表见 ledgerActions.ts）。
+  const body: Record<string, unknown> = { ids: actionableRows('edit').map((r: any) => r.id) }
   if (editForm.project_group_code.trim()) body.project_group_code = editForm.project_group_code.trim()
   if (editForm.app_number.trim()) body.app_number = editForm.app_number.trim()
   if (editForm.business_area.trim()) body.business_area = editForm.business_area.trim()
@@ -929,7 +974,7 @@ const handleEditSubmit = async () => {
   // usePost 不支持 onSuccess（只有 useGet 经 withOnSuccess 包过），
   // 所以在这里手动判结果 —— 写在 onSuccess 上会静默失效。
   if (isRequestFailed(editRes.value)) return
-  Message.success(editRes.value?.message || '修改成功')
+  Message.success(`${editRes.value?.message || '修改成功'}${skippedNote(editSkipped.value)}`)
   editVisible.value = false
   selectedKeys.value = []
   await fetchData()
@@ -955,26 +1000,31 @@ const { data: triageRes, execute: doTriage } = usePost<any>(
 const triageVisible = ref(false)
 const triageReason = ref('')
 const triageIds = ref<string[]>([])
+/** 本次会跳过几条（勾选集合里不可操作的行）—— 提交后一并报给用户 */
+const triageSkipped = ref(0)
 
 /** 打开「不处理」弹窗 —— 只有它需要填原因，观察与撤回直接提交。 */
 function openTriage(record: any) {
   triageIds.value = [record.id]
+  triageSkipped.value = 0
   triageReason.value = ''
   triageVisible.value = true
 }
 
+/** 批量「不处理」：只把**可操作的行**带进弹窗，其余在提交结果里报跳过。 */
 function openTriageBatch() {
-  const ids = [...selectedKeys.value]
-  if (!ids.length) {
-    Message.warning('请先勾选要标记不处理的台账')
+  const rows = actionableRows('wontFix')
+  if (!rows.length) {
+    Message.warning(batchHint('wontFix'))
     return
   }
-  triageIds.value = ids
+  triageIds.value = rows.map((r: any) => r.id)
+  triageSkipped.value = selectedRows.value.length - rows.length
   triageReason.value = ''
   triageVisible.value = true
 }
 
-async function submitTriage(ids: string[], status: string, reason?: string) {
+async function submitTriage(ids: string[], status: string, reason?: string, skipped = 0) {
   if (!ids.length)
     return
   triagePayload.value = { ids, status, reason }
@@ -984,7 +1034,7 @@ async function submitTriage(ids: string[], status: string, reason?: string) {
     // usePost 不支持 onSuccess，必须在这里判结果
     if (isRequestFailed(triageRes.value))
       return
-    Message.success(triageRes.value?.message || '处置已记录')
+    Message.success(`${triageRes.value?.message || '处置已记录'}${skippedNote(skipped)}`)
     triageVisible.value = false
     selectedKeys.value = []
     await fetchData()
@@ -1000,27 +1050,27 @@ async function submitWontFix() {
     Message.warning('请写明不处理的原因 —— 否则下一轮判出同一问题时没人知道当初为什么放过它')
     return
   }
-  await submitTriage(triageIds.value, 'wont_fix', reason)
+  await submitTriage(triageIds.value, 'wont_fix', reason, triageSkipped.value)
 }
 
 /** 批量观察：不需要原因，直接提交（与行内「标记观察」同一个动作）。 */
 function handleObserveSelected() {
-  const ids = [...selectedKeys.value]
-  if (!ids.length) {
-    Message.warning('请先勾选要标记观察的台账')
+  const rows = actionableRows('observe')
+  if (!rows.length) {
+    Message.warning(batchHint('observe'))
     return
   }
-  void submitTriage(ids, 'observing')
+  void submitTriage(rows.map((r: any) => r.id), 'observing', undefined, selectedRows.value.length - rows.length)
 }
 
 /** 批量撤回待处置：回到待处置队列，处置人与原因一并清掉（见后端 triage）。 */
 function handleRestoreSelected() {
-  const ids = [...selectedKeys.value]
-  if (!ids.length) {
-    Message.warning('请先勾选要撤回的台账')
+  const rows = actionableRows('restore')
+  if (!rows.length) {
+    Message.warning(batchHint('restore'))
     return
   }
-  void submitTriage(ids, 'new')
+  void submitTriage(rows.map((r: any) => r.id), 'new', undefined, selectedRows.value.length - rows.length)
 }
 
 // ── 批量废弃 ──────────────────────────────────────
@@ -1033,22 +1083,21 @@ const { data: discardRes, execute: doDiscard } = usePost<any>(
 )
 
 const handleDiscardSelected = () => {
-  const ids = [...selectedKeys.value]
-  if (!ids.length) {
-    Message.warning('请先勾选要废弃的问题台账')
+  const rows = actionableRows('discard')
+  if (!rows.length) {
+    Message.warning(batchHint('discard'))
     return
   }
-  const selectedRows = tableData.value.filter((row: any) => ids.includes(row.id))
-  const linkedIssues = selectedRows.filter((row: any) => !!row.issue_id).length
+  const ids = rows.map((r: any) => r.id)
+  const skipped = selectedRows.value.length - rows.length
   Modal.warning({
     title: `确认废弃 ${ids.length} 条问题台账？`,
     content: [
       '废弃后这些台账将从列表、统计、报告和影响面计算中排除，后续归因也不会再匹配它们；同一根因再次出现时会重新创建台账。',
-      linkedIssues > 0
-        ? `其中 ${linkedIssues} 条已生成问题单；问题单不会随台账删除，避免破坏已进入治理的记录。`
-        : '已生成的问题单不会随台账删除。',
+      '已生成的问题单不会随台账删除。',
       '页面不提供恢复入口，请确认选中的确是低质量历史台账。',
-    ].join('\n'),
+      skippedNote(skipped).replace('，', ''),
+    ].filter(Boolean).join('\n'),
     okText: '确认废弃',
     cancelText: '取消',
     okButtonProps: { status: 'danger' },
@@ -1058,7 +1107,7 @@ const handleDiscardSelected = () => {
         discardPayload.value = { ids }
         await doDiscard()
         if (isRequestFailed(discardRes.value)) return false
-        Message.success(discardRes.value?.message || `已废弃 ${discardRes.value?.discarded ?? ids.length} 条台账`)
+        Message.success(`${discardRes.value?.message || `已废弃 ${discardRes.value?.discarded ?? ids.length} 条台账`}${skippedNote(skipped)}`)
         selectedKeys.value = []
         await fetchData()
         return true
@@ -1116,18 +1165,25 @@ const handleLogsDownload = async (target?: any) => {
   }
 }
 
-// 生成问题按钮的禁用原因，直接写在 tooltip 里避免用户猜。
+// 「转缺陷」菜单项的禁用原因，直接写在 tooltip 里避免用户猜。
 const createIssueTip = (record: any): string => {
-  if (record?.issue_id) return `已生成问题 ${record.issue_id}，可从"更多"查看`
-  if (!hasDefectReport(record)) return '该台账没有关联缺陷报告，不能自动提单'
-  return '从完整缺陷报告生成问题跟踪'
+  if (ledgerStateOf(record) === 'issued')
+    return '已转缺陷，可从「更多 → 查看问题」跟进'
+  if (isReportPendingRetry(record))
+    return '缺陷报告仍待重试，暂不能转缺陷'
+  if (!hasDefectReport(record))
+    return '该台账没有关联缺陷报告，不能转缺陷'
+  return '从完整缺陷报告创建真实问题跟踪'
 }
 
-// 操作列只保留 详情/生成问题/更多，其余动作收进下拉。
+// 操作列只保留 详情/更多，动作全部收进下拉。
 const handleMoreAction = (key: string, record: any) => {
   switch (key) {
     case 'viewIssue':
       if (record.issue_id) gotoIssue(record.issue_id)
+      break
+    case 'createIssue':
+      handleCreateIssue(record)
       break
     case 'linkIssue':
       openLinkIssue(record)
@@ -1295,33 +1351,124 @@ const { data: createIssueResult, execute: doCreateIssue } = usePost<any>(ApiPerf
 const savePatternPayload = ref<any>({})
 const { data: saveRes, execute: doSavePattern } = usePost<any>(ApiPerfPatternLedger.save, savePatternPayload, { immediate: false })
 
-const performCreateIssue = async (record: any, confirmEvidenceInsufficient: boolean) => {
-  createIssuePayload.value = { id: record.id, confirm_evidence_insufficient: confirmEvidenceInsufficient }
-  await doCreateIssue()
-  const result = createIssueResult.value
-  Message.success(result?.created === false ? `已关联问题 ${result?.issue_no || ''}` : `问题 ${result?.issue_no || ''} 创建成功`)
-  await fetchData()
+/** 单次批量上限，与后端 MAX_BATCH 对齐（后端会拒，前端先把话说在前面） */
+const CREATE_ISSUE_BATCH_MAX = 50
+const converting = ref(false)
+
+/** 报告"待重试"后端必拒 —— 前端也按不可转算，否则确认框里的条数是假的。 */
+function isReportPendingRetry(record: any): boolean {
+  return getDefectReport(record)?.report_status === 'pending_retry'
 }
 
-const handleCreateIssue = (record: any) => {
+/** 旧链路（内联 DefectReport）里 evidence_sufficient=false 的报告提单要用户二次确认。 */
+function isEvidenceInsufficient(record: any): boolean {
   const report = getDefectReport(record)
-  const files = getReportFiles(record)
-  if (!report && files.length === 0) {
-    Message.warning('该台账没有关联缺陷报告，不能自动生成问题')
+  return !!report && report.issue_ready === false
+}
+
+/** 把可转缺陷的行按"能转 / 无报告 / 待重试"分开 —— 确认框与提交集合共用这一份。 */
+function splitConvertible(rows: any[]) {
+  const convertible: any[] = []
+  const noReport: any[] = []
+  const pendingRetry: any[] = []
+  for (const row of rows) {
+    if (isReportPendingRetry(row))
+      pendingRetry.push(row)
+    else if (hasDefectReport(row))
+      convertible.push(row)
+    else
+      noReport.push(row)
+  }
+  return { convertible, noReport, pendingRetry }
+}
+
+/** 批量结果提示：成功的报条数，失败的指名道姓（后端逐行返回，别把它压成一个数字）。 */
+function reportCreateIssueResult(data: any) {
+  const results: any[] = Array.isArray(data?.results) ? data.results : []
+  const failed = results.filter(r => !r.ok)
+  const created = Number(data?.created || 0)
+  const linked = Number(data?.linked || 0)
+  const okParts = [
+    created > 0 ? `已转缺陷 ${created} 条` : '',
+    linked > 0 ? `${linked} 条已有关联问题` : '',
+  ].filter(Boolean)
+  const okText = okParts.join('，')
+  if (failed.length) {
+    const detail = failed.map(r => `${r.pattern_no || r.id}（${r.error || '失败'}）`).join('；')
+    Message.warning(`${okText ? `${okText}；` : ''}${failed.length} 条失败：${detail}`)
     return
   }
-  // 新链路没有 issue_ready / problem_hash 这两个字段（它们属于旧的内联结构），
-  // 证据是否充分由归因时的硬性取证要求保证，这里不再让用户二次确认。
-  const insufficient = !!report && !report.issue_ready
+  Message.success(okText || '转缺陷完成')
+}
+
+async function performCreateIssue(ids: string[], confirmEvidenceInsufficient: boolean) {
+  converting.value = true
+  try {
+    createIssuePayload.value = { ids, confirm_evidence_insufficient: confirmEvidenceInsufficient }
+    await doCreateIssue()
+    // usePost 不支持 onSuccess，必须在这里判结果
+    if (isRequestFailed(createIssueResult.value))
+      return false
+    reportCreateIssueResult(createIssueResult.value)
+    selectedKeys.value = []
+    await fetchData()
+    return true
+  }
+  finally {
+    converting.value = false
+  }
+}
+
+/** 行内「转缺陷…」：单条，走同一个批量接口（ids 只有一条）。 */
+function handleCreateIssue(record: any) {
+  if (isReportPendingRetry(record)) {
+    Message.warning('该台账的缺陷报告仍待重试，暂不能转缺陷')
+    return
+  }
+  if (!hasDefectReport(record)) {
+    Message.warning('该台账没有关联缺陷报告，不能转缺陷')
+    return
+  }
+  const insufficient = isEvidenceInsufficient(record)
   Modal.confirm({
-    title: insufficient ? '以待补证问题提单？' : '生成问题跟踪？',
+    title: insufficient ? '以待补证问题转缺陷？' : '转缺陷？',
     content: insufficient
       ? '当前缺陷报告明确标记为证据不足。继续后将创建真实问题单，并保留缺失证据与待补证说明。'
-      : report
-        ? `将从问题 ${report.problem_hash} 的完整缺陷报告创建真实问题跟踪，并原子回填台账关联。`
-        : `将从缺陷报告 ${files.join('、')} 创建问题跟踪，并原子回填台账关联。`,
-    okText: insufficient ? '确认待补证提单' : '确认生成',
-    onOk: () => performCreateIssue(record, insufficient),
+      : '将从完整缺陷报告创建真实问题跟踪，并回填台账关联（台账状态变为「已提单」）。',
+    okText: insufficient ? '确认待补证转缺陷' : '确认转缺陷',
+    onOk: () => performCreateIssue([record.id], insufficient),
+  })
+}
+
+/** 工具栏「转缺陷」：批量入口。确认框先讲清楚会发生什么，再一次性提交。 */
+function handleCreateIssueBatch() {
+  const rows = actionableRows('convert')
+  if (!rows.length) {
+    Message.warning(batchHint('convert'))
+    return
+  }
+  const { convertible, noReport, pendingRetry } = splitConvertible(rows)
+  const overflow = Math.max(0, convertible.length - CREATE_ISSUE_BATCH_MAX)
+  const targets = convertible.slice(0, CREATE_ISSUE_BATCH_MAX)
+  if (!targets.length) {
+    Message.warning(`所选台账都不能转缺陷（无缺陷报告 ${noReport.length} 条、报告待重试 ${pendingRetry.length} 条）`)
+    return
+  }
+  const insufficient = targets.filter(isEvidenceInsufficient).length
+  const skipped = selectedRows.value.length - rows.length
+  const content = [
+    `将转缺陷 ${targets.length} 条（创建真实问题单并回填台账关联）`,
+    insufficient > 0 ? `其中 ${insufficient} 条缺陷证据不足，将按「待补证」方式提单` : '',
+    noReport.length > 0 ? `跳过 ${noReport.length} 条：没有关联缺陷报告` : '',
+    pendingRetry.length > 0 ? `跳过 ${pendingRetry.length} 条：缺陷报告仍待重试` : '',
+    skipped > 0 ? `跳过 ${skipped} 条：已提单或状态不支持` : '',
+    overflow > 0 ? `另有 ${overflow} 条超出单次上限（${CREATE_ISSUE_BATCH_MAX} 条），本次不提交，请分批操作` : '',
+  ].filter(Boolean).join('\n')
+  Modal.confirm({
+    title: `确认转缺陷 ${targets.length} 条？`,
+    content,
+    okText: '确认转缺陷',
+    onOk: () => performCreateIssue(targets.map((r: any) => r.id), insufficient > 0),
   })
 }
 
@@ -1359,6 +1506,12 @@ const handleLinkIssue = async () => {
   gap: 8px;
   align-items: center;
   margin-bottom: 12px;
+}
+
+/* tooltip 要挂在按钮外面：Arco 的禁用按钮不派发鼠标事件，
+   不包一层的话"按钮为什么不能点"的提示根本弹不出来。 */
+.toolbar-btn {
+  display: inline-block;
 }
 
 /* 统计标签按内容排布、放不下才换行（原来用 a-col 无 span，每个占满一行） */
