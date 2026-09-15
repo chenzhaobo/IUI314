@@ -356,7 +356,9 @@ const COLUMN_DEFS: AssetColumnDef[] = [
   { title: '资产类型', dataIndex: 'asset_type', width: 90, cell: 'tag', meta: 'asset_type' },
   { title: '表单ID', dataIndex: 'form_id', width: 160, cell: 'code' },
   { title: '服务名', dataIndex: 'service_name', width: 180, cell: 'code' },
+  // 列表只展示「入口插件类」（后端 entry_class，单值）；全部绑定在详情里按 surface 分组展示
   { title: '插件类', dataIndex: 'plugin_class', width: 180, cell: 'code' },
+  { title: '插件数', dataIndex: 'plugin_count', width: 80 },
   { title: '来源类型', dataIndex: 'source_ref_type', width: 110 },
   { title: '环境', dataIndex: 'env_id', width: 160, cell: 'env' },
   { title: '代码仓库', dataIndex: 'repository_id', width: 220, cell: 'repo' },

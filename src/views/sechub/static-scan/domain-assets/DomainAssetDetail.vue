@@ -389,29 +389,67 @@ async function handleSave() {
   emit('changed')
 }
 
-// ── 重新匹配（仅表单资产，且需要匹配证据）───────────
+// ── 重新匹配（表单资产）───────────────────────────
+// 有历史匹配证据 → 一键按证据重跑；
+// 没有证据（首次匹配）→ 弹窗选代码仓库，服务端按该仓库最新符号快照兜底。
 
 const rematching = ref(false)
 const rematchEvidence = computed(() => resolveRematchEvidence(snapshot.value, detail.value))
+const rematchPickerVisible = ref(false)
+const rematchRepoId = ref('')
+/** 首次匹配可用的前提：表单资产 + 有同步运行 + 平台已配置代码仓库 */
+const canRematchWithPicker = computed(
+  () => assetKind(snapshot.value?.asset_type) === 'form' && !!snapshot.value?.last_sync_run_id && repositoryOptions.value.length > 0,
+)
+const rematchDisabled = computed(() => !rematchEvidence.value.ready && !canRematchWithPicker.value)
+const rematchTip = computed(() => {
+  if (rematchEvidence.value.ready)
+    return '按最近一次同步的运行与匹配快照重新执行匹配'
+  if (canRematchWithPicker.value)
+    return '选择代码仓库执行匹配（无历史匹配证据时按该仓库最新已同步的源码快照匹配）'
+  return rematchEvidence.value.reason || '当前资产暂不可重新匹配'
+})
 
-async function handleRematch() {
-  const evidence = rematchEvidence.value
-  if (!evidence.ready) {
-    Message.warning(evidence.reason || '当前资产暂不可重新匹配')
+function openRematch() {
+  if (rematchEvidence.value.ready) {
+    void doRematch(rematchEvidence.value.repository_id, rematchEvidence.value.snapshot_commit)
+    return
+  }
+  if (!canRematchWithPicker.value) {
+    Message.warning(rematchEvidence.value.reason || '当前资产暂不可重新匹配')
+    return
+  }
+  rematchRepoId.value = ''
+  rematchPickerVisible.value = true
+}
+
+async function doRematch(repositoryId: string, snapshotCommit?: string) {
+  const runId = snapshot.value?.last_sync_run_id ?? ''
+  if (!runId) {
+    Message.warning('该资产尚无同步运行记录，无法定位匹配范围')
     return
   }
   rematching.value = true
   const res = await postAction<Record<string, unknown>>(ApiSecDomainAsset.rematch, {
-    form_sync_run_id: evidence.form_sync_run_id,
-    repository_id: evidence.repository_id,
-    snapshot_commit: evidence.snapshot_commit,
+    form_sync_run_id: runId,
+    repository_id: repositoryId,
+    ...(snapshotCommit ? { snapshot_commit: snapshotCommit } : {}),
   })
   rematching.value = false
   if (!res)
     return
-  Message.success('已发起重新匹配')
+  Message.success('已发起匹配')
+  rematchPickerVisible.value = false
   await refreshAll()
   emit('changed')
+}
+
+async function handleRematchConfirm() {
+  if (!rematchRepoId.value) {
+    Message.warning('请先选择代码仓库')
+    return
+  }
+  await doRematch(rematchRepoId.value)
 }
 
 // ── 专项扫描（后端尚未提供资产级安全参数，保持禁用）──
@@ -520,14 +558,14 @@ function close() {
           </template>
           刷新
         </a-button>
-        <a-tooltip :content="rematchEvidence.ready ? '按最近一次同步的运行与匹配快照重新执行匹配' : rematchEvidence.reason">
+        <a-tooltip :content="rematchTip">
           <span class="inline-block">
             <a-button
               size="small"
               type="primary"
               :loading="rematching"
-              :disabled="!rematchEvidence.ready"
-              @click="handleRematch"
+              :disabled="rematchDisabled"
+              @click="openRematch"
             >
               重新匹配
             </a-button>
@@ -654,6 +692,24 @@ function close() {
         </template>
       </a-tab-pane>
     </a-tabs>
+
+    <!-- 首次匹配：无历史匹配证据时手动选代码仓库（服务端按仓库最新源码快照匹配） -->
+    <a-modal
+      v-model:visible="rematchPickerVisible"
+      title="选择代码仓库执行匹配"
+      :ok-loading="rematching"
+      @ok="handleRematchConfirm"
+    >
+      <p class="m-b-8px">
+        当前资产还没有历史匹配证据（首次匹配）。选择代码仓库后，将按该仓库
+        <b>最新已同步的源码快照</b> 执行匹配；若该仓库尚未做过源码快照与静态扫描，请先完成后再试。
+      </p>
+      <a-select v-model="rematchRepoId" placeholder="选择代码仓库" allow-search style="width: 100%">
+        <a-option v-for="opt in repositoryOptions" :key="opt.value" :value="opt.value">
+          {{ opt.label }}
+        </a-option>
+      </a-select>
+    </a-modal>
   </a-drawer>
 </template>
 
