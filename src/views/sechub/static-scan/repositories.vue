@@ -514,6 +514,77 @@ async function indexSource(record: ModuleWithRepository) {
   }
 }
 
+// ── 批量操作（工具栏）：索引源码 / 验证 ──────────────────────────
+// 勾选跨页累积（selectedKeys 是受控的，翻页不清空）；索引是慢操作走后端后台队列，
+// 验证是逐仓连通性快检查走前端小块串行。
+const selectedKeys = ref<string[]>([])
+const rowSelection = { type: 'checkbox' as const, showCheckedAll: true }
+const selectedRows = computed(() => filteredRows.value.filter((row: ModuleWithRepository) => selectedKeys.value.includes(row.relation_id)))
+
+const batchIndexing = ref(false)
+async function batchIndexSource() {
+  const ids = Array.from(new Set(selectedRows.value.map((row: ModuleWithRepository) => row.repository_id).filter(Boolean)))
+  if (!ids.length) {
+    Message.warning('请先勾选要索引的仓库')
+    return
+  }
+  batchIndexing.value = true
+  try {
+    const res = await postAction<{ accepted: number, message: string }>(
+      ApiSecModuleRepository.indexSourceBatch,
+      { repository_ids: ids },
+    )
+    if (res)
+      Message.success(res.message || `已提交后台索引：${res.accepted} 个仓库`)
+  }
+  finally {
+    batchIndexing.value = false
+  }
+}
+
+const batchValidating = ref(false)
+const batchValidated = ref(0)
+async function batchValidate() {
+  const rows = selectedRows.value
+  if (!rows.length) {
+    Message.warning('请先勾选要验证的仓库')
+    return
+  }
+  batchValidating.value = true
+  batchValidated.value = 0
+  let ok = 0
+  let failed = 0
+  try {
+    // 每批 3 个并发：逐仓连通性检查，一次打满后端没有意义
+    for (let i = 0; i < rows.length; i += 3) {
+      const chunk = rows.slice(i, i + 3)
+      await Promise.all(chunk.map(async (record: ModuleWithRepository) => {
+        const passed = await postAction(
+          ApiSecModuleRepository.validate,
+          {
+            module_id: record.module_id,
+            relation_id: record.relation_id,
+            git_url: record.git_url,
+            default_branch: record.default_branch,
+            allow_local_test_repository: record.git_url.startsWith('local-test:'),
+            idempotency_key: newIdempotencyKey(),
+          },
+        )
+        if (passed)
+          ok += 1
+        else
+          failed += 1
+      }))
+      batchValidated.value = Math.min(i + 3, rows.length)
+    }
+    await loadList()
+    Message.success(`批量验证完成：通过 ${ok}，失败 ${failed}`)
+  }
+  finally {
+    batchValidating.value = false
+  }
+}
+
 // 克隆/拉取仓库：调 sync 接口，展示可读结果（动作/分支数/head_sha/耗时）
 const syncingId = ref('')
 async function syncRepo(record: ModuleWithRepository) {
@@ -556,6 +627,26 @@ async function syncRepo(record: ModuleWithRepository) {
           </template>
           刷新
         </a-button>
+        <a-divider direction="vertical" />
+        <a-typography-text type="secondary">
+          已选 {{ selectedKeys.length }} 个
+        </a-typography-text>
+        <a-tooltip content="对勾选的仓库逐个后台索引源码（完成后自动跟跑匹配），进度看服务端日志">
+          <a-button :disabled="!selectedKeys.length" :loading="batchIndexing" @click="batchIndexSource">
+            <template #icon>
+              <icon-code />
+            </template>
+            批量索引源码
+          </a-button>
+        </a-tooltip>
+        <a-tooltip content="对勾选的仓库逐个做连通性校验（每批 3 个并发），完成后刷新状态列">
+          <a-button :disabled="!selectedKeys.length" :loading="batchValidating" @click="batchValidate">
+            <template #icon>
+              <icon-valid-code />
+            </template>
+            批量验证{{ batchValidating && batchValidated ? `（${batchValidated}/${selectedKeys.length}）` : '' }}
+          </a-button>
+        </a-tooltip>
         <a-input-search
           v-model="keyword"
           placeholder="搜索模块/仓库/Git URL"
@@ -585,9 +676,11 @@ async function syncRepo(record: ModuleWithRepository) {
     <div ref="tableWrap">
       <a-card :bordered="false">
         <a-table
+          v-model:selectedKeys="selectedKeys"
           :data="pagedRows"
           :columns="columns"
           :loading="loading"
+          :row-selection="rowSelection"
           :pagination="{
             current: pageNum,
             pageSize,
