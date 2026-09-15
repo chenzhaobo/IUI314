@@ -517,6 +517,56 @@ const deltaPreview = ref<DeltaPlanPreview | null>(null)
 const previewingDelta = ref(false)
 const executingDelta = ref(false)
 
+// 差量计划预览：摊平成「指标 / 取值 / 说明」三列面板。
+// 原 a-descriptions 两列在长值（缓存区间、Token 区间）下会换行错位，改成网格对齐 + 每项给口径说明。
+const DELTA_KIND_LABELS: Record<string, string> = {
+  auto_delta: '自动增量（服务端判定）',
+  code_delta: '仅代码差量',
+  rule_delta: '仅规则差量',
+  hybrid_delta: '代码 + 规则混合差量',
+  full_baseline: '完整基线',
+  reconfirm: '仅重新 AI 确认',
+  hunk_quick: '新增行快速检查',
+}
+
+interface DeltaPreviewRow {
+  key: string
+  label: string
+  value: string
+  hint?: string
+}
+
+const deltaPreviewRows = computed<DeltaPreviewRow[]>(() => {
+  const p = deltaPreview.value
+  if (!p)
+    return []
+  const range = (r: EstimateRange) => `${r.lower}..${r.upper}`
+  return [
+    { key: 'kind', label: '计划类型', value: DELTA_KIND_LABELS[p.delta_kind] ?? p.delta_kind, hint: p.delta_kind },
+    { key: 'plan', label: '冻结计划', value: p.plan_id.slice(0, 12), hint: '执行前先核对本预览' },
+    {
+      key: 'files',
+      label: '文件变更',
+      value: `增 ${p.added_files} · 改 ${p.modified_files} · 删 ${p.deleted_files} · 改名 ${p.renamed_files} · 复制 ${p.copied_files}`,
+      hint: 'A / M / D / R / C',
+    },
+    { key: 'scope', label: '扫描范围', value: `直接 ${p.direct_file_count} 个 · 影响 ${p.impacted_file_count} 个`, hint: '影响含调用链扩散' },
+    { key: 'domain', label: '涉及领域资产', value: `表单 ${p.affected_form_count} · 微服务 ${p.affected_microservice_count}` },
+    { key: 'rules', label: '规则变更', value: `新增 ${p.added_rule_count} · 修改 ${p.modified_rule_count} · 移除 ${p.removed_rule_count}` },
+    {
+      key: 'cache',
+      label: 'AI 缓存',
+      value: `命中 ${range(p.cache_hit_count)} · 需调用 ${range(p.cache_miss_count)} · 不适用 ${range(p.cache_not_eligible_count)}`,
+      hint: '区间 = 乐观..保守估算',
+    },
+    { key: 'calls', label: 'AI 调用', value: `${range(p.ai_call_count)} 次` },
+    { key: 'tokens', label: 'Token 预估', value: `${range(p.token_count)}`, hint: '非账单，仅供参考' },
+  ]
+})
+
+// 步骤引导：仓库差量是「选范围与策略 → 生成差量计划 → 确认执行」三步；出预览即到第 3 步。
+const deltaStepCurrent = computed(() => (deltaPreview.value ? 2 : 1))
+
 // commit 下拉标签用的紧凑时间戳 yymmddhhmmss。
 // 走统一入口按**用户时区**渲染后再压缩——旧实现用 new Date().getHours() 等取的是
 // 浏览器时区分量，同一个 commit 在不同电脑上标签不一样。
@@ -1655,9 +1705,21 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
     <a-modal
       v-model:visible="prescanModalVisible"
       title="预扫描配置"
+      :width="900"
       :footer="false"
     >
       <a-form :model="{}" layout="vertical">
+        <!-- 仓库差量三步引导：生成计划前不暴露执行按钮，避免「没预览就点执行」 -->
+        <a-steps
+          v-if="!isDomainTarget && !isLocalRepository"
+          :current="deltaStepCurrent"
+          size="small"
+          style="margin-bottom: 12px"
+        >
+          <a-step>选择范围与策略</a-step>
+          <a-step>生成差量计划</a-step>
+          <a-step>确认执行</a-step>
+        </a-steps>
         <a-form-item label="扫描范围">
           <a-radio-group v-model="scanTargetType" type="button" :disabled="isLocalRepository" @change="onScanTargetChange">
             <a-radio value="repository">
@@ -1799,43 +1861,23 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
           新增行快速检查固定 may_auto_close=false，不会关闭任何历史问题。
         </a-alert>
         <a-card v-if="!isDomainTarget && !isLocalRepository && deltaPreview" title="冻结计划预览" size="small" style="margin-bottom: 8px">
-          <a-descriptions :column="2" size="small" bordered>
-            <a-descriptions-item label="类型">
-              {{ deltaPreview.delta_kind }}
-            </a-descriptions-item>
-            <a-descriptions-item label="计划">
-              {{ deltaPreview.plan_id.slice(0, 12) }}
-            </a-descriptions-item>
-            <a-descriptions-item label="A/M/D/R/C">
-              {{ deltaPreview.added_files }}/{{ deltaPreview.modified_files }}/{{ deltaPreview.deleted_files }}/{{ deltaPreview.renamed_files }}/{{ deltaPreview.copied_files }}
-            </a-descriptions-item>
-            <a-descriptions-item label="直接/影响文件">
-              {{ deltaPreview.direct_file_count }}/{{ deltaPreview.impacted_file_count }}
-            </a-descriptions-item>
-            <a-descriptions-item label="规则 +/~/-">
-              {{ deltaPreview.added_rule_count }}/{{ deltaPreview.modified_rule_count }}/{{ deltaPreview.removed_rule_count }}
-            </a-descriptions-item>
-            <a-descriptions-item label="AI hit/miss/not eligible">
-              {{ deltaPreview.cache_hit_count.lower }}..{{ deltaPreview.cache_hit_count.upper }} /
-              {{ deltaPreview.cache_miss_count.lower }}..{{ deltaPreview.cache_miss_count.upper }} /
-              {{ deltaPreview.cache_not_eligible_count.lower }}..{{ deltaPreview.cache_not_eligible_count.upper }}
-            </a-descriptions-item>
-            <a-descriptions-item label="预计调用区间">
-              {{ deltaPreview.ai_call_count.lower }}..{{ deltaPreview.ai_call_count.upper }}
-            </a-descriptions-item>
-            <a-descriptions-item label="预计 Token 区间">
-              {{ deltaPreview.token_count.lower }}..{{ deltaPreview.token_count.upper }}（非账单）
-            </a-descriptions-item>
-          </a-descriptions>
+          <!-- 指标三列网格：标签 / 取值 / 口径说明（原两列 descriptions 长值换行错位） -->
+          <div class="delta-preview">
+            <div v-for="row in deltaPreviewRows" :key="row.key" class="delta-preview-row">
+              <span class="delta-preview-label">{{ row.label }}</span>
+              <span class="delta-preview-value">{{ row.value }}</span>
+              <span class="delta-preview-hint">{{ row.hint || '' }}</span>
+            </div>
+            <div v-if="deltaPreview.estimate_basis.length" class="delta-preview-basis">
+              估算口径：{{ deltaPreview.estimate_basis.join('；') }}
+            </div>
+          </div>
           <a-alert v-if="deltaPreview.call_graph_truncated" type="warning" style="margin-top: 8px">
             调用图已截断，禁止自动关闭。
           </a-alert>
           <a-alert v-if="!deltaPreview.may_auto_close" type="warning" style="margin-top: 8px">
             不具备自动关闭资格：{{ deltaPreview.auto_close_block_reasons.join('、') || '覆盖不完整' }}
           </a-alert>
-          <div class="m-t-8px text-xs text-gray">
-            {{ deltaPreview.estimate_basis.join('；') }}
-          </div>
         </a-card>
         <a-space style="display: flex; justify-content: flex-end">
           <a-button @click="prescanModalVisible = false">
@@ -1851,12 +1893,19 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
             {{ isDomainTarget ? '冻结资产范围并扫描' : '开始全量扫描' }}
           </a-button>
           <template v-else>
+            <span class="delta-actions-hint">
+              ① 先生成计划 → ② 核对预览 → ③ 再确认执行
+            </span>
             <a-button type="outline" :loading="previewingDelta" @click="doPrescanConfirm">
               生成差量计划
             </a-button>
-            <a-button type="primary" :disabled="!deltaPreview" :loading="executingDelta" @click="executeDeltaPreview">
-              确认执行冻结计划
-            </a-button>
+            <a-tooltip :content="deltaPreview ? '按冻结计划开始扫描（期间代码/规则变化不影响本次）' : '先点【生成差量计划】并核对预览，再执行'">
+              <span class="inline-block">
+                <a-button type="primary" :disabled="!deltaPreview" :loading="executingDelta" @click="executeDeltaPreview">
+                  确认执行冻结计划
+                </a-button>
+              </span>
+            </a-tooltip>
           </template>
         </a-space>
         <a-alert v-if="runList.length > 0" type="info" style="margin-top: 4px">
@@ -1956,5 +2005,50 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
 <style scoped>
 .scan-dashboard {
   padding: 16px;
+}
+
+/* 冻结计划预览：标签 / 取值 / 口径说明三列网格，长值换行也不再串行错位 */
+.delta-preview {
+  display: flex;
+  flex-direction: column;
+}
+
+.delta-preview-row {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--color-border-1);
+  align-items: baseline;
+}
+
+.delta-preview-row:last-child {
+  border-bottom: none;
+}
+
+.delta-preview-label {
+  color: var(--color-text-3);
+}
+
+.delta-preview-value {
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+.delta-preview-hint {
+  color: var(--color-text-3);
+  font-size: 12px;
+}
+
+.delta-preview-basis {
+  margin-top: 8px;
+  color: var(--color-text-3);
+  font-size: 12px;
+}
+
+.delta-actions-hint {
+  align-self: center;
+  color: var(--color-text-3);
+  font-size: 12px;
 }
 </style>
