@@ -514,6 +514,42 @@ async function indexSource(record: ModuleWithRepository) {
   }
 }
 
+// 发现微服务：从该仓库源码的 ServiceFactory 注册事实反推微服务资产（含扫描范围），
+// 依赖同一快照的符号库存（先「索引源码」）；没有库存时后端会明确报错。
+interface MicroserviceDiscoveryOutcome {
+  repository_id: string
+  snapshot_commit: string
+  symbol_rows: number
+  factory_files: number
+  assets_total: number
+  assets_resolved: number
+  assets_ambiguous: number
+  assets_unresolved: number
+  scope_files: number
+  scope_error?: string | null
+}
+
+const discoveringId = ref('')
+async function discoverMicroservice(record: ModuleWithRepository) {
+  discoveringId.value = record.relation_id
+  try {
+    const res = await postAction<MicroserviceDiscoveryOutcome>(
+      ApiSecModuleRepository.discoverMicroservice,
+      { repository_id: record.repository_id },
+    )
+    if (res) {
+      const commit = (res.snapshot_commit || '').slice(0, 8)
+      const ambiguous = res.assets_ambiguous ? `，歧义 ${res.assets_ambiguous}` : ''
+      Message.success(`发现完成：微服务资产 ${res.assets_total} 个（快照 ${commit || '--'}，范围文件 ${res.scope_files}${ambiguous}）`)
+      if (res.scope_error)
+        Message.warning(`扫描范围构建失败：${res.scope_error}`)
+    }
+  }
+  finally {
+    discoveringId.value = ''
+  }
+}
+
 // ── 批量操作（工具栏）：索引源码 / 验证 ──────────────────────────
 // 勾选跨页累积（selectedKeys 是受控的，翻页不清空）；索引是慢操作走后端后台队列，
 // 验证是逐仓连通性快检查走前端小块串行。
@@ -745,6 +781,15 @@ async function syncRepo(record: ModuleWithRepository) {
                 @click="indexSource(record)"
               >
                 索引源码
+              </a-button>
+              <!-- 发现微服务：从源码 ServiceFactory 注册事实反推微服务资产 + 扫描范围 -->
+              <a-button
+                type="text"
+                size="small"
+                :loading="discoveringId === record.relation_id"
+                @click="discoverMicroservice(record)"
+              >
+                发现微服务
               </a-button>
               <!-- 克隆/拉取：调 sync 接口，单行 loading，成功展示动作/分支数/head_sha/耗时 -->
               <a-button

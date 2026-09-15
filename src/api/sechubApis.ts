@@ -129,6 +129,7 @@ export enum ApiSecModuleRepository {
   sourceJob = '/sechub/module/repository/source-job',
   indexSource = '/sechub/module/repository/index-source',
   indexSourceBatch = '/sechub/module/repository/index-source-batch',
+  discoverMicroservice = '/sechub/module/repository/discover-microservice',
   branches = '/sechub/module/repository/branches',
   sync = '/sechub/module/repository/sync',
   commits = '/sechub/module/repository/commits',
