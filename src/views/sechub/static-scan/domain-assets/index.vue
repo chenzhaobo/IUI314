@@ -16,11 +16,11 @@
  * 候选与问题在本页只做计数展示、不复制状态机：确认与流转仍在扫描结果 / 缺陷页完成。
  */
 import type { AssetColumnDef, DomainAsset, DomainAssetListQuery, DomainAssetPage, FormAssetSyncTask } from './types'
-import type { secTestEnv } from '@/types/sechub'
 import type { ModuleWithRepository } from '@/types/static-scan'
 import { Message } from '@arco-design/web-vue'
 import { computed, onDeactivated, onUnmounted, ref } from 'vue'
-import { ApiSecDomainAsset, ApiSecFormAssetSync, ApiSecModuleRepository, ApiSecTestEnv, resolveStaticScanApi } from '@/api/sechubApis'
+import { ApiPerfEnv } from '@/api/apis'
+import { ApiSecDomainAsset, ApiSecFormAssetSync, ApiSecModuleRepository, resolveStaticScanApi } from '@/api/sechubApis'
 import ListPage from '@/components/common/ListPage.vue'
 import { getAction, postAction, useGet, usePagedQuery } from '@/hooks'
 import DomainAssetDetail from './DomainAssetDetail.vue'
@@ -102,7 +102,18 @@ const listFailed = computed(() => Boolean(listError.value))
 
 // ── 环境下拉（筛选 + 同步弹窗共用）─────────────────
 
-const { data: envRes } = useGet<{ list?: secTestEnv[] }>(ApiSecTestEnv.getList, {}, { immediate: true })
+interface PerfEnvOption {
+  id: string
+  env_name: string
+  env_code: string
+  env_type: string
+}
+
+const { data: envRes } = useGet<{ list?: PerfEnvOption[] }>(
+  ApiPerfEnv.getList,
+  { page_num: 1, page_size: 200, status: '1' },
+  { immediate: true },
+)
 
 const envOptions = computed(() => {
   const list = envRes.value?.list
@@ -111,7 +122,7 @@ const envOptions = computed(() => {
   return list
     .map(env => ({
       value: String(env.id ?? ''),
-      label: env.env_name ? `${env.env_name}（${env.env_type || env.id}）` : String(env.id ?? '--'),
+      label: env.env_name ? `${env.env_name}（${env.env_code || env.env_type || env.id}）` : String(env.id ?? '--'),
     }))
     .filter(option => option.value !== '')
 })
