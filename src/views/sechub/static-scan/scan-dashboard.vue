@@ -518,6 +518,8 @@ const previewingDelta = ref(false)
 const executingDelta = ref(false)
 // 仓库差量向导：0=选择范围与策略，1=核对计划并执行
 const prescanStep = ref(0)
+// 已冻结预览对应的请求指纹（见 doPrescanConfirm 的复用判断）
+let previewRequestKey = ''
 
 // 差量计划预览：摊平成「指标 / 取值 / 说明」三列面板。
 // 原 a-descriptions 两列在长值（缓存区间、Token 区间）下会换行错位，改成网格对齐 + 每项给口径说明。
@@ -737,6 +739,7 @@ async function openPrescanModal() {
   deltaScanMode.value = isLocalRepository.value ? 'full_baseline' : 'auto_delta'
   deltaPreview.value = null
   prescanStep.value = 0
+  previewRequestKey = ''
   baseCommitInput.value = ''
   diffGranularity.value = 'file'
   prescanModalVisible.value = true
@@ -886,12 +889,20 @@ async function doPrescanConfirm() {
     diff_granularity: deltaScanMode.value === 'hunk_quick' ? 'hunk' : 'file',
     force: false,
   }
+  // 输入未变时重复点「下一步」直接复用已冻结计划：每次请求都会在后端新建一条
+  // 预览 run（planned，不扫描），重复新建只会污染扫描记录。
+  const requestKey = JSON.stringify(body)
+  if (deltaPreview.value && previewRequestKey === requestKey) {
+    prescanStep.value = 1
+    return
+  }
   previewingDelta.value = true
   deltaPreview.value = null
   try {
     const preview = await postAction<DeltaPlanPreview>(ApiSecPrescan.deltaPreview, body)
     if (preview) {
       deltaPreview.value = preview
+      previewRequestKey = requestKey
       prescanStep.value = 1
       Message.success('差量计划已冻结，请核对估算与关闭资格后确认执行')
     }
@@ -1762,8 +1773,9 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
       :footer="false"
     >
       <a-form :model="{}" layout="vertical">
-        <!-- 仓库差量两步向导：第 1 步选范围与策略，第 2 步核对冻结计划再执行 -->
-        <a-steps v-if="isDeltaWizard" :current="prescanStep" size="small" style="margin-bottom: 12px">
+        <!-- 仓库差量两步向导：第 1 步选范围与策略，第 2 步核对冻结计划再执行。
+             a-steps 的 current 从 1 开始计数，prescanStep 是 0 基索引，显示时 +1 -->
+        <a-steps v-if="isDeltaWizard" :current="prescanStep + 1" size="small" style="margin-bottom: 12px">
           <a-step>选择范围与策略</a-step>
           <a-step>核对计划并执行</a-step>
         </a-steps>
