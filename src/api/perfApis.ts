@@ -420,6 +420,9 @@ export enum ApiPerfPatternLedger {
   editAttribution = '/perf/periodic-report/pattern/edit-attribution',
   // 批量废弃低质量台账：软删除后不再参与列表、报告、影响面与指纹匹配
   discard = '/perf/periodic-report/pattern/discard',
+  // 人工处置留痕：不处理（必填原因）/ 观察 / 撤回待处置。
+  // 与 discard 是两回事：废弃说的是「这条分析不该存在」，处置说的是「这个问题不修」
+  triage = '/perf/periodic-report/pattern/triage',
   // 影响面重算：触发即返回，实算在后台（357 条同步跑必然网关超时）
   recomputeImpact = '/perf/periodic-report/pattern/recompute-impact',
 }

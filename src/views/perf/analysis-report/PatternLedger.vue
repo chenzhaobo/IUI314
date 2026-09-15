@@ -57,15 +57,10 @@
         </a-col>
         <a-col :span="3">
           <a-select v-model="searchForm.status" placeholder="状态" allow-clear>
-            <a-option value="new">新发现</a-option>
+            <a-option value="new">待处置</a-option>
             <a-option value="issued">已提单</a-option>
-            <a-option value="scheduled">已排期</a-option>
-            <a-option value="fixing">修复中</a-option>
-            <a-option value="fixed">已修复</a-option>
-            <a-option value="verified">已验证</a-option>
-            <a-option value="recurrent">复发</a-option>
-            <a-option value="closed">已关闭</a-option>
-            <a-option value="exempted">已豁免</a-option>
+            <a-option value="wont_fix">不处理</a-option>
+            <a-option value="observing">观察</a-option>
           </a-select>
         </a-col>
         <a-col :span="6">
@@ -81,6 +76,18 @@
               @click="openEditAttribution"
             >
               修改{{ selectedKeys.length ? ` (${selectedKeys.length})` : '' }}
+            </a-button>
+            <!-- 「不处理」与「废弃」分开放，措辞也刻意不同：
+                 不处理 = 这个问题判断不修（仍进报告与统计）；
+                 废弃   = 这条分析不该存在（从指纹匹配里移除）。 -->
+            <a-button
+              type="outline"
+              status="warning"
+              :loading="triaging"
+              :disabled="selectedKeys.length === 0"
+              @click="openTriageBatch"
+            >
+              不处理{{ selectedKeys.length ? ` (${selectedKeys.length})` : '' }}
             </a-button>
             <a-button
               status="danger"
@@ -253,11 +260,20 @@
                   <span v-else>--</span>
                 </template>
               </a-table-column>
-              <a-table-column title="豁免" data-index="is_exempted" :width="60">
+              <!-- 「豁免」列去掉了：它和状态里的「不处理」是同一件事（is_exempted 由
+                   处置动作维护），两列并排显示等于让人自己核对是否一致。
+                   换成处置留痕 —— 这两列回答的是「这条有没有人看过、谁看的」，
+                   而在此之前那个问题在界面上根本无从回答（生产 61 条全部无人处置）。 -->
+              <a-table-column title="处置人" data-index="triaged_by" :width="90">
                 <template #cell="{ record }">
-                  <a-tag v-if="record.is_exempted" color="red" size="small">是</a-tag>
-                  <span v-else>--</span>
+                  <a-tag v-if="record.triaged_by" size="small">{{ record.triaged_by }}</a-tag>
+                  <a-tooltip v-else content="还没有人对这条下过判断">
+                    <span style="color: #f53f3f">待处置</span>
+                  </a-tooltip>
                 </template>
+              </a-table-column>
+              <a-table-column title="处置时间" :width="150" ellipsis tooltip>
+                <template #cell="{ record }">{{ record.triaged_at ? formatTime(record.triaged_at) : '--' }}</template>
               </a-table-column>
               <!-- 时间列放最后：排查「这条台账是什么时候建的、最近一次命中是什么时候」
                    靠周趋势看不出来，而回填/合并过的台账更需要看 updated_at。 -->
@@ -281,6 +297,14 @@
                       <template #content>
                         <a-doption v-if="record.issue_id" value="viewIssue">查看问题</a-doption>
                         <a-doption v-else value="linkIssue">关联已有问题</a-doption>
+                        <!-- 处置：看完之后"不修"或"再观察"要有落点，否则「没人看过」与
+                             「看过并决定不处理」在数据上完全一样。已提单的不给改 ——
+                             那条的生命周期已经交给问题跟踪。 -->
+                        <template v-if="!record.issue_id">
+                          <a-doption v-if="record.status !== 'wont_fix'" value="wontFix">标记不处理…</a-doption>
+                          <a-doption v-if="record.status !== 'observing'" value="observing">标记观察</a-doption>
+                          <a-doption v-if="record.status !== 'new'" value="restore">撤回待处置</a-doption>
+                        </template>
                         <a-doption value="logs" :disabled="!hasBundle(record)">
                           <!-- 提示挂在内部 span 上：禁用的 doption 本身不派发鼠标事件 -->
                           <a-tooltip :content="bundleTip(record)">
@@ -310,6 +334,18 @@
         <a-descriptions-item label="编号">{{ currentRecord?.pattern_no }}</a-descriptions-item>
         <a-descriptions-item label="状态">
           <a-tag :color="statusColor(currentRecord?.status)">{{ statusText(currentRecord?.status) }}</a-tag>
+        </a-descriptions-item>
+        <!-- 处置留痕：把"谁在什么时候下了这个判断"和判断本身放在一起。
+             原因复用 exempt_reason，不处理时必填。 -->
+        <a-descriptions-item label="处置">
+          <template v-if="currentRecord?.triaged_by || currentRecord?.triaged_at">
+            <a-tag v-if="currentRecord?.triaged_by" size="small">{{ currentRecord.triaged_by }}</a-tag>
+            <span style="color: #86909c; font-size: 12px">{{ formatTime(currentRecord?.triaged_at) }}</span>
+          </template>
+          <span v-else style="color: #f53f3f">还没有人对这条下过判断</span>
+        </a-descriptions-item>
+        <a-descriptions-item v-if="currentRecord?.exempt_reason" label="不处理原因" :span="2">
+          {{ currentRecord.exempt_reason }}
         </a-descriptions-item>
         <a-descriptions-item label="归因标签" :span="2">
           <template v-if="currentRecord?.attribution_tag">
@@ -455,6 +491,31 @@
         </a-form-item>
       </a-form>
     </a-modal>
+
+    <!-- 标记不处理：原因必填。
+         这是唯一能回答"当初为什么放过它"的东西 —— 缺了它，下一轮归因判出同一指纹时
+         只能重新调研一遍，正是这套治理想省掉的成本。 -->
+    <a-modal
+      v-model:visible="triageVisible"
+      :title="`标记不处理（${triageIds.length} 条）`"
+      :width="560"
+      :ok-loading="triaging"
+      ok-text="确认不处理"
+      @ok="submitWontFix"
+    >
+      <a-alert type="normal" style="margin-bottom: 12px">
+        「不处理」表示<strong>这条分析是对的，但这个问题判断不修</strong>；台账仍进报告与统计。
+        如果是<strong>分析本身质量差</strong>（结论错、证据不成立），请用「废弃」——
+        那会把它从后续指纹匹配里移除。
+      </a-alert>
+      <a-textarea
+        v-model="triageReason"
+        :auto-size="{ minRows: 3, maxRows: 6 }"
+        placeholder="例：已确认耗时来自客户单据量（单次 12 万成员），当前版本无优化空间，已与业务确认可接受。"
+        :max-length="200"
+        show-word-limit
+      />
+    </a-modal>
   </div>
 </template>
 
@@ -487,7 +548,10 @@ const searchForm = reactive({
   dimension_type: '',
   dimension_value: '',
   attribution_tag: '',
-  status: '',
+  // 默认只看待处置：这个页面的用途是"决定这些问题要不要修"，而生产实测 61 条里
+  // 60 条从来没人下过判断。默认列全部等于把待办埋在已处置的行里 ——
+  // 筛选框会显示「待处置」，想看全部清掉它即可。
+  status: 'new',
   project_group_code: '',
   cloud_number: '',
   business_area: '',
@@ -540,15 +604,41 @@ const getReportFiles = (record: any): string[] => {
 }
 const hasDefectReport = (record: any) => !!getDefectReport(record) || getReportFiles(record).length > 0
 const defectStatusText = (status: string) => ({ complete: '完整', evidence_insufficient: '证据不足', pending_retry: '待重试' }[status] || status || '--')
+// 处置状态。人工能选的只有三个（见操作列的处置项）：
+//   待处置 = 系统产出的初始态，没人下过判断
+//   已提单 = 走「生成问题」建了问题单，后续看问题跟踪
+//   不处理 = 看过了判断不修（必填原因）
+//   观察   = 看过了，等下一轮再看
 const statusMap: Record<string, string> = {
-  new: '新发现', issued: '已提单', scheduled: '已排期', fixing: '修复中',
-  fixed: '已修复', verified: '已验证', recurrent: '复发', closed: '已关闭', exempted: '已豁免',
+  new: '待处置',
+  issued: '已提单',
+  wont_fix: '不处理',
+  observing: '观察',
+  // ── 以下为遗留取值，生产一条都没有，保留只为历史数据能正常显示 ──
+  scheduled: '已排期',
+  fixing: '修复中',
+  fixed: '已修复',
+  verified: '已验证',
+  recurrent: '复发',
+  closed: '已关闭',
+  exempted: '已豁免',
 }
 const statusText = (s: string | undefined) => (s ? statusMap[s] || s : '--')
-const statusColor = (s: string | undefined) => ({
-  new: 'orange', issued: 'blue', scheduled: 'purple', fixing: 'purple',
-  fixed: 'cyan', verified: 'green', recurrent: 'red', closed: 'gray', exempted: 'gray',
-}[s || ''] || 'gray')
+const statusColorMap: Record<string, string> = {
+  // 待处置用 orange 不是 gray：它是"欠一个判断"，不是终态
+  new: 'orange',
+  issued: 'blue',
+  wont_fix: 'gray',
+  observing: 'purple',
+  scheduled: 'purple',
+  fixing: 'purple',
+  fixed: 'cyan',
+  verified: 'green',
+  recurrent: 'red',
+  closed: 'gray',
+  exempted: 'gray',
+}
+const statusColor = (s: string | undefined) => statusColorMap[s || ''] || 'gray'
 function dimensionTypeText(t: string | undefined) {
   const labels: Record<string, string> = {
     product_domain: '产品领域',
@@ -735,6 +825,74 @@ const handleEditSubmit = async () => {
   await fetchData()
 }
 
+// ── 人工处置 ──────────────────────────────────────
+//
+// 为什么必须有这个动作：台账页原来对人只开放「生成问题」一个出口，看完之后判断
+// "不该提单"或"再观察一轮"都没有落点。生产实测 61 条台账里 60 条停在待处置，
+// 而 last_modified_by 全为空 —— "没人看过"和"看过并决定不处理"在数据上完全一样，
+// 影响面早就排出 19 个 P0，其中 18 个未提单，却无从判断是哪一种。
+//
+// 与「废弃」的边界：废弃说的是「这条分析不该存在」（不再参与指纹匹配），
+// 处置说的是「这个问题不修」（仍进报告与统计）。混用会让下一轮把它当新问题重做。
+const triaging = ref(false)
+const triagePayload = ref<{ ids: string[], status: string, reason?: string }>({ ids: [], status: 'new' })
+const { data: triageRes, execute: doTriage } = usePost<any>(
+  ApiPerfPatternLedger.triage,
+  triagePayload,
+  { immediate: false },
+)
+
+const triageVisible = ref(false)
+const triageReason = ref('')
+const triageIds = ref<string[]>([])
+
+/** 打开「不处理」弹窗 —— 只有它需要填原因，观察与撤回直接提交。 */
+function openTriage(record: any) {
+  triageIds.value = [record.id]
+  triageReason.value = ''
+  triageVisible.value = true
+}
+
+function openTriageBatch() {
+  const ids = [...selectedKeys.value]
+  if (!ids.length) {
+    Message.warning('请先勾选要标记不处理的台账')
+    return
+  }
+  triageIds.value = ids
+  triageReason.value = ''
+  triageVisible.value = true
+}
+
+async function submitTriage(ids: string[], status: string, reason?: string) {
+  if (!ids.length)
+    return
+  triagePayload.value = { ids, status, reason }
+  triaging.value = true
+  try {
+    await doTriage()
+    // usePost 不支持 onSuccess，必须在这里判结果
+    if (isRequestFailed(triageRes.value))
+      return
+    Message.success(triageRes.value?.message || '处置已记录')
+    triageVisible.value = false
+    selectedKeys.value = []
+    await fetchData()
+  }
+  finally {
+    triaging.value = false
+  }
+}
+
+async function submitWontFix() {
+  const reason = triageReason.value.trim()
+  if (!reason) {
+    Message.warning('请写明不处理的原因 —— 否则下一轮判出同一问题时没人知道当初为什么放过它')
+    return
+  }
+  await submitTriage(triageIds.value, 'wont_fix', reason)
+}
+
 // ── 批量废弃 ──────────────────────────────────────
 const discarding = ref(false)
 const discardPayload = ref<{ ids: string[] }>({ ids: [] })
@@ -847,6 +1005,15 @@ const handleMoreAction = (key: string, record: any) => {
     case 'logs':
       void handleLogsDownload(record)
       break
+    case 'wontFix':
+      openTriage(record)
+      break
+    case 'observing':
+      void submitTriage([record.id], 'observing')
+      break
+    case 'restore':
+      void submitTriage([record.id], 'new')
+      break
     default:
       break
   }
@@ -883,7 +1050,8 @@ const handleScopeChange = (scope: {
 const handleSearch = () => { pageNum.value = 1; fetchData() }
 const handleReset = () => {
   Object.assign(searchForm, {
-    keyword: '', product_line: '', dimension_type: '', dimension_value: '', attribution_tag: '', status: '',
+    // status 回到 'new' 而不是空：与初始状态一致，否则"重置"会变成"看全部"
+    keyword: '', product_line: '', dimension_type: '', dimension_value: '', attribution_tag: '', status: 'new',
     project_group_code: '',
     cloud_number: '',
     business_area: '',
