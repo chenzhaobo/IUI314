@@ -336,13 +336,9 @@
           <a-descriptions-item label="分析权重">
             <AnalysisWeightCell :record="currentRecord || {}" />
           </a-descriptions-item>
-          <a-descriptions-item v-if="impactRows(currentRecord || {}).length" label="影响面构成" :span="2">
-            <div style="line-height: 1.9">
-              <div v-for="row in impactRows(currentRecord || {})" :key="row.k" style="display: flex; gap: 10px">
-                <span style="width: 90px; color: #86909c">{{ row.k }}</span>
-                <span style="flex: 1">{{ row.v }}</span>
-              </div>
-            </div>
+          <!-- 构成明细按来源分段（见 ImpactBreakdown），与问题台账同一份 markup -->
+          <a-descriptions-item label="影响面构成" :span="2">
+            <ImpactBreakdown :record="currentRecord || {}" />
           </a-descriptions-item>
           <a-descriptions-item label="产品线">{{ currentRecord?.product_line || '--' }}</a-descriptions-item>
           <a-descriptions-item v-if="currentRecord?.related_issue_id" label="关联问题" :span="2">
@@ -576,8 +572,9 @@ import ListPage from '@/components/common/ListPage.vue'
 import { ApiSysUser } from '@/api/sysApis'
 import { ApiSecProjectGroup } from '@/api/sechubApis'
 import { formatTime, useDelete, useDicts, useDownload, useGet, usePost, usePut } from '@/hooks'
-import { impactRows, splitTag } from '@/views/perf/components/analysisFields'
+import { splitTag } from '@/views/perf/components/analysisFields'
 import AnalysisWeightCell from '@/views/perf/components/AnalysisWeightCell.vue'
+import ImpactBreakdown from '@/views/perf/components/ImpactBreakdown.vue'
 import ImpactCell from '@/views/perf/components/ImpactCell.vue'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
 import PatternReanalysis from '@/views/perf/components/PatternReanalysis.vue'

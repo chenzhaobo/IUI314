@@ -370,13 +370,10 @@
           <AnalysisWeightCell :record="currentRecord || {}" />
         </a-descriptions-item>
         <a-descriptions-item label="分析维度">{{ currentRecord?.analysis_dimension || '--' }}</a-descriptions-item>
-        <a-descriptions-item v-if="impactRows(currentRecord || {}).length" label="影响面构成" :span="2">
-          <div style="line-height: 1.9">
-            <div v-for="row in impactRows(currentRecord || {})" :key="row.k" style="display: flex; gap: 10px">
-              <span style="width: 90px; color: #86909c">{{ row.k }}</span>
-              <span style="flex: 1">{{ row.v }}</span>
-            </div>
-          </div>
+        <!-- 构成明细按来源分段（见 ImpactBreakdown）：617ms 与 5.2s 不是一个口径的东西，
+             平铺成一行行数字时会被读成互相矛盾 -->
+        <a-descriptions-item label="影响面构成" :span="2">
+          <ImpactBreakdown :record="currentRecord || {}" />
         </a-descriptions-item>
         <a-descriptions-item label="维度">{{ dimensionTypeText(currentRecord?.dimension_type) }} / {{ currentRecord?.dimension_value }}</a-descriptions-item>
         <a-descriptions-item label="产品线">{{ currentRecord?.product_line || '--' }}</a-descriptions-item>
@@ -564,8 +561,9 @@ import { batchActionHint, canLedgerAction, filterActionable, ledgerStateOf } fro
 import { MdPreview } from 'md-editor-v3'
 // 必须导入样式，否则 MdPreview 渲染出来没有任何格式（表格无边框、标题不分级）
 import 'md-editor-v3/lib/style.css'
-import { impactRows, splitTag } from '@/views/perf/components/analysisFields'
+import { splitTag } from '@/views/perf/components/analysisFields'
 import AnalysisWeightCell from '@/views/perf/components/AnalysisWeightCell.vue'
+import ImpactBreakdown from '@/views/perf/components/ImpactBreakdown.vue'
 import ImpactCell from '@/views/perf/components/ImpactCell.vue'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
 import PatternReanalysis from '@/views/perf/components/PatternReanalysis.vue'
