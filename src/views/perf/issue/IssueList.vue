@@ -181,9 +181,10 @@
               :pagination="pagination"
               :row-selection="{ type: 'checkbox', showCheckedAll: true }"
               :selected-keys="selectedIds"
-              :scroll="{ minWidth: 2215, y: tableHeight }"
+              :scroll="{ minWidth: 2571, y: tableHeight }"
               row-key="id"
               @selection-change="onSelectionChange"
+              @sorter-change="handleSorterChange"
               @page-change="handlePageChange"
               @page-size-change="handlePageSizeChange"
             >
@@ -197,6 +198,30 @@
                 </a-table-column>
                 <a-table-column title="类型" data-index="issue_type" :width="100">
                   <template #cell="{ record }">{{ issueTypeText(record.issue_type) }}</template>
+                </a-table-column>
+                <!-- 影响面 / 分析权重 / 归因标签：与问题台账同一套（共用单元格与渲染口径）。
+                     这三项是归因算在台账上的结果，问题表本身没有 —— 后端按 issue_id
+                     从关联台账带过来。两个页面看的是同一个问题，"这条为什么排在前面"
+                     在这边也必须看得到，否则同一行在两边分量不同。 -->
+                <a-table-column title="影响面" :width="110" data-index="impact_score" :sortable="{ sortDirections: ['descend', 'ascend'] }">
+                  <template #cell="{ record }">
+                    <ImpactCell :record="record" />
+                  </template>
+                </a-table-column>
+                <a-table-column title="分析权重" :width="96" data-index="analysis_weight" :sortable="{ sortDirections: ['descend', 'ascend'] }">
+                  <template #cell="{ record }">
+                    <AnalysisWeightCell :record="record" />
+                  </template>
+                </a-table-column>
+                <a-table-column title="归因标签" data-index="attribution_tag" :width="150">
+                  <template #cell="{ record }">
+                    <template v-if="record.attribution_tag">
+                      <a-tag v-for="(tag, idx) in splitTag(record.attribution_tag)" :key="idx" :color="idx === 0 ? 'arcoblue' : 'cyan'" size="small" style="margin-right: 4px">
+                        {{ tag }}
+                      </a-tag>
+                    </template>
+                    <span v-else>--</span>
+                  </template>
                 </a-table-column>
                 <a-table-column title="应用" data-index="app_number" :width="80" />
                 <a-table-column title="项目组" :width="150" ellipsis tooltip>
@@ -295,7 +320,30 @@
           <a-descriptions-item label="修复日期">{{ formatTime(currentRecord?.fixed_date, { precision: 'date' }) }}</a-descriptions-item>
           <a-descriptions-item label="来源">{{ sourceText(currentRecord?.source) }}</a-descriptions-item>
           <a-descriptions-item label="出现次数">{{ currentRecord?.recurrence_count || 1 }}</a-descriptions-item>
-          <a-descriptions-item label="归因标签">{{ currentRecord?.attribution_tag || '--' }}</a-descriptions-item>
+          <!-- 归因产出三项与问题台账同一套渲染（共用单元格与 impactRows）：
+               两边详情看的是同一个问题，字段与口径不该一个多一个少。 -->
+          <a-descriptions-item label="归因标签">
+            <template v-if="currentRecord?.attribution_tag">
+              <a-tag v-for="(tag, idx) in splitTag(currentRecord.attribution_tag)" :key="idx" :color="idx === 0 ? 'arcoblue' : 'cyan'" size="small" style="margin-right: 4px">
+                {{ tag }}
+              </a-tag>
+            </template>
+            <span v-else>--</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="影响面">
+            <ImpactCell :record="currentRecord || {}" />
+          </a-descriptions-item>
+          <a-descriptions-item label="分析权重">
+            <AnalysisWeightCell :record="currentRecord || {}" />
+          </a-descriptions-item>
+          <a-descriptions-item v-if="impactRows(currentRecord || {}).length" label="影响面构成" :span="2">
+            <div style="line-height: 1.9">
+              <div v-for="row in impactRows(currentRecord || {})" :key="row.k" style="display: flex; gap: 10px">
+                <span style="width: 90px; color: #86909c">{{ row.k }}</span>
+                <span style="flex: 1">{{ row.v }}</span>
+              </div>
+            </div>
+          </a-descriptions-item>
           <a-descriptions-item label="产品线">{{ currentRecord?.product_line || '--' }}</a-descriptions-item>
           <a-descriptions-item v-if="currentRecord?.related_issue_id" label="关联问题" :span="2">
             <a-link @click="openRelatedIssue(currentRecord.related_issue_id)">{{ currentRecord.related_issue_id }}</a-link>
@@ -528,6 +576,9 @@ import ListPage from '@/components/common/ListPage.vue'
 import { ApiSysUser } from '@/api/sysApis'
 import { ApiSecProjectGroup } from '@/api/sechubApis'
 import { formatTime, useDelete, useDicts, useDownload, useGet, usePost, usePut } from '@/hooks'
+import { impactRows, splitTag } from '@/views/perf/components/analysisFields'
+import AnalysisWeightCell from '@/views/perf/components/AnalysisWeightCell.vue'
+import ImpactCell from '@/views/perf/components/ImpactCell.vue'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
 import PatternReanalysis from '@/views/perf/components/PatternReanalysis.vue'
 import { useUserStore } from '@/stores'
@@ -559,6 +610,10 @@ const searchForm = reactive({
   dmp_defect_code: '',
   // 内部处理状态过滤；__none__ 筛未进入流程的
   process_status: '',
+  // 排序（后端做）：影响面/分析权重在台账表上，后端用关联子查询排序，
+  // 前端只有当页 20 条，在那上面排出的第一名不是真正的第一名。
+  sort_by: '',
+  sort_order: '',
 })
 const scopeCountFilters = computed(() => ({
   keyword: searchForm.keyword,
@@ -902,6 +957,23 @@ const queryParams = computed(() => ({ ...searchForm, page_num: pageNum.value, pa
 const { isFetching: loading, data: rawData, execute: fetchData } = useGet<any>(ApiPerfIssue.getList, queryParams, { immediate: true })
 const tableData = computed(() => rawData.value?.list || [])
 const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0, showTotal: true, showPageSize: true }))
+
+/** 表头排序 → 后端排序（与问题台账同一套参数与语义）。
+ *
+ * 必须走后端：影响面/分析权重只算在台账上，后端用关联子查询跨表排序；
+ * 前端只有当页 20 条，在那上面排出的第一名不是真正的第一名。 */
+function handleSorterChange(dataIndex: string, direction: string) {
+  if (!direction) {
+    searchForm.sort_by = ''
+    searchForm.sort_order = ''
+  }
+  else {
+    searchForm.sort_by = dataIndex
+    searchForm.sort_order = direction === 'ascend' ? 'asc' : 'desc'
+  }
+  pageNum.value = 1
+  void fetchData()
+}
 
 const traceIdList = (raw?: string): string[] => (raw || '').split(/[,;\s]+/).filter(Boolean)
 const prettyJson = (value: any): string => {
