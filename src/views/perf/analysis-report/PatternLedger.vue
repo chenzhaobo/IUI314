@@ -109,6 +109,16 @@
         >
           观察{{ selectedKeys.length ? ` (${selectedKeys.length})` : '' }}
         </a-button>
+        <!-- 撤回待处置：把「不处理 / 观察」的判断撤掉，连同处置人一起清（见后端 triage）。
+             判断错了要能就地改回来，否则只能靠改库。中性样式：它是撤销，
+             不是又一次判断。 -->
+        <a-button
+          :loading="triaging"
+          :disabled="selectedKeys.length === 0"
+          @click="handleRestoreSelected"
+        >
+          撤回待处置{{ selectedKeys.length ? ` (${selectedKeys.length})` : '' }}
+        </a-button>
         <a-button
           status="danger"
           :loading="discarding"
@@ -1001,6 +1011,16 @@ function handleObserveSelected() {
     return
   }
   void submitTriage(ids, 'observing')
+}
+
+/** 批量撤回待处置：回到待处置队列，处置人与原因一并清掉（见后端 triage）。 */
+function handleRestoreSelected() {
+  const ids = [...selectedKeys.value]
+  if (!ids.length) {
+    Message.warning('请先勾选要撤回的台账')
+    return
+  }
+  void submitTriage(ids, 'new')
 }
 
 // ── 批量废弃 ──────────────────────────────────────
