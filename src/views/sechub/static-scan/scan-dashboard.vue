@@ -546,7 +546,15 @@ async function ensureRuleSets() {
   ruleSetsRequested = true
   const data = await getAction<RuleSet[] | PageResult<RuleSet>>(ApiSecRuleSet.getAll)
   const list = Array.isArray(data) ? data : data?.list ?? []
-  ruleSets.value = list.filter(item => item.publish_status === 'published')
+  // 同一 rule_set_key 存在历史版本行（如 SMART-ADMIN 的 v1/v2）：只留版本号最大的。
+  // 旧版本的成员规则可能已停用，选中会被运行时校验拒绝（RuleVersion 已禁用）。
+  const latestByKey = new Map<string, RuleSet>()
+  for (const item of list.filter(item => item.publish_status === 'published')) {
+    const current = latestByKey.get(item.rule_set_key)
+    if (!current || item.version > current.version)
+      latestByKey.set(item.rule_set_key, item)
+  }
+  ruleSets.value = [...latestByKey.values()]
 }
 
 const ruleSetLabelText = computed(() => {
