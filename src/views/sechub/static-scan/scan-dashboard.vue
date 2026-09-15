@@ -516,6 +516,8 @@ const deltaScanMode = ref<DeltaScanMode>('auto_delta')
 const deltaPreview = ref<DeltaPlanPreview | null>(null)
 const previewingDelta = ref(false)
 const executingDelta = ref(false)
+// 仓库差量向导：0=选择范围与策略，1=核对计划并执行
+const prescanStep = ref(0)
 
 // 差量计划预览：摊平成「指标 / 取值 / 说明」三列面板。
 // 原 a-descriptions 两列在长值（缓存区间、Token 区间）下会换行错位，改成网格对齐 + 每项给口径说明。
@@ -564,8 +566,57 @@ const deltaPreviewRows = computed<DeltaPreviewRow[]>(() => {
   ]
 })
 
-// 步骤引导：仓库差量是「选范围与策略 → 生成差量计划 → 确认执行」三步；出预览即到第 3 步。
-const deltaStepCurrent = computed(() => (deltaPreview.value ? 2 : 1))
+// 「不具备自动关闭资格」的原因码 → 人话。未收录的码原样透出，便于排查。
+// 自动关闭 = 扫描后把本次未再命中的历史问题自动关掉；差量扫描只覆盖变更范围，
+// 天然不具备该资格，属预期而非故障。
+const AUTO_CLOSE_BLOCK_LABELS: Record<string, string> = {
+  may_auto_close_false: '本次未取得自动关闭资格',
+  delta_kind_hunk_quick: '新增行快速检查不关闭历史问题',
+  delta_kind_reconfirm: '仅重新 AI 确认不关闭历史问题',
+  impact_truncated: '调用链扩散被截断，覆盖不完整',
+  impact_evidence_missing: '缺少调用关系证据',
+  ambiguous_delta: '变更归属存在歧义',
+  git_unavailable: 'Git 不可用，无法核验覆盖范围',
+  delta_base_missing: '找不到可信的差量基线',
+  branch_missing: '目标分支不存在',
+  commit_missing: '目标 Commit 不存在',
+  invalid_domain: '比较域非法',
+  manifest_missing: '缺少范围清单（Manifest）',
+  manifest_untrusted: '范围清单不可信',
+  manifest_truncated: '范围清单被截断',
+  manifest_incomplete: '范围清单存在缺失项',
+  manifest_ambiguous: '范围清单存在歧义项',
+  ai_pending_candidates: '还有候选未完成 AI 确认',
+  cache_miss_unprocessed: '有缓存未命中的候选尚未处理',
+  issue_writeback_incomplete: '确认候选尚未写回问题',
+  may_auto_close_inconsistent: '自动关闭契约与实际事实不一致',
+}
+
+// 这些原因属于「差量扫描天然不关闭」的预期状态，提示用 info 而非 warning
+const EXPECTED_NO_CLOSE_REASONS = new Set(['may_auto_close_false', 'delta_kind_hunk_quick', 'delta_kind_reconfirm'])
+
+const autoCloseAlert = computed<{ type: 'info' | 'warning', title: string, detail: string } | null>(() => {
+  const p = deltaPreview.value
+  if (!p || p.may_auto_close)
+    return null
+  const reasons = p.auto_close_block_reasons ?? []
+  const expected = reasons.length === 0 || reasons.every(r => EXPECTED_NO_CLOSE_REASONS.has(r))
+  const labels = reasons.map(r => AUTO_CLOSE_BLOCK_LABELS[r] ?? r)
+  if (expected) {
+    return {
+      type: 'info',
+      title: '本次扫描不会自动关闭历史问题（差量扫描的预期行为）',
+      detail: '自动关闭指扫描后把本次未再命中的历史问题自动关掉；差量只覆盖变更范围，未覆盖范围的问题原样保留，需人工处置。',
+    }
+  }
+  return {
+    type: 'warning',
+    title: `覆盖不完整，不具备自动关闭资格：${labels.join('；')}`,
+    detail: '本次扫描只新增/更新问题，不会关闭任何历史问题。',
+  }
+})
+
+const isDeltaWizard = computed(() => !isDomainTarget.value && !isLocalRepository.value)
 
 // commit 下拉标签用的紧凑时间戳 yymmddhhmmss。
 // 走统一入口按**用户时区**渲染后再压缩——旧实现用 new Date().getHours() 等取的是
@@ -685,6 +736,7 @@ async function openPrescanModal() {
   scanScope.value = 'diff_last'
   deltaScanMode.value = isLocalRepository.value ? 'full_baseline' : 'auto_delta'
   deltaPreview.value = null
+  prescanStep.value = 0
   baseCommitInput.value = ''
   diffGranularity.value = 'file'
   prescanModalVisible.value = true
@@ -840,6 +892,7 @@ async function doPrescanConfirm() {
     const preview = await postAction<DeltaPlanPreview>(ApiSecPrescan.deltaPreview, body)
     if (preview) {
       deltaPreview.value = preview
+      prescanStep.value = 1
       Message.success('差量计划已冻结，请核对估算与关闭资格后确认执行')
     }
   }
@@ -1709,18 +1762,12 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
       :footer="false"
     >
       <a-form :model="{}" layout="vertical">
-        <!-- 仓库差量三步引导：生成计划前不暴露执行按钮，避免「没预览就点执行」 -->
-        <a-steps
-          v-if="!isDomainTarget && !isLocalRepository"
-          :current="deltaStepCurrent"
-          size="small"
-          style="margin-bottom: 12px"
-        >
+        <!-- 仓库差量两步向导：第 1 步选范围与策略，第 2 步核对冻结计划再执行 -->
+        <a-steps v-if="isDeltaWizard" :current="prescanStep" size="small" style="margin-bottom: 12px">
           <a-step>选择范围与策略</a-step>
-          <a-step>生成差量计划</a-step>
-          <a-step>确认执行</a-step>
+          <a-step>核对计划并执行</a-step>
         </a-steps>
-        <a-form-item label="扫描范围">
+        <a-form-item v-if="!isDeltaWizard || prescanStep === 0" label="扫描范围">
           <a-radio-group v-model="scanTargetType" type="button" :disabled="isLocalRepository" @change="onScanTargetChange">
             <a-radio value="repository">
               整个仓库
@@ -1756,7 +1803,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
         <a-alert v-if="isLocalRepository" type="info" style="margin-bottom: 12px">
           当前为反编译源码库，将直接扫描登记目录；不读取 Git 分支、Commit 或差量基线。
         </a-alert>
-        <a-form-item v-if="!isDomainTarget && !isLocalRepository" label="目标分支">
+        <a-form-item v-if="isDeltaWizard && prescanStep === 0" label="目标分支">
           <!-- 分支选择行：下拉 + 显式刷新按钮（点击才 refresh=true 真正 git fetch） -->
           <a-space style="width: 100%">
             <a-select
@@ -1784,7 +1831,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
             </a-button>
           </a-space>
         </a-form-item>
-        <a-form-item v-if="!isDomainTarget && !isLocalRepository" label="目标 Commit（可选，留空则使用分支最新提交）">
+        <a-form-item v-if="isDeltaWizard && prescanStep === 0" label="目标 Commit（可选，留空则使用分支最新提交）">
           <!-- commit 下拉：支持搜索 + 手工输入不在列表中的 sha，保留 7~40 位 hex 校验。
                allow-clear 允许清空回「使用分支最新提交」语义；清空后 prescanCommit 为空串，
                doPrescanConfirm 中 prescanCommit.value || undefined 会转成 undefined，后端取分支最新 commit。 -->
@@ -1802,7 +1849,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
             </a-option>
           </a-select>
         </a-form-item>
-        <a-form-item v-if="!isDomainTarget && !isLocalRepository" label="扫描策略">
+        <a-form-item v-if="isDeltaWizard && prescanStep === 0" label="扫描策略">
           <a-select v-model="deltaScanMode" style="width: 100%" @change="deltaPreview = null">
             <a-option value="auto_delta">
               推荐：自动增量
@@ -1827,7 +1874,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
             </a-option>
           </a-select>
         </a-form-item>
-        <a-form-item v-if="!isDomainTarget && !isLocalRepository" label="差量基准">
+        <a-form-item v-if="isDeltaWizard && prescanStep === 0" label="差量基准">
           <a-radio-group v-model="scanScope" type="button" @change="deltaPreview = null">
             <a-radio value="diff_last">
               自动选择可信基线
@@ -1837,7 +1884,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
             </a-radio>
           </a-radio-group>
         </a-form-item>
-        <a-form-item v-if="!isDomainTarget && !isLocalRepository && scanScope === 'diff_commit'" label="基准 Commit SHA">
+        <a-form-item v-if="isDeltaWizard && prescanStep === 0 && scanScope === 'diff_commit'" label="基准 Commit SHA">
           <!-- 差量基准 commit：支持下拉选同分支 commit，保留手工输入与 7~40 位 hex 校验。
                allow-clear 允许清空；disabled 联动：仅 scanScope === 'diff_commit' 时可操作，
                其他 scope 时此 form-item 整体隐藏（v-if），不破坏 disabled 联动逻辑。
@@ -1857,10 +1904,10 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
             </a-option>
           </a-select>
         </a-form-item>
-        <a-alert v-if="!isDomainTarget && !isLocalRepository && deltaScanMode === 'hunk_quick'" type="warning" style="margin-bottom: 8px">
+        <a-alert v-if="isDeltaWizard && prescanStep === 0 && deltaScanMode === 'hunk_quick'" type="warning" style="margin-bottom: 8px">
           新增行快速检查固定 may_auto_close=false，不会关闭任何历史问题。
         </a-alert>
-        <a-card v-if="!isDomainTarget && !isLocalRepository && deltaPreview" title="冻结计划预览" size="small" style="margin-bottom: 8px">
+        <a-card v-if="isDeltaWizard && prescanStep === 1 && deltaPreview" title="冻结计划预览" size="small" style="margin-bottom: 8px">
           <!-- 指标三列网格：标签 / 取值 / 口径说明（原两列 descriptions 长值换行错位） -->
           <div class="delta-preview">
             <div v-for="row in deltaPreviewRows" :key="row.key" class="delta-preview-row">
@@ -1875,11 +1922,14 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
           <a-alert v-if="deltaPreview.call_graph_truncated" type="warning" style="margin-top: 8px">
             调用图已截断，禁止自动关闭。
           </a-alert>
-          <a-alert v-if="!deltaPreview.may_auto_close" type="warning" style="margin-top: 8px">
-            不具备自动关闭资格：{{ deltaPreview.auto_close_block_reasons.join('、') || '覆盖不完整' }}
+          <a-alert v-if="autoCloseAlert" :type="autoCloseAlert.type" style="margin-top: 8px">
+            <div>{{ autoCloseAlert.title }}</div>
+            <div class="delta-preview-basis" style="margin-top: 2px">
+              {{ autoCloseAlert.detail }}
+            </div>
           </a-alert>
         </a-card>
-        <a-space style="display: flex; justify-content: flex-end">
+        <a-space style="display: flex; justify-content: flex-end; margin-top: 12px">
           <a-button @click="prescanModalVisible = false">
             取消
           </a-button>
@@ -1893,19 +1943,20 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
             {{ isDomainTarget ? '冻结资产范围并扫描' : '开始全量扫描' }}
           </a-button>
           <template v-else>
-            <span class="delta-actions-hint">
-              ① 先生成计划 → ② 核对预览 → ③ 再确认执行
-            </span>
-            <a-button type="outline" :loading="previewingDelta" @click="doPrescanConfirm">
-              生成差量计划
+            <a-button v-if="prescanStep === 1" @click="prescanStep = 0">
+              上一步
             </a-button>
-            <a-tooltip :content="deltaPreview ? '按冻结计划开始扫描（期间代码/规则变化不影响本次）' : '先点【生成差量计划】并核对预览，再执行'">
-              <span class="inline-block">
-                <a-button type="primary" :disabled="!deltaPreview" :loading="executingDelta" @click="executeDeltaPreview">
-                  确认执行冻结计划
-                </a-button>
-              </span>
-            </a-tooltip>
+            <a-button
+              v-if="prescanStep === 0"
+              type="primary"
+              :loading="previewingDelta"
+              @click="doPrescanConfirm"
+            >
+              下一步：生成差量计划
+            </a-button>
+            <a-button v-else type="primary" :loading="executingDelta" @click="executeDeltaPreview">
+              确认执行冻结计划
+            </a-button>
           </template>
         </a-space>
         <a-alert v-if="runList.length > 0" type="info" style="margin-top: 4px">
@@ -2042,12 +2093,6 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
 
 .delta-preview-basis {
   margin-top: 8px;
-  color: var(--color-text-3);
-  font-size: 12px;
-}
-
-.delta-actions-hint {
-  align-self: center;
   color: var(--color-text-3);
   font-size: 12px;
 }
