@@ -64,46 +64,53 @@
           </a-select>
         </a-col>
         <a-col :span="6">
-          <!-- 按钮紧跟筛选控件，不做整行右推：
-               原来用 justify-content: flex-end 把按钮顶到最右端，
-               和左边的筛选框之间空出一大片，反而更难看。 -->
+          <!-- 搜索区只留查询/重置：业务按钮与筛选不是一个语义，混在一行里
+               按钮一多就把整排挤出画面（按钮还在，但窄窗口下点不到）。 -->
           <a-space>
             <a-button type="primary" @click="handleSearch">查询</a-button>
             <a-button @click="handleReset">重置</a-button>
-            <a-button
-              type="outline"
-              :disabled="selectedKeys.length === 0"
-              @click="openEditAttribution"
-            >
-              修改{{ selectedKeys.length ? ` (${selectedKeys.length})` : '' }}
-            </a-button>
-            <!-- 「不处理」与「废弃」分开放，措辞也刻意不同：
-                 不处理 = 这个问题判断不修（仍进报告与统计）；
-                 废弃   = 这条分析不该存在（从指纹匹配里移除）。 -->
-            <a-button
-              type="outline"
-              status="warning"
-              :loading="triaging"
-              :disabled="selectedKeys.length === 0"
-              @click="openTriageBatch"
-            >
-              不处理{{ selectedKeys.length ? ` (${selectedKeys.length})` : '' }}
-            </a-button>
-            <a-button
-              status="danger"
-              :loading="discarding"
-              :disabled="selectedKeys.length === 0"
-              @click="handleDiscardSelected"
-            >
-              废弃{{ selectedKeys.length ? ` (${selectedKeys.length})` : '' }}
-            </a-button>
-            <a-button status="warning" :loading="impactRecomputing" @click="handleRecomputeImpact">
-              重算影响面
-            </a-button>
-            <a-button status="success" @click="handleExport">导出 Excel</a-button>
           </a-space>
         </a-col>
       </a-row>
+
+      <!--
+        业务操作工具行：修改 / 不处理 / 废弃 / 重算影响面 / 导出 Excel。
+        容器样式与 ListPage 的 .lp-toolbar 一致：flex + wrap —— 放不下时换行，
+        而不是像原来那样横向溢出到画面外。
+      -->
+      <div class="ledger-toolbar">
+        <a-button
+          type="outline"
+          :disabled="selectedKeys.length === 0"
+          @click="openEditAttribution"
+        >
+          修改{{ selectedKeys.length ? ` (${selectedKeys.length})` : '' }}
+        </a-button>
+        <!-- 「不处理」与「废弃」分开放，措辞也刻意不同：
+             不处理 = 这个问题判断不修（仍进报告与统计）；
+             废弃   = 这条分析不该存在（从指纹匹配里移除）。 -->
+        <a-button
+          type="outline"
+          status="warning"
+          :loading="triaging"
+          :disabled="selectedKeys.length === 0"
+          @click="openTriageBatch"
+        >
+          不处理{{ selectedKeys.length ? ` (${selectedKeys.length})` : '' }}
+        </a-button>
+        <a-button
+          status="danger"
+          :loading="discarding"
+          :disabled="selectedKeys.length === 0"
+          @click="handleDiscardSelected"
+        >
+          废弃{{ selectedKeys.length ? ` (${selectedKeys.length})` : '' }}
+        </a-button>
+        <a-button status="warning" :loading="impactRecomputing" @click="handleRecomputeImpact">
+          重算影响面
+        </a-button>
+        <a-button status="success" @click="handleExport">导出 Excel</a-button>
+      </div>
 
       <!--
         布局行必须有**确定高度**，不能只给 min-height：
@@ -1213,6 +1220,16 @@ const handleLinkIssue = async () => {
 </script>
 
 <style scoped>
+/* 业务操作工具行。flex + wrap 是关键：按钮数量还在长（处置动作只会更多），
+   放不下时换行而不是横向溢出到画面外。 */
+.ledger-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
 /* 统计标签按内容排布、放不下才换行（原来用 a-col 无 span，每个占满一行） */
 .stats-line {
   display: flex;
