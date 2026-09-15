@@ -11,11 +11,13 @@ import type {
   DashboardOverview,
   GlobalOverview,
   ModuleWithRepository,
+  PageResult,
   PrescanStatusResponse,
   PrescanTriggerResponse,
   RepositoryBranch,
   RepositoryCommit,
   RepositoryCommitListResponse,
+  RuleSet,
   RunCompare,
   ScanPointSummaryRow,
   UnifiedScanRunRow,
@@ -30,7 +32,7 @@ import VChart from 'vue-echarts'
 import { useRouter } from 'vue-router'
 import { ApiAiAgent, ApiAiSkill } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
-import { ApiSecDomainAsset, ApiSecModuleRepository, ApiSecPrescan, resolveStaticScanApi } from '@/api/sechubApis'
+import { ApiSecDomainAsset, ApiSecModuleRepository, ApiSecPrescan, ApiSecRuleSet, resolveStaticScanApi } from '@/api/sechubApis'
 import { formatTime, getAction, postAction, useAutoHeight, useGet } from '@/hooks'
 import { domainLabels, securityCategoryLabels } from './labels'
 
@@ -495,6 +497,8 @@ interface DeltaPlanPreview {
   direct_file_count: number
   impacted_file_count: number
   call_graph_truncated: boolean
+  /** 目标清单是否带资产维度（仓库级计划只有规则快照，资产计数恒 0） */
+  has_asset_manifest: boolean
   affected_form_count: number
   affected_microservice_count: number
   added_rule_count: number
@@ -520,6 +524,35 @@ const executingDelta = ref(false)
 const prescanStep = ref(0)
 // 已冻结预览对应的请求指纹（见 doPrescanConfirm 的复用判断）
 let previewRequestKey = ''
+
+// 规则目录（正式规则集）：空 = 平台默认安全目录。安全与性能是两个独立规则集，
+// 想拿性能域候选必须显式选性能目录单独跑一次。
+const prescanRuleSetId = ref('')
+const ruleSets = ref<RuleSet[]>([])
+let ruleSetsRequested = false
+
+function ruleSetDomainsText(item: RuleSet): string {
+  return item.domains.map(domain => domainLabels[domain] ?? domain).join('+')
+}
+
+function ruleSetLabel(item: RuleSet): string {
+  return `${item.name} · ${ruleSetDomainsText(item)}`
+}
+
+/** 规则目录选项懒加载一次；失败即空列表，留空仍走平台默认，不阻断弹窗。 */
+async function ensureRuleSets() {
+  if (ruleSetsRequested)
+    return
+  ruleSetsRequested = true
+  const data = await getAction<RuleSet[] | PageResult<RuleSet>>(ApiSecRuleSet.getAll)
+  const list = Array.isArray(data) ? data : data?.list ?? []
+  ruleSets.value = list.filter(item => item.publish_status === 'published')
+}
+
+const ruleSetLabelText = computed(() => {
+  const hit = ruleSets.value.find(item => item.id === prescanRuleSetId.value)
+  return hit ? ruleSetLabel(hit) : '平台默认（安全目录）'
+})
 
 // 差量计划预览：摊平成「指标 / 取值 / 说明」三列面板。
 // 原 a-descriptions 两列在长值（缓存区间、Token 区间）下会换行错位，改成网格对齐 + 每项给口径说明。
@@ -548,6 +581,7 @@ const deltaPreviewRows = computed<DeltaPreviewRow[]>(() => {
   return [
     { key: 'kind', label: '计划类型', value: DELTA_KIND_LABELS[p.delta_kind] ?? p.delta_kind, hint: p.delta_kind },
     { key: 'plan', label: '冻结计划', value: p.plan_id.slice(0, 12), hint: '执行前先核对本预览' },
+    { key: 'ruleset', label: '规则目录', value: ruleSetLabelText.value, hint: '决定本次执行哪些规则' },
     {
       key: 'files',
       label: '文件变更',
@@ -555,7 +589,13 @@ const deltaPreviewRows = computed<DeltaPreviewRow[]>(() => {
       hint: 'A / M / D / R / C',
     },
     { key: 'scope', label: '扫描范围', value: `直接 ${p.direct_file_count} 个 · 影响 ${p.impacted_file_count} 个`, hint: '影响含调用链扩散' },
-    { key: 'domain', label: '涉及领域资产', value: `表单 ${p.affected_form_count} · 微服务 ${p.affected_microservice_count}` },
+    {
+      key: 'domain',
+      label: '涉及领域资产',
+      // 后端显式告知"清单里没有资产维度"时才显示不适用（旧后端无此字段则保持原计数口径）
+      value: p.has_asset_manifest === false ? '不适用' : `表单 ${p.affected_form_count} · 微服务 ${p.affected_microservice_count}`,
+      hint: p.has_asset_manifest === false ? '仓库级计划按文件扫描，不含资产清单' : undefined,
+    },
     { key: 'rules', label: '规则变更', value: `新增 ${p.added_rule_count} · 修改 ${p.modified_rule_count} · 移除 ${p.removed_rule_count}` },
     {
       key: 'cache',
@@ -740,9 +780,12 @@ async function openPrescanModal() {
   deltaPreview.value = null
   prescanStep.value = 0
   previewRequestKey = ''
+  prescanRuleSetId.value = ''
   baseCommitInput.value = ''
   diffGranularity.value = 'file'
   prescanModalVisible.value = true
+  // 规则目录选项懒加载；失败不阻断弹窗，留空仍走平台默认
+  await ensureRuleSets()
   // 反编译源码库不是 Git 仓库，只能直接走全量扫描，不能读取分支/commit。
   if (isLocalRepository.value)
     return
@@ -849,6 +892,7 @@ async function triggerDirectPrescan() {
   const result = await postAction<PrescanTriggerResponse>(ApiSecPrescan.trigger, {
     repository_id: selectedRepoId.value,
     scan_mode: 'full',
+    rule_set_id: prescanRuleSetId.value || undefined,
     force: false,
   })
   if (result)
@@ -882,6 +926,8 @@ async function doPrescanConfirm() {
   const body: Record<string, unknown> = {
     repository_id: selectedRepoId.value,
     requested_delta_kind: deltaScanMode.value,
+    // 空即平台默认安全目录；选中性能目录时用同一套流程单独跑一次
+    rule_set_id: prescanRuleSetId.value || undefined,
     branch: prescanBranch.value || undefined,
     commit_sha: prescanCommit.value || undefined,
     scan_mode: deltaScanMode.value === 'full_baseline' ? 'full' : 'diff',
@@ -1919,6 +1965,22 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
         <a-alert v-if="isDeltaWizard && prescanStep === 0 && deltaScanMode === 'hunk_quick'" type="warning" style="margin-bottom: 8px">
           新增行快速检查固定 may_auto_close=false，不会关闭任何历史问题。
         </a-alert>
+        <a-form-item v-if="isLocalRepository || (isDeltaWizard && prescanStep === 0)" label="规则目录">
+          <a-select
+            v-model="prescanRuleSetId"
+            allow-clear
+            placeholder="平台默认（安全目录）"
+            style="width: 100%"
+            @change="deltaPreview = null"
+          >
+            <a-option v-for="item in ruleSets" :key="item.id" :value="item.id">
+              {{ ruleSetLabel(item) }}
+            </a-option>
+          </a-select>
+          <div class="text-xs text-gray" style="margin-top: 4px">
+            留空用平台默认安全目录；安全与性能是两个独立规则集，要性能域候选请选「性能重建规则目录」再跑一次。
+          </div>
+        </a-form-item>
         <a-card v-if="isDeltaWizard && prescanStep === 1 && deltaPreview" title="冻结计划预览" size="small" style="margin-bottom: 8px">
           <!-- 指标三列网格：标签 / 取值 / 口径说明（原两列 descriptions 长值换行错位） -->
           <div class="delta-preview">
