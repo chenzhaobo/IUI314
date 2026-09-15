@@ -98,6 +98,17 @@
         >
           不处理{{ selectedKeys.length ? ` (${selectedKeys.length})` : '' }}
         </a-button>
+        <!-- 观察：与行内「标记观察」是同一个动作，之前只有单行菜单里有 ——
+             一批台账逐条点太慢，而"这轮先都再观察观察"恰恰是批量判断。
+             不需要原因（后端只对 wont_fix 强制要求）。 -->
+        <a-button
+          type="outline"
+          :loading="triaging"
+          :disabled="selectedKeys.length === 0"
+          @click="handleObserveSelected"
+        >
+          观察{{ selectedKeys.length ? ` (${selectedKeys.length})` : '' }}
+        </a-button>
         <a-button
           status="danger"
           :loading="discarding"
@@ -462,9 +473,32 @@
       </template>
     </a-drawer>
 
-    <a-modal v-model:visible="linkIssueVisible" title="关联已有问题跟踪" :width="520" @ok="handleLinkIssue">
-      <a-alert type="warning" style="margin-bottom: 12px">请输入问题跟踪的内部 ID（不是标题）。后端会校验问题真实存在且未删除。</a-alert>
-      <a-input v-model="linkIssueId" placeholder="perf_issue.id" allow-clear />
+    <a-modal v-model:visible="linkIssueVisible" title="关联已有问题跟踪" :width="560" @ok="handleLinkIssue">
+      <!-- 原来要求手填 perf_issue.id（一串 scru128）：人记不住，只能先去问题列表
+           复制 id 再回来粘贴。改成按编号/标题远程搜索后选择，id 由选项带过来。 -->
+      <a-select
+        v-model="linkIssueId"
+        placeholder="输入问题编号或标题搜索"
+        allow-search
+        allow-clear
+        :filter-option="false"
+        :loading="linkIssueLoading"
+        style="width: 100%"
+        @search="onLinkIssueSearch"
+        @change="onLinkIssueChange"
+      >
+        <a-option v-for="i in linkIssueSelectOptions" :key="i.id" :value="i.id">
+          {{ issueOptionLabel(i) }}
+        </a-option>
+        <template #empty>
+          <div style="padding: 8px; color: var(--color-text-3)">
+            {{ linkIssueLoading ? '搜索中…' : '无匹配问题，换个编号或标题片段试试' }}
+          </div>
+        </template>
+      </a-select>
+      <div style="margin-top: 8px; color: var(--color-text-3); font-size: 12px">
+        关联后台账状态变为「已提单」，后续进度到问题跟踪里看。
+      </div>
     </a-modal>
     <a-modal v-model:visible="editVisible" title="修改归属" :width="520" @ok="handleEditSubmit">
       <a-alert type="normal" style="margin-bottom: 12px">
@@ -530,7 +564,8 @@
 import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message, Modal } from '@arco-design/web-vue'
-import { ApiPerfApp, ApiPerfPatternLedger } from '@/api/perfApis'
+import { useDebounceFn } from '@vueuse/core'
+import { ApiPerfApp, ApiPerfIssue, ApiPerfPatternLedger } from '@/api/perfApis'
 import { ApiSecProjectGroup } from '@/api/sechubApis'
 import { formatTime, isRequestFailed, useAutoHeight, useDicts, useDownload, useGet, usePost, useTableAutoHeight } from '@/hooks'
 import { MdPreview } from 'md-editor-v3'
@@ -598,6 +633,64 @@ const { tableHeight } = useTableAutoHeight(tableWrap, { fillParent: true })
 const linkIssueVisible = ref(false)
 const linkIssueId = ref('')
 const linkPattern = ref<any>(null)
+
+// ── 关联已有问题：编号/标题远程搜索 ──────────────────
+//
+// 这里绝不能"拉前 N 条前端过滤"：perf_issue 是几万条量级，靠后的问题永远搜不到。
+// 关键字交给后端（`/perf/issue/list` 的 keyword 对 title / issue_no / form_name
+// 做 contains），前端只负责展示与回填 id。
+interface LinkIssueOption {
+  id: string
+  issue_no: string
+  title: string
+}
+
+const linkIssueLoading = ref(false)
+const linkIssueOptions = ref<LinkIssueOption[]>([])
+// 已选项单独留存：远程搜索会整体替换 options，不留的话选中项的回显文本会变成 id
+const linkIssuePicked = ref<LinkIssueOption | null>(null)
+
+const linkIssueSelectOptions = computed<LinkIssueOption[]>(() => {
+  const picked = linkIssuePicked.value
+  if (picked && !linkIssueOptions.value.some(i => i.id === picked.id))
+    return [picked, ...linkIssueOptions.value]
+  return linkIssueOptions.value
+})
+
+/** 编号在前、标题在后：编号是点名用的，标题用来确认是不是同一个问题。 */
+function issueOptionLabel(i: LinkIssueOption) {
+  return i.issue_no ? `${i.issue_no} · ${i.title}` : i.title
+}
+
+async function loadLinkIssueOptions(keyword = '') {
+  linkIssueLoading.value = true
+  try {
+    const { data, execute } = useGet<any>(
+      ApiPerfIssue.getList,
+      { page_num: 1, page_size: 20, keyword },
+      { immediate: false },
+    )
+    await execute()
+    const list = data.value?.list ?? []
+    linkIssueOptions.value = Array.isArray(list)
+      ? list.map((i: any) => ({ id: String(i.id ?? ''), issue_no: i.issue_no ?? '', title: i.title ?? '' }))
+      : []
+  }
+  finally {
+    linkIssueLoading.value = false
+  }
+}
+
+const onLinkIssueSearch = useDebounceFn((keyword: string) => {
+  void loadLinkIssueOptions(keyword)
+}, 300)
+
+function onLinkIssueChange(value: unknown) {
+  const id = value == null ? '' : String(value)
+  linkIssuePicked.value = linkIssueOptions.value.find(i => i.id === id) ?? linkIssuePicked.value
+  if (!id)
+    linkIssuePicked.value = null
+}
 
 const getDefectReport = (record: any) => record?.evidence?.defect_report || null
 // 新链路的 evidence 是 md 报告路径数组，如 ["01_task_approve__click/defect_1.md"]。
@@ -900,6 +993,16 @@ async function submitWontFix() {
   await submitTriage(triageIds.value, 'wont_fix', reason)
 }
 
+/** 批量观察：不需要原因，直接提交（与行内「标记观察」同一个动作）。 */
+function handleObserveSelected() {
+  const ids = [...selectedKeys.value]
+  if (!ids.length) {
+    Message.warning('请先勾选要标记观察的台账')
+    return
+  }
+  void submitTriage(ids, 'observing')
+}
+
 // ── 批量废弃 ──────────────────────────────────────
 const discarding = ref(false)
 const discardPayload = ref<{ ids: string[] }>({ ids: [] })
@@ -1170,7 +1273,7 @@ const gotoIssue = (issueId: string) => {
 const createIssuePayload = ref<any>({})
 const { data: createIssueResult, execute: doCreateIssue } = usePost<any>(ApiPerfPatternLedger.createIssue, createIssuePayload, { immediate: false })
 const savePatternPayload = ref<any>({})
-const { execute: doSavePattern } = usePost<any>(ApiPerfPatternLedger.save, savePatternPayload, { immediate: false })
+const { data: saveRes, execute: doSavePattern } = usePost<any>(ApiPerfPatternLedger.save, savePatternPayload, { immediate: false })
 
 const performCreateIssue = async (record: any, confirmEvidenceInsufficient: boolean) => {
   createIssuePayload.value = { id: record.id, confirm_evidence_insufficient: confirmEvidenceInsufficient }
@@ -1205,13 +1308,21 @@ const handleCreateIssue = (record: any) => {
 const openLinkIssue = (record: any) => {
   linkPattern.value = record
   linkIssueId.value = ''
+  linkIssuePicked.value = null
+  linkIssueOptions.value = []
   linkIssueVisible.value = true
+  // 先拉一页最新问题：多数情况下要关联的就是刚提的那条，省一次输入
+  void loadLinkIssueOptions()
 }
 
 const handleLinkIssue = async () => {
-  if (!linkIssueId.value.trim()) { Message.warning('请输入问题 ID'); return false }
+  if (!linkIssueId.value.trim()) { Message.warning('请先搜索并选择要关联的问题'); return false }
   savePatternPayload.value = { id: linkPattern.value.id, issue_id: linkIssueId.value.trim(), status: 'issued' }
   await doSavePattern()
+  // usePost 不支持 onSuccess，必须在这里判结果 —— 否则选中的问题若已被删除，
+  // 后端拒绝而界面照样弹「关联成功」，台账看起来已提单、实际没有
+  if (isRequestFailed(saveRes.value))
+    return false
   Message.success('关联成功')
   linkIssueVisible.value = false
   await fetchData()
