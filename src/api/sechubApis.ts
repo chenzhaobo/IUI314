@@ -127,6 +127,7 @@ export enum ApiSecModuleRepository {
   sourceSnapshot = '/sechub/module/repository/source-snapshot',
   sourceSnapshots = '/sechub/module/repository/source-snapshots',
   sourceJob = '/sechub/module/repository/source-job',
+  indexSource = '/sechub/module/repository/index-source',
   branches = '/sechub/module/repository/branches',
   sync = '/sechub/module/repository/sync',
   commits = '/sechub/module/repository/commits',

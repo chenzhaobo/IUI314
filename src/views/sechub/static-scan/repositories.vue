@@ -483,6 +483,37 @@ async function triggerSnapshot(record: ModuleWithRepository) {
   }
 }
 
+// 索引源码：把该仓库（默认分支）的源码解析为 FQCN 符号落库（sec_source_symbol），
+// 是「领域资产 → 重新匹配」的前置；首次会克隆/拉取镜像，可能较慢。
+interface SourceIndexOutcome {
+  repository_id: string
+  snapshot_commit: string
+  changed_files: number
+  stale_files: number
+  inserted_rows: number
+  files_seen: number
+  files_parsed: number
+  problems: number
+}
+
+const indexingId = ref('')
+async function indexSource(record: ModuleWithRepository) {
+  indexingId.value = record.relation_id
+  try {
+    const res = await postAction<SourceIndexOutcome>(
+      ApiSecModuleRepository.indexSource,
+      { repository_id: record.repository_id },
+    )
+    if (res) {
+      const commit = (res.snapshot_commit || '').slice(0, 8)
+      Message.success(`索引完成：${res.inserted_rows} 个符号（快照 ${commit || '--'}，问题文件 ${res.problems}）`)
+    }
+  }
+  finally {
+    indexingId.value = ''
+  }
+}
+
 // 克隆/拉取仓库：调 sync 接口，展示可读结果（动作/分支数/head_sha/耗时）
 const syncingId = ref('')
 async function syncRepo(record: ModuleWithRepository) {
@@ -612,6 +643,15 @@ async function syncRepo(record: ModuleWithRepository) {
                 @click="triggerSnapshot(record)"
               >
                 快照
+              </a-button>
+              <!-- 索引源码：把该仓库默认分支源码解析为符号（重新匹配的前置），首次会克隆可能较慢 -->
+              <a-button
+                type="text"
+                size="small"
+                :loading="indexingId === record.relation_id"
+                @click="indexSource(record)"
+              >
+                索引源码
               </a-button>
               <!-- 克隆/拉取：调 sync 接口，单行 loading，成功展示动作/分支数/head_sha/耗时 -->
               <a-button
