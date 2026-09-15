@@ -58,6 +58,10 @@ const queryParams = ref({
 
 // Arco 的 multiple 要求数组，后端接受逗号分隔字符串，这里做转换
 const riskLevels = ref<string[]>([])
+const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<ScanIssuePage>(ApiSecPrescan.issues, queryParams, { immediate: true })
+const dataList = computed(() => rawListData.value?.list ?? [])
+const total = computed(() => rawListData.value?.total ?? 0)
+
 /** 「未关联」快捷筛选：再点一次取消，回到全部 */
 function toggleDmpUnlinked() {
   queryParams.value.dmp_defect_code = queryParams.value.dmp_defect_code === '__none__' ? '' : '__none__'
@@ -69,9 +73,6 @@ function onRiskLevelChange() {
   queryParams.value.page_num = 1
   getList()
 }
-const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<ScanIssuePage>(ApiSecPrescan.issues, queryParams, { immediate: true })
-const dataList = computed(() => rawListData.value?.list ?? [])
-const total = computed(() => rawListData.value?.total ?? 0)
 
 // ===== 左树：缺陷规则维度统计 =====
 const issueRuleStats = ref<IssueRuleStatRow[]>([])
@@ -105,23 +106,6 @@ async function fetchJson<T>(url: string): Promise<T | null> {
   const { data, execute } = useGet<T>(url, {}, { immediate: false })
   await execute()
   return data.value ?? null
-}
-
-async function loadRuleStats() {
-  ruleStatsLoading.value = true
-  try {
-    const params = new URLSearchParams()
-    if (queryParams.value.project_group_id)
-      params.set('project_group_id', queryParams.value.project_group_id)
-    if (queryParams.value.repository_id)
-      params.set('repository_id', queryParams.value.repository_id)
-    issueRuleStats.value = await fetchJson<IssueRuleStatRow[]>(`${ApiSecPrescan.issueRuleStats}?${params.toString()}`) ?? []
-    // 默认展开：全部 + 领域 + 扫描点层
-    expandedKeys.value = ['all', ...ruleTree.value.flatMap(n => [n.key, ...(n.children ?? []).map(c => c.key)])]
-  }
-  finally {
-    ruleStatsLoading.value = false
-  }
 }
 
 // 左树数据：全部（根）→ domain 分组 → 扫描点 → 规则版本节点
@@ -171,6 +155,23 @@ const ruleTree = computed(() => {
 function domainLabel(d: string): string {
   const map: Record<string, string> = { security: '安全', performance: '性能' }
   return map[d] ?? d
+}
+
+async function loadRuleStats() {
+  ruleStatsLoading.value = true
+  try {
+    const params = new URLSearchParams()
+    if (queryParams.value.project_group_id)
+      params.set('project_group_id', queryParams.value.project_group_id)
+    if (queryParams.value.repository_id)
+      params.set('repository_id', queryParams.value.repository_id)
+    issueRuleStats.value = await fetchJson<IssueRuleStatRow[]>(`${ApiSecPrescan.issueRuleStats}?${params.toString()}`) ?? []
+    // 默认展开：全部 + 领域 + 扫描点层
+    expandedKeys.value = ['all', ...ruleTree.value.flatMap(n => [n.key, ...(n.children ?? []).map(c => c.key)])]
+  }
+  finally {
+    ruleStatsLoading.value = false
+  }
 }
 
 function onTreeSelect(keys: (string | number)[]) {
@@ -274,8 +275,9 @@ function canClaim(status: string): boolean {
 function canWontFix(status: string): boolean {
   return status === 'open' || status === 'reopened'
 }
-function canVerify(status: string): boolean {
-  return status === 'fixed' || status === 'verified' || status === 'verification_failed' || status === 'wont_fix'
+function canVerify(row: ScanIssueRow): boolean {
+  return row.coverage_state !== 'inactive'
+    && (row.status === 'fixed' || row.status === 'verified' || row.status === 'verification_failed' || row.status === 'wont_fix')
 }
 
 // ===== 缺陷处理：批量认领（open/reopened → fixing）=====
@@ -508,7 +510,7 @@ const verifyTargets = ref<ScanIssueRow[]>([])
 const verifyForm = ref({ branch: '', commit_sha: '' })
 
 function openVerifyDialog() {
-  const eligible = selectedRows.value.filter(r => canVerify(r.status))
+  const eligible = selectedRows.value.filter(canVerify)
   if (!eligible.length) {
     Message.warning('所选缺陷中没有可重新验证的（仅「已修复/已验证/验证失败/不处理」状态可验证）')
     return
@@ -592,6 +594,9 @@ const eventTypeLabels: Record<string, { label: string, color: string }> = {
   fixed: { label: '标记修复', color: 'green' },
   verified: { label: '重新验证', color: 'purple' },
   wont_fix: { label: '不处理', color: 'gray' },
+  verdict_rejected: { label: '判定撤销关系', color: 'gray' },
+  finding_absent: { label: '扫描未再发现', color: 'gray' },
+  file_deleted: { label: '文件删除失活', color: 'gray' },
 }
 
 // ===== 查看报告（MdPreview 抽屉）=====
@@ -635,6 +640,17 @@ const statusLabels: Record<string, { label: string, color: string }> = {
   verification_failed: { label: '验证失败', color: 'orange' },
 }
 
+const coverageReasonLabels: Record<string, { label: string, color: string }> = {
+  verdict_rejected: { label: '判定撤销', color: 'gray' },
+  finding_absent: { label: '扫描未再发现', color: 'gray' },
+  file_deleted: { label: '文件已删除', color: 'gray' },
+}
+
+function issueStatusLabel(row: ScanIssueRow): { label: string, color: string } {
+  if (row.coverage_state === 'inactive' && row.coverage_reason)
+    return coverageReasonLabels[row.coverage_reason] ?? { label: '扫描范围失活', color: 'gray' }
+  return statusLabels[row.status] ?? { label: row.status, color: 'gray' }
+}
 // 不处理原因列的 Arco filterable 配置，选项来自字典（wontFixReasonOptions 异步加载）
 // 使用 computed 以便字典加载完成后自动更新过滤选项
 const wontFixReasonFilters = computed(() =>
@@ -704,7 +720,7 @@ function shortSha(sha: string | null | undefined): string {
 </script>
 
 <template>
-<div style="display: flex; flex-direction: column; min-height: 0">
+  <div style="display: flex; flex-direction: column; min-height: 0">
     <div class="static-scan-defects">
       <!-- 筛选 -->
       <a-card :bordered="false" class="m-b-12px">
@@ -805,7 +821,7 @@ function shortSha(sha: string | null | undefined): string {
         右表又各自从视口反推高度，两边加起来超出视口。
         给这一行实测的确定高度后，左右两栏才有共同基准，各自内部滚动。
       -->
-      <div ref="layoutRow" class="split-layout" :class="{ dragging: isDragging }" :style="{ height: layoutRowH + 'px' }">
+      <div ref="layoutRow" class="split-layout" :class="{ dragging: isDragging }" :style="{ height: `${layoutRowH}px` }">
         <!-- 左树：规则分布 -->
         <div class="split-left" :style="{ width: `${leftPanelWidth}px` }">
           <a-card :bordered="false" size="small" class="split-card scroll-body">
@@ -901,61 +917,61 @@ function shortSha(sha: string | null | undefined): string {
                 @selection-change="handleSelectionChange"
                 @filter-change="onWontFixReasonFilter"
               >
-              <template #domain="{ record }">
-                <a-tag :color="domainLabels[record.domain]?.color ?? 'gray'" size="small">
-                  {{ domainLabels[record.domain]?.label ?? record.domain }}
-                </a-tag>
-              </template>
-              <template #dmpCode="{ record }">
-                <a-typography-text v-if="record.dmp_defect_code" copyable :copy-text="record.dmp_defect_code">
-                  {{ record.dmp_defect_code }}
-                </a-typography-text>
-                <span v-else class="dmp-empty">未关联</span>
-              </template>
-              <template #risk="{ record }">
-                <a-tag v-if="record.risk_level" :color="riskLabels[record.risk_level]?.color ?? 'gray'" size="small">
-                  {{ riskLabels[record.risk_level]?.label ?? record.risk_level }}
-                </a-tag>
-                <span v-else class="text-muted">-</span>
-              </template>
-              <template #status="{ record }">
-                <a-tag :color="statusLabels[record.status]?.color ?? 'gray'" size="small">
-                  {{ statusLabels[record.status]?.label ?? record.status }}
-                </a-tag>
-              </template>
-              <template #introducedAt="{ record }">
-                <!-- 引入时间列：为空时显示 -，悬浮展示完整 commit / 作者 / 时间 -->
-                <a-tooltip
-                  :content="record.introduced_commit || record.introduced_author || record.introduced_at
-                    ? `Commit：${record.introduced_commit || '-'}\n引入者：${record.introduced_author || '-'}\n时间：${formatTime(record.introduced_at)}`
-                    : '非 git 仓库或该行未被版本控制，无法定位引入时间'"
-                  position="top"
-                  mini
-                >
-                  <span>{{ formatTime(record.introduced_at) }}</span>
-                </a-tooltip>
-              </template>
-              <!-- 不处理原因列：展示字典 label，为空显示占位符，null 不渲染 -->
-              <template #wontFixReason="{ record }">
-                <span v-if="record.wont_fix_reason_code">
-                  {{ wontFixReasonLabelMap[record.wont_fix_reason_code] ?? record.wont_fix_reason_code }}
-                </span>
-                <span v-else class="text-muted">-</span>
-              </template>
-              <template #ops="{ record }">
-                <a-space>
-                  <a-button type="text" size="small" @click="viewInResults(record)">
-                    查看批次
-                  </a-button>
-                  <a-button type="text" size="small" :disabled="!record.ai_detail_report" @click="viewReport(record)">
-                    报告
-                  </a-button>
-                  <a-button type="text" size="small" @click="viewEvents(record)">
-                    流转
-                  </a-button>
-                </a-space>
-              </template>
-            </a-table>
+                <template #domain="{ record }">
+                  <a-tag :color="domainLabels[record.domain]?.color ?? 'gray'" size="small">
+                    {{ domainLabels[record.domain]?.label ?? record.domain }}
+                  </a-tag>
+                </template>
+                <template #dmpCode="{ record }">
+                  <a-typography-text v-if="record.dmp_defect_code" copyable :copy-text="record.dmp_defect_code">
+                    {{ record.dmp_defect_code }}
+                  </a-typography-text>
+                  <span v-else class="dmp-empty">未关联</span>
+                </template>
+                <template #risk="{ record }">
+                  <a-tag v-if="record.risk_level" :color="riskLabels[record.risk_level]?.color ?? 'gray'" size="small">
+                    {{ riskLabels[record.risk_level]?.label ?? record.risk_level }}
+                  </a-tag>
+                  <span v-else class="text-muted">-</span>
+                </template>
+                <template #status="{ record }">
+                  <a-tag :color="issueStatusLabel(record).color" size="small">
+                    {{ issueStatusLabel(record).label }}
+                  </a-tag>
+                </template>
+                <template #introducedAt="{ record }">
+                  <!-- 引入时间列：为空时显示 -，悬浮展示完整 commit / 作者 / 时间 -->
+                  <a-tooltip
+                    :content="record.introduced_commit || record.introduced_author || record.introduced_at
+                      ? `Commit：${record.introduced_commit || '-'}\n引入者：${record.introduced_author || '-'}\n时间：${formatTime(record.introduced_at)}`
+                      : '非 git 仓库或该行未被版本控制，无法定位引入时间'"
+                    position="top"
+                    mini
+                  >
+                    <span>{{ formatTime(record.introduced_at) }}</span>
+                  </a-tooltip>
+                </template>
+                <!-- 不处理原因列：展示字典 label，为空显示占位符，null 不渲染 -->
+                <template #wontFixReason="{ record }">
+                  <span v-if="record.wont_fix_reason_code">
+                    {{ wontFixReasonLabelMap[record.wont_fix_reason_code] ?? record.wont_fix_reason_code }}
+                  </span>
+                  <span v-else class="text-muted">-</span>
+                </template>
+                <template #ops="{ record }">
+                  <a-space>
+                    <a-button type="text" size="small" @click="viewInResults(record)">
+                      查看批次
+                    </a-button>
+                    <a-button type="text" size="small" :disabled="!record.ai_detail_report" @click="viewReport(record)">
+                      报告
+                    </a-button>
+                    <a-button type="text" size="small" @click="viewEvents(record)">
+                      流转
+                    </a-button>
+                  </a-space>
+                </template>
+              </a-table>
             </div>
           </a-card>
         </div>

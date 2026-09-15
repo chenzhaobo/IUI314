@@ -817,6 +817,10 @@ export interface ScanIssueRow {
   hit_count: number
   risk_level?: string | null
   status: string
+  /** 覆盖状态；inactive 表示扫描语义关闭，不等同于代码修复 */
+  coverage_state: string
+  /** verdict_rejected / finding_absent / file_deleted 等关闭原因 */
+  coverage_reason?: string | null
   assignee?: string | null
   ai_detail_report?: string | null
   created_at: string
