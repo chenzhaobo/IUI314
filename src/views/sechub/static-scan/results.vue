@@ -19,7 +19,7 @@ import { ErrorFlag } from '@/api/apis'
 import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
 import { downloadText, formatTime, getAction, useAutoHeight, useGet, usePost } from '@/hooks'
 import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
-import { applyColumnFilters, emptyFilter, isFilterActive, useFilterPersistence } from '@/hooks'
+import { emptyFilter, isFilterActive, toServerFilters, useFilterPersistence } from '@/hooks'
 import 'md-editor-v3/lib/style.css'
 
 defineOptions({ name: 'StaticScanResults' })
@@ -343,6 +343,18 @@ const domainFilter = ref('')
 const scanPointFilter = ref('')
 // 引入时间过滤：[from, to]，格式 'YYYY-MM-DD'，由 range-picker 绑定
 const introducedRange = ref<string[]>([])
+// 表头列过滤状态（文件/行号/方法/匹配文本/AI理由/置信度/引入时间/引入人）。
+// 条件经 toServerFilters 序列化后随列表请求提交给后端。
+const columnFilters = ref<Record<string, ColumnFilterState>>({
+  file_path: emptyFilter('text'),
+  start_line: emptyFilter('number'),
+  matched_text: emptyFilter('text'),
+  method_name: emptyFilter('text'),
+  ai_rationale: emptyFilter('text'),
+  ai_confidence: emptyFilter('number'),
+  introduced_at: emptyFilter('date'),
+  introduced_author: emptyFilter('text'),
+})
 
 async function loadCandidates(silent = false) {
   if (!currentRun.value) {
@@ -379,6 +391,10 @@ async function loadCandidates(silent = false) {
     // 取值除 high/medium/low 外还有大量 info，滤掉 info 是这个筛选最主要的用途。
     if (riskLevelFilter.value.length > 0)
       params.set('ai_risk_level', riskLevelFilter.value.join(','))
+    // 表头列过滤交后端（字段白名单=候选表列，未识别字段后端报错）
+    const filters = toServerFilters(columnFilters.value)
+    if (filters)
+      params.set('filters', filters)
     candidatePage.value = await fetchJson<CandidateDetailPage>(`${ApiSecPrescan.candidates}?${params.toString()}`)
   }
   finally {
@@ -432,7 +448,7 @@ const bulkBusy = ref(false)
 
 /** 选中项里能重扫的（全状态放开，见 canRetry） */
 const bulkRetryableIds = computed(() =>
-  filteredCandidates.value
+  candidates.value
     .filter(r => selectedCandidateIds.value.includes(r.id) && canRetry(r.ai_status))
     .map(r => r.id),
 )
@@ -830,20 +846,12 @@ function roundTooltipContent(row: CrossRunAggRow): string {
 }
 
 // ===== 表格列 =====
-// ===== 列过滤（前端过滤，见 @/hooks/util/useColumnFilter）=====
-const columnFilters = ref<Record<string, ColumnFilterState>>({
-  file_path: emptyFilter('text'),
-  start_line: emptyFilter('number'),
-  matched_text: emptyFilter('text'),
-  method_name: emptyFilter('text'),
-  ai_rationale: emptyFilter('text'),
-  ai_confidence: emptyFilter('number'),
-  introduced_at: emptyFilter('date'),
-  introduced_author: emptyFilter('text'),
-})
+// ===== 列过滤（服务端过滤，条件经 toServerFilters 提交，见 @/hooks/util/useColumnFilter）=====
 
+// 列过滤条件变化 → 回到第 1 页并带上 filters 重新拉取（服务端过滤）
 function onColumnFilterChange() {
   pageNum.value = 1
+  void loadCandidates()
 }
 
 function filterableOf(key: string) {
@@ -901,11 +909,10 @@ const candidateColumns = computed(() =>
   allCandidateColumns.value.filter(c => visibleColumnKeys.value.includes(c.key)),
 )
 
-// 当页数据再叠加表头列过滤。后端已按 run/规则/状态等条件分页，
-// 这里只处理表头这几个自由文本/数值/时间条件，避免为每个字段都加查询参数。
-const filteredCandidates = computed(() =>
-  applyColumnFilters(candidatePage.value?.list ?? [], columnFilters.value),
-)
+// 表头列过滤（文件/行号/方法/匹配文本/AI理由/置信度/引入时间/引入人）走
+// 后端 filters 参数：服务端分页下前端筛只筛当前页，用户搜一个在第 3 页的
+// 记录会搜不到 —— 比没有筛选更糟。序列化见 toServerFilters。
+const candidates = computed(() => candidatePage.value?.list ?? [])
 
 /**
  * 表格滚动配置。数据少时不设 y —— 固定高度会让空白区留在滚动容器内，
@@ -923,7 +930,7 @@ const candidateTableWrap = ref<HTMLElement>()
 const { height: candidateTableH } = useAutoHeight(candidateTableWrap, { fillParent: true })
 const candidateScroll = computed(() => {
   const base = { x: 1500 }
-  return filteredCandidates.value.length > 12
+  return candidates.value.length > 12
     ? { ...base, y: candidateTableH.value }
     : base
 })
@@ -1257,7 +1264,7 @@ watch(() => route.query, (newQ, oldQ) => {
             v-model:selected-keys="selectedCandidateIds"
             v-model:expanded-keys="expandedRowKeys"
             :loading="candidateLoading"
-            :data="filteredCandidates"
+            :data="candidates"
             :columns="candidateColumns"
             column-resizable
             :pagination="{
