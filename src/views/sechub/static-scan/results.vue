@@ -1391,7 +1391,10 @@ watch(() => route.query, (newQ, oldQ) => {
 .verdict-panel { padding: 8px 12px; background: var(--color-fill-1); }
 .verdict-hint { margin-bottom: 8px; color: var(--color-text-3); font-size: 12px; }
 .verdict-warn { margin-left: 8px; color: rgb(var(--warning-6)); font-weight: 600; }
-.split-layout { display: flex; gap: 0; align-items: stretch; flex: 1; min-height: 0; }
+/* flex-basis 必须是 auto：`flex: 1` 是 `1 1 0%`，basis 0% 会让上面实测的 `height`
+   被 flex 布局无视 —— 行高退回内容驱动，左树一展开就把整条高度链顶高、内容区出滚动条。
+   basis auto 时行的基准尺寸就是那个实测 height，行高稳定、左树在卡片内部滚。 */
+.split-layout { display: flex; gap: 0; align-items: stretch; flex: 1 1 auto; min-height: 0; }
 .split-layout.dragging { user-select: none; cursor: col-resize; }
 .split-left { flex-shrink: 0; overflow: hidden; }
 /* 卡片撑满栏高但**自己不滚**；滚不滚由下面两个修饰类决定 */

@@ -1188,7 +1188,11 @@ function shortSha(sha: string | null | undefined): string {
 .card-sub { margin-left: 12px; color: var(--color-text-3); font-weight: normal; font-size: 12px; }
 .selected-hint { color: var(--color-text-2); font-size: 13px; }
 .text-muted { color: var(--color-text-4); }
-.split-layout { display: flex; gap: 0; align-items: stretch; flex: 1; min-height: 0; }
+/* flex-basis 必须是 auto：`flex: 1` 是 `1 1 0%`，basis 0% 会让上面实测的 `height`
+   被 flex 布局无视 —— 行高退回内容驱动，左树一展开（性能+安全）就把整条高度链顶高，
+   内容区出现滚动条。basis auto 时行的基准尺寸就是那个实测 height，grow 只在
+   父级还有余量时才有意义，而父级高度是内容驱动的（余量恒为 0），行高因此稳定。 */
+.split-layout { display: flex; gap: 0; align-items: stretch; flex: 1 1 auto; min-height: 0; }
 .split-layout.dragging { user-select: none; cursor: col-resize; }
 .split-left { flex-shrink: 0; overflow: hidden; }
 /* 卡片撑满栏高但**自己不滚**；滚不滚由下面两个修饰类决定 */
