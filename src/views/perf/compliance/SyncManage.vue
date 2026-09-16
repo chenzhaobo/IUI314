@@ -188,9 +188,14 @@
               <a-tag :color="recordStatusColor(record.status)" size="small">{{ recordStatusText(record.status) }}</a-tag>
             </template>
           </a-table-column>
-          <a-table-column title="进度" :width="120">
+          <a-table-column title="进度" :width="190">
             <template #cell="{ record }">
-              <a-progress v-if="record.status === 'running' || record.status === 'pending'" :percent="(record.progress || 0) / 100" size="small" />
+              <template v-if="record.status === 'running' || record.status === 'pending'">
+                <a-progress :percent="(record.progress || 0) / 100" size="small" />
+                <!-- 进度按"天"推进，而单日同步本身要跑好几分钟（含拆半重查）。
+                     没有这行实时阶段，进度条会在整段时间里一动不动，看着像卡死。 -->
+                <div v-if="record.workflow_stage" style="font-size: 12px; color: var(--color-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ record.workflow_stage }}</div>
+              </template>
               <span v-else-if="record.status === 'success'" style="color: #00b42a">100%</span>
               <span v-else>-</span>
             </template>
