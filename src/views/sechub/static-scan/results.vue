@@ -9,13 +9,15 @@ import type {
   RuleStatRow,
 } from '@/types/static-scan'
 
+import type { AiAgent } from '@/api/aiApis'
 import { Message } from '@arco-design/web-vue'
 import { MdPreview } from 'md-editor-v3'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { ApiAiAgent } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
-import { downloadText, formatTime, useAutoHeight, useGet, usePost } from '@/hooks'
+import { downloadText, formatTime, getAction, useAutoHeight, useGet, usePost } from '@/hooks'
 import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import { applyColumnFilters, emptyFilter, isFilterActive, useFilterPersistence } from '@/hooks'
 import 'md-editor-v3/lib/style.css'
@@ -489,11 +491,17 @@ function canRetry(_status: string): boolean {
   return true
 }
 
-// ===== 重扫弹窗：可指定模型（换模型验证结论一致性）=====
+// ===== 重扫弹窗：执行方式（平台编排 / 自主审计）+ Agent + 模型 =====
 const retryModalVisible = ref(false)
 const retryTargetIds = ref<string[]>([])
-/** 空串 = 沿用该轮次原模型 */
+/** 平台编排：平台按候选精确派发并调用模型；自主审计：Agent 在代码库里整轮分析 */
+const retryMode = ref<'batch' | 'agent'>('batch')
+/** 空串 = 留空，batch 走 Agent 默认模型 / 沿用轮次原模型 */
 const retryModel = ref('')
+/** 自主审计时指定的 Agent；留空 = 该模式的默认 Agent */
+const retryAgentCode = ref('')
+const agents = ref<AiAgent[]>([])
+let agentsRequested = false
 const retryBusy = ref(false)
 
 /** 已在本 run 出现过的模型，作为下拉候选（换模型复核时直接选） */
@@ -507,41 +515,91 @@ const knownModels = computed(() => {
   return [...set].sort()
 })
 
+/** 模型候选 = 本 run 已出现的模型 + 所选 Agent 声明的模型（与看板 AI 确认同一口径） */
+const retryModelOptions = computed(() => {
+  const set = new Set<string>(knownModels.value)
+  const agent = agents.value.find(a => a.agent_code === retryAgentCode.value)
+  if (agent?.supported_models_json) {
+    try {
+      for (const item of JSON.parse(agent.supported_models_json) as string[]) {
+        const model = String(item ?? '').trim()
+        // 'auto' 是「用 Agent 默认模型」的占位，不是一个可选模型
+        if (model && model !== 'auto')
+          set.add(model)
+      }
+    }
+    catch { /* 配置脏数据不影响手输模型 */ }
+  }
+  return [...set].sort()
+})
+
+/** Agent 列表懒加载一次（自主审计才需要） */
+async function ensureAgents() {
+  if (agentsRequested)
+    return
+  agentsRequested = true
+  const res = await getAction<{ list: AiAgent[] }>(ApiAiAgent.getList, { status: 'active', page_size: 50 })
+  agents.value = res?.list ?? []
+}
+
 function openRetryModal(ids: string[]) {
   if (ids.length === 0) {
     Message.warning('请先勾选要重扫的候选')
     return
   }
   retryTargetIds.value = [...ids]
+  retryMode.value = 'batch'
   retryModel.value = ''
+  retryAgentCode.value = ''
+  void ensureAgents()
   retryModalVisible.value = true
 }
 
 /**
- * 提交重扫。指定了模型时不会覆盖旧结论 —— 后端把每次结论写成
- * `sec_prescan_candidate_verdict` 明细行，候选主表只更新"当前采信"的那条，
- * 所以换模型重扫后两个模型的判定可以并排对比。
+ * 提交重扫。
+ *
+ * - 平台编排：逐条按候选定向（派发批次号限定范围），模型由平台指定并落库；
+ * - 自主审计：Agent 无法按候选定向 —— 先把勾选的候选重置为 pending（trigger=false），
+ *   再用 run 级 ai-confirm 触发整轮自主审计（该运行所有待确认候选一起重审）。
+ *
+ * 指定了模型时不会覆盖旧结论：每次结论都写成 `sec_prescan_candidate_verdict` 明细行，
+ * 候选主表只更新"当前采信"的那条，换模型重扫后两个模型可并排对比。
  */
 async function submitRetry() {
   const ids = retryTargetIds.value
+  const runId = currentRun.value?.run_id ?? ''
+  if (!runId)
+    return
   retryBusy.value = true
   try {
     const model = retryModel.value.trim()
-    const modes = (currentRun.value?.ai_mode ?? '').split(',').map(m => m.trim()).filter(Boolean)
-    let ok = 0
-    for (const id of ids) {
-      const payload: Record<string, any> = { candidate_id: id }
-      // 显式选了模型就用它；没选则沿用该轮次原模型（为空表示 Agent 默认模型）
-      const effectiveModel = model || (currentRun.value?.ai_model?.trim() ?? '')
-      if (effectiveModel)
-        payload.model = effectiveModel
-      if (modes.length === 1)
-        payload.mode = modes[0]
-      if (await postAction<{ message?: string }>(ApiSecPrescan.retryCandidate, payload))
-        ok += 1
+    if (retryMode.value === 'agent') {
+      let reset = 0
+      for (const id of ids) {
+        if (await postAction<{ message?: string }>(ApiSecPrescan.retryCandidate, { candidate_id: id, trigger: false }))
+          reset += 1
+      }
+      const body: Record<string, unknown> = { run_id: runId, scope: 'all', mode: 'agent' }
+      if (model)
+        body.model = model
+      if (retryAgentCode.value)
+        body.agent_code = retryAgentCode.value
+      const res = await postAction<{ message?: string }>(ApiSecPrescan.aiConfirm, body)
+      if (res)
+        Message.success(`已重置 ${reset} 条并触发自主审计（整轮）：${res.message ?? ''}`)
     }
-    const modelNote = model ? `（模型 ${model}）` : ''
-    Message.success(`已提交 ${ok} 条重扫${modelNote}${ok < ids.length ? `，${ids.length - ok} 条失败` : ''}`)
+    else {
+      let ok = 0
+      for (const id of ids) {
+        const payload: Record<string, any> = { candidate_id: id, mode: 'batch' }
+        if (model)
+          payload.model = model
+        if (await postAction<{ message?: string }>(ApiSecPrescan.retryCandidate, payload))
+          ok += 1
+      }
+      const modelNote = model ? `（模型 ${model}）` : ''
+      Message.success(`已提交 ${ok} 条重扫${modelNote}${ok < ids.length ? `，${ids.length - ok} 条失败` : ''}`)
+    }
     retryModalVisible.value = false
     selectedCandidateIds.value = []
     setTimeout(() => void loadCandidates(), 1500)
@@ -900,6 +958,49 @@ watch(() => route.query, (newQ, oldQ) => {
             性能
           </a-option>
         </a-select>
+        <span class="selector-label">AI状态</span>
+        <a-select v-model="statusFilter" allow-clear placeholder="全部状态" style="width: 130px" @change="onFilterChange">
+          <a-option value="confirmed">
+            确认问题
+          </a-option>
+          <a-option value="rejected">
+            已排除
+          </a-option>
+          <a-option value="review_needed">
+            需人工
+          </a-option>
+          <a-option value="error">
+            错误
+          </a-option>
+          <a-option value="pending">
+            待确认
+          </a-option>
+        </a-select>
+        <span class="selector-label">风险等级</span>
+        <!-- 风险等级多选：诉求是"优先处理高等级"，通常要 high 与 medium 一起看。
+             info 档在候选里占绝大多数，滤掉它是本筛选最主要的用途 -->
+        <a-select
+          v-model="riskLevelFilter"
+          multiple
+          allow-clear
+          :max-tag-count="2"
+          placeholder="全部等级"
+          style="width: 190px"
+          @change="onFilterChange"
+        >
+          <a-option value="high">
+            高
+          </a-option>
+          <a-option value="medium">
+            中
+          </a-option>
+          <a-option value="low">
+            低
+          </a-option>
+          <a-option value="info">
+            提示
+          </a-option>
+        </a-select>
         <span class="selector-label">引入时间</span>
         <a-range-picker
           v-model="introducedRange"
@@ -972,48 +1073,20 @@ watch(() => route.query, (newQ, oldQ) => {
             </small>
           </template>
           <template #extra>
-            <a-select v-model="statusFilter" placeholder="AI状态" allow-clear style="width: 140px" @change="onFilterChange">
-              <a-option value="confirmed">
-                确认问题
-              </a-option>
-              <a-option value="rejected">
-                已排除
-              </a-option>
-              <a-option value="review_needed">
-                需人工
-              </a-option>
-              <a-option value="error">
-                错误
-              </a-option>
-              <a-option value="pending">
-                待确认
-              </a-option>
-            </a-select>
-            <!-- 风险等级多选：诉求是"优先处理高等级"，通常要 high 与 medium 一起看。
-                   info 档在候选里占绝大多数，滤掉它是本筛选最主要的用途 -->
+            <!-- 显示列：原有列默认全显示，新增的「方法」「引入人」默认隐藏，按需勾出 -->
             <a-select
-              v-model="riskLevelFilter"
+              v-model="visibleColumnKeys"
               multiple
-              allow-clear
-              :max-tag-count="2"
-              placeholder="风险等级"
-              style="width: 190px"
-              @change="onFilterChange"
-            >
-              <a-option value="high">
-                高
-              </a-option>
-              <a-option value="medium">
-                中
-              </a-option>
-              <a-option value="low">
-                低
-              </a-option>
-              <a-option value="info">
-                提示
-              </a-option>
-            </a-select>
+              :max-tag-count="1"
+              placeholder="显示列"
+              style="width: 180px"
+              :options="columnOptions"
+            />
+          </template>
+          <!-- 操作条：动作按钮与筛选分开，靠左排；执行方式（平台编排 / 自主审计）在弹窗里确认 -->
+          <div class="candidate-actions">
             <a-button
+              type="primary"
               size="small"
               :disabled="selectedCandidateIds.length === 0"
               :loading="bulkBusy"
@@ -1024,20 +1097,12 @@ watch(() => route.query, (newQ, oldQ) => {
             <!-- 补偿生成缺陷：AI 确认收尾失败时 confirmed 候选不会写出缺陷，
                    这里"确认问题"有数、缺陷列表却查不到。选中就只补这些，没选补整轮次 -->
             <a-tooltip content="已确认的候选若没生成缺陷记录，用这个补齐（不选则补整个轮次）" mini>
-              <a-button size="small" :loading="bulkBusy" @click="compensateIssues">
+              <a-button type="outline" size="small" :loading="bulkBusy" @click="compensateIssues">
                 补偿生成缺陷
               </a-button>
             </a-tooltip>
-            <!-- 显示列：原有列默认全显示，新增的「方法」「引入人」默认隐藏，按需勾出 -->
-            <a-select
-              v-model="visibleColumnKeys"
-              multiple
-              :max-tag-count="1"
-              placeholder="显示列"
-              style="width: 160px"
-              :options="columnOptions"
-            />
-          </template>
+            <span class="candidate-actions-hint">行首箭头可展开该候选的历次结论（多模型对比）</span>
+          </div>
           <div ref="candidateTableWrap" class="table-fill">
           <a-table
             v-model:selected-keys="selectedCandidateIds"
@@ -1052,7 +1117,7 @@ watch(() => route.query, (newQ, oldQ) => {
               showTotal: true,
             }"
             :row-selection="{ type: 'checkbox', showCheckedAll: true }"
-            :expandable="{ title: '结论', width: 40 }"
+            :expandable="{ title: '', width: 40 }"
             row-key="id"
             size="small"
             :scroll="candidateScroll"
@@ -1183,7 +1248,7 @@ watch(() => route.query, (newQ, oldQ) => {
       </div>
     </div>
 
-    <!-- 重扫弹窗：可指定模型，用于「换个模型看结论是否一致」 -->
+    <!-- 重扫弹窗：确认执行方式（平台编排 / 自主审计）+ Agent + 模型 -->
     <a-modal
       v-model:visible="retryModalVisible"
       title="重扫候选"
@@ -1191,20 +1256,44 @@ watch(() => route.query, (newQ, oldQ) => {
       @ok="submitRetry"
       @cancel="retryModalVisible = false"
     >
-      <a-alert type="info" class="m-b-12px">
+      <a-alert v-if="retryMode === 'batch'" type="info" class="m-b-12px">
         本次将重扫 <b>{{ retryTargetIds.length }}</b> 条候选。范围严格限定在勾选的这些候选上：
         平台给这批候选打一个派发批次号，AI 只能通过该批次号取候选，
         取不到同规则下的其它候选。
       </a-alert>
-      <a-form :model="{ retryModel }" layout="vertical">
+      <a-alert v-else type="warning" class="m-b-12px">
+        自主审计<strong>无法按候选定向</strong>：勾选的 <b>{{ retryTargetIds.length }}</b> 条会先被重置为待确认，
+        随后平台触发该运行的<strong>整轮自主审计</strong> —— 该运行所有待确认候选都会被重新审计。
+      </a-alert>
+      <a-form :model="{}" layout="vertical">
+        <a-form-item label="执行方式">
+          <a-radio-group v-model="retryMode" type="button">
+            <a-radio value="batch">
+              平台编排（只重扫勾选候选）
+            </a-radio>
+            <a-radio value="agent">
+              自主审计 Agent（整轮）
+            </a-radio>
+          </a-radio-group>
+          <template #extra>
+            平台编排由平台按候选精确派发并调用模型；自主审计由 Agent 在代码库里自行分析，范围为整个运行。
+          </template>
+        </a-form-item>
+        <a-form-item v-if="retryMode === 'agent'" label="Agent">
+          <a-select v-model="retryAgentCode" allow-clear placeholder="默认（qoder-cli-scan）">
+            <a-option v-for="a in agents" :key="a.agent_code" :value="a.agent_code">
+              {{ a.agent_name }}（{{ a.agent_code }}）
+            </a-option>
+          </a-select>
+        </a-form-item>
         <a-form-item label="使用模型">
-          <a-select v-model="retryModel" placeholder="留空 = 沿用该轮次原模型" allow-clear allow-create>
-            <a-option v-for="m in knownModels" :key="m" :value="m">
+          <a-select v-model="retryModel" placeholder="留空 = 该 Agent 的默认模型" allow-clear allow-create>
+            <a-option v-for="m in retryModelOptions" :key="m" :value="m">
               {{ m }}
             </a-option>
           </a-select>
           <template #extra>
-            换一个模型可以验证结论是否一致。<b>旧结论不会被覆盖</b> ——
+            模型由平台在派发时指定并留痕（横评按「模型 × 模式」分组）。<b>旧结论不会被覆盖</b> ——
             每次结论都单独存一行，展开候选行即可并排对比。
           </template>
         </a-form-item>
@@ -1301,6 +1390,10 @@ watch(() => route.query, (newQ, oldQ) => {
   min-height: 0;
 }
 .table-fill { flex: 1; min-height: 0; }
+
+/* 候选明细操作条：动作按钮靠左，与右侧「显示列」等筛选控件分开 */
+.candidate-actions { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; }
+.candidate-actions-hint { color: var(--color-text-3); font-size: 12px; }
 .split-handle {
   width: 6px; flex-shrink: 0; cursor: col-resize; border-radius: 3px; margin: 0 3px;
   background: transparent; transition: background 0.2s;
