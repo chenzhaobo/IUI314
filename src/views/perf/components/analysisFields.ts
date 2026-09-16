@@ -115,6 +115,22 @@ export function meetRatioPct(v?: number | string | null): number | null {
   return Math.max(0, Math.min(100, n > 1 ? n : n * 100))
 }
 
+/**
+ * 客户数文案：三种情况分开写。
+ *
+ * 老台账还没重算时字段缺失 → 待接入；重算过但窗口内一个客户都取不到（没数据，
+ * 或源数据 customer_name 为空）→ —；其余给千分位个数。
+ * 0 不能直接写成"0 个客户"：那读起来像"确实没有客户"，而它多半是这一窗没数据。
+ */
+function customersText(v?: number | string | null): string {
+  if (v === null || v === undefined)
+    return '待接入'
+  const n = Number(v)
+  if (!Number.isFinite(n) || n <= 0)
+    return absent
+  return `${fmtNum(n)} 个`
+}
+
 /** 达标率 = 1 − 慢请求 ÷ 总请求（快照口径；日志侧没有未超线的样本，算不出这一列）。 */
 function meetRateText(clicks: number | null, slow: number | null): string {
   if (!clicks || slow === null)
@@ -145,7 +161,7 @@ export function impactComparison(record: AnalysisRecord): ImpactComparisonRow[] 
   rows.push({
     label: '达标率快照',
     window: `近 30 天${i.window ? ` ${i.window}` : ''}`,
-    customers: i.customers_30d === null || i.customers_30d === undefined ? '待接入' : fmtNum(i.customers_30d),
+    customers: customersText(i.customers_30d),
     requests: fmtNum(i.clicks),
     slow: i.slow_total !== undefined ? `${fmtNum(i.slow_total)}${has(i.slow_ratio_pct) ? `（${i.slow_ratio_pct}%）` : ''}` : absent,
     meetRate: meetRateText(num(i.clicks), num(i.slow_total)),
@@ -156,7 +172,7 @@ export function impactComparison(record: AnalysisRecord): ImpactComparisonRow[] 
     rows.push({
       label: '达标率快照',
       window: `分析当天 ${scope.runDate}`,
-      customers: '待接入',
+      customers: customersText(i.customers_day),
       requests: fmtNum(i.day_clicks),
       slow: fmtNum(i.day_slow_total),
       meetRate: meetRateText(num(i.day_clicks), num(i.day_slow_total)),
