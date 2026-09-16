@@ -69,6 +69,8 @@ const treeSearch = ref('')
 const selectedKeys = ref<string[]>([])
 const expandedKeys = ref<string[]>([])
 const showCode = ref(false)
+/** 左树根节点（全部应用）。选中它 = 不过滤，右侧回到刚进页面时的全局概览 */
+const ROOT_KEY = 'root'
 
 // 维度 → 实际接口字段映射
 const dimFieldMap: Record<string, keyof ModuleWithRepository> = {
@@ -80,7 +82,7 @@ const dimFieldMap: Record<string, keyof ModuleWithRepository> = {
 interface AppTreeNode {
   key: string
   title: string
-  level: 'group' | 'sub' | 'app' | 'point'
+  level: 'root' | 'group' | 'sub' | 'app' | 'point'
   repository_id?: string
   children?: AppTreeNode[]
 }
@@ -91,7 +93,7 @@ const overview = ref<DashboardOverview | null>(null)
 const summaryRows = ref<ScanPointSummaryRow[]>([])
 const codeTree = ref<CodeTreeNode[]>([])
 
-// 构建树：项目组→工程；业务领域/产品领域→项目组→工程
+// 构建树：全部（根）→ 项目组→工程；业务领域/产品领域→ 全部→维度→项目组→工程
 const treeData = computed<AppTreeNode[]>(() => {
   const dimField = dimFieldMap[dimension.value]
   const groups = new Map<string, ModuleWithRepository[]>()
@@ -122,39 +124,50 @@ const treeData = computed<AppTreeNode[]>(() => {
 
   const sortedGroups = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh-CN'))
 
-  // 项目组维度：两层（项目组 → 工程）
+  let groupNodes: AppTreeNode[]
   if (dimension.value === 'project_group') {
-    return sortedGroups.map(([groupName, apps]) => ({
+    // 项目组维度：两层（项目组 → 工程）
+    groupNodes = sortedGroups.map(([groupName, apps]) => ({
       key: `grp:${groupName}`,
       title: `${groupName} (${apps.length})`,
       level: 'group' as const,
       children: apps.sort((a, b) => a.module_name.localeCompare(b.module_name, 'zh-CN')).map(buildAppNode),
     }))
   }
+  else {
+    // 业务领域/产品领域维度：三层（维度 → 项目组 → 工程）
+    groupNodes = sortedGroups.map(([groupName, apps]) => {
+      const subGroups = new Map<string, ModuleWithRepository[]>()
+      for (const app of apps) {
+        const pg = app.project_group_name || '未分类'
+        if (!subGroups.has(pg))
+          subGroups.set(pg, [])
+        subGroups.get(pg)!.push(app)
+      }
+      return {
+        key: `grp:${groupName}`,
+        title: `${groupName} (${apps.length})`,
+        level: 'group' as const,
+        children: [...subGroups.entries()]
+          .sort((a, b) => a[0].localeCompare(b[0], 'zh-CN'))
+          .map(([pgName, pgApps]) => ({
+            key: `sub:${groupName}:${pgName}`,
+            title: `${pgName} (${pgApps.length})`,
+            level: 'sub' as const,
+            children: pgApps.sort((a, b) => a.module_name.localeCompare(b.module_name, 'zh-CN')).map(buildAppNode),
+          })),
+      }
+    })
+  }
 
-  // 业务领域/产品领域维度：三层（维度 → 项目组 → 工程）
-  return sortedGroups.map(([groupName, apps]) => {
-    const subGroups = new Map<string, ModuleWithRepository[]>()
-    for (const app of apps) {
-      const pg = app.project_group_name || '未分类'
-      if (!subGroups.has(pg))
-        subGroups.set(pg, [])
-      subGroups.get(pg)!.push(app)
-    }
-    return {
-      key: `grp:${groupName}`,
-      title: `${groupName} (${apps.length})`,
-      level: 'group' as const,
-      children: [...subGroups.entries()]
-        .sort((a, b) => a[0].localeCompare(b[0], 'zh-CN'))
-        .map(([pgName, pgApps]) => ({
-          key: `sub:${groupName}:${pgName}`,
-          title: `${pgName} (${pgApps.length})`,
-          level: 'sub' as const,
-          children: pgApps.sort((a, b) => a.module_name.localeCompare(b.module_name, 'zh-CN')).map(buildAppNode),
-        })),
-    }
-  })
+  if (groupNodes.length === 0)
+    return []
+  return [{
+    key: ROOT_KEY,
+    title: `全部 (${repositories.value.length})`,
+    level: 'root' as const,
+    children: groupNodes,
+  }]
 })
 
 // 树搜索过滤（递归）
@@ -179,7 +192,10 @@ const displayTree = computed(() => {
 
 function onDimensionChange() {
   selectedKeys.value = []
-  // 换维度后原来的选中值在新维度里没有意义，回到全量
+  // 换维度后原来的选中值在新维度里没有意义，回到全量；
+  // 右侧同时退回概览视图 —— 否则会停留在上一个应用的分页明细上，
+  // 与左侧树展示的维度对不上
+  selectedRepoId.value = ''
   void loadGlobalOverview()
   expandedKeys.value = []
   treeSearch.value = ''
@@ -327,6 +343,10 @@ function onTreeSelect(keys: (string | number)[]) {
   else if (key.startsWith('sp:')) {
     // 扫描点节点：跳转扫描结果详情（自动选中对应扫描点）
     openDetail(key.slice(3))
+  }
+  else {
+    // 根节点/分组节点/取消选中：右侧回到概览视图，数字随上面重算的范围收窄
+    selectedRepoId.value = ''
   }
 }
 
