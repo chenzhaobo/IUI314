@@ -219,8 +219,9 @@ async function loadRuleStats() {
   ruleStatsLoading.value = true
   try {
     const params = new URLSearchParams({ run_id: currentRun.value.run_id })
-    params.set('ai_model', currentRun.value.ai_model)
-    params.set('ai_mode', currentRun.value.ai_mode)
+    // 轮次 = 一个 run（聚合表每个 run 恰好一行，模型/模式是 run 内非空值的并集，仅作展示）。
+    // 一旦把并集值当作过滤条件下发，agent 模式确认（不上报模型，ai_model 为空）的候选
+    // 会被整体排除 —— 看板总数 263、明细只剩 4 条就是这么来的。候选列表按 run 取全量。
     ruleStats.value = await fetchJson<RuleStatRow[]>(`${ApiSecPrescan.ruleStats}?${params.toString()}`) ?? []
     // 默认展开：全部 + 领域 + 扫描点层
     expandedKeys.value = ['all', ...ruleTree.value.flatMap(n => [n.key, ...(n.children ?? []).map(c => c.key)])]
@@ -345,8 +346,9 @@ async function loadCandidates(silent = false) {
       page_num: String(pageNum.value),
       page_size: String(pageSize),
     })
-    params.set('ai_model', currentRun.value.ai_model)
-    params.set('ai_mode', currentRun.value.ai_mode)
+    // 不再按轮次的 ai_model / ai_mode 过滤：聚合行是"一个 run 一行"，模型/模式为 run 内
+    // 非空值并集；agent 模式确认不回写模型（agent 的 mark 接口没有 model 字段），
+    // 按并集过滤会把 ai_model 为空的候选整批藏掉（263 → 4 的根因）。
     if (selectedRuleId.value && selectedRuleId.value !== 'all' && !selectedRuleId.value.startsWith('domain:') && !selectedRuleId.value.startsWith('sp:'))
       params.set('rule_version_id', selectedRuleId.value)
     if (scanPointFilter.value)
