@@ -593,12 +593,15 @@ async function submitRetry() {
   retryBusy.value = true
   try {
     const model = retryModel.value.trim()
+    // 两种模式都先"只重置、不触发"：把勾选的候选统一翻成待确认，
+    // 再发**一次**确认请求 —— 零碎候选由平台装箱合并（pack_rule_groups：
+    // 小组按累计候选数装箱、大组独占），而不是每条候选各派一个任务。
+    let reset = 0
+    for (const id of ids) {
+      if (await postAction<{ message?: string }>(ApiSecPrescan.retryCandidate, { candidate_id: id, trigger: false }))
+        reset += 1
+    }
     if (retryAutonomous.value) {
-      let reset = 0
-      for (const id of ids) {
-        if (await postAction<{ message?: string }>(ApiSecPrescan.retryCandidate, { candidate_id: id, trigger: false }))
-          reset += 1
-      }
       const body: Record<string, unknown> = { run_id: runId, scope: 'all', mode: 'agent', agent_code: agentCode }
       if (model)
         body.model = model
@@ -607,16 +610,21 @@ async function submitRetry() {
         Message.success(`已重置 ${reset} 条并触发自主审计（整轮）：${res.message ?? ''}`)
     }
     else {
-      let ok = 0
-      for (const id of ids) {
-        const payload: Record<string, any> = { candidate_id: id, mode: 'batch', agent_code: agentCode }
-        if (model)
-          payload.model = model
-        if (await postAction<{ message?: string }>(ApiSecPrescan.retryCandidate, payload))
-          ok += 1
+      const body: Record<string, unknown> = {
+        run_id: runId,
+        scope: 'all',
+        mode: 'batch',
+        agent_code: agentCode,
+        // 一次请求带上全部勾选候选：平台按规则族装箱合并，小批量只出 1 个 AI 调用
+        candidate_ids: ids,
       }
-      const modelNote = model ? `（${agentCode} · ${model}）` : `（${agentCode}）`
-      Message.success(`已提交 ${ok} 条重扫${modelNote}${ok < ids.length ? `，${ids.length - ok} 条失败` : ''}`)
+      if (model)
+        body.model = model
+      const res = await postAction<{ message?: string }>(ApiSecPrescan.aiConfirm, body)
+      if (res) {
+        const modelNote = model ? `（${agentCode} · ${model}）` : `（${agentCode}）`
+        Message.success(`已提交 ${reset} 条重扫${modelNote}${res.message ? `：${res.message}` : ''}`)
+      }
     }
     retryModalVisible.value = false
     selectedCandidateIds.value = []
