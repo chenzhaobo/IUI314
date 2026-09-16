@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { computed, ref } from 'vue'
 import { Message, Modal } from '@arco-design/web-vue'
-import { postAction, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
+import { formatTime, postAction, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiAiExecution, type AiExecution, type AiExecutionStats, type AiListResult } from '@/api/aiApis'
 
 defineOptions({ name: 'ai-execution-log' })
@@ -132,7 +132,7 @@ const columns = withTableDefaults([
   { title: '状态', dataIndex: 'status', width: 90, slotName: 'status' },
   { title: '耗时(ms)', dataIndex: 'duration_ms', width: 90 },
   { title: 'Exit Code', dataIndex: 'exit_code', width: 80 },
-  { title: '创建时间', dataIndex: 'created_at', width: 170 },
+  { title: '创建时间', dataIndex: 'created_at', width: 170, slotName: 'created_at' },
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 80, fixed: 'right' as const },
 ])
 
@@ -208,6 +208,9 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
           <template #status="{ record }">
             <a-tag :color="statusColor(record.status)">{{ record.status }}</a-tag>
           </template>
+          <template #created_at="{ record }">
+            {{ formatTime(record.created_at) }}
+          </template>
           <template #operations="{ record }">
             <a-button type="text" size="small" @click="showDetail(record)">详情</a-button>
           </template>
@@ -227,8 +230,8 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
           <a-descriptions-item label="Exit Code">{{ detail.exit_code ?? '-' }}</a-descriptions-item>
           <a-descriptions-item label="工作目录" :span="2">{{ detail.work_dir || '-' }}</a-descriptions-item>
           <a-descriptions-item label="Session ID" :span="2">{{ detail.session_id || '-' }}</a-descriptions-item>
-          <a-descriptions-item label="创建时间">{{ detail.created_at }}</a-descriptions-item>
-          <a-descriptions-item label="完成时间">{{ detail.finished_at || '-' }}</a-descriptions-item>
+          <a-descriptions-item label="创建时间">{{ formatTime(detail.created_at) }}</a-descriptions-item>
+          <a-descriptions-item label="完成时间">{{ formatTime(detail.finished_at) }}</a-descriptions-item>
         </a-descriptions>
 
         <a-collapse :default-active-key="['prompt', 'output']">
