@@ -482,7 +482,6 @@ function downloadReport() {
 }
 
 // ===== 单条重扫（重置为 pending 并重新 AI 确认）=====
-const retryingCandidateId = ref('')
 /**
  * 允许单条重扫的状态：**全部放开**。
  *
@@ -632,6 +631,59 @@ async function retryCandidate(row: CandidateDetailRow) {
   openRetryModal([row.id])
 }
 
+// ===== 操作列「更多」下拉的分发 =====
+function onOpsSelect(value: unknown, row: CandidateDetailRow) {
+  if (value === 'retry')
+    void retryCandidate(row)
+  else if (value === 'manual')
+    openManualModal(row)
+}
+
+// ===== 人工裁定：新增一条 manual 结论并置为采信（不改 AI 那条）=====
+const manualVisible = ref(false)
+const manualRow = ref<CandidateDetailRow | null>(null)
+const manualVerdict = ref<'confirmed' | 'rejected'>('confirmed')
+const manualReason = ref('')
+const manualBusy = ref(false)
+
+/** 弹窗里展示该候选现有的 AI 结论，帮助判断谁对 */
+const manualExistingVerdicts = computed(() => manualRow.value?.verdicts ?? [])
+
+function openManualModal(row: CandidateDetailRow) {
+  manualRow.value = row
+  // 默认给「与当前相反」的裁定：能点进来通常就是想改判
+  manualVerdict.value = row.ai_status === 'confirmed' ? 'rejected' : 'confirmed'
+  manualReason.value = ''
+  manualVisible.value = true
+}
+
+async function submitManualVerdict() {
+  const row = manualRow.value
+  if (!row)
+    return
+  const reason = manualReason.value.trim()
+  if (!reason) {
+    Message.warning('请填写裁定理由（会作为这条结论的报告留痕）')
+    return
+  }
+  manualBusy.value = true
+  try {
+    const res = await postAction<{ message?: string }>(ApiSecPrescan.manualVerdict, {
+      candidate_id: row.id,
+      verdict: manualVerdict.value,
+      reason,
+    })
+    if (!res)
+      return
+    Message.success(res.message ?? '人工裁定已生效')
+    manualVisible.value = false
+    await loadCandidates()
+  }
+  finally {
+    manualBusy.value = false
+  }
+}
+
 // ===== 多模型结论对比（展开行）=====
 const verdictColumns = [
   { key: 'adopted', title: '', slotName: 'vAdopted', width: 60 },
@@ -688,6 +740,7 @@ const riskLabels: Record<string, { label: string, color: string }> = {
 const modeLabels: Record<string, { label: string, color: string }> = {
   batch: { label: '平台编排', color: 'blue' },
   agent: { label: 'Agent', color: 'purple' },
+  manual: { label: '人工裁定', color: 'orange' },
 }
 
 // ===== 轮次展示辅助函数 =====
@@ -792,7 +845,7 @@ const allCandidateColumns = computed(() => [
   { key: 'introduced_at', title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 170, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('introduced_at') },
   { key: 'introduced_author', title: '引入人', dataIndex: 'introduced_author', width: 110, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('introduced_author') },
   { key: 'ai_rationale', title: 'AI理由', dataIndex: 'ai_rationale', width: 220, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('ai_rationale') },
-  { key: 'ops', title: '操作', slotName: 'ops', width: 110, fixed: 'right' as const },
+  { key: 'ops', title: '操作', slotName: 'ops', width: 120, fixed: 'right' as const },
 ])
 
 /** 「显示列」下拉的选项 */
@@ -1238,15 +1291,23 @@ watch(() => route.query, (newQ, oldQ) => {
                 >
                   报告
                 </a-button>
-                <a-button
-                  type="text"
-                  size="small"
-                  status="warning"
-                  :loading="retryingCandidateId === record.id"
-                  @click="retryCandidate(record)"
-                >
-                  重扫
-                </a-button>
+                <!-- 其余动作收进「更多」：与缺陷列表同一形态，操作列不再随按钮增删变宽 -->
+                <a-dropdown trigger="click" @select="(value: unknown) => onOpsSelect(value, record)">
+                  <a-button type="text" size="small">
+                    更多
+                    <template #icon>
+                      <icon-down />
+                    </template>
+                  </a-button>
+                  <template #content>
+                    <a-doption value="retry">
+                      重扫
+                    </a-doption>
+                    <a-doption value="manual">
+                      人工裁定
+                    </a-doption>
+                  </template>
+                </a-dropdown>
               </a-space>
             </template>
             <!-- 展开行：同一候选的多次结论（换模型复核后可直接对比判定差异） -->
@@ -1343,6 +1404,55 @@ watch(() => route.query, (newQ, oldQ) => {
             模型清单来自所选 Agent；留空用该 Agent 的默认模型。模型由平台在派发时指定并留痕
             （横评按「模型 × 模式」分组）。<b>旧结论不会被覆盖</b> —— 每次结论单独存一行，展开候选行即可并排对比。
           </template>
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <!-- 人工裁定弹窗：新增一条 manual 结论并置为采信，AI 各模型结论保留可对比 -->
+    <a-modal
+      v-model:visible="manualVisible"
+      title="人工裁定"
+      :ok-loading="manualBusy"
+      ok-text="提交裁定"
+      @ok="submitManualVerdict"
+      @cancel="manualVisible = false"
+    >
+      <a-alert type="info" class="m-b-12px">
+        裁定会<strong>新增一条「人工裁定」结论</strong>并置为采信；AI 各模型的结论原样保留，
+        展开候选行可并排对比。裁定理由必填，将作为这条结论的报告正文留痕（含被推翻的那条 AI 结论）。
+      </a-alert>
+      <a-form :model="{}" layout="vertical">
+        <a-form-item label="候选">
+          <span>{{ (manualRow?.file_path ?? '').split('/').slice(-1)[0] }}:{{ manualRow?.start_line ?? '-' }}</span>
+        </a-form-item>
+        <a-form-item label="现有 AI 结论（帮助判断）">
+          <a-empty v-if="!manualExistingVerdicts.length" description="该候选还没有 AI 结论" />
+          <div v-else class="manual-verdict-list">
+            <div v-for="v in manualExistingVerdicts" :key="v.id" class="manual-verdict-item">
+              <a-tag :color="v.adopted ? 'red' : 'gray'" size="small">
+                {{ v.adopted ? '采信' : '历史' }}
+              </a-tag>
+              {{ v.ai_model || '未记录模型' }} · {{ modeLabels[v.ai_mode ?? '']?.label ?? v.ai_mode ?? '-' }} · {{ verdictLabel(v.verdict) }}
+              <span v-if="v.rationale" class="text-muted">— {{ v.rationale }}</span>
+            </div>
+          </div>
+        </a-form-item>
+        <a-form-item label="裁定结论" required>
+          <a-radio-group v-model="manualVerdict" type="button">
+            <a-radio value="confirmed">
+              确认问题
+            </a-radio>
+            <a-radio value="rejected">
+              已排除
+            </a-radio>
+          </a-radio-group>
+        </a-form-item>
+        <a-form-item label="裁定理由" required>
+          <a-textarea
+            v-model="manualReason"
+            :auto-size="{ minRows: 3, maxRows: 8 }"
+            placeholder="为什么这么判？依据或否定的是哪条线索 / 证据（可达性、净化、上下文）——会写入报告留痕"
+          />
         </a-form-item>
       </a-form>
     </a-modal>
@@ -1445,6 +1555,8 @@ watch(() => route.query, (newQ, oldQ) => {
 .filter-field { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 /* 结论变更标记：与状态标签并排，一眼看出这条被重扫改判过 */
 .verdict-changed-tag { margin-left: 4px; }
+.manual-verdict-list { display: flex; flex-direction: column; gap: 4px; }
+.manual-verdict-item { font-size: 13px; color: var(--color-text-2); }
 .split-handle {
   width: 6px; flex-shrink: 0; cursor: col-resize; border-radius: 3px; margin: 0 3px;
   background: transparent; transition: background 0.2s;

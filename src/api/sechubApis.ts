@@ -269,6 +269,8 @@ export enum ApiSecPrescan {
   aiConfirm = '/sechub/prescan/ai-confirm',
   retryErrors = '/sechub/prescan/retry-errors',
   retryCandidate = '/sechub/prescan/retry-candidate',
+  // 人工裁定：新增一条 ai_mode=manual 的结论并置为采信（AI 各模型结论原样保留）
+  manualVerdict = '/sechub/prescan/manual-verdict',
   // 重扫范围计数（供确认弹窗先告知再执行）
   retryScope = '/sechub/prescan/retry-scope',
   // 给已确认候选补齐缺陷记录（AI 确认流程中断时用）
