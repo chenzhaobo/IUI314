@@ -494,55 +494,63 @@ function canRetry(_status: string): boolean {
   return true
 }
 
-// ===== 重扫弹窗：执行方式（平台编排 / 自主审计）+ Agent + 模型 =====
+// ===== 重扫弹窗：选执行 Agent（模型随 Agent 带出）=====
 const retryModalVisible = ref(false)
 const retryTargetIds = ref<string[]>([])
-/** 平台编排：平台按候选精确派发并调用模型；自主审计：Agent 在代码库里整轮分析 */
-const retryMode = ref<'batch' | 'agent'>('batch')
-/** 空串 = 留空，batch 走 Agent 默认模型 / 沿用轮次原模型 */
-const retryModel = ref('')
-/** 自主审计时指定的 Agent；留空 = 该模式的默认 Agent */
+/**
+ * 自主审计专用 Agent（与后端 MODE_AGENT 的默认 Agent 一致）。
+ * 平台约定：选它 = 走自主审计协议（agent 自己拉候选、整轮分析）；
+ * 选其它 Agent = 走平台编排（平台按候选精确派发）。
+ */
+const AUTONOMOUS_AGENT_CODES = ['qoder-cli-scan']
 const retryAgentCode = ref('')
+/** 空串 = 用该 Agent 的默认模型（agent.default_model / auto） */
+const retryModel = ref('')
 const agents = ref<AiAgent[]>([])
+const agentsLoading = ref(false)
 let agentsRequested = false
 const retryBusy = ref(false)
 
-/** 已在本 run 出现过的模型，作为下拉候选（换模型复核时直接选） */
-const knownModels = computed(() => {
-  const set = new Set<string>()
-  for (const r of crossRows.value) {
-    const m = (r.ai_model ?? '').trim()
-    if (m)
-      set.add(m)
-  }
-  return [...set].sort()
-})
-
-/** 模型候选 = 本 run 已出现的模型 + 所选 Agent 声明的模型（与看板 AI 确认同一口径） */
+const selectedRetryAgent = computed<AiAgent | null>(() => agents.value.find(a => a.agent_code === retryAgentCode.value) ?? null)
+/** 所选 Agent 是否走自主审计协议（决定重扫范围是整轮还是仅勾选） */
+const retryAutonomous = computed(() => AUTONOMOUS_AGENT_CODES.includes(retryAgentCode.value))
+/** 模型候选来自所选 Agent 的模型清单（auto 是"Agent 默认模型"的占位，不单列） */
 const retryModelOptions = computed(() => {
-  const set = new Set<string>(knownModels.value)
-  const agent = agents.value.find(a => a.agent_code === retryAgentCode.value)
-  if (agent?.supported_models_json) {
-    try {
-      for (const item of JSON.parse(agent.supported_models_json) as string[]) {
-        const model = String(item ?? '').trim()
-        // 'auto' 是「用 Agent 默认模型」的占位，不是一个可选模型
-        if (model && model !== 'auto')
-          set.add(model)
-      }
-    }
-    catch { /* 配置脏数据不影响手输模型 */ }
+  const raw = selectedRetryAgent.value?.supported_models_json
+  if (!raw)
+    return []
+  try {
+    return (JSON.parse(raw) as string[])
+      .map(item => String(item ?? '').trim())
+      .filter(model => model && model !== 'auto')
   }
-  return [...set].sort()
+  catch {
+    return []
+  }
+})
+const retryModelPlaceholder = computed(() => {
+  const preset = selectedRetryAgent.value?.default_model?.trim()
+  return preset && preset !== 'auto' ? `默认（${preset}）` : '默认（Agent 自选 / auto）'
 })
 
-/** Agent 列表懒加载一次（自主审计才需要） */
+/** Agent 列表懒加载一次，并给出默认选择：自主审计专用 Agent 优先 */
 async function ensureAgents() {
   if (agentsRequested)
     return
   agentsRequested = true
-  const res = await getAction<{ list: AiAgent[] }>(ApiAiAgent.getList, { status: 'active', page_size: 50 })
-  agents.value = res?.list ?? []
+  agentsLoading.value = true
+  try {
+    const res = await getAction<{ list: AiAgent[] }>(ApiAiAgent.getList, { status: 'active', page_size: 50 })
+    agents.value = res?.list ?? []
+  }
+  finally {
+    agentsLoading.value = false
+  }
+}
+
+function defaultRetryAgentCode(): string {
+  const autonomous = agents.value.find(a => AUTONOMOUS_AGENT_CODES.includes(a.agent_code))
+  return autonomous?.agent_code ?? agents.value[0]?.agent_code ?? ''
 }
 
 function openRetryModal(ids: string[]) {
@@ -551,19 +559,22 @@ function openRetryModal(ids: string[]) {
     return
   }
   retryTargetIds.value = [...ids]
-  retryMode.value = 'batch'
-  retryModel.value = ''
   retryAgentCode.value = ''
-  void ensureAgents()
+  retryModel.value = ''
+  void ensureAgents().then(() => {
+    if (!retryAgentCode.value)
+      retryAgentCode.value = defaultRetryAgentCode()
+  })
   retryModalVisible.value = true
 }
 
 /**
  * 提交重扫。
  *
- * - 平台编排：逐条按候选定向（派发批次号限定范围），模型由平台指定并落库；
- * - 自主审计：Agent 无法按候选定向 —— 先把勾选的候选重置为 pending（trigger=false），
- *   再用 run 级 ai-confirm 触发整轮自主审计（该运行所有待确认候选一起重审）。
+ * - 平台编排（非自主审计 Agent）：逐条按候选定向（派发批次号限定范围），
+ *   执行 Agent 与模型由平台指定并落库；
+ * - 自主审计（qoder-cli-scan）：Agent 无法按候选定向 —— 先把勾选的候选重置为 pending
+ *   （trigger=false），再用 run 级 ai-confirm 触发整轮自主审计（该运行所有待确认候选一起重审）。
  *
  * 指定了模型时不会覆盖旧结论：每次结论都写成 `sec_prescan_candidate_verdict` 明细行，
  * 候选主表只更新"当前采信"的那条，换模型重扫后两个模型可并排对比。
@@ -571,22 +582,23 @@ function openRetryModal(ids: string[]) {
 async function submitRetry() {
   const ids = retryTargetIds.value
   const runId = currentRun.value?.run_id ?? ''
-  if (!runId)
+  const agentCode = retryAgentCode.value.trim()
+  if (!runId || !agentCode) {
+    Message.warning('请选择执行 Agent')
     return
+  }
   retryBusy.value = true
   try {
     const model = retryModel.value.trim()
-    if (retryMode.value === 'agent') {
+    if (retryAutonomous.value) {
       let reset = 0
       for (const id of ids) {
         if (await postAction<{ message?: string }>(ApiSecPrescan.retryCandidate, { candidate_id: id, trigger: false }))
           reset += 1
       }
-      const body: Record<string, unknown> = { run_id: runId, scope: 'all', mode: 'agent' }
+      const body: Record<string, unknown> = { run_id: runId, scope: 'all', mode: 'agent', agent_code: agentCode }
       if (model)
         body.model = model
-      if (retryAgentCode.value)
-        body.agent_code = retryAgentCode.value
       const res = await postAction<{ message?: string }>(ApiSecPrescan.aiConfirm, body)
       if (res)
         Message.success(`已重置 ${reset} 条并触发自主审计（整轮）：${res.message ?? ''}`)
@@ -594,13 +606,13 @@ async function submitRetry() {
     else {
       let ok = 0
       for (const id of ids) {
-        const payload: Record<string, any> = { candidate_id: id, mode: 'batch' }
+        const payload: Record<string, any> = { candidate_id: id, mode: 'batch', agent_code: agentCode }
         if (model)
           payload.model = model
         if (await postAction<{ message?: string }>(ApiSecPrescan.retryCandidate, payload))
           ok += 1
       }
-      const modelNote = model ? `（模型 ${model}）` : ''
+      const modelNote = model ? `（${agentCode} · ${model}）` : `（${agentCode}）`
       Message.success(`已提交 ${ok} 条重扫${modelNote}${ok < ids.length ? `，${ids.length - ok} 条失败` : ''}`)
     }
     retryModalVisible.value = false
@@ -1277,45 +1289,36 @@ watch(() => route.query, (newQ, oldQ) => {
       @ok="submitRetry"
       @cancel="retryModalVisible = false"
     >
-      <a-alert v-if="retryMode === 'batch'" type="info" class="m-b-12px">
+      <a-alert v-if="!retryAutonomous" type="info" class="m-b-12px">
         本次将重扫 <b>{{ retryTargetIds.length }}</b> 条候选。范围严格限定在勾选的这些候选上：
-        平台给这批候选打一个派发批次号，AI 只能通过该批次号取候选，
-        取不到同规则下的其它候选。
+        平台给这批候选打一个派发批次号，AI 只能通过该批次号取候选，取不到同规则下的其它候选。
       </a-alert>
       <a-alert v-else type="warning" class="m-b-12px">
         自主审计<strong>无法按候选定向</strong>：勾选的 <b>{{ retryTargetIds.length }}</b> 条会先被重置为待确认，
         随后平台触发该运行的<strong>整轮自主审计</strong> —— 该运行所有待确认候选都会被重新审计。
       </a-alert>
       <a-form :model="{}" layout="vertical">
-        <a-form-item label="执行方式">
-          <a-radio-group v-model="retryMode" type="button">
-            <a-radio value="batch">
-              平台编排（只重扫勾选候选）
-            </a-radio>
-            <a-radio value="agent">
-              自主审计 Agent（整轮）
-            </a-radio>
-          </a-radio-group>
-          <template #extra>
-            平台编排由平台按候选精确派发并调用模型；自主审计由 Agent 在代码库里自行分析，范围为整个运行。
-          </template>
-        </a-form-item>
-        <a-form-item v-if="retryMode === 'agent'" label="Agent">
-          <a-select v-model="retryAgentCode" allow-clear placeholder="默认（qoder-cli-scan）">
+        <a-form-item label="执行 Agent">
+          <a-select v-model="retryAgentCode" placeholder="选择执行 Agent" :loading="agentsLoading">
             <a-option v-for="a in agents" :key="a.agent_code" :value="a.agent_code">
               {{ a.agent_name }}（{{ a.agent_code }}）
             </a-option>
           </a-select>
+          <template #extra>
+            {{ retryAutonomous
+              ? '该 Agent 为自主审计专用：在代码库里自行分析，范围是该运行的整轮待确认候选。'
+              : '该 Agent 走平台编排：平台按候选精确派发，只重扫勾选的候选。' }}
+          </template>
         </a-form-item>
         <a-form-item label="使用模型">
-          <a-select v-model="retryModel" placeholder="留空 = 该 Agent 的默认模型" allow-clear allow-create>
+          <a-select v-model="retryModel" :placeholder="retryModelPlaceholder" allow-clear>
             <a-option v-for="m in retryModelOptions" :key="m" :value="m">
               {{ m }}
             </a-option>
           </a-select>
           <template #extra>
-            模型由平台在派发时指定并留痕（横评按「模型 × 模式」分组）。<b>旧结论不会被覆盖</b> ——
-            每次结论都单独存一行，展开候选行即可并排对比。
+            模型清单来自所选 Agent；留空用该 Agent 的默认模型。模型由平台在派发时指定并留痕
+            （横评按「模型 × 模式」分组）。<b>旧结论不会被覆盖</b> —— 每次结论单独存一行，展开候选行即可并排对比。
           </template>
         </a-form-item>
       </a-form>
