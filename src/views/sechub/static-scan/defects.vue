@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import type { IssueImportSummary, IssueRuleStatRow, IssueVerifyResult, ModuleWithRepository, ScanIssueEventRow, ScanIssuePage, ScanIssueRow } from '@/types/static-scan'
+import type { AiAgent } from '@/api/aiApis'
+import type { BranchesControlResponse, IssueImportSummary, IssueRuleStatRow, ModuleWithRepository, RepositoryBranch, RepositoryCommit, RepositoryCommitListResponse, ScanIssueEventRow, ScanIssuePage, ScanIssueRow } from '@/types/static-scan'
 import { Message } from '@arco-design/web-vue'
 import { MdPreview } from 'md-editor-v3'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { ApiAiAgent } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
-import { downloadText, formatTime, useAutoHeight, useDicts, useDownload, useGet, usePost, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
+import { downloadText, formatTime, getAction, useAutoHeight, useDicts, useDownload, useGet, usePost, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
 import 'md-editor-v3/lib/style.css'
 
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
@@ -360,6 +362,10 @@ function canVerify(row: ScanIssueRow): boolean {
 // ===== 缺陷处理：批量认领（open/reopened → fixing）=====
 const batchClaimLoading = ref(false)
 async function batchClaim() {
+  if (!selectedIds.value.length) {
+    Message.warning('请先勾选缺陷')
+    return
+  }
   const eligible = selectedRows.value.filter(r => canClaim(r.status))
   if (!eligible.length) {
     Message.warning('所选缺陷中没有可认领的（仅「打开/重新打开」状态可认领）')
@@ -388,6 +394,10 @@ const fixedNote = ref('')
 const fixedLoading = ref(false)
 
 function openFixedModal() {
+  if (!selectedIds.value.length) {
+    Message.warning('请先勾选缺陷')
+    return
+  }
   const eligible = selectedRows.value.filter(r => r.status === 'fixing')
   if (!eligible.length) {
     Message.warning('所选缺陷中没有「修复中」的，无法标记已修复')
@@ -424,8 +434,10 @@ const dmpCode = ref('')
 const dmpLoading = ref(false)
 
 function openDmpModal() {
-  if (!selectedIds.value.length)
+  if (!selectedIds.value.length) {
+    Message.warning('请先勾选缺陷')
     return
+  }
   dmpTargets.value = [...selectedRows.value]
   // 已有编码且全都一样时预填，方便在原值上改；不一致就留空，避免误覆盖
   const codes = new Set(dmpTargets.value.map(r => r.dmp_defect_code || ''))
@@ -529,6 +541,10 @@ const wontFixForm = ref<{
 const wontFixLoading = ref(false)
 
 function openWontFixModal() {
+  if (!selectedIds.value.length) {
+    Message.warning('请先勾选缺陷')
+    return
+  }
   const eligible = selectedRows.value.filter(r => canWontFix(r.status))
   if (!eligible.length) {
     Message.warning('所选缺陷中没有可标记不处理的（仅「打开/重新打开」状态可操作）')
@@ -574,29 +590,179 @@ async function submitWontFix() {
   }
 }
 
-// ===== 缺陷处理：重新验证（重新拉取指定分支的最新代码后定向重扫）=====
+// ===== 缺陷处理：重新验证（重新拉取最新代码后由所选 AI 复核判定）=====
 //
 // 为什么要能指定分支/commit：开发协作场景下，1 号在 sit 扫出的缺陷，3 号开发把
-// 修复提在了 patch 分支上，他过来自验证时必须能指定那个分支。留空时后端按
-// 「该缺陷来源 run 的分支 → 仓库默认分支」解析（原实现固定用仓库默认分支，
-// 在非默认分支上扫出的问题会被拿到默认分支验证，结论必然不可信）。
+// 修复提在了 patch 分支上，他过来自验证时必须能指定那个分支；分支默认选该缺陷
+// 对应的分支（留空时后端按「来源 run 分支 → 仓库默认分支」解析）。
 //
-// 验证**不会创建扫描运行**：它只对「问题文件 + 问题规则」做定向扫描，
-// 多人反复点验证不产生 run 记录，只各自留下一条验证事件。
+// 流程：提交 → 后台异步执行（立即返回，不阻塞页面）：拉最新代码 → 规则定向
+// 扫描（证据）→ 所选 Agent/模型复核判定 → 回写状态与流转事件。
+// **不会创建扫描运行**；执行失败会写 verify_error 流转，刷新列表/流转即可看到原因。
 const batchVerifyLoading = ref(false)
 const verifyVisible = ref(false)
 const verifyTargets = ref<ScanIssueRow[]>([])
-const verifyForm = ref({ branch: '', commit_sha: '' })
+const verifyForm = ref({ branch: '', commit_sha: '', agent_code: '', model: '' })
+
+// 分支/commit 下拉（复用扫描看板同一组接口）
+const verifyBranches = ref<RepositoryBranch[]>([])
+const verifyBranchLoading = ref(false)
+const verifyCommits = ref<RepositoryCommit[]>([])
+const verifyCommitLoading = ref(false)
+let verifyCommitSeq = 0
+
+// Agent/模型下拉（模型候选随所选 Agent 的 supported_models_json 带出，与重扫弹窗同款）
+const verifyAgents = ref<AiAgent[]>([])
+const verifyAgentsLoading = ref(false)
+let verifyAgentsRequested = false
+const verifySelectedAgent = computed<AiAgent | null>(() => verifyAgents.value.find(a => a.agent_code === verifyForm.value.agent_code) ?? null)
+const verifyModelOptions = computed(() => {
+  const raw = verifySelectedAgent.value?.supported_models_json
+  if (!raw)
+    return []
+  try {
+    return (JSON.parse(raw) as string[])
+      .map(item => String(item ?? '').trim())
+      .filter(model => model && model !== 'auto')
+  }
+  catch {
+    return []
+  }
+})
+const verifyModelPlaceholder = computed(() => {
+  const preset = verifySelectedAgent.value?.default_model?.trim()
+  return preset && preset !== 'auto' ? `默认（${preset}）` : '默认（Agent 自选 / auto）'
+})
+
+/** 目标缺陷对应的仓库（多仓库时提示分批；分支/commit 选项取第一个目标仓库） */
+const verifyRepo = computed(() =>
+  repositories.value.find(r => r.repository_id === verifyTargets.value[0]?.repository_id) ?? null,
+)
+
+async function ensureVerifyAgents() {
+  if (verifyAgentsRequested || verifyAgents.value.length)
+    return
+  verifyAgentsRequested = true
+  verifyAgentsLoading.value = true
+  try {
+    const res = await getAction<{ list: AiAgent[] }>(ApiAiAgent.getList, { status: 'active', page_size: 50 })
+    verifyAgents.value = res?.list ?? []
+  }
+  catch {
+    verifyAgents.value = []
+  }
+  finally {
+    verifyAgentsLoading.value = false
+  }
+}
+
+/** commit 下拉标签：短 sha + 本地时区时间 + 标题（与扫描看板的基准 commit 下拉同款） */
+function formatVerifyCommitLabel(commit: RepositoryCommit): string {
+  const time = formatTime(commit.commit_time, { placeholder: '' })
+  return time ? `${commit.short_sha} ${time} ${commit.subject}` : `${commit.short_sha} ${commit.subject}`
+}
+
+function defaultVerifyAgentCode(): string {
+  const scanAgent = verifyAgents.value.find(a => a.agent_code === 'qoder-cli-scan')
+  return scanAgent?.agent_code ?? verifyAgents.value[0]?.agent_code ?? ''
+}
+
+async function loadVerifyBranches() {
+  const repo = verifyRepo.value
+  if (!repo)
+    return
+  verifyBranchLoading.value = true
+  try {
+    const { data, execute } = useGet<BranchesControlResponse>(
+      ApiSecModuleRepository.branches,
+      { module_id: repo.module_id, relation_id: repo.relation_id, refresh: false },
+      { immediate: false },
+    )
+    await execute()
+    verifyBranches.value = data.value?.result === 'cached' ? data.value.data.branches : []
+  }
+  catch {
+    verifyBranches.value = []
+  }
+  finally {
+    verifyBranchLoading.value = false
+  }
+}
+
+async function loadVerifyCommits(branch: string) {
+  const repo = verifyRepo.value
+  const seq = ++verifyCommitSeq
+  if (!repo || !branch) {
+    verifyCommits.value = []
+    return
+  }
+  verifyCommitLoading.value = true
+  try {
+    const { data, execute } = useGet<RepositoryCommitListResponse>(
+      ApiSecPrescan.commits,
+      { module_id: repo.module_id, relation_id: repo.relation_id, branch, limit: 30 },
+      { immediate: false },
+    )
+    await execute()
+    if (seq !== verifyCommitSeq)
+      return
+    verifyCommits.value = data.value?.list ?? []
+  }
+  catch {
+    if (seq === verifyCommitSeq)
+      verifyCommits.value = []
+  }
+  finally {
+    if (seq === verifyCommitSeq)
+      verifyCommitLoading.value = false
+  }
+}
+
+/** select 允许自由输入：提交前统一 trim */
+function normalizeVerifyInput(value: string | undefined): string {
+  return (value ?? '').trim()
+}
+
+function onVerifyBranchChange(value: unknown) {
+  // 换分支后原 commit 不再有意义，清掉并按新分支加载候选
+  verifyForm.value.commit_sha = ''
+  verifyForm.value.branch = normalizeVerifyInput(value as string)
+  void loadVerifyCommits(verifyForm.value.branch)
+}
+
+function onVerifyAgentChange() {
+  // 换 Agent 后模型候选变了，清掉旧模型回到默认
+  verifyForm.value.model = ''
+}
 
 function openVerifyDialog() {
+  if (!selectedIds.value.length) {
+    Message.warning('请先勾选缺陷')
+    return
+  }
   const eligible = selectedRows.value.filter(canVerify)
   if (!eligible.length) {
     Message.warning('所选缺陷中没有可重新验证的（仅「已修复/已验证/验证失败/不处理」状态可验证）')
     return
   }
   verifyTargets.value = eligible
-  verifyForm.value = { branch: '', commit_sha: '' }
+  // 分支默认选「该缺陷对应的分支」：所选缺陷分支一致就用它；不一致/为空留空由后端解析
+  const branches = [...new Set(eligible.map(r => (r.branch ?? '').trim()).filter(Boolean))]
+  verifyForm.value = {
+    branch: branches.length === 1 ? branches[0] : '',
+    commit_sha: '',
+    agent_code: '',
+    model: '',
+  }
+  verifyCommits.value = []
   verifyVisible.value = true
+  void ensureVerifyAgents().then(() => {
+    if (!verifyForm.value.agent_code)
+      verifyForm.value.agent_code = defaultVerifyAgentCode()
+  })
+  void loadVerifyBranches()
+  if (verifyForm.value.branch)
+    void loadVerifyCommits(verifyForm.value.branch)
 }
 
 /** 目标缺陷涉及的仓库（多仓库时提示用户分批，避免一个分支名套到不同仓库上） */
@@ -611,10 +777,9 @@ async function batchVerify() {
   const eligible = verifyTargets.value
   batchVerifyLoading.value = true
   try {
-    const branch = verifyForm.value.branch.trim()
-    const commit = verifyForm.value.commit_sha.trim()
-    let fixed = 0
-    let stillHit = 0
+    const branch = normalizeVerifyInput(verifyForm.value.branch)
+    const commit = normalizeVerifyInput(verifyForm.value.commit_sha)
+    let submitted = 0
     let failed = 0
     for (const row of eligible) {
       const payload: Record<string, any> = { issue_id: row.id }
@@ -622,24 +787,20 @@ async function batchVerify() {
         payload.branch = branch
       if (commit)
         payload.commit_sha = commit
-      const result = await postAction<IssueVerifyResult>(ApiSecPrescan.issueVerify, payload)
-      if (result !== null) {
-        if (result.still_hit)
-          stillHit++
-        else
-          fixed++
-      }
-      else {
+      if (verifyForm.value.agent_code)
+        payload.agent_code = verifyForm.value.agent_code
+      if (verifyForm.value.model)
+        payload.model = verifyForm.value.model
+      const result = await postAction<{ accepted?: boolean }>(ApiSecPrescan.issueVerify, payload)
+      if (result !== null)
+        submitted++
+      else
         failed++
-      }
     }
-    // 失败要单独报数：拉取远端失败时后端现在是**硬报错**而不是拿陈旧副本给结论，
-    // 把它混进"仍存在"会让人以为修复没生效。
-    const failNote = failed > 0 ? `，${failed} 条验证失败（多为拉取远端代码失败，检查网络/凭据后重试）` : ''
-    Message.success(`重新验证完成：已修复 ${fixed} 条，仍存在 ${stillHit} 条${failNote}`)
+    const failNote = failed > 0 ? `，${failed} 条提交失败（检查网络后重试）` : ''
+    Message.success(`已提交 ${submitted} 条复核（后台执行，完成后刷新列表查看结果；流转记录有详情）${failNote}`)
     verifyVisible.value = false
     clearSelection()
-    void getList()
   }
   finally {
     batchVerifyLoading.value = false
@@ -681,6 +842,7 @@ const eventTypeLabels: Record<string, { label: string, color: string }> = {
   verdict_rejected: { label: '判定撤销关系', color: 'gray' },
   finding_absent: { label: '扫描未再发现', color: 'gray' },
   file_deleted: { label: '文件删除失活', color: 'gray' },
+  verify_error: { label: '复核执行失败', color: 'orange' },
 }
 
 // ===== 查看报告（MdPreview 抽屉）=====
@@ -983,20 +1145,20 @@ function shortSha(sha: string | null | undefined): string {
                     补偿匹配白名单
                   </a-button>
                 </a-tooltip>
-                <a-button type="primary" :disabled="!selectedIds.length" :loading="batchClaimLoading" @click="batchClaim">
+                <a-button type="primary" :loading="batchClaimLoading" @click="batchClaim">
                   认领
                 </a-button>
-                <a-button status="success" :disabled="!selectedIds.length" @click="openFixedModal">
+                <a-button status="success" @click="openFixedModal">
                   标记已修复
                 </a-button>
-                <a-button status="warning" :disabled="!selectedIds.length" @click="openWontFixModal">
+                <a-button status="warning" @click="openWontFixModal">
                   标记不处理
                 </a-button>
-                <a-button :disabled="!selectedIds.length" :loading="batchVerifyLoading" @click="openVerifyDialog">
+                <a-button :loading="batchVerifyLoading" @click="openVerifyDialog">
                   重新验证
                 </a-button>
                 <a-tooltip content="把所选缺陷关联到 DMP 单号，可批量填同一个" mini>
-                  <a-button :disabled="!selectedIds.length" @click="openDmpModal">
+                  <a-button @click="openDmpModal">
                     DMP 编码
                   </a-button>
                 </a-tooltip>
@@ -1271,7 +1433,7 @@ function shortSha(sha: string | null | undefined): string {
         <a-empty v-else description="暂无详细报告" />
       </a-modal>
     </div>
-    <!-- 重新验证弹窗：指定分支与 commit -->
+    <!-- 重新验证弹窗：选分支/commit/Agent/模型，提交后由后台 AI 复核 -->
     <a-modal
       v-model:visible="verifyVisible"
       title="重新验证缺陷"
@@ -1280,8 +1442,9 @@ function shortSha(sha: string | null | undefined): string {
       @cancel="verifyVisible = false"
     >
       <a-alert type="info" class="m-b-12px">
-        将对 <b>{{ verifyTargets.length }}</b> 条缺陷重新拉取代码并定向重扫（只扫问题文件 + 问题规则），
-        <b>不会创建扫描运行记录</b>，可以反复验证。
+        将对 <b>{{ verifyTargets.length }}</b> 条缺陷提交<b>后台复核</b>：重新拉取所选分支的最新代码，
+        由所选 Agent/模型阅读代码判定问题是否仍存在（仍存在→验证失败；已修复→验证通过）。
+        <b>不创建扫描运行记录</b>；提交后立即返回，完成后刷新列表查看结果（流转记录有详情）。
         <template v-if="verifyRepoNames.length > 1">
           <br>⚠️ 所选缺陷跨 {{ verifyRepoNames.length }} 个仓库（{{ verifyRepoNames.join('、') }}），
           同一个分支名会套用到全部仓库，建议按仓库分批验证。
@@ -1289,20 +1452,58 @@ function shortSha(sha: string | null | undefined): string {
       </a-alert>
       <a-form :model="verifyForm" layout="vertical">
         <a-form-item label="分支">
-          <a-input v-model="verifyForm.branch" placeholder="留空 = 该缺陷来源扫描轮次的分支（没有则用仓库默认分支）" allow-clear />
+          <a-select
+            v-model="verifyForm.branch"
+            :loading="verifyBranchLoading"
+            placeholder="默认 = 该缺陷来源分支（没有则用仓库默认分支）"
+            allow-search
+            allow-create
+            allow-clear
+            @change="onVerifyBranchChange"
+          >
+            <a-option v-for="b in verifyBranches" :key="b.name" :value="b.name">
+              {{ b.name }}{{ b.is_default ? '（默认）' : '' }}
+            </a-option>
+          </a-select>
           <template #extra>
-            开发把修复提在别的分支（如 patch 分支）时，在这里填那个分支名。
+            开发把修复提在别的分支（如 patch 分支）时，在这里选那个分支；也可直接输入列表外的分支名。
           </template>
         </a-form-item>
         <a-form-item label="Commit">
-          <a-input v-model="verifyForm.commit_sha" placeholder="留空 = 该分支最新 HEAD（常用）" allow-clear />
+          <a-select
+            v-model="verifyForm.commit_sha"
+            :loading="verifyCommitLoading"
+            :disabled="!verifyForm.branch"
+            placeholder="留空 = 该分支最新 HEAD（常用）"
+            allow-search
+            allow-create
+            allow-clear
+          >
+            <a-option v-for="c in verifyCommits" :key="c.sha" :value="c.sha">
+              {{ formatVerifyCommitLabel(c) }}
+            </a-option>
+          </a-select>
           <template #extra>
-            留空即取最新提交。无论是否指定，实际验证的 commit 都会记进流转记录。
+            留空即取最新提交；也可直接粘贴 commit SHA。实际验证的 commit 会记进流转记录。
           </template>
         </a-form-item>
+        <a-form-item label="执行 Agent">
+          <a-select v-model="verifyForm.agent_code" :loading="verifyAgentsLoading" placeholder="选择执行复核的 Agent" @change="onVerifyAgentChange">
+            <a-option v-for="agent in verifyAgents" :key="agent.agent_code" :value="agent.agent_code">
+              {{ agent.agent_name || agent.agent_code }}
+            </a-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="模型">
+          <a-select v-model="verifyForm.model" :placeholder="verifyModelPlaceholder" allow-clear>
+            <a-option v-for="m in verifyModelOptions" :key="m" :value="m">
+              {{ m }}
+            </a-option>
+          </a-select>
+        </a-form-item>
         <a-alert type="warning">
-          拉取远端失败时验证会<b>直接报错</b>，不会用本地陈旧代码给结论 ——
-          否则会把「3 号提交的修复」按「1 号的代码」判成仍存在。
+          拉取远端失败或 AI 执行失败时，会在流转记录里留一条「复核执行失败」说明，
+          不会用本地陈旧代码或旧结论充数。
         </a-alert>
       </a-form>
     </a-modal>
