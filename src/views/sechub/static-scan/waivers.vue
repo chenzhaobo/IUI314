@@ -9,7 +9,11 @@ import ListPage from '@/components/common/ListPage.vue'
 import { useGet, usePost } from '@/hooks'
 import { ApiSecWaiver, ApiSecProjectGroup } from '@/api/sechubApis'
 
-defineOptions({ name: 'StaticScanWaivers' })
+// 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
+// （见 components/layout/app-main.vue 的注释）。lint 的 PascalCase 提示只是警告，
+// 改名却会让页签缓存失效，所以此处保持 kebab-case。
+// eslint-disable-next-line vue/component-definition-name-casing
+defineOptions({ name: 'waivers' })
 
 // ── 查询 ──────────────────────────────────────────
 const queryParams = ref<Record<string, any>>({

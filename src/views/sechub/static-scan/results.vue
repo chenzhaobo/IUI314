@@ -12,7 +12,7 @@ import type {
 import type { AiAgent } from '@/api/aiApis'
 import { Message } from '@arco-design/web-vue'
 import { MdPreview } from 'md-editor-v3'
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ApiAiAgent } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
@@ -22,7 +22,11 @@ import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import { emptyFilter, isFilterActive, toServerFilters, useFilterPersistence } from '@/hooks'
 import 'md-editor-v3/lib/style.css'
 
-defineOptions({ name: 'StaticScanResults' })
+// 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
+// （见 components/layout/app-main.vue 的注释）。lint 的 PascalCase 提示只是警告，
+// 改名却会让页签缓存失效，所以此处保持 kebab-case。
+// eslint-disable-next-line vue/component-definition-name-casing
+defineOptions({ name: 'results' })
 
 const route = useRoute()
 
@@ -417,10 +421,22 @@ function schedulePollIfNeeded() {
   if (pageHasPending())
     pollTimer.value = setTimeout(() => void loadCandidates(true), 5000)
 }
-onUnmounted(() => {
-  if (pollTimer.value)
+
+// 缓存安全（keep-alive）：切页签只触发 onDeactivated，轮询必须先停，否则缓存的页在
+// 后台继续刷接口；回页签时若本页仍有待确认候选，静默补刷一次（内部会重排轮询），
+// 不重置筛选/分页；onUnmounted 保留兜底（关页签时清干净）。
+function pausePoll() {
+  if (pollTimer.value) {
     clearTimeout(pollTimer.value)
+    pollTimer.value = null
+  }
+}
+onDeactivated(pausePoll)
+onActivated(() => {
+  if (pageHasPending())
+    void loadCandidates(true)
 })
+onUnmounted(pausePoll)
 
 function onFilterChange() {
   pageNum.value = 1

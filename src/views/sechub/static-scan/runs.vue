@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { CrossRunAggRow, ModuleWithRepository } from '@/types/static-scan'
 import { Checkbox, Message, Modal } from '@arco-design/web-vue'
-import { computed, h, onUnmounted, ref, watch } from 'vue'
+import { computed, h, onActivated, onDeactivated, onUnmounted, ref, watch } from 'vue'
 
 import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import type { ColumnFilterState } from '@/hooks'
@@ -13,7 +13,11 @@ import { ApiSecModuleRepository, ApiSecPrescan } from '@/api/sechubApis'
 import { useGet, usePost } from '@/hooks'
 import { pendingSubLabel, pendingTooltip, runStatusLabels } from './labels'
 
-defineOptions({ name: 'StaticScanRuns' })
+// 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
+// （见 components/layout/app-main.vue 的注释）。lint 的 PascalCase 提示只是警告，
+// 改名却会让页签缓存失效，所以此处保持 kebab-case。
+// eslint-disable-next-line vue/component-definition-name-casing
+defineOptions({ name: 'runs' })
 
 const router = useRouter()
 
@@ -272,25 +276,41 @@ async function loadCrossRows(silent = false) {
 
 // ===== AI 确认轮询：任一任务存在待确认候选时每 15 秒静默刷新 =====
 const pollTimer = ref<ReturnType<typeof setTimeout> | null>(null)
+
+// 除了「还有待确认候选」，只要有批次在排队或执行中也要继续轮询，
+// 否则「排队中 → 执行中 → 完成」的阶段变化不会自动回显。
+function hasActiveWork(): boolean {
+  return crossRows.value.some(r =>
+    (r.pending ?? 0) > 0
+    || (r.queue_pending ?? r.ai_exec_pending ?? 0) > 0
+    || (r.queue_running ?? r.ai_exec_running ?? 0) > 0,
+  )
+}
+
 function schedulePollIfNeeded() {
   if (pollTimer.value) {
     clearTimeout(pollTimer.value)
     pollTimer.value = null
   }
-  // 除了「还有待确认候选」，只要有批次在排队或执行中也要继续轮询，
-  // 否则「排队中 → 执行中 → 完成」的阶段变化不会自动回显。
-  const active = crossRows.value.some(r =>
-    (r.pending ?? 0) > 0
-    || (r.queue_pending ?? r.ai_exec_pending ?? 0) > 0
-    || (r.queue_running ?? r.ai_exec_running ?? 0) > 0,
-  )
-  if (active)
+  if (hasActiveWork())
     pollTimer.value = setTimeout(() => void loadCrossRows(true), 15000)
 }
-onUnmounted(() => {
-  if (pollTimer.value)
+
+// 缓存安全（keep-alive）：切页签只触发 onDeactivated，轮询必须先停，否则缓存的页在
+// 后台继续刷接口；回页签时仍有排队/执行/待确认的批次就静默补刷一次（内部重排轮询），
+// 不重置筛选；onUnmounted 保留兜底。
+function pausePoll() {
+  if (pollTimer.value) {
     clearTimeout(pollTimer.value)
+    pollTimer.value = null
+  }
+}
+onDeactivated(pausePoll)
+onActivated(() => {
+  if (hasActiveWork())
+    void loadCrossRows(true)
 })
+onUnmounted(pausePoll)
 
 // 默认加载全部数据
 loadCrossRows()

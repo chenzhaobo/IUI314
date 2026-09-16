@@ -9,7 +9,11 @@ import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api
 import { downloadText, formatTime, useAutoHeight, useDicts, useGet, usePost, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import 'md-editor-v3/lib/style.css'
 
-defineOptions({ name: 'StaticScanDefects' })
+// 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
+// （见 components/layout/app-main.vue 的注释）。lint 的 PascalCase 提示只是警告，
+// 改名却会让页签缓存失效，所以此处保持 kebab-case。
+// eslint-disable-next-line vue/component-definition-name-casing
+defineOptions({ name: 'defects' })
 
 // ===== 字典：不处理原因（static_scan_wont_fix_reason）=====
 // 复用项目既有 useDicts hook（stores/modules/dicts.ts 按 dict_type 拉 sys_dict_data，带缓存）
