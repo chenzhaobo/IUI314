@@ -27,7 +27,7 @@ import { BarChart, PieChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, onActivated, onDeactivated, onUnmounted, ref, watch } from 'vue'
 import VChart from 'vue-echarts'
 import { useRouter } from 'vue-router'
 import { ApiAiAgent, ApiAiSkill } from '@/api/aiApis'
@@ -38,9 +38,11 @@ import { domainLabels, securityCategoryLabels } from './labels'
 
 type SelectChangeValue = string | number | boolean | Record<string, unknown> | (string | number | boolean | Record<string, unknown>)[]
 
-// 组件名必须与路由名（= 菜单 path 'scan-dashboard'）一致，keep-alive :include 才能缓存本页，
-// 否则从扫描结果详情返回时看板会重新挂载、丢失已展开/选中状态（见 app-main.vue 注释）。
-defineOptions({ name: 'ScanDashboard' })
+// 组件名必须与路由名（= 菜单 path 'scan-dashboard'）逐字一致，keep-alive :include 才能
+// 缓存本页（见 app-main.vue 注释）。此前写成 'ScanDashboard' 与路由名不匹配，缓存从未
+// 生效 —— 切页签回来整页重挂，已选应用/已展开节点全丢、数据重新加载。
+// eslint-disable-next-line vue/component-definition-name-casing
+defineOptions({ name: 'scan-dashboard' })
 
 use([BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
@@ -1009,8 +1011,17 @@ async function executeDeltaPreview() {
 
 // 轮询状态
 let pollTimer: ReturnType<typeof setInterval> | null = null
+
+// 只停定时器、保留 polling 状态：切页签（onDeactivated）暂停用，回来后按状态恢复
+function clearPollTimer() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
 function startPolling() {
-  stopPolling()
+  clearPollTimer()
   polling.value = true
   pollTimer = setInterval(async () => {
     await refreshStatus()
@@ -1033,10 +1044,7 @@ function startPolling() {
   }, 2000)
 }
 function stopPolling() {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
+  clearPollTimer()
   polling.value = false
 }
 
@@ -1275,21 +1283,58 @@ async function loadAgentStatus() {
   }
 }
 
+// 是否有「进行中」的 Agent 进度轮询（与定时器解耦）：切页签暂停定时器、回页签按标记
+// 恢复，不能靠 agentProgress 判断——首次拉取还没返回时它是 null，会把进行中的轮询漏掉。
+let agentPollingActive = false
+
 function startAgentPolling() {
   stopAgentPolling()
   agentProgress.value = null
+  agentPollingActive = true
   loadAgentStatus()
   agentPollTimer = setInterval(loadAgentStatus, 3000)
 }
 
 function stopAgentPolling() {
+  agentPollingActive = false
   if (agentPollTimer) {
     clearInterval(agentPollTimer)
     agentPollTimer = null
   }
 }
 
-onUnmounted(stopAgentPolling)
+// 暂停只清定时器、保留「进行中」标记，供 onActivated 恢复
+function pauseAgentPolling() {
+  if (agentPollTimer) {
+    clearInterval(agentPollTimer)
+    agentPollTimer = null
+  }
+}
+
+function resumeAgentPolling() {
+  if (!agentPollingActive || agentPollTimer)
+    return
+  loadAgentStatus()
+  agentPollTimer = setInterval(loadAgentStatus, 3000)
+}
+
+// ── 缓存安全（keep-alive）──────────────────────────────────────────────
+// 本页被缓存后，切页签只触发 onDeactivated（不再触发 onUnmounted）：进行中的轮询
+// 必须在这里停掉，否则后台照跑（多开页签 = 多路轮询同时跑、把渲染拖死，见 app-main.vue）。
+// 回来时只恢复「进行中」的轮询，不重新拉取数据 —— 保留已选应用与展开状态。
+onDeactivated(() => {
+  pauseAgentPolling()
+  clearPollTimer()
+})
+onActivated(() => {
+  if (polling.value)
+    startPolling()
+  resumeAgentPolling()
+})
+onUnmounted(() => {
+  stopAgentPolling()
+  stopPolling()
+})
 
 async function triggerAiConfirm() {
   if (!currentRunId.value && runList.value.length === 0) {
