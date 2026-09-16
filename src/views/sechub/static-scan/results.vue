@@ -333,6 +333,8 @@ const statusFilter = ref('')
 // 风险等级筛选（多选）。诉求是"优先处理高等级"，通常要 high 与 medium 一起看，
 // 单选每次只能看一档、反复切换很别扭。
 const riskLevelFilter = ref<string[]>([])
+// 只看「结论发生过变化」的候选：换模型重扫后找被推翻的那几条
+const verdictChangedOnly = ref(false)
 const domainFilter = ref('')
 const scanPointFilter = ref('')
 // 引入时间过滤：[from, to]，格式 'YYYY-MM-DD'，由 range-picker 绑定
@@ -362,6 +364,8 @@ async function loadCandidates(silent = false) {
       params.set('ai_status', statusFilter.value)
     if (domainFilter.value)
       params.set('domain', domainFilter.value)
+    if (verdictChangedOnly.value)
+      params.set('verdict_changed', 'true')
     if (introducedRange.value?.[0])
       params.set('introduced_from', introducedRange.value[0])
     if (introducedRange.value?.[1])
@@ -669,6 +673,11 @@ const aiStatusLabels: Record<string, { label: string, color: string }> = {
   rejected: { label: '已排除', color: 'green' },
   error: { label: '错误', color: 'orange' },
   review_needed: { label: '需人工', color: 'orangered' },
+}
+/** 状态/结论值 → 中文（结论变更提示用） */
+function verdictLabel(value: string | null | undefined): string {
+  const key = (value ?? '').trim()
+  return aiStatusLabels[key]?.label ?? (key || '无')
 }
 const riskLabels: Record<string, { label: string, color: string }> = {
   high: { label: '高', color: 'red' },
@@ -1039,6 +1048,9 @@ watch(() => route.query, (newQ, oldQ) => {
             @change="onFilterChange"
           />
         </span>
+        <a-checkbox v-model="verdictChangedOnly" @change="onFilterChange">
+          只看结论变更
+        </a-checkbox>
         <a-button type="primary" @click="onSearch">
           查询
         </a-button>
@@ -1184,6 +1196,17 @@ watch(() => route.query, (newQ, oldQ) => {
               <a-tag :color="aiStatusLabels[record.ai_status]?.color ?? 'gray'" size="small">
                 {{ aiStatusLabels[record.ai_status]?.label ?? record.ai_status }}
               </a-tag>
+              <!-- 结论被推翻（换模型重扫改判）：悬停给出「上次 vs 本次」，
+                   点它直接展开该行的历次结论对比 -->
+              <a-tooltip v-if="record.verdict_changed" mini>
+                <template #content>
+                  结论变更：{{ verdictLabel(record.previous_verdict) }}（{{ record.previous_ai_model || '未记录模型' }}）
+                  → {{ verdictLabel(record.ai_status) }}（{{ record.ai_model || '未记录模型' }}）
+                </template>
+                <a-tag color="orangered" size="small" class="verdict-changed-tag">
+                  结论变更
+                </a-tag>
+              </a-tooltip>
             </template>
             <template #riskLevel="{ record }">
               <a-tag v-if="record.ai_risk_level" :color="riskLabels[record.ai_risk_level]?.color ?? 'gray'" size="small">
@@ -1420,6 +1443,8 @@ watch(() => route.query, (newQ, oldQ) => {
 
 /* 顶部查询条件的「标签 + 控件」成组：a-space 换行时整组一起换 */
 .filter-field { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+/* 结论变更标记：与状态标签并排，一眼看出这条被重扫改判过 */
+.verdict-changed-tag { margin-left: 4px; }
 .split-handle {
   width: 6px; flex-shrink: 0; cursor: col-resize; border-radius: 3px; margin: 0 3px;
   background: transparent; transition: background 0.2s;

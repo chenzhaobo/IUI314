@@ -728,6 +728,11 @@ export interface CandidateDetailRow {
   wont_fix_reason_code?: string | null
   /** 本候选最近一次被派发确认的批次号（重扫范围追溯用） */
   dispatch_id?: string | null
+  /** 采信结论与上一条结论不同（换模型重扫把结论推翻） */
+  verdict_changed?: boolean
+  /** 上一条结论的 verdict 与模型（配合 verdict_changed 展示「上次：确认（DeepSeek-Flash）」） */
+  previous_verdict?: string | null
+  previous_ai_model?: string | null
   /**
    * 历史结论列表（新到旧）。换模型复核会**追加**一条而不是覆盖，
    * 所以同一条候选下可以并排看到不同模型的判定差异。
