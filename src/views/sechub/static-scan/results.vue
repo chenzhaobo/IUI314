@@ -347,6 +347,9 @@ const domainFilter = ref('')
 const scanPointFilter = ref('')
 // 引入时间过滤：[from, to]，格式 'YYYY-MM-DD'，由 range-picker 绑定
 const introducedRange = ref<string[]>([])
+// 「查看批次」跳转带入的候选过滤：结果页直接落到命中的那一条，免去人工再筛。
+// 由 URL 的 candidate_id 参数驱动；可关闭，不进入筛选持久化。
+const candidateIdFilter = ref('')
 // 表头列过滤状态（文件/行号/方法/匹配文本/AI理由/置信度/引入时间/引入人）。
 // 条件经 toServerFilters 序列化后随列表请求提交给后端。
 const columnFilters = ref<Record<string, ColumnFilterState>>({
@@ -368,6 +371,14 @@ function onCandidateSorterChange(dataIndex: string, direction: string) {
     candidateSort.value = { by: '', order: '' }
   else
     candidateSort.value = { by: dataIndex, order: direction === 'ascend' ? 'asc' : 'desc' }
+  pageNum.value = 1
+  void loadCandidates()
+}
+
+// 清除「查看批次」跳转带入的候选过滤（只解开页内过滤并重查；地址栏参数不动，
+// 刷新仍回到带参进入的路径，行为一致）
+function clearCandidateFilter() {
+  candidateIdFilter.value = ''
   pageNum.value = 1
   void loadCandidates()
 }
@@ -416,6 +427,9 @@ async function loadCandidates(silent = false) {
       params.set('sort_by', candidateSort.value.by)
     if (candidateSort.value.order)
       params.set('sort_order', candidateSort.value.order)
+    // 「查看批次」跳转的候选过滤：精确到一条
+    if (candidateIdFilter.value)
+      params.set('candidate_id', candidateIdFilter.value)
     candidatePage.value = await fetchJson<CandidateDetailPage>(`${ApiSecPrescan.candidates}?${params.toString()}`)
   }
   finally {
@@ -985,6 +999,8 @@ async function initFromRoute(q: Record<string, unknown>) {
   const aiModel = (q.ai_model as string) ?? ''
   const aiMode = (q.ai_mode as string) ?? ''
   const scanPointId = (q.scan_point_id as string) ?? ''
+  // 「查看批次」可带候选 id 进来：本次初始化只显示那一条；不带则清掉旧过滤
+  candidateIdFilter.value = (q.candidate_id as string) ?? ''
   if (scanPointId)
     pendingScanPointId.value = scanPointId
   if (repoId)
@@ -1015,13 +1031,14 @@ async function initFromRoute(q: Record<string, unknown>) {
 
 /**
  * 路由 query 内容是否真正发生了变化（排除对象引用变化导致的误触发）。
- * 只比对对本页有意义的字段：run_id / repository_id / ai_model / ai_mode / scan_point_id。
+ * 只比对对本页有意义的字段：run_id / repository_id / ai_model / ai_mode / scan_point_id
+ * / candidate_id（带候选跳转时要重放过滤）。
  */
 function routeQueryChanged(
   oldQ: Record<string, unknown>,
   newQ: Record<string, unknown>,
 ): boolean {
-  const keys = ['run_id', 'repository_id', 'ai_model', 'ai_mode', 'scan_point_id'] as const
+  const keys = ['run_id', 'repository_id', 'ai_model', 'ai_mode', 'scan_point_id', 'candidate_id'] as const
   return keys.some(k => (oldQ[k] ?? '') !== (newQ[k] ?? ''))
 }
 
@@ -1285,6 +1302,10 @@ watch(() => route.query, (newQ, oldQ) => {
                   一键补偿引入时间
                 </a-button>
               </a-tooltip>
+              <!-- 「查看批次」跳转带入的候选过滤：只显示命中的那一条，可一键清除 -->
+              <a-tag v-if="candidateIdFilter" closable color="arcoblue" @close="clearCandidateFilter">
+                仅看候选 {{ candidateIdFilter.slice(0, 8) }}
+              </a-tag>
               <!-- 显示列：原有列默认全显示，新增的「方法」「引入人」默认隐藏，按需勾出 -->
               <a-select
                 v-model="visibleColumnKeys"

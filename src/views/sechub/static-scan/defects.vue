@@ -494,7 +494,7 @@ async function compensateWhitelist() {
 async function viewInResults(row: ScanIssueRow) {
   // sec_scan_issue 没有 run_id 字段（它是跨轮次归并的实体），所以要让后端
   // 按「规则 + 文件 + 方法名」反查候选、再定位到 run。
-  const loc = await fetchJson<{ run_id: string, repository_id: string, ai_model?: string, ai_mode?: string }>(
+  const loc = await fetchJson<{ run_id: string, repository_id: string, ai_model?: string, ai_mode?: string, candidate_id?: string }>(
     `${ApiSecPrescan.issueRun}?issue_id=${encodeURIComponent(row.id)}`,
   )
   if (!loc?.run_id) {
@@ -506,6 +506,8 @@ async function viewInResults(row: ScanIssueRow) {
     query: {
       run_id: loc.run_id,
       repository_id: loc.repository_id,
+      // 带上命中的候选 id：结果页直接过滤到那一条，不用人工再从整批里筛
+      ...(loc.candidate_id ? { candidate_id: loc.candidate_id } : {}),
       // 带上模型与模式，结果页的轮次选择器才能精确匹配到那一批
       ...(loc.ai_model ? { ai_model: loc.ai_model } : {}),
       ...(loc.ai_mode ? { ai_mode: loc.ai_mode } : {}),
@@ -760,7 +762,7 @@ const columns = computed(() => withTableDefaults([
   { title: '命中', dataIndex: 'hit_count', width: 50 },
   { title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 140, ellipsis: true, tooltip: true },
   { title: 'DMP 编码', dataIndex: 'dmp_defect_code', slotName: 'dmpCode', width: 130, ellipsis: true, tooltip: true },
-  { title: '更新时间', dataIndex: 'updated_at', width: 115 },
+  { title: '更新时间', dataIndex: 'updated_at', slotName: 'updatedAt', width: 160 },
   // 不处理原因列：宽度 130，支持后端过滤，选项来自字典
   // filter 走后端（@filter-change → queryParams.wont_fix_reason_code），本地 filter 函数
   // 固定返回 true，不做客户端行筛选，仅作为 Arco 的必填字段占位。
@@ -1077,6 +1079,10 @@ function shortSha(sha: string | null | undefined): string {
                   >
                     <span>{{ formatTime(record.introduced_at) }}</span>
                   </a-tooltip>
+                </template>
+                <template #updatedAt="{ record }">
+                  <!-- 更新时间：后端给 RFC3339，formatTime 按用户设置的时区渲染 -->
+                  <span>{{ formatTime(record.updated_at) }}</span>
                 </template>
                 <!-- 不处理原因列：展示字典 label，为空显示占位符，null 不渲染 -->
                 <template #wontFixReason="{ record }">
