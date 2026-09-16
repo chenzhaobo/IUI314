@@ -607,6 +607,14 @@ function viewReport(row: ScanIssueRow) {
   reportVisible.value = true
 }
 
+/** 操作列「更多」下拉的分发（默认只露「报告 + 更多」） */
+function onOpsSelect(value: unknown, row: ScanIssueRow) {
+  if (value === 'batch')
+    void viewInResults(row)
+  else if (value === 'events')
+    void viewEvents(row)
+}
+
 // 下载 AI 生成的原始 md 报告。
 // 内容已随问题列表返回（ai_detail_report），直接本地存盘，不再向后端多要一次。
 // 文件名取问题标题，便于在一堆下载里对上是哪条缺陷。
@@ -659,14 +667,14 @@ const wontFixReasonFilters = computed(() =>
 
 const columns = computed(() => withTableDefaults([
   { title: '缺陷标题', dataIndex: 'title', width: 240 },
-  { title: '领域', dataIndex: 'domain', slotName: 'domain', width: 70 },
+  { title: '领域', dataIndex: 'domain', slotName: 'domain', width: 70, ellipsis: true, tooltip: true },
   { title: '分类', dataIndex: 'category', width: 100 },
-  { title: '风险', dataIndex: 'risk_level', slotName: 'risk', width: 65 },
-  { title: '状态', dataIndex: 'status', slotName: 'status', width: 90 },
+  { title: '风险', dataIndex: 'risk_level', slotName: 'risk', width: 65, ellipsis: true, tooltip: true },
+  { title: '状态', dataIndex: 'status', slotName: 'status', width: 90, ellipsis: true, tooltip: true },
   { title: '负责人', dataIndex: 'assignee', width: 75 },
   { title: '文件', dataIndex: 'file_path', width: 180 },
   { title: '命中', dataIndex: 'hit_count', width: 50 },
-  { title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 140 },
+  { title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 140, ellipsis: true, tooltip: true },
   { title: 'DMP 编码', dataIndex: 'dmp_defect_code', slotName: 'dmpCode', width: 130, ellipsis: true, tooltip: true },
   { title: '更新时间', dataIndex: 'updated_at', width: 115 },
   // 不处理原因列：宽度 130，支持后端过滤，选项来自字典
@@ -677,6 +685,8 @@ const columns = computed(() => withTableDefaults([
     dataIndex: 'wont_fix_reason_code',
     slotName: 'wontFixReason',
     width: 130,
+    ellipsis: true,
+    tooltip: true,
     filterable: {
       filters: wontFixReasonFilters.value,
       multiple: false,
@@ -684,7 +694,7 @@ const columns = computed(() => withTableDefaults([
       filter: () => true,
     },
   },
-  { title: '操作', slotName: 'ops', width: 105, fixed: 'right' as const },
+  { title: '操作', slotName: 'ops', width: 120, fixed: 'right' as const },
 ]))
 
 onMounted(() => {
@@ -697,9 +707,10 @@ const layoutRow = ref<HTMLElement>()
 const { height: layoutRowH } = useAutoHeight(layoutRow)
 
 const tableWrap = ref<HTMLElement>()
-// fillParent：容器是定高 flex 列里的 flex:1 子项，高度已确定；从视口反推会差一截，
-// 表格溢出后分页条会被顶出视口，翻页就点不到了。
-const { tableHeight } = useTableAutoHeight(tableWrap, { fillParent: true })
+// 从视口反推（不用 fillParent）：fillParent 会在首帧量到"还没被约束住的容器高度"，
+// 表格高度被写成近 10 万像素、整页撑高、分页条被顶出视口（实测踩到）。
+// 视口模式自带分页条与表头的实测扣减，高度天然有上界，翻页条始终在视口内。
+const { tableHeight } = useTableAutoHeight(tableWrap)
 
 // 这些 a-form 只用来做纵向布局，不做校验，但 arco 的 model 是必填 prop。
 // 用一个模块级常量而不是在模板里写 :model="{}"，避免每次渲染都新建对象。
@@ -860,12 +871,8 @@ function shortSha(sha: string | null | undefined): string {
         <!-- 右表：缺陷列表 -->
         <div class="split-right">
           <a-card :bordered="false" class="split-card fill-body">
+            <!-- 工具栏即卡片标题行：不再单独占一行，也不再显示「缺陷列表」标题文字 -->
             <template #title>
-              缺陷列表
-              <small class="card-sub">勾选缺陷后通过上方工具栏批量处理：认领 → 标记修复 → 重新验证，或标记不处理（可同步白名单）</small>
-            </template>
-            <!-- 批量操作工具栏 -->
-            <a-row class="m-b-8px">
               <a-space>
                 <!-- 补偿匹配白名单：拿白名单里的指纹回头匹配待处理缺陷，把漏标的补上。
                  白名单来源是「标记不处理」时勾选的「同步白名单」 -->
@@ -893,8 +900,8 @@ function shortSha(sha: string | null | undefined): string {
                 </a-tooltip>
                 <span v-if="selectedIds.length" class="selected-hint">已选 {{ selectedIds.length }} 条</span>
               </a-space>
-            </a-row>
-            <!-- 吃掉右栏剩余高度；配合 fillParent 让表格体正好等于这块空间 -->
+            </template>
+            <!-- 吃掉右栏剩余高度；配合实测高度让表格体正好等于这块空间 -->
             <div ref="tableWrap" class="table-fill">
               <a-table
                 :loading="isLoading"
@@ -959,16 +966,27 @@ function shortSha(sha: string | null | undefined): string {
                   <span v-else class="text-muted">-</span>
                 </template>
                 <template #ops="{ record }">
-                  <a-space>
-                    <a-button type="text" size="small" @click="viewInResults(record)">
-                      查看批次
-                    </a-button>
+                  <a-space :size="4">
                     <a-button type="text" size="small" :disabled="!record.ai_detail_report" @click="viewReport(record)">
                       报告
                     </a-button>
-                    <a-button type="text" size="small" @click="viewEvents(record)">
-                      流转
-                    </a-button>
+                    <!-- 其余动作收进「更多」，避免操作列过宽、也少一眼三个按钮的噪音 -->
+                    <a-dropdown trigger="click" @select="(value: unknown) => onOpsSelect(value, record)">
+                      <a-button type="text" size="small">
+                        更多
+                        <template #icon>
+                          <icon-down />
+                        </template>
+                      </a-button>
+                      <template #content>
+                        <a-doption value="batch">
+                          查看批次
+                        </a-doption>
+                        <a-doption value="events">
+                          流转
+                        </a-doption>
+                      </template>
+                    </a-dropdown>
                   </a-space>
                 </template>
               </a-table>
