@@ -326,6 +326,15 @@ const candidatePage = ref<CandidateDetailPage | null>(null)
 const candidateLoading = ref(false)
 const pageNum = ref(1)
 const pageSize = 20
+// 展开行（历次结论对比）由「操作」列的「结论(N)」按钮驱动 ——
+// 不再用表格自带的展开列：那一列（th.arco-table-operation）会挤占表头，遮挡首列。
+const expandedRowKeys = ref<string[]>([])
+function toggleVerdicts(row: CandidateDetailRow) {
+  const key = row.id
+  expandedRowKeys.value = expandedRowKeys.value.includes(key)
+    ? expandedRowKeys.value.filter(item => item !== key)
+    : [...expandedRowKeys.value, key]
+}
 const statusFilter = ref('')
 // 风险等级筛选（多选）。诉求是"优先处理高等级"，通常要 high 与 medium 一起看，
 // 单选每次只能看一档、反复切换很别扭。
@@ -768,7 +777,7 @@ const allCandidateColumns = computed(() => [
   { key: 'introduced_at', title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 170, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('introduced_at') },
   { key: 'introduced_author', title: '引入人', dataIndex: 'introduced_author', width: 110, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('introduced_author') },
   { key: 'ai_rationale', title: 'AI理由', dataIndex: 'ai_rationale', width: 220, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('ai_rationale') },
-  { key: 'ops', title: '操作', slotName: 'ops', width: 110, fixed: 'right' as const },
+  { key: 'ops', title: '操作', slotName: 'ops', width: 168, fixed: 'right' as const },
 ])
 
 /** 「显示列」下拉的选项 */
@@ -900,119 +909,132 @@ watch(() => route.query, (newQ, oldQ) => {
     <!-- 顶部：应用 + 轮次选择 -->
     <a-card :bordered="false" class="m-b-12px">
       <a-space wrap>
-        <span class="selector-label">项目组</span>
-        <a-select
-          v-model="selectedPgId"
-          allow-search
-          allow-clear
-          placeholder="全部项目组"
-          style="width: 200px"
-          @change="onPgChange"
-        >
-          <a-option v-for="pg in pgOptions" :key="pg.value" :value="pg.value">
-            {{ pg.label }}
-          </a-option>
-        </a-select>
-        <span class="selector-label">应用</span>
-        <a-select
-          v-model="selectedRepoId"
-          allow-search
-          allow-clear
-          placeholder="选择已扫描的应用"
-          style="width: 320px"
-          @change="onAppChange"
-        >
-          <a-option v-for="repo in filteredRepositories" :key="repo.repository_id" :value="repo.repository_id">
-            {{ repo.module_name }}（{{ repo.repository_name }}）
-          </a-option>
-        </a-select>
-        <span class="selector-label">轮次</span>
-        <!-- 轮次下拉：选项携带 commit sha / 分支 / 时间，悬浮展示完整 tooltip -->
-        <a-select
-          v-model="selectedRoundKey"
-          placeholder="选择「模型 × 模式」轮次"
-          style="width: 420px"
-          :loading="crossLoading"
-          @change="onRoundChange"
-        >
-          <a-option
-            v-for="row in crossRows"
-            :key="roundKey(row)"
-            :value="roundKey(row)"
+        <!-- 每个「标签 + 控件」包在 .filter-field 里：换行时整组一起换，
+             否则标签会孤零零留在上一行尾部、控件掉到下一行 -->
+        <span class="filter-field">
+          <span class="selector-label">项目组</span>
+          <a-select
+            v-model="selectedPgId"
+            allow-search
+            allow-clear
+            placeholder="全部项目组"
+            style="width: 200px"
+            @change="onPgChange"
           >
-            <a-tooltip
-              :content="roundTooltipContent(row)"
-              position="right"
-              mini
+            <a-option v-for="pg in pgOptions" :key="pg.value" :value="pg.value">
+              {{ pg.label }}
+            </a-option>
+          </a-select>
+        </span>
+        <span class="filter-field">
+          <span class="selector-label">应用</span>
+          <a-select
+            v-model="selectedRepoId"
+            allow-search
+            allow-clear
+            placeholder="选择已扫描的应用"
+            style="width: 320px"
+            @change="onAppChange"
+          >
+            <a-option v-for="repo in filteredRepositories" :key="repo.repository_id" :value="repo.repository_id">
+              {{ repo.module_name }}（{{ repo.repository_name }}）
+            </a-option>
+          </a-select>
+        </span>
+        <span class="filter-field">
+          <span class="selector-label">轮次</span>
+          <!-- 轮次下拉：选项携带 commit sha / 分支 / 时间，悬浮展示完整 tooltip -->
+          <a-select
+            v-model="selectedRoundKey"
+            placeholder="选择「模型 × 模式」轮次"
+            style="width: 420px"
+            :loading="crossLoading"
+            @change="onRoundChange"
+          >
+            <a-option
+              v-for="row in crossRows"
+              :key="roundKey(row)"
+              :value="roundKey(row)"
             >
-              <span class="round-option-text">{{ roundOptionLabel(row) }}</span>
-            </a-tooltip>
-          </a-option>
-        </a-select>
-        <span class="selector-label">领域</span>
-        <a-select v-model="domainFilter" allow-clear placeholder="全部领域" style="width: 130px" @change="onFilterChange">
-          <a-option value="security">
-            安全
-          </a-option>
-          <a-option value="performance">
-            性能
-          </a-option>
-        </a-select>
-        <span class="selector-label">AI状态</span>
-        <a-select v-model="statusFilter" allow-clear placeholder="全部状态" style="width: 130px" @change="onFilterChange">
-          <a-option value="confirmed">
-            确认问题
-          </a-option>
-          <a-option value="rejected">
-            已排除
-          </a-option>
-          <a-option value="review_needed">
-            需人工
-          </a-option>
-          <a-option value="error">
-            错误
-          </a-option>
-          <a-option value="pending">
-            待确认
-          </a-option>
-        </a-select>
-        <span class="selector-label">风险等级</span>
-        <!-- 风险等级多选：诉求是"优先处理高等级"，通常要 high 与 medium 一起看。
-             info 档在候选里占绝大多数，滤掉它是本筛选最主要的用途 -->
-        <a-select
-          v-model="riskLevelFilter"
-          multiple
-          allow-clear
-          :max-tag-count="2"
-          placeholder="全部等级"
-          style="width: 190px"
-          @change="onFilterChange"
-        >
-          <a-option value="high">
-            高
-          </a-option>
-          <a-option value="medium">
-            中
-          </a-option>
-          <a-option value="low">
-            低
-          </a-option>
-          <a-option value="info">
-            提示
-          </a-option>
-        </a-select>
-        <span class="selector-label">引入时间</span>
-        <a-range-picker
-          v-model="introducedRange"
-          style="width: 260px"
-          value-format="YYYY-MM-DD"
-          @change="onFilterChange"
-        />
+              <a-tooltip
+                :content="roundTooltipContent(row)"
+                position="right"
+                mini
+              >
+                <span class="round-option-text">{{ roundOptionLabel(row) }}</span>
+              </a-tooltip>
+            </a-option>
+          </a-select>
+        </span>
+        <span class="filter-field">
+          <span class="selector-label">领域</span>
+          <a-select v-model="domainFilter" allow-clear placeholder="全部领域" style="width: 130px" @change="onFilterChange">
+            <a-option value="security">
+              安全
+            </a-option>
+            <a-option value="performance">
+              性能
+            </a-option>
+          </a-select>
+        </span>
+        <span class="filter-field">
+          <span class="selector-label">AI状态</span>
+          <a-select v-model="statusFilter" allow-clear placeholder="全部状态" style="width: 130px" @change="onFilterChange">
+            <a-option value="confirmed">
+              确认问题
+            </a-option>
+            <a-option value="rejected">
+              已排除
+            </a-option>
+            <a-option value="review_needed">
+              需人工
+            </a-option>
+            <a-option value="error">
+              错误
+            </a-option>
+            <a-option value="pending">
+              待确认
+            </a-option>
+          </a-select>
+        </span>
+        <span class="filter-field">
+          <span class="selector-label">风险等级</span>
+          <!-- 风险等级多选：诉求是"优先处理高等级"，通常要 high 与 medium 一起看。
+               info 档在候选里占绝大多数，滤掉它是本筛选最主要的用途 -->
+          <a-select
+            v-model="riskLevelFilter"
+            multiple
+            allow-clear
+            :max-tag-count="2"
+            placeholder="全部等级"
+            style="width: 190px"
+            @change="onFilterChange"
+          >
+            <a-option value="high">
+              高
+            </a-option>
+            <a-option value="medium">
+              中
+            </a-option>
+            <a-option value="low">
+              低
+            </a-option>
+            <a-option value="info">
+              提示
+            </a-option>
+          </a-select>
+        </span>
+        <span class="filter-field">
+          <span class="selector-label">引入时间</span>
+          <a-range-picker
+            v-model="introducedRange"
+            style="width: 260px"
+            value-format="YYYY-MM-DD"
+            @change="onFilterChange"
+          />
+        </span>
         <a-button type="primary" @click="onSearch">
           查询
-        </a-button>
-        <a-button :loading="compensating" :disabled="!currentRun" @click="compensateBlame">
-          一键补偿引入时间
         </a-button>
       </a-space>
     </a-card>
@@ -1073,39 +1095,44 @@ watch(() => route.query, (newQ, oldQ) => {
             </small>
           </template>
           <template #extra>
-            <!-- 显示列：原有列默认全显示，新增的「方法」「引入人」默认隐藏，按需勾出 -->
-            <a-select
-              v-model="visibleColumnKeys"
-              multiple
-              :max-tag-count="1"
-              placeholder="显示列"
-              style="width: 180px"
-              :options="columnOptions"
-            />
-          </template>
-          <!-- 操作条：动作按钮与筛选分开，靠左排；执行方式（平台编排 / 自主审计）在弹窗里确认 -->
-          <div class="candidate-actions">
-            <a-button
-              type="primary"
-              size="small"
-              :disabled="selectedCandidateIds.length === 0"
-              :loading="bulkBusy"
-              @click="bulkRetryCandidates"
-            >
-              重扫选中({{ bulkRetryableIds.length }})
-            </a-button>
-            <!-- 补偿生成缺陷：AI 确认收尾失败时 confirmed 候选不会写出缺陷，
-                   这里"确认问题"有数、缺陷列表却查不到。选中就只补这些，没选补整轮次 -->
-            <a-tooltip content="已确认的候选若没生成缺陷记录，用这个补齐（不选则补整个轮次）" mini>
-              <a-button type="outline" size="small" :loading="bulkBusy" @click="compensateIssues">
-                补偿生成缺陷
+            <a-space :size="8">
+              <a-button
+                type="primary"
+                size="small"
+                :disabled="selectedCandidateIds.length === 0"
+                :loading="bulkBusy"
+                @click="bulkRetryCandidates"
+              >
+                重扫选中({{ bulkRetryableIds.length }})
               </a-button>
-            </a-tooltip>
-            <span class="candidate-actions-hint">行首箭头可展开该候选的历次结论（多模型对比）</span>
-          </div>
+              <!-- 补偿生成缺陷：AI 确认收尾失败时 confirmed 候选不会写出缺陷，
+                   这里"确认问题"有数、缺陷列表却查不到。选中就只补这些，没选补整轮次 -->
+              <a-tooltip content="已确认的候选若没生成缺陷记录，用这个补齐（不选则补整个轮次）" mini>
+                <a-button type="outline" size="small" :loading="bulkBusy" @click="compensateIssues">
+                  补偿生成缺陷
+                </a-button>
+              </a-tooltip>
+              <!-- 一键补偿引入时间：候选缺 introduced_at 时按 git blame 批量回填 -->
+              <a-tooltip content="按 git blame 批量回填候选的引入时间/引入人（缺数据的候选）" mini>
+                <a-button type="outline" size="small" :loading="compensating" :disabled="!currentRun" @click="compensateBlame">
+                  一键补偿引入时间
+                </a-button>
+              </a-tooltip>
+              <!-- 显示列：原有列默认全显示，新增的「方法」「引入人」默认隐藏，按需勾出 -->
+              <a-select
+                v-model="visibleColumnKeys"
+                multiple
+                :max-tag-count="1"
+                placeholder="显示列"
+                style="width: 180px"
+                :options="columnOptions"
+              />
+            </a-space>
+          </template>
           <div ref="candidateTableWrap" class="table-fill">
           <a-table
             v-model:selected-keys="selectedCandidateIds"
+            v-model:expanded-keys="expandedRowKeys"
             :loading="candidateLoading"
             :data="filteredCandidates"
             :columns="candidateColumns"
@@ -1117,7 +1144,6 @@ watch(() => route.query, (newQ, oldQ) => {
               showTotal: true,
             }"
             :row-selection="{ type: 'checkbox', showCheckedAll: true }"
-            :expandable="{ title: '', width: 40 }"
             row-key="id"
             size="small"
             :scroll="candidateScroll"
@@ -1182,6 +1208,19 @@ watch(() => route.query, (newQ, oldQ) => {
                 >
                   报告
                 </a-button>
+                <a-tooltip content="展开该候选的历次结论（换模型/重扫各一行，可并排对比）" mini>
+                  <a-button
+                    type="text"
+                    size="small"
+                    @click="toggleVerdicts(record)"
+                  >
+                    <template #icon>
+                      <icon-minus v-if="expandedRowKeys.includes(record.id)" />
+                      <icon-plus v-else />
+                    </template>
+                    结论({{ record.verdicts?.length ?? 0 }})
+                  </a-button>
+                </a-tooltip>
                 <a-button
                   type="text"
                   size="small"
@@ -1391,9 +1430,8 @@ watch(() => route.query, (newQ, oldQ) => {
 }
 .table-fill { flex: 1; min-height: 0; }
 
-/* 候选明细操作条：动作按钮靠左，与右侧「显示列」等筛选控件分开 */
-.candidate-actions { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; }
-.candidate-actions-hint { color: var(--color-text-3); font-size: 12px; }
+/* 顶部查询条件的「标签 + 控件」成组：a-space 换行时整组一起换 */
+.filter-field { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .split-handle {
   width: 6px; flex-shrink: 0; cursor: col-resize; border-radius: 3px; margin: 0 3px;
   background: transparent; transition: background 0.2s;
