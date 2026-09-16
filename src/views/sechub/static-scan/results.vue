@@ -326,15 +326,9 @@ const candidatePage = ref<CandidateDetailPage | null>(null)
 const candidateLoading = ref(false)
 const pageNum = ref(1)
 const pageSize = 20
-// 展开行（历次结论对比）由「操作」列的「结论(N)」按钮驱动 ——
-// 不再用表格自带的展开列：那一列（th.arco-table-operation）会挤占表头，遮挡首列。
+// 行首展开列（历次结论对比）的展开状态。展开列本身由表格的 expandable 渲染，
+// 这里只持有状态：清空/受控刷新时用得上，且行首那个 +/－ 就是它驱动的。
 const expandedRowKeys = ref<string[]>([])
-function toggleVerdicts(row: CandidateDetailRow) {
-  const key = row.id
-  expandedRowKeys.value = expandedRowKeys.value.includes(key)
-    ? expandedRowKeys.value.filter(item => item !== key)
-    : [...expandedRowKeys.value, key]
-}
 const statusFilter = ref('')
 // 风险等级筛选（多选）。诉求是"优先处理高等级"，通常要 high 与 medium 一起看，
 // 单选每次只能看一档、反复切换很别扭。
@@ -777,7 +771,7 @@ const allCandidateColumns = computed(() => [
   { key: 'introduced_at', title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 170, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('introduced_at') },
   { key: 'introduced_author', title: '引入人', dataIndex: 'introduced_author', width: 110, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('introduced_author') },
   { key: 'ai_rationale', title: 'AI理由', dataIndex: 'ai_rationale', width: 220, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('ai_rationale') },
-  { key: 'ops', title: '操作', slotName: 'ops', width: 168, fixed: 'right' as const },
+  { key: 'ops', title: '操作', slotName: 'ops', width: 110, fixed: 'right' as const },
 ])
 
 /** 「显示列」下拉的选项 */
@@ -1144,6 +1138,7 @@ watch(() => route.query, (newQ, oldQ) => {
               showTotal: true,
             }"
             :row-selection="{ type: 'checkbox', showCheckedAll: true }"
+            :expandable="{ title: '', width: 36 }"
             row-key="id"
             size="small"
             :scroll="candidateScroll"
@@ -1208,19 +1203,6 @@ watch(() => route.query, (newQ, oldQ) => {
                 >
                   报告
                 </a-button>
-                <a-tooltip content="展开该候选的历次结论（换模型/重扫各一行，可并排对比）" mini>
-                  <a-button
-                    type="text"
-                    size="small"
-                    @click="toggleVerdicts(record)"
-                  >
-                    <template #icon>
-                      <icon-minus v-if="expandedRowKeys.includes(record.id)" />
-                      <icon-plus v-else />
-                    </template>
-                    结论({{ record.verdicts?.length ?? 0 }})
-                  </a-button>
-                </a-tooltip>
                 <a-button
                   type="text"
                   size="small"
