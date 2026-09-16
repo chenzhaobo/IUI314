@@ -731,6 +731,30 @@ function verdictLabel(value: string | null | undefined): string {
   const key = (value ?? '').trim()
   return aiStatusLabels[key]?.label ?? (key || '无')
 }
+
+/**
+ * 重扫待确认时的「上次结论」：复位只把状态翻成 pending、不清结论字段，
+ * 历史结论行也还在，所以这里把上次判的是什么带回列表 —— 重扫卡住时
+ * 不至于只剩一个"待确认"看不出上下文。
+ */
+function pendingLastVerdict(row: CandidateDetailRow): CandidateVerdictRow | null {
+  if (row.ai_status !== 'pending')
+    return null
+  return row.verdicts?.[0] ?? null
+}
+
+function pendingLastVerdictText(row: CandidateDetailRow): string {
+  const last = pendingLastVerdict(row)
+  return last ? `上次：${verdictLabel(last.verdict)}` : ''
+}
+
+function pendingLastVerdictTip(row: CandidateDetailRow): string {
+  const last = pendingLastVerdict(row)
+  if (!last)
+    return ''
+  const model = (last.ai_model ?? '').trim() || '未记录模型'
+  return `重扫待确认 · 上次结论：${verdictLabel(last.verdict)}（${model}）· ${formatTime(last.created_at)}；裁定/报告仍可查看`
+}
 const riskLabels: Record<string, { label: string, color: string }> = {
   high: { label: '高', color: 'red' },
   medium: { label: '中', color: 'orange' },
@@ -1249,6 +1273,12 @@ watch(() => route.query, (newQ, oldQ) => {
               <a-tag :color="aiStatusLabels[record.ai_status]?.color ?? 'gray'" size="small">
                 {{ aiStatusLabels[record.ai_status]?.label ?? record.ai_status }}
               </a-tag>
+              <!-- 重扫待确认：把「上次结论」带回列表（复位不再抹结论字段） -->
+              <a-tooltip v-if="pendingLastVerdictText(record)" :content="pendingLastVerdictTip(record)" mini>
+                <a-tag color="arcoblue" size="small" class="verdict-changed-tag">
+                  {{ pendingLastVerdictText(record) }}
+                </a-tag>
+              </a-tooltip>
               <!-- 结论被推翻（换模型重扫改判）：悬停给出「上次 vs 本次」，
                    点它直接展开该行的历次结论对比 -->
               <a-tooltip v-if="record.verdict_changed" mini>
