@@ -325,16 +325,20 @@ function onTreeSelect(keys: (string | number)[]) {
 const candidatePage = ref<CandidateDetailPage | null>(null)
 const candidateLoading = ref(false)
 const pageNum = ref(1)
-const pageSize = 20
+const pageSize = ref(20)
+// 结果集动辄上万条（全量运行 4 万+），默认档位最大 50 看完要翻几百页，给到大档位
+const PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 500, 1000, 5000]
 // 行首展开列（历次结论对比）的展开状态。展开列本身由表格的 expandable 渲染，
 // 这里只持有状态：清空/受控刷新时用得上，且行首那个 +/－ 就是它驱动的。
 const expandedRowKeys = ref<string[]>([])
-const statusFilter = ref('')
+// AI 状态多选（与风险等级同形态）。除五种状态外，「结论变更」也在这里选 ——
+// 它是跨状态的标记（换模型重扫改判过），单独放进下拉比另设一个勾选框好找。
+const statusFilters = ref<string[]>([])
+const STATUS_FILTER_CHANGED = 'verdict_changed'
 // 风险等级筛选（多选）。诉求是"优先处理高等级"，通常要 high 与 medium 一起看，
 // 单选每次只能看一档、反复切换很别扭。
 const riskLevelFilter = ref<string[]>([])
 // 只看「结论发生过变化」的候选：换模型重扫后找被推翻的那几条
-const verdictChangedOnly = ref(false)
 const domainFilter = ref('')
 const scanPointFilter = ref('')
 // 引入时间过滤：[from, to]，格式 'YYYY-MM-DD'，由 range-picker 绑定
@@ -351,7 +355,7 @@ async function loadCandidates(silent = false) {
     const params = new URLSearchParams({
       run_id: currentRun.value.run_id,
       page_num: String(pageNum.value),
-      page_size: String(pageSize),
+      page_size: String(pageSize.value),
     })
     // 不再按轮次的 ai_model / ai_mode 过滤：聚合行是"一个 run 一行"，模型/模式为 run 内
     // 非空值并集；agent 模式确认不回写模型（agent 的 mark 接口没有 model 字段），
@@ -360,12 +364,13 @@ async function loadCandidates(silent = false) {
       params.set('rule_version_id', selectedRuleId.value)
     if (scanPointFilter.value)
       params.set('scan_point_id', scanPointFilter.value)
-    if (statusFilter.value)
-      params.set('ai_status', statusFilter.value)
+    const statuses = statusFilters.value.filter(value => value !== STATUS_FILTER_CHANGED)
+    if (statuses.length > 0)
+      params.set('ai_status', statuses.join(','))
+    if (statusFilters.value.includes(STATUS_FILTER_CHANGED))
+      params.set('verdict_changed', 'true')
     if (domainFilter.value)
       params.set('domain', domainFilter.value)
-    if (verdictChangedOnly.value)
-      params.set('verdict_changed', 'true')
     if (introducedRange.value?.[0])
       params.set('introduced_from', introducedRange.value[0])
     if (introducedRange.value?.[1])
@@ -402,6 +407,13 @@ onUnmounted(() => {
 })
 
 function onFilterChange() {
+  pageNum.value = 1
+  void loadCandidates()
+}
+
+function onPageSizeChange(size: number) {
+  pageSize.value = size
+  // 必须回到第 1 页：改大条数后原页码往往已超出新的总页数，后端会返回空列表
   pageNum.value = 1
   void loadCandidates()
 }
@@ -976,7 +988,7 @@ function routeQueryChanged(
 // sessionStorage，之后改 DEFAULT_VISIBLE_COLUMNS 就被旧快照盖住、看不到新默认值。
 // 加版本号后，调整默认列时把版本号 +1 即可让旧快照自然失效，不用让用户清缓存。
 useFilterPersistence('static-scan-results-v2', {
-  statusFilter,
+  statusFilters,
   domainFilter,
   riskLevelFilter,
   scanPointFilter,
@@ -1079,7 +1091,15 @@ watch(() => route.query, (newQ, oldQ) => {
         </span>
         <span class="filter-field">
           <span class="selector-label">AI状态</span>
-          <a-select v-model="statusFilter" allow-clear placeholder="全部状态" style="width: 130px" @change="onFilterChange">
+          <a-select
+            v-model="statusFilters"
+            multiple
+            allow-clear
+            :max-tag-count="2"
+            placeholder="全部状态"
+            style="width: 200px"
+            @change="onFilterChange"
+          >
             <a-option value="confirmed">
               确认问题
             </a-option>
@@ -1094,6 +1114,9 @@ watch(() => route.query, (newQ, oldQ) => {
             </a-option>
             <a-option value="pending">
               待确认
+            </a-option>
+            <a-option :value="STATUS_FILTER_CHANGED">
+              结论变更
             </a-option>
           </a-select>
         </span>
@@ -1133,9 +1156,6 @@ watch(() => route.query, (newQ, oldQ) => {
             @change="onFilterChange"
           />
         </span>
-        <a-checkbox v-model="verdictChangedOnly" @change="onFilterChange">
-          只看结论变更
-        </a-checkbox>
         <a-button type="primary" @click="onSearch">
           查询
         </a-button>
@@ -1245,6 +1265,8 @@ watch(() => route.query, (newQ, oldQ) => {
               pageSize,
               total: candidatePage?.total ?? 0,
               showTotal: true,
+              showPageSize: true,
+              pageSizeOptions: PAGE_SIZE_OPTIONS,
             }"
             :row-selection="{ type: 'checkbox', showCheckedAll: true }"
             :expandable="{ title: '' }"
@@ -1252,6 +1274,7 @@ watch(() => route.query, (newQ, oldQ) => {
             size="small"
             :scroll="candidateScroll"
             @page-change="(p: number) => { pageNum = p; loadCandidates() }"
+            @page-size-change="onPageSizeChange"
           >
             <template #filter-file_path>
               <ColumnFilterPanel v-model="columnFilters.file_path" @change="onColumnFilterChange" />
