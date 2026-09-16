@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import type { IssueRuleStatRow, IssueVerifyResult, ModuleWithRepository, ScanIssueEventRow, ScanIssuePage, ScanIssueRow } from '@/types/static-scan'
+import type { IssueImportSummary, IssueRuleStatRow, IssueVerifyResult, ModuleWithRepository, ScanIssueEventRow, ScanIssuePage, ScanIssueRow } from '@/types/static-scan'
 import { Message } from '@arco-design/web-vue'
 import { MdPreview } from 'md-editor-v3'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
-import { downloadText, formatTime, useAutoHeight, useDicts, useGet, usePost, useTableAutoHeight, withTableDefaults } from '@/hooks'
+import { downloadText, formatTime, useAutoHeight, useDicts, useDownload, useGet, usePost, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
 import 'md-editor-v3/lib/style.css'
 
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
@@ -58,6 +58,10 @@ const queryParams = ref({
   risk_level: '',
   // DMP 缺陷编码过滤，模糊匹配；填 __none__ 可筛出还没提单的
   dmp_defect_code: '',
+  // 缺陷编号过滤，模糊匹配（DEF-YYYYMMDD-NNNN）
+  defect_code: '',
+  // 来源过滤：scan=扫描检出 / import=Excel 导入
+  source: '',
 })
 
 // Arco 的 multiple 要求数组，后端接受逗号分隔字符串，这里做转换
@@ -76,6 +80,75 @@ function onRiskLevelChange() {
   queryParams.value.risk_level = riskLevels.value.join(',')
   queryParams.value.page_num = 1
   getList()
+}
+
+// ===== 导出 / 导入 / 模板 =====
+const { downloadWithTip } = useDownload()
+
+/** 当前筛选条件 → query string（导出与列表同一套条件，分页字段不参与） */
+function filterQueryString(): string {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(queryParams.value)) {
+    if (key === 'page_num' || key === 'page_size')
+      continue
+    if (value !== '' && value != null)
+      params.set(key, String(value))
+  }
+  return params.toString()
+}
+
+function exportIssues() {
+  const qs = filterQueryString()
+  void downloadWithTip(`${ApiSecPrescan.issuesExport}${qs ? `?${qs}` : ''}`, 'defects_export.xlsx', '导出失败')
+}
+
+function downloadImportTemplate() {
+  void downloadWithTip(ApiSecPrescan.issuesTemplate, 'defect_import_template.xlsx', '模板下载失败')
+}
+
+const importVisible = ref(false)
+const importLoading = ref(false)
+/** 已存在则覆盖：按缺陷编号更新已有缺陷（默认关闭：重复编号报错跳过） */
+const importOverwrite = ref(false)
+const importResult = ref<IssueImportSummary | null>(null)
+
+function openImport() {
+  importResult.value = null
+  importVisible.value = true
+}
+
+async function handleImportUpload(fileList: any[]) {
+  const file = fileList?.[0]?.file
+  if (!file)
+    return
+  importLoading.value = true
+  importResult.value = null
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('overwrite', String(importOverwrite.value))
+    const { token } = useToken()
+    const resp = await fetch(`/api${ApiSecPrescan.issuesImport}`, {
+      method: 'POST',
+      headers: { Authorization: token },
+      body: formData,
+    })
+    const res = await resp.json()
+    if (res.code === 200 || res.code === 0) {
+      importResult.value = res.data
+      Message.success(`导入完成：新增 ${res.data.inserted} 条${res.data.updated ? `，更新 ${res.data.updated} 条` : ''}`)
+      refresh()
+    }
+    else {
+      Message.error(res.msg || '导入失败')
+    }
+  }
+  catch (e: any) {
+    Message.error(`导入异常: ${e.message}`)
+  }
+  finally {
+    importLoading.value = false
+  }
 }
 
 // ===== 左树：缺陷规则维度统计 =====
@@ -592,12 +665,17 @@ async function viewEvents(row: ScanIssueRow) {
   }
 }
 
+// 事件类型标签：key 与后端写入的 event_type 逐字一致
+// （后端首检写 'created' 而非 'create'；重新检出写 'reopened' / 'status_change'）
 const eventTypeLabels: Record<string, { label: string, color: string }> = {
-  create: { label: '创建', color: 'blue' },
+  created: { label: '创建', color: 'blue' },
   claim: { label: '认领', color: 'blue' },
   fixed: { label: '标记修复', color: 'green' },
   verified: { label: '重新验证', color: 'purple' },
+  reopened: { label: '重新打开', color: 'orangered' },
+  status_change: { label: '状态更新', color: 'blue' },
   wont_fix: { label: '不处理', color: 'gray' },
+  imported: { label: '导入更新', color: 'arcoblue' },
   verdict_rejected: { label: '判定撤销关系', color: 'gray' },
   finding_absent: { label: '扫描未再发现', color: 'gray' },
   file_deleted: { label: '文件删除失活', color: 'gray' },
@@ -670,7 +748,9 @@ const wontFixReasonFilters = computed(() =>
 )
 
 const columns = computed(() => withTableDefaults([
+  { title: '缺陷编号', dataIndex: 'defect_code', slotName: 'defectCode', width: 150, ellipsis: true, tooltip: true },
   { title: '缺陷标题', dataIndex: 'title', width: 240 },
+  { title: '来源', dataIndex: 'source', slotName: 'source', width: 64 },
   { title: '领域', dataIndex: 'domain', slotName: 'domain', width: 70, ellipsis: true, tooltip: true },
   { title: '分类', dataIndex: 'category', width: 100 },
   { title: '风险', dataIndex: 'risk_level', slotName: 'risk', width: 65, ellipsis: true, tooltip: true },
@@ -822,6 +902,22 @@ function shortSha(sha: string | null | undefined): string {
               </a-button>
             </a-tooltip>
           </a-input-group>
+          <a-input
+            v-model="queryParams.defect_code"
+            placeholder="缺陷编号"
+            allow-clear
+            style="width: 150px"
+            @press-enter="refresh"
+            @clear="refresh"
+          />
+          <a-select v-model="queryParams.source" allow-clear placeholder="来源" style="width: 110px" @change="refresh">
+            <a-option value="scan">
+              扫描
+            </a-option>
+            <a-option value="import">
+              导入
+            </a-option>
+          </a-select>
           <a-button @click="refresh">
             刷新
           </a-button>
@@ -902,6 +998,15 @@ function shortSha(sha: string | null | undefined): string {
                     DMP 编码
                   </a-button>
                 </a-tooltip>
+                <a-button @click="exportIssues">
+                  导出
+                </a-button>
+                <a-button @click="openImport">
+                  导入
+                </a-button>
+                <a-button @click="downloadImportTemplate">
+                  下载模板
+                </a-button>
                 <span v-if="selectedIds.length" class="selected-hint">已选 {{ selectedIds.length }} 条</span>
               </a-space>
             </template>
@@ -928,6 +1033,17 @@ function shortSha(sha: string | null | undefined): string {
                 @selection-change="handleSelectionChange"
                 @filter-change="onWontFixReasonFilter"
               >
+                <template #defectCode="{ record }">
+                  <a-typography-text v-if="record.defect_code" copyable :copy-text="record.defect_code" style="font-size: 12px">
+                    {{ record.defect_code }}
+                  </a-typography-text>
+                  <span v-else class="text-muted">-</span>
+                </template>
+                <template #source="{ record }">
+                  <a-tag :color="record.source === 'import' ? 'orange' : 'arcoblue'" size="small">
+                    {{ record.source === 'import' ? '导入' : '扫描' }}
+                  </a-tag>
+                </template>
                 <template #domain="{ record }">
                   <a-tag :color="domainLabels[record.domain]?.color ?? 'gray'" size="small">
                     {{ domainLabels[record.domain]?.label ?? record.domain }}
@@ -1184,6 +1300,47 @@ function shortSha(sha: string | null | undefined): string {
         </a-alert>
       </a-form>
     </a-modal>
+
+    <!-- 导入弹窗：按模板上传 .xlsx，逐行校验；重复编号默认报错跳过，可开覆盖 -->
+    <a-modal v-model:visible="importVisible" title="导入缺陷" :width="640" :footer="false" unmount-on-close>
+      <a-alert type="info" class="m-b-12px">
+        按「下载模板」的格式填写：<b>应用 / 领域 / 缺陷标题</b> 为必填；
+        缺陷编号留空自动生成（DEF-YYYYMMDD-0001），填写则按其入库、重复报错。
+      </a-alert>
+      <a-checkbox v-model="importOverwrite" class="m-b-12px">
+        已存在则覆盖（按缺陷编号更新已有缺陷；不开则重复编号报错跳过）
+      </a-checkbox>
+      <a-upload
+        draggable
+        accept=".xlsx,.xls"
+        :auto-upload="false"
+        :limit="1"
+        @change="handleImportUpload"
+      />
+      <div v-if="importLoading" class="m-t-12px">
+        <a-spin tip="导入中..." />
+      </div>
+      <div v-if="importResult" class="m-t-12px">
+        <a-alert :type="importResult.errors?.length ? 'warning' : 'success'">
+          <template #title>
+            导入结果
+          </template>
+          <div>
+            有效 {{ importResult.total }} 行，新增 {{ importResult.inserted }}，更新 {{ importResult.updated }}，跳过 {{ importResult.skipped }}
+          </div>
+          <div v-if="importResult.errors?.length" class="m-t-8px">
+            <div v-for="(err, idx) in importResult.errors" :key="idx" class="import-error">
+              {{ err }}
+            </div>
+          </div>
+        </a-alert>
+      </div>
+      <div class="m-t-12px">
+        <a-button type="text" size="small" @click="downloadImportTemplate">
+          下载导入模板
+        </a-button>
+      </div>
+    </a-modal>
   </div>
 </template>
 
@@ -1246,5 +1403,10 @@ function shortSha(sha: string | null | undefined): string {
 .dmp-empty {
   color: var(--color-text-4);
   font-size: 12px;
+}
+
+.import-error {
+  font-size: 12px;
+  color: rgb(var(--orange-6));
 }
 </style>
