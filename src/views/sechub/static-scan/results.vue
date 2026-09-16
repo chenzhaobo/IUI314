@@ -1138,7 +1138,7 @@ watch(() => route.query, (newQ, oldQ) => {
               showTotal: true,
             }"
             :row-selection="{ type: 'checkbox', showCheckedAll: true }"
-            :expandable="{ title: '', width: 36 }"
+            :expandable="{ title: '' }"
             row-key="id"
             size="small"
             :scroll="candidateScroll"
