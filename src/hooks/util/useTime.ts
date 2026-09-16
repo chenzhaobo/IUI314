@@ -209,14 +209,50 @@ export function formatMinute(value: TimeInput, placeholder = '-'): string {
   return formatTime(value, { precision: 'minute', placeholder })
 }
 
+/** 某时间点在指定时区的 UTC 偏移（毫秒）。 */
+function zoneOffsetMs(date: Date, timeZone: string): number {
+  const p = partsOf(date, timeZone)
+  const wallAsUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second)
+  return wallAsUtc - Math.floor(date.getTime() / 1000) * 1000
+}
+
+/**
+ * 把「墙上时间」（无偏移的 `YYYY-MM-DD HH:mm:ss`）按指定时区解释成时间点。
+ *
+ * 先假设墙上时间就是 UTC 求一次偏移，再用该偏移反推出真实时间点；夏令时切换前后偏移
+ * 可能不同，所以用反推结果再校一次。
+ */
+function wallTimeToDate(wall: string, timeZone: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?)?$/.exec(wall)
+  if (!m)
+    return null
+  const wallAsUtc = Date.UTC(+m[1], +m[2] - 1, +m[3], +(m[4] ?? 0), +(m[5] ?? 0), +(m[6] ?? 0))
+  if (Number.isNaN(wallAsUtc))
+    return null
+  const candidate = new Date(wallAsUtc - zoneOffsetMs(new Date(wallAsUtc), timeZone))
+  return new Date(wallAsUtc - zoneOffsetMs(candidate, timeZone))
+}
+
 /**
  * 提交给后端：转成 RFC3339（带偏移）。
  *
  * 日期控件（`a-date-picker` / `a-range-picker`）的绑定值形态不统一——项目里 15 个控件
  * 只有 4 个设了 `value-format`——所以提交前统一过这个函数，避免后端收到无法判定时区的
  * 字符串。空值返回 undefined，便于直接展开进请求体。
+ *
+ * 无偏移的绑定值是「墙上时间」，按**用户时区**解释：用户在控件里选的 14:00 就是他所在
+ * 时区看到的 14:00，与服务端「无偏移串按 +08:00 解释」的旧数据兼容假设无关。已带偏移
+ * 的字符串 / Date / 时间戳本身就是时间点，直接转换。
  */
 export function toApiParam(value: TimeInput): string | undefined {
+  if (typeof value === 'string') {
+    const s = value.trim()
+    if (s && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(s)) {
+      const zoned = wallTimeToDate(s, userTimeZone())
+      if (zoned)
+        return zoned.toISOString()
+    }
+  }
   const date = parseTimeInput(value)
   return date ? date.toISOString() : undefined
 }

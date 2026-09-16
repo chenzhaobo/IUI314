@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { computed, ref } from 'vue'
 import { Message, Modal } from '@arco-design/web-vue'
-import { formatTime, postAction, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
+import { formatTime, postAction, toApiParam, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiAiExecution, type AiExecution, type AiExecutionStats, type AiListResult } from '@/api/aiApis'
 
 defineOptions({ name: 'ai-execution-log' })
@@ -23,14 +23,9 @@ const total = computed(() => listRaw.value?.total || 0)
 
 function handleSearch() {
   queryParams.value.page_num = 1
-  // 处理日期范围
-  if (dateRange.value && dateRange.value.length === 2) {
-    queryParams.value.start_time = dateRange.value[0] || ''
-    queryParams.value.end_time = dateRange.value[1] || ''
-  } else {
-    queryParams.value.start_time = ''
-    queryParams.value.end_time = ''
-  }
+  // 日期控件的绑定值是无偏移的墙上时间，按用户时区转成 RFC3339 再提交
+  queryParams.value.start_time = toApiParam(dateRange.value?.[0]) ?? ''
+  queryParams.value.end_time = toApiParam(dateRange.value?.[1]) ?? ''
   fetchList()
 }
 function handlePageChange(page: number) { queryParams.value.page_num = page; fetchList() }
