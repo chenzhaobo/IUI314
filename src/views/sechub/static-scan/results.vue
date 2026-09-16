@@ -360,6 +360,18 @@ const columnFilters = ref<Record<string, ColumnFilterState>>({
   introduced_author: emptyFilter('text'),
 })
 
+// 候选明细排序（目前只有「更新时间」一列可排）。必须走后端全量排序：
+// 表格自带的 sortable 只排当前页，翻页后"最近更新"就不是真的最近。
+const candidateSort = ref<{ by: string, order: string }>({ by: '', order: '' })
+function onCandidateSorterChange(dataIndex: string, direction: string) {
+  if (!direction)
+    candidateSort.value = { by: '', order: '' }
+  else
+    candidateSort.value = { by: dataIndex, order: direction === 'ascend' ? 'asc' : 'desc' }
+  pageNum.value = 1
+  void loadCandidates()
+}
+
 async function loadCandidates(silent = false) {
   if (!currentRun.value) {
     candidatePage.value = null
@@ -399,6 +411,11 @@ async function loadCandidates(silent = false) {
     const filters = toServerFilters(columnFilters.value)
     if (filters)
       params.set('filters', filters)
+    // 排序同样交后端全量排（sort_by 目前只有 updated_at）
+    if (candidateSort.value.by)
+      params.set('sort_by', candidateSort.value.by)
+    if (candidateSort.value.order)
+      params.set('sort_order', candidateSort.value.order)
     candidatePage.value = await fetchJson<CandidateDetailPage>(`${ApiSecPrescan.candidates}?${params.toString()}`)
   }
   finally {
@@ -894,6 +911,7 @@ const DEFAULT_VISIBLE_COLUMNS = [
   'ai_status',
   'ai_risk_level',
   'ai_confidence',
+  'updated_at',
   'introduced_at',
   'ai_rationale',
   'ops',
@@ -909,6 +927,9 @@ const allCandidateColumns = computed(() => [
   { key: 'ai_status', title: 'AI状态', dataIndex: 'ai_status', slotName: 'aiStatus', width: 90, resizable: true },
   { key: 'ai_risk_level', title: '风险', dataIndex: 'ai_risk_level', slotName: 'riskLevel', width: 75, resizable: true },
   { key: 'ai_confidence', title: '置信度', dataIndex: 'ai_confidence', slotName: 'confidence', width: 85, resizable: true, filterable: filterableOf('ai_confidence') },
+  // 更新时间 = 当前展示（采信）结论的写入时间；排序必须走后端全量排 ——
+  // 表格自带的 sortable 只排当前页，翻页后"最近更新"就不是真的最近（与 perf 台账页同一做法）。
+  { key: 'updated_at', title: '更新时间', dataIndex: 'updated_at', slotName: 'updatedAt', width: 170, ellipsis: true, tooltip: true, resizable: true, sortable: { sortDirections: ['descend', 'ascend'] as ('ascend' | 'descend')[] } },
   // 时间列给足宽度：'YYYY-MM-DD HH:MM:SS' 是 19 字符，宽度不够会折行把整行撑高
   { key: 'introduced_at', title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 170, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('introduced_at') },
   { key: 'introduced_author', title: '引入人', dataIndex: 'introduced_author', width: 110, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('introduced_author') },
@@ -1298,6 +1319,7 @@ watch(() => route.query, (newQ, oldQ) => {
             :scroll="candidateScroll"
             @page-change="(p: number) => { pageNum = p; loadCandidates() }"
             @page-size-change="onPageSizeChange"
+            @sorter-change="onCandidateSorterChange"
           >
             <template #filter-file_path>
               <ColumnFilterPanel v-model="columnFilters.file_path" @change="onColumnFilterChange" />
@@ -1353,6 +1375,10 @@ watch(() => route.query, (newQ, oldQ) => {
             </template>
             <template #confidence="{ record }">
               {{ record.ai_confidence != null ? Number(record.ai_confidence).toFixed(2) : '-' }}
+            </template>
+            <template #updatedAt="{ record }">
+              <!-- 更新时间 = 当前展示（采信）结论的写入时间；还没结论时显示 - -->
+              <span>{{ formatTime(record.updated_at) }}</span>
             </template>
             <template #introducedAt="{ record }">
               <!-- 引入时间列：为空时显示 -，悬浮展示完整 commit / 作者 / 时间 -->

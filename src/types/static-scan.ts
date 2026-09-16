@@ -718,6 +718,8 @@ export interface CandidateDetailRow {
   ai_mode?: string | null
   ai_model?: string | null
   ai_detail_report?: string | null
+  /** 当前采信结论的写入时间（列表行展示的那条记录；还没有结论时为 null） */
+  updated_at?: string | null
   /** 引入该问题的 commit sha（40 位，git 仓库模式才有值，否则为 null） */
   introduced_commit?: string | null
   /** 引入时间，格式 "YYYY-MM-DD HH:mm:ss"，非 git 仓库或未跟踪文件为 null */
@@ -840,11 +842,57 @@ export interface ScanIssueRow {
   wont_fix_reason_code?: string | null
   /** DMP 缺陷编码：关联到 DMP 系统的缺陷单号 */
   dmp_defect_code?: string | null
+  /** 缺陷编号：DEF-YYYYMMDD-NNNN（平台内唯一，导出/导入以它为准） */
+  defect_code?: string | null
+  /** 缺陷来源：scan=平台扫描检出 / import=Excel 导入 */
+  source?: string
 }
 
 export interface ScanIssuePage {
   list: ScanIssueRow[]
   total: number
+}
+
+/** 缺陷 Excel 导入结果（逐行错误带 Excel 行号） */
+export interface IssueImportSummary {
+  total: number
+  inserted: number
+  updated: number
+  skipped: number
+  errors: string[]
+}
+
+/** 缺陷治理看板：单组指标 */
+export interface DefectGovernanceMetrics {
+  total: number
+  in_progress: number
+  handled: number
+  wont_fix: number
+  /** 不处理原因为「误报」的数量 */
+  false_positive: number
+  /** 已处理 ÷ (总数 − 不处理)，0~1 */
+  fix_progress: number
+  /** 误报数 ÷ 总数，0~1 */
+  false_positive_rate: number
+}
+
+/** 缺陷治理看板：全平台汇总（按领域） */
+export interface DefectGovernanceSummary extends DefectGovernanceMetrics {
+  domain: string
+}
+
+/** 缺陷治理看板：项目组 × 领域明细行 */
+export interface DefectGovernanceGroupRow extends DefectGovernanceMetrics {
+  project_group_id: string
+  project_group_name: string
+  domain: string
+}
+
+export interface DefectGovernanceDashboard {
+  generated_at: string
+  /** 恒为 [security, performance] 两行 */
+  summaries: DefectGovernanceSummary[]
+  groups: DefectGovernanceGroupRow[]
 }
 
 /** 问题状态变更历史行（流转记录） */
