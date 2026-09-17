@@ -356,7 +356,7 @@ function canWontFix(status: string): boolean {
 }
 function canVerify(row: ScanIssueRow): boolean {
   return row.coverage_state !== 'inactive'
-    && (row.status === 'fixed' || row.status === 'verified' || row.status === 'verification_failed' || row.status === 'wont_fix')
+    && (row.status === 'fixed' || row.status === 'verified' || row.status === 'verification_failed' || row.status === 'wont_fix' || row.status === 'verifying')
 }
 
 // ===== 缺陷处理：批量认领（open/reopened → fixing）=====
@@ -801,6 +801,8 @@ async function batchVerify() {
     Message.success(`已提交 ${submitted} 条复核（后台执行，完成后刷新列表查看结果；流转记录有详情）${failNote}`)
     verifyVisible.value = false
     clearSelection()
+    // 立即刷新一次：列表上会显示「AI 复核中」，复核完成后状态与结果回写
+    void getList()
   }
   finally {
     batchVerifyLoading.value = false
@@ -892,6 +894,8 @@ const statusLabels: Record<string, { label: string, color: string }> = {
   verified: { label: '已验证', color: 'green' },
   wont_fix: { label: '不处理', color: 'gray' },
   verification_failed: { label: '验证失败', color: 'orange' },
+  /** 提交后的后台 AI 复核窗口期（完成后按判定回写） */
+  verifying: { label: 'AI 复核中', color: 'arcoblue' },
 }
 
 const coverageReasonLabels: Record<string, { label: string, color: string }> = {
@@ -1226,7 +1230,18 @@ function shortSha(sha: string | null | undefined): string {
                   <span v-else class="text-muted">-</span>
                 </template>
                 <template #status="{ record }">
-                  <a-tag :color="issueStatusLabel(record).color" size="small">
+                  <!-- 有复核记录时悬浮展示最近一次复核结果（时间 + 结论与依据） -->
+                  <a-tooltip
+                    v-if="record.last_verify_at"
+                    :content="`最近复核（${formatTime(record.last_verify_at)}）\n${record.last_verify_reason || ''}`"
+                    position="top"
+                    mini
+                  >
+                    <a-tag :color="issueStatusLabel(record).color" size="small">
+                      {{ issueStatusLabel(record).label }}
+                    </a-tag>
+                  </a-tooltip>
+                  <a-tag v-else :color="issueStatusLabel(record).color" size="small">
                     {{ issueStatusLabel(record).label }}
                   </a-tag>
                 </template>

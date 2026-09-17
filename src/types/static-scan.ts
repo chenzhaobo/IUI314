@@ -846,6 +846,12 @@ export interface ScanIssueRow {
   defect_code?: string | null
   /** 缺陷来源：scan=平台扫描检出 / import=Excel 导入 */
   source?: string
+  /** 最近一次复核（AI 复核/规则验证）的时间；没有复核过为 null */
+  last_verify_at?: string | null
+  /** 最近一次复核的事件类型：verified（有结论）/ verify_error（执行失败） */
+  last_verify_type?: string | null
+  /** 最近一次复核的说明（含模型、结论与判定依据），供状态列悬浮展示 */
+  last_verify_reason?: string | null
 }
 
 export interface ScanIssuePage {
