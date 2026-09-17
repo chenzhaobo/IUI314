@@ -840,6 +840,8 @@ export interface ScanIssueRow {
   introduced_author?: string | null
   /** 不修复原因代码（后端新增字段），如 accepted_risk / false_positive 等 */
   wont_fix_reason_code?: string | null
+  /** 不处理原因说明（自由文本；重开时清空） */
+  wont_fix_reason?: string | null
   /** DMP 缺陷编码：关联到 DMP 系统的缺陷单号 */
   dmp_defect_code?: string | null
   /** 缺陷编号：DEF-YYYYMMDD-NNNN（平台内唯一，导出/导入以它为准） */
@@ -857,6 +859,14 @@ export interface ScanIssueRow {
 export interface ScanIssuePage {
   list: ScanIssueRow[]
   total: number
+}
+
+/** 缺陷批量流转/转交结果 */
+export interface IssueTransitionSummary {
+  updated: number
+  skipped: number
+  /** 提示文案（含跳过原因） */
+  message: string
 }
 
 /** 缺陷 Excel 导入结果（逐行错误带 Excel 行号） */

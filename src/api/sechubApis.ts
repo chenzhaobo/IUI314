@@ -292,6 +292,8 @@ export enum ApiSecPrescan {
   issueVerify = '/sechub/prescan/issue-verify',
   issueClaim = '/sechub/prescan/issue-claim',
   issueFixed = '/sechub/prescan/issue-fixed',
+  issueTransfer = '/sechub/prescan/issue-transfer',
+  issueTransition = '/sechub/prescan/issue-transition',
   issuesExport = '/sechub/prescan/issues/export',
   issuesImport = '/sechub/prescan/issues/import',
   issuesTemplate = '/sechub/prescan/issues/template',

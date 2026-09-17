@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { AiAgent } from '@/api/aiApis'
-import type { BranchesControlResponse, IssueImportSummary, IssueRuleStatRow, ModuleWithRepository, RepositoryBranch, RepositoryCommit, RepositoryCommitListResponse, ScanIssueEventRow, ScanIssuePage, ScanIssueRow } from '@/types/static-scan'
+import type { BranchesControlResponse, IssueImportSummary, IssueRuleStatRow, IssueTransitionSummary, ModuleWithRepository, RepositoryBranch, RepositoryCommit, RepositoryCommitListResponse, ScanIssueEventRow, ScanIssuePage, ScanIssueRow } from '@/types/static-scan'
 import { Message } from '@arco-design/web-vue'
 import { MdPreview } from 'md-editor-v3'
 import { computed, onMounted, ref } from 'vue'
@@ -348,9 +348,6 @@ function clearSelection() {
 }
 
 // ===== 状态能力判断 =====
-function canClaim(status: string): boolean {
-  return status === 'open' || status === 'reopened'
-}
 function canWontFix(status: string): boolean {
   return status === 'open' || status === 'reopened'
 }
@@ -359,70 +356,112 @@ function canVerify(row: ScanIssueRow): boolean {
     && (row.status === 'fixed' || row.status === 'verified' || row.status === 'verification_failed' || row.status === 'wont_fix' || row.status === 'verifying')
 }
 
-// ===== 缺陷处理：批量认领（open/reopened → fixing）=====
-const batchClaimLoading = ref(false)
-async function batchClaim() {
+// ===== 缺陷处理：转交（选项目组 → 成员 → 指定处理人）=====
+interface ProjectGroupMemberRow {
+  user_id: string
+  user_name: string
+  user_nickname?: string | null
+}
+
+const transferVisible = ref(false)
+const transferLoading = ref(false)
+const transferGroupId = ref('')
+const transferAssignee = ref('')
+const transferRemark = ref('')
+const transferMembers = ref<ProjectGroupMemberRow[]>([])
+const transferMembersLoading = ref(false)
+
+function openTransferModal() {
   if (!selectedIds.value.length) {
     Message.warning('请先勾选缺陷')
     return
   }
-  const eligible = selectedRows.value.filter(r => canClaim(r.status))
-  if (!eligible.length) {
-    Message.warning('所选缺陷中没有可认领的（仅「打开/重新打开」状态可认领）')
+  transferGroupId.value = ''
+  transferAssignee.value = ''
+  transferRemark.value = ''
+  transferMembers.value = []
+  transferVisible.value = true
+}
+
+/** 选项目组 → 拉该组成员供选择（项目组只用来筛人；缺陷归属由仓库推导，行上没有项目组字段） */
+async function onTransferGroupChange(value: unknown) {
+  transferAssignee.value = ''
+  transferMembers.value = []
+  const groupId = typeof value === 'string' ? value : ''
+  if (!groupId)
+    return
+  transferMembersLoading.value = true
+  try {
+    const { data, execute } = useGet<ProjectGroupMemberRow[]>(ApiSecProjectGroup.members, { id: groupId }, { immediate: false })
+    await execute()
+    transferMembers.value = Array.isArray(data.value) ? data.value : []
+  }
+  finally {
+    transferMembersLoading.value = false
+  }
+}
+
+async function submitTransfer() {
+  const assignee = transferAssignee.value.trim()
+  if (!assignee) {
+    Message.warning('请选择处理人')
     return
   }
-  batchClaimLoading.value = true
+  transferLoading.value = true
   try {
-    let ok = 0
-    for (const row of eligible) {
-      if (await postAction(ApiSecPrescan.issueClaim, { issue_id: row.id }) !== null)
-        ok++
-    }
-    Message.success(`认领成功 ${ok}/${eligible.length} 条`)
+    const res = await postAction<IssueTransitionSummary>(ApiSecPrescan.issueTransfer, {
+      ids: selectedIds.value,
+      assignee,
+      remark: transferRemark.value.trim() || undefined,
+    })
+    if (!res)
+      return
+    // 后端按行汇总（不处理/已修复等状态会被跳过并说明原因）
+    Message.success(res.message)
+    transferVisible.value = false
     clearSelection()
     void getList()
   }
   finally {
-    batchClaimLoading.value = false
+    transferLoading.value = false
   }
 }
 
-// ===== 缺陷处理：批量标记已修复（fixing → fixed）=====
-const fixedVisible = ref(false)
-const fixedTargets = ref<ScanIssueRow[]>([])
-const fixedNote = ref('')
-const fixedLoading = ref(false)
+// ===== 缺陷处理：处理下拉（修复中/已修复/已验证/重开/不处理）=====
+// 与公有云性能-问题列表同形态：状态流转一个入口；「不处理」因为要填原因，走既有弹窗。
+const PROCESS_ACTIONS = [
+  { value: 'fixing', label: '修复中' },
+  { value: 'fixed', label: '已修复' },
+  { value: 'verified', label: '已验证' },
+  { value: 'reopen', label: '重开' },
+  { value: 'wont_fix', label: '不处理' },
+]
+const processLoading = ref(false)
 
-function openFixedModal() {
-  if (!selectedIds.value.length) {
-    Message.warning('请先勾选缺陷')
+function onProcessSelect(value: unknown) {
+  const target = String(value ?? '')
+  if (!target)
+    return
+  if (target === 'wont_fix') {
+    openWontFixModal()
     return
   }
-  const eligible = selectedRows.value.filter(r => r.status === 'fixing')
-  if (!eligible.length) {
-    Message.warning('所选缺陷中没有「修复中」的，无法标记已修复')
-    return
-  }
-  fixedTargets.value = eligible
-  fixedNote.value = ''
-  fixedVisible.value = true
+  void submitTransition(target)
 }
 
-async function submitFixed() {
-  fixedLoading.value = true
+async function submitTransition(target: string) {
+  processLoading.value = true
   try {
-    let ok = 0
-    for (const row of fixedTargets.value) {
-      if (await postAction(ApiSecPrescan.issueFixed, { issue_id: row.id, note: fixedNote.value }) !== null)
-        ok++
-    }
-    Message.success(`已标记修复 ${ok}/${fixedTargets.value.length} 条`)
-    fixedVisible.value = false
+    const res = await postAction<IssueTransitionSummary>(ApiSecPrescan.issueTransition, { ids: selectedIds.value, target })
+    if (!res)
+      return
+    // 状态不符的行由后端跳过并在 message 里说明（如「重开」仅对不处理状态生效）
+    Message.success(res.message)
     clearSelection()
     void getList()
   }
   finally {
-    fixedLoading.value = false
+    processLoading.value = false
   }
 }
 
@@ -1214,16 +1253,25 @@ function shortSha(sha: string | null | undefined): string {
                     补偿匹配白名单
                   </a-button>
                 </a-tooltip>
-                <a-button type="primary" :loading="batchClaimLoading" @click="batchClaim">
-                  认领
+                <!-- 转交：选项目组 → 从该组成员里选处理人（与性能问题列表同形态） -->
+                <a-button type="primary" :disabled="!selectedIds.length" @click="openTransferModal">
+                  转交
                 </a-button>
-                <a-button status="success" @click="openFixedModal">
-                  标记已修复
-                </a-button>
-                <a-button status="warning" @click="openWontFixModal">
-                  标记不处理
-                </a-button>
-                <a-button :loading="batchVerifyLoading" @click="openVerifyDialog">
+                <!-- 处理：状态流转统一入口（不处理需填原因，走弹窗） -->
+                <a-dropdown :disabled="!selectedIds.length" @select="onProcessSelect">
+                  <a-button :disabled="!selectedIds.length" :loading="processLoading">
+                    处理
+                    <template #icon>
+                      <icon-down />
+                    </template>
+                  </a-button>
+                  <template #content>
+                    <a-doption v-for="action in PROCESS_ACTIONS" :key="action.value" :value="action.value">
+                      {{ action.label }}
+                    </a-doption>
+                  </template>
+                </a-dropdown>
+                <a-button :disabled="!selectedIds.length" :loading="batchVerifyLoading" @click="openVerifyDialog">
                   重新验证
                 </a-button>
                 <a-tooltip content="把所选缺陷关联到 DMP 单号，可批量填同一个" mini>
@@ -1390,15 +1438,38 @@ function shortSha(sha: string | null | undefined): string {
         </a-form>
       </a-modal>
 
-      <a-modal v-model:visible="fixedVisible" :title="`标记已修复（${fixedTargets.length} 条）`" :ok-loading="fixedLoading" @ok="submitFixed" @cancel="fixedVisible = false">
+      <!-- 转交弹窗：项目组筛人 → 指定处理人（项目组只是成员范围，不改缺陷归属） -->
+      <a-modal v-model:visible="transferVisible" title="转交缺陷" :width="520" :footer="false" unmount-on-close>
         <a-form layout="vertical" :model="layoutOnlyModel">
           <a-alert type="info" class="m-b-12px">
-            将对 {{ fixedTargets.length }} 条「修复中」的缺陷统一标记为已修复
+            将把 {{ selectedIds.length }} 条缺陷转交给指定处理人（「打开/重新打开」会同时进入修复中）
           </a-alert>
-          <a-form-item label="修复说明（可选）">
-            <a-textarea v-model="fixedNote" placeholder="如：已在 commit abc123 中移除硬编码密钥" :max-length="200" show-word-limit />
+          <a-form-item label="项目组">
+            <a-select v-model="transferGroupId" allow-search allow-clear placeholder="选择项目组（用于筛选成员）" @change="onTransferGroupChange">
+              <a-option v-for="pg in pgOptions" :key="pg.value" :value="pg.value">
+                {{ pg.label }}
+              </a-option>
+            </a-select>
+          </a-form-item>
+          <a-form-item label="处理人" required>
+            <a-select v-model="transferAssignee" allow-search allow-create :loading="transferMembersLoading" placeholder="从该项目组成员中选择（也可直接输入）">
+              <a-option v-for="m in transferMembers" :key="m.user_id" :value="m.user_name">
+                {{ m.user_nickname || m.user_name }}（{{ m.user_name }}）
+              </a-option>
+            </a-select>
+          </a-form-item>
+          <a-form-item label="说明（可选）">
+            <a-input v-model="transferRemark" placeholder="写入流转记录" allow-clear />
           </a-form-item>
         </a-form>
+        <div style="display: flex; justify-content: flex-end; gap: 8px">
+          <a-button @click="transferVisible = false">
+            取消
+          </a-button>
+          <a-button type="primary" :loading="transferLoading" @click="submitTransfer">
+            确认转交
+          </a-button>
+        </div>
       </a-modal>
 
       <!-- 标记不处理弹窗（批量） -->
