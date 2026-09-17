@@ -3,12 +3,14 @@
 // 口径（与后端 issue_governance.rs 一致）：
 //   处理中 = 打开/重新打开/修复中；已处理 = 已修复+已验证且未失活（失活自动关闭不计入人工修复）；
 //   不处理 = 不处理；修复进度 = 已处理 ÷ (总数 − 不处理)；误报率 = 误报数 ÷ 总数。
-import type { DefectGovernanceDashboard, DefectGovernanceGroupRow } from '@/types/static-scan'
+import type { TableColumnData } from '@arco-design/web-vue'
+import type { DefectGovernanceDashboard, DefectGovernanceGroupRow, DefectGovernanceMetrics } from '@/types/static-scan'
+import { Progress } from '@arco-design/web-vue'
 import { BarChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import { computed } from 'vue'
+import { computed, h } from 'vue'
 import VChart from 'vue-echarts'
 import { ApiSecPrescan } from '@/api/sechubApis'
 import { formatTime, useGet } from '@/hooks'
@@ -29,17 +31,31 @@ const groups = computed(() => dashboard.value?.groups ?? [])
 const domainLabels: Record<string, string> = { security: '安全', performance: '性能' }
 const domainColors: Record<string, string> = { security: 'red', performance: 'blue' }
 
-/** 明细行：安全在前、性能在后，各自按总数降序（两个领域一起展示，不切换）。
- *  row_key 拼 (项目组 + 领域)：同一项目组在两个领域各一行，行键必须区分开 */
-const detailRows = computed(() =>
-  [...groups.value]
-    .sort((a, b) => {
-      if (a.domain !== b.domain)
-        return a.domain === 'security' ? -1 : 1
-      return b.total - a.total
-    })
-    .map(g => ({ ...g, row_key: `${g.project_group_id || g.project_group_name}-${g.domain}` })),
-)
+/** 明细行：一个项目组一行，安全/性能各占一组指标列（表头按领域分组，避免同一项目组出现两行） */
+interface DetailGroupRow {
+  row_key: string
+  project_group_name: string
+  security: DefectGovernanceMetrics | null
+  performance: DefectGovernanceMetrics | null
+}
+
+const detailRows = computed<DetailGroupRow[]>(() => {
+  const byGroup = new Map<string, DetailGroupRow>()
+  for (const g of groups.value) {
+    const key = g.project_group_id || g.project_group_name
+    let row = byGroup.get(key)
+    if (!row) {
+      row = { row_key: key, project_group_name: g.project_group_name, security: null, performance: null }
+      byGroup.set(key, row)
+    }
+    if (g.domain === 'performance')
+      row.performance = g
+    else
+      row.security = g
+  }
+  const sum = (r: DetailGroupRow) => (r.security?.total ?? 0) + (r.performance?.total ?? 0)
+  return [...byGroup.values()].sort((a, b) => sum(b) - sum(a))
+})
 
 /** 修复进度按阈值着色：≥80% 绿、≥40% 蓝、其余橙 */
 function progressStatus(v: number): 'success' | 'normal' | 'warning' {
@@ -50,15 +66,43 @@ function progressStatus(v: number): 'success' | 'normal' | 'warning' {
   return 'warning'
 }
 
-const columns: Array<Record<string, unknown>> = [
-  { title: '领域', dataIndex: 'domain', slotName: 'domain', width: 70 },
-  { title: '项目组', dataIndex: 'project_group_name', width: 200 },
-  { title: '总数', dataIndex: 'total', width: 80 },
-  { title: '处理中', dataIndex: 'in_progress', width: 80 },
-  { title: '已处理', dataIndex: 'handled', width: 80 },
-  { title: '不处理', dataIndex: 'wont_fix', width: 80 },
-  { title: '修复进度', dataIndex: 'fix_progress', slotName: 'progress', width: 220 },
-  { title: '误报率', dataIndex: 'false_positive_rate', slotName: 'fpRate', width: 120 },
+/** 一个领域的 6 个指标列（挂到「安全」「性能」两个分组表头下）。
+ *  单元格用列级 render 渲染：这样 12 个指标列不用写 12 个具名插槽 */
+function metricColumns(domain: 'security' | 'performance'): TableColumnData[] {
+  const pick = (record: Record<string, unknown>): DefectGovernanceMetrics | null => (record[domain] as DefectGovernanceMetrics | null) ?? null
+  // 指标列没有对应的顶层字段，用 dataIndex 作列标识（Arco 需要唯一列键，且 render 会覆盖取值）
+  return [
+    { dataIndex: `${domain}_total`, title: '总数', width: 72, align: 'center', render: ({ record }) => String(pick(record)?.total ?? 0) },
+    { dataIndex: `${domain}_in_progress`, title: '处理中', width: 80, align: 'center', render: ({ record }) => String(pick(record)?.in_progress ?? 0) },
+    { dataIndex: `${domain}_handled`, title: '已处理', width: 80, align: 'center', render: ({ record }) => String(pick(record)?.handled ?? 0) },
+    { dataIndex: `${domain}_wont_fix`, title: '不处理', width: 80, align: 'center', render: ({ record }) => String(pick(record)?.wont_fix ?? 0) },
+    {
+      dataIndex: `${domain}_progress`,
+      title: '修复进度',
+      width: 170,
+      render: ({ record }) => {
+        const v = pick(record)?.fix_progress ?? 0
+        // Arco 的 percent 是 0~1 比率（组件内部 ×100 才是显示文本），直接传原始比率
+        return h(Progress, { percent: v, size: 'small', status: progressStatus(v) })
+      },
+    },
+    {
+      dataIndex: `${domain}_fp_rate`,
+      title: '误报率',
+      width: 92,
+      align: 'center',
+      render: ({ record }) => {
+        const v = pick(record)?.false_positive_rate ?? 0
+        return h('span', { class: v > 0.2 ? 'fp-high' : undefined }, `${(v * 100).toFixed(1)}%`)
+      },
+    },
+  ]
+}
+
+const columns: TableColumnData[] = [
+  { title: '项目组', dataIndex: 'project_group_name', width: 220, ellipsis: true, tooltip: true, fixed: 'left' },
+  { title: '安全', dataIndex: 'group_security', children: metricColumns('security') },
+  { title: '性能', dataIndex: 'group_performance', children: metricColumns('performance') },
 ]
 
 /** TOP15 堆叠柱状图：按 (项目组 × 领域) 取总数前 15，两个领域一起展示 */
@@ -145,8 +189,8 @@ const topOption = computed(() => {
         <a-empty v-else description="暂无缺陷数据" />
       </a-card>
 
-      <!-- 项目组明细：安全 + 性能一起展示（安全在前、各按总数降序） -->
-      <a-card :bordered="false" size="small" title="按项目组明细（安全 + 性能）">
+      <!-- 项目组明细：一行一个项目组，安全/性能按分组表头并列展示 -->
+      <a-card :bordered="false" size="small" title="按项目组明细">
         <a-table
           :data="detailRows"
           :columns="columns"
@@ -154,21 +198,8 @@ const topOption = computed(() => {
           row-key="row_key"
           size="small"
           column-resizable
-        >
-          <template #domain="{ record }">
-            <a-tag :color="domainColors[record.domain] ?? 'gray'" size="small">
-              {{ domainLabels[record.domain] ?? record.domain }}
-            </a-tag>
-          </template>
-          <template #progress="{ record }">
-            <a-progress :percent="record.fix_progress" size="small" :status="progressStatus(record.fix_progress)" />
-          </template>
-          <template #fpRate="{ record }">
-            <span :class="{ 'fp-high': record.false_positive_rate > 0.2 }">
-              {{ (record.false_positive_rate * 100).toFixed(1) }}%
-            </span>
-          </template>
-        </a-table>
+          :scroll="{ x: 1400 }"
+        />
       </a-card>
     </a-spin>
   </div>

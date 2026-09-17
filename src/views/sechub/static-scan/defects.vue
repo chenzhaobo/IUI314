@@ -916,7 +916,7 @@ const wontFixReasonFilters = computed(() =>
 )
 
 const columns = computed(() => withTableDefaults([
-  { title: '缺陷编号', dataIndex: 'defect_code', slotName: 'defectCode', width: 150, ellipsis: true, tooltip: true },
+  { title: '缺陷编号', dataIndex: 'defect_code', slotName: 'defectCode', width: 210, ellipsis: true, tooltip: true },
   { title: '缺陷标题', dataIndex: 'title', width: 240 },
   { title: '来源', dataIndex: 'source', slotName: 'source', width: 64 },
   { title: '领域', dataIndex: 'domain', slotName: 'domain', width: 70, ellipsis: true, tooltip: true },
@@ -928,7 +928,7 @@ const columns = computed(() => withTableDefaults([
   { title: '命中', dataIndex: 'hit_count', width: 50 },
   { title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 140, ellipsis: true, tooltip: true },
   { title: 'DMP 编码', dataIndex: 'dmp_defect_code', slotName: 'dmpCode', width: 130, ellipsis: true, tooltip: true },
-  { title: '更新时间', dataIndex: 'updated_at', slotName: 'updatedAt', width: 160 },
+  { title: '更新时间', dataIndex: 'updated_at', slotName: 'updatedAt', width: 190 },
   // 不处理原因列：宽度 130，支持后端过滤，选项来自字典
   // filter 走后端（@filter-change → queryParams.wont_fix_reason_code），本地 filter 函数
   // 固定返回 true，不做客户端行筛选，仅作为 Arco 的必填字段占位。
@@ -1202,7 +1202,8 @@ function shortSha(sha: string | null | undefined): string {
                 @filter-change="onWontFixReasonFilter"
               >
                 <template #defectCode="{ record }">
-                  <a-typography-text v-if="record.defect_code" copyable :copy-text="record.defect_code" style="font-size: 12px">
+                  <!-- 编号+复制按钮必须同一行：不设 nowrap 时按钮会把编号挤到第二行 -->
+                  <a-typography-text v-if="record.defect_code" copyable :copy-text="record.defect_code" class="cell-nowrap" style="font-size: 12px">
                     {{ record.defect_code }}
                   </a-typography-text>
                   <span v-else class="text-muted">-</span>
@@ -1258,8 +1259,9 @@ function shortSha(sha: string | null | undefined): string {
                   </a-tooltip>
                 </template>
                 <template #updatedAt="{ record }">
-                  <!-- 更新时间：后端给 RFC3339，formatTime 按用户设置的时区渲染 -->
-                  <span>{{ formatTime(record.updated_at) }}</span>
+                  <!-- 更新时间：后端给 RFC3339，formatTime 按用户设置的时区渲染；
+                       时间中间的空白是折行点，必须 nowrap 才不会断成两行 -->
+                  <span class="cell-nowrap">{{ formatTime(record.updated_at) }}</span>
                 </template>
                 <!-- 不处理原因列：展示字典 label，为空显示占位符，null 不渲染 -->
                 <template #wontFixReason="{ record }">
@@ -1630,5 +1632,10 @@ function shortSha(sha: string | null | undefined): string {
 .import-error {
   font-size: 12px;
   color: rgb(var(--orange-6));
+}
+
+/* 槽位列不受 withTableDefaults 的 ellipsis 兜底约束，长内容会折行；这几列要求单行显示 */
+.cell-nowrap {
+  white-space: nowrap;
 }
 </style>
