@@ -300,6 +300,8 @@ export enum ApiSecPrescan {
   issuesExport = '/sechub/prescan/issues/export',
   issuesImport = '/sechub/prescan/issues/import',
   issuesTemplate = '/sechub/prescan/issues/template',
+  /** 候选 → 缺陷联查（扫描结果详情用） */
+  candidateIssue = '/sechub/prescan/candidate-issue',
   defectGovernance = '/sechub/prescan/defect-governance',
   scanRunsUnified = '/sechub/scan-runs/unified',
   commits = '/sechub/prescan/commits',

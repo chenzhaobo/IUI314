@@ -7,13 +7,14 @@ import type {
   CrossRunAggRow,
   ModuleWithRepository,
   RuleStatRow,
+  ScanIssueRow,
 } from '@/types/static-scan'
 
 import type { AiAgent } from '@/api/aiApis'
 import { Message } from '@arco-design/web-vue'
 import { MdPreview } from 'md-editor-v3'
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ApiAiAgent } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
@@ -29,6 +30,7 @@ import 'md-editor-v3/lib/style.css'
 defineOptions({ name: 'results' })
 
 const route = useRoute()
+const router = useRouter()
 
 // ===== 应用列表 =====
 const { data: repoList } = useGet<ModuleWithRepository[]>(ApiSecModuleRepository.listWithModule, {}, { immediate: true })
@@ -720,6 +722,32 @@ function onOpsSelect(value: unknown, row: CandidateDetailRow) {
     void retryCandidate(row)
   else if (value === 'manual')
     openManualModal(row)
+  else if (value === 'issue')
+    void viewIssue(row)
+}
+
+/**
+ * 联查该候选写回后的缺陷：有就跳到缺陷页并只筛出这一条，没有就明确提示。
+ *
+ * 关联口径是「指纹」而不是行号/时间：后端按候选的 finding_key / 文件+方法+匹配文本
+ * 复算指纹（与写回同一套），所以结论被推翻、尚未写回、或候选早于写回链路的都查不到。
+ */
+async function viewIssue(row: CandidateDetailRow) {
+  const issue = await fetchJson<ScanIssueRow | null>(`${ApiSecPrescan.candidateIssue}?candidate_id=${encodeURIComponent(row.id)}`)
+  // useGet 把空 data 归一成 {}（成功一定拿到真值的不变量），所以按 id 判定有没有
+  if (!issue?.id) {
+    Message.info('该候选还没有关联缺陷（可能尚未写回，或结论被推翻未提缺陷）')
+    return
+  }
+  Message.success(`已找到关联缺陷：${issue.defect_code || issue.title}`)
+  router.push({
+    name: 'defects',
+    query: {
+      // 缺陷页按编号过滤（模糊匹配，编号平台内唯一，实际只会命中这一条）
+      ...(issue.defect_code ? { defect_code: issue.defect_code } : {}),
+      issue_id: issue.id,
+    },
+  })
 }
 
 // ===== 人工裁定：新增一条 manual 结论并置为采信（不改 AI 那条）=====
@@ -1436,6 +1464,9 @@ watch(() => route.query, (newQ, oldQ) => {
                     </a-doption>
                     <a-doption value="manual">
                       人工裁定
+                    </a-doption>
+                    <a-doption value="issue">
+                      联查缺陷
                     </a-doption>
                   </template>
                 </a-dropdown>

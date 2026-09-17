@@ -3,8 +3,8 @@ import type { AiAgent } from '@/api/aiApis'
 import type { BranchesControlResponse, IssueImportSummary, IssueRuleStatRow, IssueTransitionSummary, ModuleWithRepository, RepositoryBranch, RepositoryCommit, RepositoryCommitListResponse, ScanIssueEventRow, ScanIssuePage, ScanIssueRow } from '@/types/static-scan'
 import { Message } from '@arco-design/web-vue'
 import { MdPreview } from 'md-editor-v3'
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ApiAiAgent } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
@@ -21,6 +21,7 @@ defineOptions({ name: 'defects' })
 // ===== 字典：不处理原因（static_scan_wont_fix_reason）=====
 // 复用项目既有 useDicts hook（stores/modules/dicts.ts 按 dict_type 拉 sys_dict_data，带缓存）
 const router = useRouter()
+const route = useRoute()
 const wontFixReasonDicts = useDicts('static_scan_wont_fix_reason')
 const wontFixReasonOptions = computed(() => {
   const items = wontFixReasonDicts.value.static_scan_wont_fix_reason ?? []
@@ -65,10 +66,19 @@ const queryParams = ref({
   defect_code: '',
   // 来源过滤：scan=扫描检出 / import=Excel 导入
   source: '',
+  // 负责人过滤（「我负责的」开关；值=登录名,展示名，后端按并集匹配）
+  assignee: mineAssigneeValue(),
 })
 
 // Arco 的 multiple 要求数组，后端接受逗号分隔字符串，这里做转换
 const riskLevels = ref<string[]>([])
+
+// 扫描结果详情「联查缺陷」跳过来时带 defect_code（编号平台内唯一，筛出来就一条）。
+// 在 useGet 之前灌进去：列表首帧就是过滤后的，不会先闪一下全量再收窄。
+const routeDefectCode = computed(() => (typeof route.query.defect_code === 'string' ? route.query.defect_code.trim() : ''))
+if (routeDefectCode.value)
+  queryParams.value.defect_code = routeDefectCode.value
+
 const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<ScanIssuePage>(ApiSecPrescan.issues, queryParams, { immediate: true })
 const dataList = computed(() => rawListData.value?.list ?? [])
 const total = computed(() => rawListData.value?.total ?? 0)
@@ -1049,6 +1059,14 @@ onMounted(() => {
   void loadRuleStats()
 })
 
+// keep-alive 页面：再次带着 query 跳进来时 onMounted 不会再跑，用 watch 兜住
+// （结果页「联查缺陷」→ 换一条候选再跳，路由变化必须重新过滤）
+watch(routeDefectCode, (code) => {
+  queryParams.value.defect_code = code
+  queryParams.value.page_num = 1
+  void getList()
+})
+
 // ===== 表格高度自适应（滚动条出现在表格内，表头固定）=====
 // 布局行实测定高：左右两栏由它派生高度
 const layoutRow = ref<HTMLElement>()
@@ -1237,53 +1255,62 @@ function shortSha(sha: string | null | undefined): string {
           <a-card :bordered="false" class="split-card fill-body">
             <!-- 工具栏即卡片标题行：不再单独占一行，也不再显示「缺陷列表」标题文字 -->
             <template #title>
-              <a-space>
-                <!-- 补偿匹配白名单：拿白名单里的指纹回头匹配待处理缺陷，把漏标的补上。
+              <div class="defect-toolbar">
+                <a-space>
+                  <!-- 补偿匹配白名单：拿白名单里的指纹回头匹配待处理缺陷，把漏标的补上。
                  白名单来源是「标记不处理」时勾选的「同步白名单」 -->
-                <a-tooltip content="用白名单里的指纹匹配待处理缺陷，命中的自动标记不处理" mini>
-                  <a-button :loading="whitelistBusy" @click="compensateWhitelist">
-                    补偿匹配白名单
+                  <a-tooltip content="用白名单里的指纹匹配待处理缺陷，命中的自动标记不处理" mini>
+                    <a-button :loading="whitelistBusy" @click="compensateWhitelist">
+                      补偿匹配白名单
+                    </a-button>
+                  </a-tooltip>
+                  <!-- 转交：选项目组 → 从该组成员里选处理人（与性能问题列表同形态） -->
+                  <a-button type="primary" :disabled="!selectedIds.length" @click="openTransferModal">
+                    转交
                   </a-button>
-                </a-tooltip>
-                <!-- 转交：选项目组 → 从该组成员里选处理人（与性能问题列表同形态） -->
-                <a-button type="primary" :disabled="!selectedIds.length" @click="openTransferModal">
-                  转交
-                </a-button>
-                <!-- 处理：状态流转统一入口（不处理需填原因，走弹窗） -->
-                <a-dropdown :disabled="!selectedIds.length" @select="onProcessSelect">
-                  <a-button :disabled="!selectedIds.length" :loading="processLoading">
-                    处理
-                    <template #icon>
-                      <icon-down />
+                  <!-- 处理：状态流转统一入口（不处理需填原因，走弹窗） -->
+                  <a-dropdown :disabled="!selectedIds.length" @select="onProcessSelect">
+                    <a-button :disabled="!selectedIds.length" :loading="processLoading">
+                      处理
+                      <template #icon>
+                        <icon-down />
+                      </template>
+                    </a-button>
+                    <template #content>
+                      <a-doption v-for="action in PROCESS_ACTIONS" :key="action.value" :value="action.value">
+                        {{ action.label }}
+                      </a-doption>
                     </template>
+                  </a-dropdown>
+                  <a-button :disabled="!selectedIds.length" :loading="batchVerifyLoading" @click="openVerifyDialog">
+                    重新验证
                   </a-button>
-                  <template #content>
-                    <a-doption v-for="action in PROCESS_ACTIONS" :key="action.value" :value="action.value">
-                      {{ action.label }}
-                    </a-doption>
-                  </template>
-                </a-dropdown>
-                <a-button :disabled="!selectedIds.length" :loading="batchVerifyLoading" @click="openVerifyDialog">
-                  重新验证
-                </a-button>
-                <a-tooltip content="把所选缺陷关联到 DMP 单号，可批量填同一个" mini>
-                  <a-button @click="openDmpModal">
-                    DMP 编码
+                  <a-tooltip content="把所选缺陷关联到 DMP 单号，可批量填同一个" mini>
+                    <a-button @click="openDmpModal">
+                      DMP 编码
+                    </a-button>
+                  </a-tooltip>
+                  <a-tooltip :content="selectedIds.length ? `只导出勾选的 ${selectedIds.length} 条` : '导出当前筛选下全部缺陷'" mini>
+                    <a-button @click="exportIssues">
+                      导出
+                    </a-button>
+                  </a-tooltip>
+                  <a-button @click="openImport">
+                    导入
                   </a-button>
+                  <a-button @click="downloadImportTemplate">
+                    下载模板
+                  </a-button>
+                  <span v-if="selectedIds.length" class="selected-hint">已选 {{ selectedIds.length }} 条</span>
+                </a-space>
+                <!-- 最右：只看我负责的（默认开）。负责人是认领/转交记下的名字 -->
+                <a-tooltip content="只显示负责人是自己的缺陷（认领与转交记下的名字都算）" mini>
+                  <span class="mine-switch">
+                    <a-switch v-model="mineOnly" size="small" @change="onMineOnlyChange" />
+                    <span class="mine-switch-label">我负责的</span>
+                  </span>
                 </a-tooltip>
-                <a-tooltip :content="selectedIds.length ? `只导出勾选的 ${selectedIds.length} 条` : '导出当前筛选下全部缺陷'" mini>
-                  <a-button @click="exportIssues">
-                    导出
-                  </a-button>
-                </a-tooltip>
-                <a-button @click="openImport">
-                  导入
-                </a-button>
-                <a-button @click="downloadImportTemplate">
-                  下载模板
-                </a-button>
-                <span v-if="selectedIds.length" class="selected-hint">已选 {{ selectedIds.length }} 条</span>
-              </a-space>
+              </div>
             </template>
             <!-- 吃掉右栏剩余高度；配合实测高度让表格体正好等于这块空间 -->
             <div ref="tableWrap" class="table-fill">
@@ -1755,6 +1782,10 @@ function shortSha(sha: string | null | undefined): string {
 .static-scan-defects { padding: 0; display: flex; flex-direction: column; min-height: 0; flex: 1; }
 .card-sub { margin-left: 12px; color: var(--color-text-3); font-weight: normal; font-size: 12px; }
 .selected-hint { color: var(--color-text-2); font-size: 13px; }
+/* 工具栏：按钮靠左、开关靠右（卡片标题行宽度有限，用 space-between 撑开） */
+.defect-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.mine-switch { display: flex; align-items: center; gap: 6px; flex-shrink: 0; cursor: pointer; }
+.mine-switch-label { font-size: 13px; color: var(--color-text-2); white-space: nowrap; }
 .text-muted { color: var(--color-text-4); }
 /* flex-basis 必须是 auto：`flex: 1` 是 `1 1 0%`，basis 0% 会让上面实测的 `height`
    被 flex 布局无视 —— 行高退回内容驱动，左树一展开（性能+安全）就把整条高度链顶高，
