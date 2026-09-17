@@ -4,13 +4,13 @@
 //   处理中 = 打开/重新打开/修复中；已处理 = 已修复+已验证且未失活（失活自动关闭不计入人工修复）；
 //   不处理 = 不处理；修复进度 = 已处理 ÷ (总数 − 不处理)；误报率 = 误报数 ÷ 总数。
 import type { TableColumnData } from '@arco-design/web-vue'
-import type { DefectGovernanceDashboard, DefectGovernanceGroupRow, DefectGovernanceMetrics } from '@/types/static-scan'
+import type { DefectGovernanceDashboard, DefectGovernanceMetrics } from '@/types/static-scan'
 import { Progress } from '@arco-design/web-vue'
 import { BarChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import { computed, h } from 'vue'
+import { computed, h, ref } from 'vue'
 import VChart from 'vue-echarts'
 import { ApiSecPrescan } from '@/api/sechubApis'
 import { formatTime, useGet } from '@/hooks'
@@ -105,10 +105,37 @@ const columns: TableColumnData[] = [
   { title: '性能', dataIndex: 'group_performance', children: metricColumns('performance') },
 ]
 
-/** TOP15 堆叠柱状图：按 (项目组 × 领域) 取总数前 15，两个领域一起展示 */
+/** TOP15 图当前口径：汇总（安全+性能合并）/ 单领域（对应卡片右上角的切换按钮） */
+const chartScope = ref<'summary' | 'security' | 'performance'>('summary')
+
+interface ChartRow {
+  name: string
+  total: number
+  in_progress: number
+  handled: number
+  wont_fix: number
+}
+
+/** TOP15 堆叠柱状图：取总数前 15 个项目组 */
 const topOption = computed(() => {
-  const list = [...groups.value].sort((a, b) => b.total - a.total).slice(0, 15).reverse()
-  const col = (fn: (g: DefectGovernanceGroupRow) => number) => list.map(fn)
+  let rows: ChartRow[]
+  if (chartScope.value === 'summary') {
+    // 汇总口径：一个项目组一根柱，两个领域的指标相加
+    rows = detailRows.value.map(r => ({
+      name: r.project_group_name,
+      total: (r.security?.total ?? 0) + (r.performance?.total ?? 0),
+      in_progress: (r.security?.in_progress ?? 0) + (r.performance?.in_progress ?? 0),
+      handled: (r.security?.handled ?? 0) + (r.performance?.handled ?? 0),
+      wont_fix: (r.security?.wont_fix ?? 0) + (r.performance?.wont_fix ?? 0),
+    }))
+  }
+  else {
+    rows = groups.value
+      .filter(g => g.domain === chartScope.value)
+      .map(g => ({ name: g.project_group_name, total: g.total, in_progress: g.in_progress, handled: g.handled, wont_fix: g.wont_fix }))
+  }
+  const list = rows.sort((a, b) => b.total - a.total).slice(0, 15).reverse()
+  const col = (fn: (r: ChartRow) => number) => list.map(fn)
   return {
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
     legend: { top: 0 },
@@ -117,13 +144,13 @@ const topOption = computed(() => {
     xAxis: { type: 'value', minInterval: 1 },
     yAxis: {
       type: 'category',
-      data: list.map(g => `${g.project_group_name} · ${domainLabels[g.domain] ?? g.domain}`),
+      data: list.map(r => r.name),
       axisLabel: { width: 160, overflow: 'truncate' },
     },
     series: [
-      { name: '处理中', type: 'bar', stack: 'total', data: col(g => g.in_progress), itemStyle: { color: '#165dff' }, barMaxWidth: 16 },
-      { name: '已处理', type: 'bar', stack: 'total', data: col(g => g.handled), itemStyle: { color: '#00b42a' }, barMaxWidth: 16 },
-      { name: '不处理', type: 'bar', stack: 'total', data: col(g => g.wont_fix), itemStyle: { color: '#86909c' }, barMaxWidth: 16 },
+      { name: '处理中', type: 'bar', stack: 'total', data: col(r => r.in_progress), itemStyle: { color: '#165dff' }, barMaxWidth: 16 },
+      { name: '已处理', type: 'bar', stack: 'total', data: col(r => r.handled), itemStyle: { color: '#00b42a' }, barMaxWidth: 16 },
+      { name: '不处理', type: 'bar', stack: 'total', data: col(r => r.wont_fix), itemStyle: { color: '#86909c' }, barMaxWidth: 16 },
     ],
   }
 })
@@ -183,8 +210,21 @@ const topOption = computed(() => {
         </a-col>
       </a-row>
 
-      <!-- TOP15 项目组分布 -->
+      <!-- TOP15 项目组分布：右上角切换口径（默认汇总=安全+性能合并） -->
       <a-card :bordered="false" class="m-b-12px" size="small" title="TOP15 项目组缺陷分布">
+        <template #extra>
+          <a-radio-group v-model="chartScope" type="button" size="small">
+            <a-radio value="summary">
+              汇总
+            </a-radio>
+            <a-radio value="security">
+              安全
+            </a-radio>
+            <a-radio value="performance">
+              性能
+            </a-radio>
+          </a-radio-group>
+        </template>
         <VChart v-if="topOption.series[0].data.length" :option="topOption" style="height: 320px" autoresize />
         <a-empty v-else description="暂无缺陷数据" />
       </a-card>
