@@ -1724,7 +1724,8 @@ function shortSha(sha: string | null | undefined): string {
     <a-modal v-model:visible="importVisible" title="导入缺陷" :width="640" :footer="false" unmount-on-close>
       <a-alert type="info" class="m-b-12px">
         按「下载模板」的格式填写：<b>应用编码 / 领域 / 缺陷标题</b> 为必填（应用按<b>编码</b>匹配，不按名称）；
-        缺陷编号留空自动生成，填写则原样入库（仅限 32 字符内）、重复报错；状态可填中文名（打开/修复中/已修复 等）。
+        缺陷编号留空自动生成，填写则原样入库（仅限 32 字符内）、重复报错；状态可填中文名（打开/修复中/已修复 等）；
+        <b>规则编码</b>选填（填规则键，如 FULL-SQL-INJECTION-001，绑定该规则当前版本用于复核）。
       </a-alert>
       <a-checkbox v-model="importOverwrite" class="m-b-12px">
         已存在则覆盖（按缺陷编号更新已有缺陷；不开则重复编号报错跳过）
