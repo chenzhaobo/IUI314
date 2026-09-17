@@ -913,6 +913,8 @@ export interface ScanIssueEventRow {
   commit_sha?: string | null
   /** 随事件留档的完整报告正文（AI 复核报告）；无报告的事件为 null */
   detail_report?: string | null
+  /** 结构化上下文 JSON（分支 / commit 摘要 / AI 复核结论等）；老事件为 null，界面退回 reason 文案 */
+  meta_json?: string | null
   created_at: string
 }
 

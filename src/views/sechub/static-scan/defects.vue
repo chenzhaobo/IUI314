@@ -698,9 +698,11 @@ async function loadVerifyCommits(branch: string) {
   }
   verifyCommitLoading.value = true
   try {
+    // refresh=true：先 fetch mirror 再读——刚推上去的提交不刷新就选不到，
+    // 而「验证刚提交的修复」正是这个弹窗的主要用法
     const { data, execute } = useGet<RepositoryCommitListResponse>(
       ApiSecPrescan.commits,
-      { module_id: repo.module_id, relation_id: repo.relation_id, branch, limit: 30 },
+      { module_id: repo.module_id, relation_id: repo.relation_id, branch, limit: 30, refresh: true },
       { immediate: false },
     )
     await execute()
@@ -854,6 +856,60 @@ const eventTypeLabels: Record<string, { label: string, color: string }> = {
   finding_absent: { label: '扫描未再发现', color: 'gray' },
   file_deleted: { label: '文件删除失活', color: 'gray' },
   verify_error: { label: '复核执行失败', color: 'orange' },
+}
+
+// ===== 流转事件的结构化上下文（meta_json，复核事件携带）=====
+/** 与后端 verify_meta_json 的字段一一对应（缺省字段为 null） */
+interface VerifyEventMeta {
+  kind?: string | null
+  branch?: string | null
+  commit_sha?: string | null
+  commit_short_sha?: string | null
+  commit_subject?: string | null
+  commit_author?: string | null
+  commit_time?: string | null
+  agent_code?: string | null
+  model?: string | null
+  verdict?: string | null
+  rationale?: string | null
+  execution_id?: string | null
+}
+
+/** 解析 meta_json；老事件没有该字段、内容损坏时返回 null（模板退回 reason 文案） */
+function parseEventMeta(event: ScanIssueEventRow): VerifyEventMeta | null {
+  if (!event.meta_json)
+    return null
+  try {
+    const parsed = JSON.parse(event.meta_json) as VerifyEventMeta
+    return parsed && typeof parsed === 'object' ? parsed : null
+  }
+  catch {
+    return null
+  }
+}
+
+/** 流转列表 + 解析好的 meta：一次 JSON.parse，模板直接读 */
+const eventsView = computed(() => eventsList.value.map(ev => ({ ...ev, meta: parseEventMeta(ev) })))
+
+/** 事件标签：带 meta 的复核事件显示复核方式，其余沿用事件类型表 */
+function eventLabel(event: ScanIssueEventRow & { meta: VerifyEventMeta | null }): { label: string, color: string } {
+  if (event.meta?.kind === 'ai_verify')
+    return { label: 'AI 复核', color: 'purple' }
+  if (event.meta?.kind === 'rule_verify')
+    return { label: '规则复核', color: 'purple' }
+  return eventTypeLabels[event.event_type] ?? { label: event.event_type, color: 'gray' }
+}
+
+/** 结构化字段前缀：AI 复核事件带「AI」，规则复核不带 */
+function metaPrefix(meta: VerifyEventMeta | null): string {
+  return meta?.kind === 'ai_verify' ? 'AI 复核' : '复核'
+}
+
+/** AI 复核结论标签：三态判定 → 中文（与后端 normalize_verdict 口径一致） */
+const verifyVerdictLabels: Record<string, { label: string, color: string }> = {
+  confirmed: { label: '问题仍存在', color: 'orange' },
+  rejected: { label: '验证通过（问题已修复）', color: 'green' },
+  review_needed: { label: '无法明确判定', color: 'gray' },
 }
 
 // ===== 查看报告（MdPreview 抽屉）=====
@@ -1394,10 +1450,10 @@ function shortSha(sha: string | null | undefined): string {
       >
         <a-spin :loading="eventsLoading" style="width: 100%">
           <a-timeline v-if="eventsList.length">
-            <a-timeline-item v-for="ev in eventsList" :key="ev.id" :label="formatTime(ev.created_at)">
+            <a-timeline-item v-for="ev in eventsView" :key="ev.id" :label="formatTime(ev.created_at)">
               <div class="event-item">
-                <a-tag :color="eventTypeLabels[ev.event_type]?.color ?? 'gray'" size="small">
-                  {{ eventTypeLabels[ev.event_type]?.label ?? ev.event_type }}
+                <a-tag :color="eventLabel(ev).color" size="small">
+                  {{ eventLabel(ev).label }}
                 </a-tag>
                 <span v-if="ev.from_status || ev.to_status" class="event-transition">
                   {{ statusLabels[ev.from_status ?? '']?.label ?? ev.from_status ?? '—' }}
@@ -1405,16 +1461,49 @@ function shortSha(sha: string | null | undefined): string {
                   {{ statusLabels[ev.to_status ?? '']?.label ?? ev.to_status ?? '—' }}
                 </span>
               </div>
-              <div v-if="ev.reason" class="event-reason">
+              <!-- 结构化上下文（复核事件）：分支 / commit / 时间 / 提交人 + 标题 + 结论 / 详情，
+                   比一整行长文案好读；没有 meta 的老事件退回 reason 文案 -->
+              <template v-if="ev.meta">
+                <div class="event-meta">
+                  <div v-if="ev.meta.branch || ev.meta.commit_sha" class="event-meta-row">
+                    <span class="event-meta-label">提交</span>
+                    <span class="event-meta-value">
+                      <span v-if="ev.meta.branch" class="event-branch">{{ ev.meta.branch }}</span>
+                      <a-tooltip v-if="ev.meta.commit_sha" :content="ev.meta.commit_sha" mini>
+                        <span class="event-sha">{{ ev.meta.commit_short_sha || shortSha(ev.meta.commit_sha) }}</span>
+                      </a-tooltip>
+                      <span v-if="ev.meta.commit_time" class="event-meta-sub">{{ formatTime(ev.meta.commit_time) }}</span>
+                      <span v-if="ev.meta.commit_author" class="event-meta-sub">{{ ev.meta.commit_author }}</span>
+                    </span>
+                  </div>
+                  <div v-if="ev.meta.commit_subject" class="event-commit-subject" :title="ev.meta.commit_subject">
+                    {{ ev.meta.commit_subject }}
+                  </div>
+                  <div v-if="ev.meta.verdict" class="event-meta-row">
+                    <span class="event-meta-label">{{ metaPrefix(ev.meta) }}结论</span>
+                    <span class="event-meta-value">
+                      <a-tag :color="verifyVerdictLabels[ev.meta.verdict]?.color ?? 'gray'" size="small">
+                        {{ verifyVerdictLabels[ev.meta.verdict]?.label ?? ev.meta.verdict }}
+                      </a-tag>
+                      <span v-if="ev.meta.model" class="event-meta-sub">{{ ev.meta.model }}</span>
+                    </span>
+                  </div>
+                  <div v-if="ev.meta.rationale" class="event-meta-row">
+                    <span class="event-meta-label">{{ metaPrefix(ev.meta) }}详情</span>
+                    <span class="event-meta-value event-meta-text">{{ ev.meta.rationale }}</span>
+                  </div>
+                </div>
+              </template>
+              <div v-else-if="ev.reason" class="event-reason">
                 {{ ev.reason }}
               </div>
               <div v-if="ev.detail_report" class="event-report-link">
                 <a-button type="text" size="mini" @click="viewEventReport(ev)">
-                  查看复核报告
+                  查看{{ metaPrefix(ev.meta) }}报告
                 </a-button>
               </div>
-              <div v-if="ev.commit_sha" class="event-commit">
-                commit: {{ ev.commit_sha }}
+              <div v-if="ev.commit_sha && !ev.meta" class="event-commit">
+                commit: {{ shortSha(ev.commit_sha) }}
               </div>
             </a-timeline-item>
           </a-timeline>
@@ -1495,7 +1584,7 @@ function shortSha(sha: string | null | undefined): string {
     >
       <a-alert type="info" class="m-b-12px">
         将对 <b>{{ verifyTargets.length }}</b> 条缺陷提交<b>后台复核</b>：重新拉取所选分支的最新代码，
-        由所选 Agent/模型阅读代码判定问题是否仍存在（仍存在→验证失败；已修复→验证通过）。
+        由所选 Agent/模型阅读代码判定问题是否仍存在（仍存在→验证失败；确认已修复→状态置「已验证」）。
         <b>不创建扫描运行记录</b>；提交后立即返回，完成后刷新列表查看结果（流转记录有详情）。
         <template v-if="verifyRepoNames.length > 1">
           <br>⚠️ 所选缺陷跨 {{ verifyRepoNames.length }} 个仓库（{{ verifyRepoNames.join('、') }}），
@@ -1653,6 +1742,24 @@ function shortSha(sha: string | null | undefined): string {
 .event-reason { margin-top: 4px; font-size: 12px; color: var(--color-text-3); }
 .event-report-link { margin-top: 2px; }
 .event-commit { margin-top: 2px; font-size: 12px; color: var(--color-text-4); font-family: monospace; }
+/* 复核事件的结构化上下文：左侧定宽标签列，右侧值自动换行 */
+.event-meta { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
+.event-meta-row { display: flex; align-items: flex-start; gap: 6px; font-size: 12px; color: var(--color-text-2); }
+.event-meta-label { flex-shrink: 0; width: 68px; color: var(--color-text-3); }
+.event-meta-value { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.event-meta-sub { color: var(--color-text-3); }
+.event-meta-text { color: var(--color-text-2); }
+.event-branch { font-family: monospace; color: var(--color-text-2); }
+.event-sha { font-family: monospace; }
+/* 提交标题与标签列对齐（68px 标签 + 6px gap），过长省略号截断，完整值看 title */
+.event-commit-subject {
+  margin-left: 74px;
+  font-size: 12px;
+  color: var(--color-text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .report-toolbar {
   display: flex;
