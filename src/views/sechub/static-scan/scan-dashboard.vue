@@ -489,6 +489,17 @@ type DeltaScanMode = 'auto_delta' | 'code_delta' | 'rule_delta' | 'hybrid_delta'
 const scanTargetType = ref<ScanTargetType>('repository')
 const domainAssets = ref<DomainAsset[]>([])
 const selectedAssetIds = ref<string[]>([])
+
+const ASSET_SELECT_SOFT_LIMIT = 300
+
+/** 一键选中当前列表里的全部资产（含"匹配歧义被禁用"的也会选中：是否需要它们由后端冻结校验兜底） */
+function selectAllAssets() {
+  selectedAssetIds.value = domainAssets.value.map(asset => asset.id)
+  // 后端按资产逐条冻结范围，选太多会明显变慢；给个分批的提示（不做硬限制，由使用者决定）
+  if (selectedAssetIds.value.length > ASSET_SELECT_SOFT_LIMIT)
+    Message.warning(`已选 ${selectedAssetIds.value.length} 个资产，冻结范围与扫描会比较慢，建议按批次扫描`)
+}
+
 const includeAmbiguous = ref(false)
 const loadingDomainAssets = ref(false)
 const isLocalRepository = computed(() => selectedRepo.value?.git_url.startsWith('local-test:') ?? false)
@@ -767,18 +778,32 @@ async function loadDomainAssets() {
   }
   loadingDomainAssets.value = true
   try {
-    const page = await getAction<DomainAssetPage>(ApiSecDomainAsset.getList, {
-      page_num: 1,
-      page_size: 200,
-      asset_type: scanTargetType.value,
-      repository_id: selectedRepoId.value,
-      in_scope: true,
-      active: true,
-    })
-    domainAssets.value = page?.list ?? []
+    // 翻页取全量：只取第一页会让超出部分的资产根本选不到（表单资产一个仓库就可能上百）
+    const PAGE_SIZE = 500
+    const MAX_ASSETS = 5000
+    const all: DomainAsset[] = []
+    let total = 0
+    let pageNum = 1
+    for (;;) {
+      const page = await getAction<DomainAssetPage>(ApiSecDomainAsset.getList, {
+        page_num: pageNum,
+        page_size: PAGE_SIZE,
+        asset_type: scanTargetType.value,
+        repository_id: selectedRepoId.value,
+        in_scope: true,
+        active: true,
+      })
+      const list = page?.list ?? []
+      total = page?.total ?? list.length
+      all.push(...list)
+      if (list.length === 0 || all.length >= total || all.length >= MAX_ASSETS)
+        break
+      pageNum += 1
+    }
+    domainAssets.value = all
     selectedAssetIds.value = selectedAssetIds.value.filter(id => domainAssets.value.some(asset => asset.id === id))
-    if (page && page.total > page.list.length)
-      Message.warning(`当前仓库有 ${page.total} 个可扫描资产，本次先展示最近更新的 ${page.list.length} 个`)
+    if (total > all.length)
+      Message.warning(`当前仓库有 ${total} 个可扫描资产，本次先展示 ${all.length} 个（可缩小仓库范围或按需分批扫描）`)
   }
   catch {
     domainAssets.value = []
@@ -1984,18 +2009,29 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
           </a-radio-group>
         </a-form-item>
         <a-form-item v-if="isDomainTarget" :label="scanTargetType === 'form' ? '表单资产' : '微服务资产'">
-          <a-select
-            v-model="selectedAssetIds"
-            multiple
-            allow-search
-            :loading="loadingDomainAssets"
-            :placeholder="assetOptions.length ? '选择本次要扫描的资产' : '当前仓库暂无可扫描资产'"
-            :max-tag-count="4"
-          >
-            <a-option v-for="asset in assetOptions" :key="asset.value" :value="asset.value" :disabled="asset.disabled">
-              {{ asset.label }}（{{ asset.fileCount }} 文件）
-            </a-option>
-          </a-select>
+          <a-space style="width: 100%">
+            <a-select
+              v-model="selectedAssetIds"
+              multiple
+              allow-search
+              :loading="loadingDomainAssets"
+              :placeholder="assetOptions.length ? '选择本次要扫描的资产' : '当前仓库暂无可扫描资产'"
+              :max-tag-count="4"
+              style="flex: 1"
+            >
+              <a-option v-for="asset in assetOptions" :key="asset.value" :value="asset.value" :disabled="asset.disabled">
+                {{ asset.label }}（{{ asset.fileCount }} 文件）
+              </a-option>
+            </a-select>
+            <!-- 资产常有几十上百个，逐个点不现实：一键全选 / 清空 -->
+            <a-button size="small" :disabled="!assetOptions.length || selectedAssetIds.length === assetOptions.length" @click="selectAllAssets">
+              全选（{{ assetOptions.length }}）
+            </a-button>
+            <a-button size="small" :disabled="!selectedAssetIds.length" @click="selectedAssetIds = []">
+              清空
+            </a-button>
+            <span v-if="selectedAssetIds.length" class="text-xs text-gray">已选 {{ selectedAssetIds.length }}</span>
+          </a-space>
           <a-checkbox v-model="includeAmbiguous" style="margin-top: 8px">
             包含匹配证据存在歧义的资产文件
           </a-checkbox>
