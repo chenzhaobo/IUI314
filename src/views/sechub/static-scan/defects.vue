@@ -352,12 +352,15 @@ function exportIssues() {
 }
 
 // ===== 状态能力判断 =====
+// 可标记不处理：待处理，以及"验证不通过"（复核确认仍在，但决定不修）
 function canWontFix(status: string): boolean {
-  return status === 'open' || status === 'reopened'
+  return status === 'open' || status === 'reopened' || status === 'verification_failed'
 }
+// 可发起复核的：待验证 / 验证不通过 / 已验证（终态复核）。
+// 不处理是人工决策要复核先重开；AI 复核中不重复提交；未修完的没有可验证对象。
 function canVerify(row: ScanIssueRow): boolean {
   return row.coverage_state !== 'inactive'
-    && (row.status === 'fixed' || row.status === 'verified' || row.status === 'verification_failed' || row.status === 'wont_fix' || row.status === 'verifying')
+    && (row.status === 'fixed' || row.status === 'verification_failed' || row.status === 'verified')
 }
 
 // ===== 缺陷处理：转交（选处理人；人从系统用户表来，与性能问题列表同口径）=====
@@ -444,7 +447,7 @@ async function submitTransition(target: string) {
     const res = await postAction<IssueTransitionSummary>(ApiSecPrescan.issueTransition, { ids: selectedIds.value, target })
     if (!res)
       return
-    // 状态不符的行由后端跳过并在 message 里说明（如「重开」仅对不处理状态生效）
+    // 状态不符的行由后端跳过并在 message 里说明（如「重开」只对终态：已验证/不处理）
     Message.success(res.message)
     clearSelection()
     void getList()
@@ -575,7 +578,7 @@ function openWontFixModal() {
   }
   const eligible = selectedRows.value.filter(r => canWontFix(r.status))
   if (!eligible.length) {
-    Message.warning('所选缺陷中没有可标记不处理的（仅「打开/重新打开」状态可操作）')
+    Message.warning('所选缺陷中没有可标记不处理的（仅「打开/重新打开/验证不通过」状态可操作）')
     return
   }
   wontFixTargets.value = eligible
@@ -772,7 +775,7 @@ function openVerifyDialog() {
   }
   const eligible = selectedRows.value.filter(canVerify)
   if (!eligible.length) {
-    Message.warning('所选缺陷中没有可重新验证的（仅「已修复/已验证/验证失败/不处理」状态可验证）')
+    Message.warning('所选缺陷中没有可重新验证的（仅「已修复/验证不通过/已验证」可发起；不处理请先重开，复核中的请等结果）')
     return
   }
   verifyTargets.value = eligible
@@ -827,7 +830,7 @@ async function batchVerify() {
       else
         failed++
     }
-    const failNote = failed > 0 ? `，${failed} 条提交失败（检查网络后重试）` : ''
+    const failNote = failed > 0 ? `，${failed} 条未提交（状态不符或复核中，原因见上方提示）` : ''
     Message.success(`已提交 ${submitted} 条复核（后台执行，完成后刷新列表查看结果；流转记录有详情）${failNote}`)
     verifyVisible.value = false
     clearSelection()
@@ -986,7 +989,7 @@ const statusLabels: Record<string, { label: string, color: string }> = {
   fixed: { label: '已修复', color: 'green' },
   verified: { label: '已验证', color: 'green' },
   wont_fix: { label: '不处理', color: 'gray' },
-  verification_failed: { label: '验证失败', color: 'orange' },
+  verification_failed: { label: '验证不通过', color: 'orange' },
   /** 提交后的后台 AI 复核窗口期（完成后按判定回写） */
   verifying: { label: 'AI 复核中', color: 'arcoblue' },
 }
@@ -1119,7 +1122,7 @@ function shortSha(sha: string | null | undefined): string {
               不处理
             </a-option>
             <a-option value="verification_failed">
-              验证失败
+              验证不通过
             </a-option>
           </a-select>
           <!-- 风险等级多选：诉求是"优先处理高等级"，通常要 high 与 medium 一起看；
@@ -1639,7 +1642,7 @@ function shortSha(sha: string | null | undefined): string {
     >
       <a-alert type="info" class="m-b-12px">
         将对 <b>{{ verifyTargets.length }}</b> 条缺陷提交<b>后台复核</b>：重新拉取所选分支的最新代码，
-        由所选 Agent/模型阅读代码判定问题是否仍存在（仍存在→验证失败；确认已修复→状态置「已验证」）。
+        由所选 Agent/模型阅读代码判定问题是否仍存在（仍存在→状态置「验证不通过」；确认已修复→状态置「已验证」）。
         <b>不创建扫描运行记录</b>；提交后立即返回，完成后刷新列表查看结果（流转记录有详情）。
         <template v-if="verifyRepoNames.length > 1">
           <br>⚠️ 所选缺陷跨 {{ verifyRepoNames.length }} 个仓库（{{ verifyRepoNames.join('、') }}），
