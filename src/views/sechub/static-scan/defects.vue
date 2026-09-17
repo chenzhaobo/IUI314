@@ -10,6 +10,7 @@ import { ErrorFlag } from '@/api/apis'
 import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
 import { ApiSysUser } from '@/api/sysApis'
 import { downloadText, formatTime, getAction, useAutoHeight, useDicts, useDownload, useGet, usePost, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
+import { useUserStore } from '@/stores'
 import 'md-editor-v3/lib/style.css'
 
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
@@ -22,6 +23,18 @@ defineOptions({ name: 'defects' })
 // 复用项目既有 useDicts hook（stores/modules/dicts.ts 按 dict_type 拉 sys_dict_data，带缓存）
 const router = useRouter()
 const route = useRoute()
+
+// 「我负责的」开关（默认开）：只看负责人是自己的缺陷。
+// 负责人历史上存了两种写法 —— 认领记登录名（kd_xxx/admin），转交记展示名（陈钊波）——
+// 所以过滤时两种标识都带上，否则「我负责的」会漏掉另一条链路认下的缺陷。
+const userStore = useUserStore()
+const mineOnly = ref(true)
+function mineAssigneeValue(): string {
+  if (!mineOnly.value)
+    return ''
+  const names = [userStore.user.name, userStore.user.nickname].map(value => (value ?? '').trim()).filter(Boolean)
+  return [...new Set(names)].join(',')
+}
 const wontFixReasonDicts = useDicts('static_scan_wont_fix_reason')
 const wontFixReasonOptions = computed(() => {
   const items = wontFixReasonDicts.value.static_scan_wont_fix_reason ?? []
@@ -294,6 +307,12 @@ function refresh() {
   queryParams.value.scan_point_id = ''
   void getList()
   void loadRuleStats()
+}
+
+/** 切换「我负责的」：重算负责人过滤值并刷新列表 */
+function onMineOnlyChange() {
+  queryParams.value.assignee = mineAssigneeValue()
+  refresh()
 }
 
 // 领域下拉变更：仅重载列表（不重载左树），同步树选中到对应领域节点
