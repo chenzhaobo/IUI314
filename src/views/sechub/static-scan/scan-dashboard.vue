@@ -34,6 +34,7 @@ import { ApiAiAgent, ApiAiSkill } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSecDomainAsset, ApiSecModuleRepository, ApiSecPrescan, ApiSecRuleSet, resolveStaticScanApi } from '@/api/sechubApis'
 import { formatTime, getAction, postAction, useAutoHeight, useGet } from '@/hooks'
+import ScanModeTip from './components/ScanModeTip.vue'
 import { domainLabels, securityCategoryLabels } from './labels'
 
 type SelectChangeValue = string | number | boolean | Record<string, unknown> | (string | number | boolean | Record<string, unknown>)[]
@@ -547,8 +548,8 @@ const prescanStep = ref(0)
 // 已冻结预览对应的请求指纹（见 doPrescanConfirm 的复用判断）
 let previewRequestKey = ''
 
-// 规则目录（正式规则集）：空 = 平台默认安全目录。安全与性能是两个独立规则集，
-// 想拿性能域候选必须显式选性能目录单独跑一次。
+// 规则目录（正式规则集）：空 = 平台默认目录（perf_config 配置，当前为「安全 + 性能合并目录」，
+// 一次完整基线同时覆盖两个域）；要单独扫某个域时才显式指定对应目录。
 const prescanRuleSetId = ref('')
 const ruleSets = ref<RuleSet[]>([])
 let ruleSetsRequested = false
@@ -956,7 +957,7 @@ async function doPrescanConfirm() {
   const body: Record<string, unknown> = {
     repository_id: selectedRepoId.value,
     requested_delta_kind: deltaScanMode.value,
-    // 空即平台默认安全目录；选中性能目录时用同一套流程单独跑一次
+    // 空即平台默认目录（安全 + 性能合并目录）；单独扫某个域时才传显式目录
     rule_set_id: prescanRuleSetId.value || undefined,
     branch: prescanBranch.value || undefined,
     commit_sha: prescanCommit.value || undefined,
@@ -1981,6 +1982,10 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
           </a-select>
         </a-form-item>
         <a-form-item v-if="isDeltaWizard && prescanStep === 0" label="扫描策略">
+          <template #label>
+            扫描策略
+            <ScanModeTip />
+          </template>
           <a-select v-model="deltaScanMode" style="width: 100%" @change="deltaPreview = null">
             <a-option value="auto_delta">
               推荐：自动增量
@@ -2042,7 +2047,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
           <a-select
             v-model="prescanRuleSetId"
             allow-clear
-            placeholder="平台默认（安全目录）"
+            placeholder="平台默认（安全 + 性能合并目录）"
             style="width: 100%"
             @change="deltaPreview = null"
           >
@@ -2051,7 +2056,8 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
             </a-option>
           </a-select>
           <div class="text-xs text-gray" style="margin-top: 4px">
-            留空用平台默认安全目录；安全与性能是两个独立规则集，要性能域候选请选「性能重建规则目录」再跑一次。
+            留空用平台默认规则目录（当前为「安全 + 性能合并目录」，一次完整基线同时覆盖两个域）；
+            只有明确要单独扫某个域时才在这里指定对应的规则目录。
           </div>
         </a-form-item>
         <a-card v-if="isDeltaWizard && prescanStep === 1 && deltaPreview" title="冻结计划预览" size="small" style="margin-bottom: 8px">

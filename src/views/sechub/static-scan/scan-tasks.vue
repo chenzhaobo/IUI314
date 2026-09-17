@@ -7,6 +7,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { ApiAiAgent } from '@/api/aiApis'
 import { ApiSecModuleRepository, ApiSecPrescan } from '@/api/sechubApis'
 import { formatTime, postAction, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
+import ScanModeTip from './components/ScanModeTip.vue'
 
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
 // （见 components/layout/app-main.vue 的注释）。lint 的 PascalCase 提示只是警告，
@@ -753,6 +754,10 @@ const columns = withTableDefaults([
           <!-- 扫描策略 -->
           <a-col :span="12">
             <a-form-item label="扫描策略">
+              <template #label>
+                扫描策略
+                <ScanModeTip />
+              </template>
               <a-select v-model="form.scan_mode" style="width: 100%">
                 <a-option value="auto_delta">
                   推荐：自动增量
