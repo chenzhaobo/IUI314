@@ -8,7 +8,7 @@ import { BarChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import VChart from 'vue-echarts'
 import { ApiSecPrescan } from '@/api/sechubApis'
 import { formatTime, useGet } from '@/hooks'
@@ -26,12 +26,20 @@ const dashboard = computed(() => rawData.value ?? null)
 const summaries = computed(() => dashboard.value?.summaries ?? [])
 const groups = computed(() => dashboard.value?.groups ?? [])
 
-/** 表格/图表当前展示的领域 */
-const activeDomain = ref<'security' | 'performance'>('security')
-const domainGroups = computed(() => groups.value.filter(g => g.domain === activeDomain.value))
-
 const domainLabels: Record<string, string> = { security: '安全', performance: '性能' }
 const domainColors: Record<string, string> = { security: 'red', performance: 'blue' }
+
+/** 明细行：安全在前、性能在后，各自按总数降序（两个领域一起展示，不切换）。
+ *  row_key 拼 (项目组 + 领域)：同一项目组在两个领域各一行，行键必须区分开 */
+const detailRows = computed(() =>
+  [...groups.value]
+    .sort((a, b) => {
+      if (a.domain !== b.domain)
+        return a.domain === 'security' ? -1 : 1
+      return b.total - a.total
+    })
+    .map(g => ({ ...g, row_key: `${g.project_group_id || g.project_group_name}-${g.domain}` })),
+)
 
 /** 修复进度按阈值着色：≥80% 绿、≥40% 蓝、其余橙 */
 function progressStatus(v: number): 'success' | 'normal' | 'warning' {
@@ -42,11 +50,8 @@ function progressStatus(v: number): 'success' | 'normal' | 'warning' {
   return 'warning'
 }
 
-function percent(v: number): number {
-  return Math.round((v ?? 0) * 100)
-}
-
 const columns: Array<Record<string, unknown>> = [
+  { title: '领域', dataIndex: 'domain', slotName: 'domain', width: 70 },
   { title: '项目组', dataIndex: 'project_group_name', width: 200 },
   { title: '总数', dataIndex: 'total', width: 80 },
   { title: '处理中', dataIndex: 'in_progress', width: 80 },
@@ -56,9 +61,9 @@ const columns: Array<Record<string, unknown>> = [
   { title: '误报率', dataIndex: 'false_positive_rate', slotName: 'fpRate', width: 120 },
 ]
 
-/** TOP15 项目组堆叠柱状图（当前领域） */
+/** TOP15 堆叠柱状图：按 (项目组 × 领域) 取总数前 15，两个领域一起展示 */
 const topOption = computed(() => {
-  const list = [...domainGroups.value].sort((a, b) => b.total - a.total).slice(0, 15).reverse()
+  const list = [...groups.value].sort((a, b) => b.total - a.total).slice(0, 15).reverse()
   const col = (fn: (g: DefectGovernanceGroupRow) => number) => list.map(fn)
   return {
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
@@ -68,8 +73,8 @@ const topOption = computed(() => {
     xAxis: { type: 'value', minInterval: 1 },
     yAxis: {
       type: 'category',
-      data: list.map(g => g.project_group_name),
-      axisLabel: { width: 140, overflow: 'truncate' },
+      data: list.map(g => `${g.project_group_name} · ${domainLabels[g.domain] ?? g.domain}`),
+      axisLabel: { width: 160, overflow: 'truncate' },
     },
     series: [
       { name: '处理中', type: 'bar', stack: 'total', data: col(g => g.in_progress), itemStyle: { color: '#165dff' }, barMaxWidth: 16 },
@@ -118,7 +123,8 @@ const topOption = computed(() => {
                 <div class="metric-label">
                   修复进度
                 </div>
-                <a-progress :percent="percent(s.fix_progress)" size="small" :status="progressStatus(s.fix_progress)" />
+                <!-- Arco 的 percent 是 0~1 比率（组件内部 ×100 才是显示文本），直接传原始比率 -->
+                <a-progress :percent="s.fix_progress" size="small" :status="progressStatus(s.fix_progress)" />
               </a-col>
               <a-col :span="4">
                 <div class="metric-label">
@@ -139,28 +145,23 @@ const topOption = computed(() => {
         <a-empty v-else description="暂无缺陷数据" />
       </a-card>
 
-      <!-- 项目组明细（按领域切换） -->
-      <a-card :bordered="false" size="small" title="按项目组明细">
-        <template #extra>
-          <a-radio-group v-model="activeDomain" type="button" size="small">
-            <a-radio value="security">
-              安全领域
-            </a-radio>
-            <a-radio value="performance">
-              性能领域
-            </a-radio>
-          </a-radio-group>
-        </template>
+      <!-- 项目组明细：安全 + 性能一起展示（安全在前、各按总数降序） -->
+      <a-card :bordered="false" size="small" title="按项目组明细（安全 + 性能）">
         <a-table
-          :data="domainGroups"
+          :data="detailRows"
           :columns="columns"
           :pagination="false"
-          row-key="project_group_id"
+          row-key="row_key"
           size="small"
           column-resizable
         >
+          <template #domain="{ record }">
+            <a-tag :color="domainColors[record.domain] ?? 'gray'" size="small">
+              {{ domainLabels[record.domain] ?? record.domain }}
+            </a-tag>
+          </template>
           <template #progress="{ record }">
-            <a-progress :percent="percent(record.fix_progress)" size="small" :status="progressStatus(record.fix_progress)" />
+            <a-progress :percent="record.fix_progress" size="small" :status="progressStatus(record.fix_progress)" />
           </template>
           <template #fpRate="{ record }">
             <span :class="{ 'fp-high': record.false_positive_rate > 0.2 }">
