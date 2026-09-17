@@ -8,6 +8,7 @@ import { useRouter } from 'vue-router'
 import { ApiAiAgent } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
+import { ApiSysUser } from '@/api/sysApis'
 import { downloadText, formatTime, getAction, useAutoHeight, useDicts, useDownload, useGet, usePost, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
 import 'md-editor-v3/lib/style.css'
 
@@ -97,11 +98,6 @@ function filterQueryString(): string {
       params.set(key, String(value))
   }
   return params.toString()
-}
-
-function exportIssues() {
-  const qs = filterQueryString()
-  void downloadWithTip(`${ApiSecPrescan.issuesExport}${qs ? `?${qs}` : ''}`, 'defects_export.xlsx', '导出失败')
 }
 
 function downloadImportTemplate() {
@@ -347,6 +343,14 @@ function clearSelection() {
   selectedIds.value = []
 }
 
+/** 导出：勾选了就只导出勾选的（跨页累计）；没勾选按当前筛选导出全部 */
+function exportIssues() {
+  const qs = selectedIds.value.length
+    ? new URLSearchParams({ ids: selectedIds.value.join(',') }).toString()
+    : filterQueryString()
+  void downloadWithTip(`${ApiSecPrescan.issuesExport}${qs ? `?${qs}` : ''}`, 'defects_export.xlsx', '导出失败')
+}
+
 // ===== 状态能力判断 =====
 function canWontFix(status: string): boolean {
   return status === 'open' || status === 'reopened'
@@ -356,49 +360,34 @@ function canVerify(row: ScanIssueRow): boolean {
     && (row.status === 'fixed' || row.status === 'verified' || row.status === 'verification_failed' || row.status === 'wont_fix' || row.status === 'verifying')
 }
 
-// ===== 缺陷处理：转交（选项目组 → 成员 → 指定处理人）=====
-interface ProjectGroupMemberRow {
-  user_id: string
-  user_name: string
-  user_nickname?: string | null
-}
-
+// ===== 缺陷处理：转交（选处理人；人从系统用户表来，与性能问题列表同口径）=====
 const transferVisible = ref(false)
 const transferLoading = ref(false)
-const transferGroupId = ref('')
 const transferAssignee = ref('')
 const transferRemark = ref('')
-const transferMembers = ref<ProjectGroupMemberRow[]>([])
-const transferMembersLoading = ref(false)
+
+// 处理人下拉：取用户管理（/system/user/list），不从项目组成员取 ——
+// 项目组成员表常常是空的（缺陷行上也没有项目组字段），下拉会没有数据；
+// 直接选系统用户同时避免手输「张三/张三 /zhangsan」三种写法指向同一个人
+const transferUserQuery = ref({ page_num: 1, page_size: 200 })
+const { isFetching: transferUsersLoading, data: transferUsersRes, execute: loadTransferUsers } = useGet<any>(ApiSysUser.getList, transferUserQuery, { immediate: false })
+const transferUserOptions = computed(() => {
+  const list = transferUsersRes.value?.list
+  return (Array.isArray(list) ? list : []).map((u: any) => ({
+    value: u.user_nickname || u.user_name,
+    label: u.user_nickname ? `${u.user_nickname}（${u.user_name}）` : u.user_name,
+  }))
+})
 
 function openTransferModal() {
   if (!selectedIds.value.length) {
     Message.warning('请先勾选缺陷')
     return
   }
-  transferGroupId.value = ''
   transferAssignee.value = ''
   transferRemark.value = ''
-  transferMembers.value = []
   transferVisible.value = true
-}
-
-/** 选项目组 → 拉该组成员供选择（项目组只用来筛人；缺陷归属由仓库推导，行上没有项目组字段） */
-async function onTransferGroupChange(value: unknown) {
-  transferAssignee.value = ''
-  transferMembers.value = []
-  const groupId = typeof value === 'string' ? value : ''
-  if (!groupId)
-    return
-  transferMembersLoading.value = true
-  try {
-    const { data, execute } = useGet<ProjectGroupMemberRow[]>(ApiSecProjectGroup.members, { id: groupId }, { immediate: false })
-    await execute()
-    transferMembers.value = Array.isArray(data.value) ? data.value : []
-  }
-  finally {
-    transferMembersLoading.value = false
-  }
+  void loadTransferUsers()
 }
 
 async function submitTransfer() {
@@ -1279,9 +1268,11 @@ function shortSha(sha: string | null | undefined): string {
                     DMP 编码
                   </a-button>
                 </a-tooltip>
-                <a-button @click="exportIssues">
-                  导出
-                </a-button>
+                <a-tooltip :content="selectedIds.length ? `只导出勾选的 ${selectedIds.length} 条` : '导出当前筛选下全部缺陷'" mini>
+                  <a-button @click="exportIssues">
+                    导出
+                  </a-button>
+                </a-tooltip>
                 <a-button @click="openImport">
                   导入
                 </a-button>
@@ -1438,23 +1429,16 @@ function shortSha(sha: string | null | undefined): string {
         </a-form>
       </a-modal>
 
-      <!-- 转交弹窗：项目组筛人 → 指定处理人（项目组只是成员范围，不改缺陷归属） -->
+      <!-- 转交弹窗：处理人从系统用户里选（缺陷本身没有项目组字段，不在此改归属） -->
       <a-modal v-model:visible="transferVisible" title="转交缺陷" :width="520" :footer="false" unmount-on-close>
         <a-form layout="vertical" :model="layoutOnlyModel">
           <a-alert type="info" class="m-b-12px">
             将把 {{ selectedIds.length }} 条缺陷转交给指定处理人（「打开/重新打开」会同时进入修复中）
           </a-alert>
-          <a-form-item label="项目组">
-            <a-select v-model="transferGroupId" allow-search allow-clear placeholder="选择项目组（用于筛选成员）" @change="onTransferGroupChange">
-              <a-option v-for="pg in pgOptions" :key="pg.value" :value="pg.value">
-                {{ pg.label }}
-              </a-option>
-            </a-select>
-          </a-form-item>
           <a-form-item label="处理人" required>
-            <a-select v-model="transferAssignee" allow-search allow-create :loading="transferMembersLoading" placeholder="从该项目组成员中选择（也可直接输入）">
-              <a-option v-for="m in transferMembers" :key="m.user_id" :value="m.user_name">
-                {{ m.user_nickname || m.user_name }}（{{ m.user_name }}）
+            <a-select v-model="transferAssignee" allow-search allow-create :loading="transferUsersLoading" placeholder="从系统用户中选择（也可直接输入）">
+              <a-option v-for="u in transferUserOptions" :key="u.value" :value="u.value">
+                {{ u.label }}
               </a-option>
             </a-select>
           </a-form-item>
