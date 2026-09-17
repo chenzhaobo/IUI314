@@ -925,7 +925,9 @@ async function loadBaseline() {
       { immediate: false },
     )
     await execute()
-    baseline.value = data.value ?? null
+    // 「无基线」时后端返回 data:null，而 useGet 的解包把空值归一成 {}（成功一定拿到真值的不变量），
+    // 所以必须按 id 判定有没有，不能只判真值 —— 否则 {} 会当成基线，读到 undefined 字段直接崩渲染。
+    baseline.value = data.value?.id ? data.value : null
   }
   catch {
     baseline.value = null
@@ -2098,7 +2100,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
                 可用
               </a-tag>
               <span class="font-mono">{{ baseline.commit_short || '（无 commit）' }}</span>
-              <span class="baseline-meta">{{ formatTime(baseline.created_at) }} · 运行 {{ baseline.baseline_run_id.slice(0, 8) }} 建立（{{ baseline.trust_level === 'provisional' ? '暂定' : '已采纳' }}）</span>
+              <span class="baseline-meta">{{ formatTime(baseline.created_at) }} · 运行 {{ (baseline.baseline_run_id || '').slice(0, 8) }} 建立（{{ baseline.trust_level === 'provisional' ? '暂定' : '已采纳' }}）</span>
             </template>
             <template v-else>
               <a-tag color="orange" size="small">
