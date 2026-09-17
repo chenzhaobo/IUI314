@@ -911,6 +911,8 @@ export interface ScanIssueEventRow {
   reason?: string | null
   operator?: string | null
   commit_sha?: string | null
+  /** 随事件留档的完整报告正文（AI 复核报告）；无报告的事件为 null */
+  detail_report?: string | null
   created_at: string
 }
 

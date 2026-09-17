@@ -830,6 +830,15 @@ async function viewEvents(row: ScanIssueRow) {
   }
 }
 
+// 复核报告：随流转事件留档，点开看那一轮 AI 复核的完整报告（多轮可对比；
+// 与缺陷行「报告」的检出报告是两份东西，互不顶替）
+const eventReportVisible = ref(false)
+const eventReportRow = ref<ScanIssueEventRow | null>(null)
+function viewEventReport(event: ScanIssueEventRow) {
+  eventReportRow.value = event
+  eventReportVisible.value = true
+}
+
 // 事件类型标签：key 与后端写入的 event_type 逐字一致
 // （后端首检写 'created' 而非 'create'；重新检出写 'reopened' / 'status_change'）
 const eventTypeLabels: Record<string, { label: string, color: string }> = {
@@ -1392,6 +1401,11 @@ function shortSha(sha: string | null | undefined): string {
               <div v-if="ev.reason" class="event-reason">
                 {{ ev.reason }}
               </div>
+              <div v-if="ev.detail_report" class="event-report-link">
+                <a-button type="text" size="mini" @click="viewEventReport(ev)">
+                  查看复核报告
+                </a-button>
+              </div>
               <div v-if="ev.commit_sha" class="event-commit">
                 commit: {{ ev.commit_sha }}
               </div>
@@ -1400,6 +1414,20 @@ function shortSha(sha: string | null | undefined): string {
           <a-empty v-else description="暂无流转记录" />
         </a-spin>
       </a-drawer>
+
+      <!-- 复核报告弹窗：即该轮 AI 复核写的完整报告（随流转事件留档） -->
+      <a-modal
+        :visible="eventReportVisible"
+        width="75%"
+        :title="`复核报告 · ${eventReportRow ? formatTime(eventReportRow.created_at) : ''}`"
+        :footer="false"
+        :body-style="{ maxHeight: '76vh', overflowY: 'auto' }"
+        unmount-on-close
+        @cancel="eventReportVisible = false"
+      >
+        <MdPreview v-if="eventReportRow?.detail_report" :model-value="eventReportRow.detail_report" />
+        <a-empty v-else description="该事件没有附带报告" />
+      </a-modal>
 
       <!-- 查看报告弹窗（富文本渲染 Markdown，宽幅+可滚动，避免抽屉显示不全） -->
       <a-modal
@@ -1616,6 +1644,7 @@ function shortSha(sha: string | null | undefined): string {
 .event-item { display: flex; align-items: center; gap: 8px; }
 .event-transition { font-size: 13px; color: var(--color-text-2); }
 .event-reason { margin-top: 4px; font-size: 12px; color: var(--color-text-3); }
+.event-report-link { margin-top: 2px; }
 .event-commit { margin-top: 2px; font-size: 12px; color: var(--color-text-4); font-family: monospace; }
 
 .report-toolbar {
