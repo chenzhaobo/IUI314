@@ -19,6 +19,8 @@ import type {
   RepositoryCommitListResponse,
   RuleSet,
   RunCompare,
+  ScanBaselineAdoptResult,
+  ScanBaselineView,
   ScanPointSummaryRow,
   UnifiedScanRunRow,
 } from '@/types/static-scan'
@@ -2087,6 +2089,31 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
             </a-radio>
           </a-radio-group>
         </a-form-item>
+        <!-- 当前差量基线：「自动选择可信基线」用的就是它；没有时给人工采纳兜底 -->
+        <a-form-item v-if="isDeltaWizard && prescanStep === 0" label="当前差量基线">
+          <div class="baseline-row">
+            <a-spin v-if="baselineLoading" :size="14" />
+            <template v-else-if="baseline">
+              <a-tag color="green" size="small">
+                可用
+              </a-tag>
+              <span class="font-mono">{{ baseline.commit_short || '（无 commit）' }}</span>
+              <span class="baseline-meta">{{ formatTime(baseline.created_at) }} · 运行 {{ baseline.baseline_run_id.slice(0, 8) }} 建立（{{ baseline.trust_level === 'provisional' ? '暂定' : '已采纳' }}）</span>
+            </template>
+            <template v-else>
+              <a-tag color="orange" size="small">
+                无
+              </a-tag>
+              <span class="baseline-meta">先跑一次「完整基线」建立；跑完（AI 确认 + 写回完成）平台会自动登记</span>
+            </template>
+            <a-button size="mini" :loading="baselineAdopting" @click="adoptBaseline">
+              采纳最近成功扫描为基线
+            </a-button>
+          </div>
+          <div class="text-xs text-gray" style="margin-top: 4px">
+            没有基线时「自动增量」会报「找不到可信的差量基线」——先跑「完整基线」，或把上面的「差量基准」改成「指定基准 commit」。
+          </div>
+        </a-form-item>
         <a-form-item v-if="isDeltaWizard && prescanStep === 0 && scanScope === 'diff_commit'" label="基准 Commit SHA">
           <!-- 差量基准 commit：支持下拉选同分支 commit，保留手工输入与 7~40 位 hex 校验。
                allow-clear 允许清空；disabled 联动：仅 scanScope === 'diff_commit' 时可操作，
@@ -2283,6 +2310,19 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
 <style scoped>
 .scan-dashboard {
   padding: 16px;
+}
+
+/* 当前差量基线：状态标签 + commit + 来源说明 + 采纳按钮一行排开 */
+.baseline-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.baseline-meta {
+  color: var(--color-text-3);
+  font-size: 12px;
 }
 
 /* 冻结计划预览：标签 / 取值 / 口径说明三列网格，长值换行也不再串行错位 */

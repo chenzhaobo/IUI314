@@ -294,6 +294,9 @@ export enum ApiSecPrescan {
   issueFixed = '/sechub/prescan/issue-fixed',
   issueTransfer = '/sechub/prescan/issue-transfer',
   issueTransition = '/sechub/prescan/issue-transition',
+  /** 差量基线：当前 active 基线查询 / 人工采纳 */
+  baseline = '/sechub/prescan/baseline',
+  baselineAdopt = '/sechub/prescan/baseline-adopt',
   issuesExport = '/sechub/prescan/issues/export',
   issuesImport = '/sechub/prescan/issues/import',
   issuesTemplate = '/sechub/prescan/issues/template',
