@@ -338,11 +338,11 @@ async function postAction<T = unknown>(url: string, payload: Record<string, any>
 }
 
 // ===== 行选择（批量操作基础）=====
+// 受控选择（v-model:selected-keys）：勾选态由 selectedIds 反推。非受控模式下
+// 表格自管勾选态，clearSelection() 只清内部数据、勾选框不同步取消，会出现
+// 「看着勾着、点操作却提示请先勾选」的错位。
 const selectedIds = ref<string[]>([])
 const selectedRows = computed(() => dataList.value.filter(r => selectedIds.value.includes(r.id)))
-function handleSelectionChange(keys: (string | number)[]) {
-  selectedIds.value = keys as string[]
-}
 function clearSelection() {
   selectedIds.value = []
 }
@@ -934,7 +934,7 @@ const columns = computed(() => withTableDefaults([
   { title: '状态', dataIndex: 'status', slotName: 'status', width: 90, ellipsis: true, tooltip: true },
   { title: '负责人', dataIndex: 'assignee', width: 75 },
   { title: '文件', dataIndex: 'file_path', width: 180 },
-  { title: '命中', dataIndex: 'hit_count', width: 50 },
+  { title: '命中', dataIndex: 'hit_count', slotName: 'hitCount', width: 50 },
   { title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 140, ellipsis: true, tooltip: true },
   { title: 'DMP 编码', dataIndex: 'dmp_defect_code', slotName: 'dmpCode', width: 130, ellipsis: true, tooltip: true },
   { title: '更新时间', dataIndex: 'updated_at', slotName: 'updatedAt', width: 190 },
@@ -1190,6 +1190,7 @@ function shortSha(sha: string | null | undefined): string {
             <!-- 吃掉右栏剩余高度；配合实测高度让表格体正好等于这块空间 -->
             <div ref="tableWrap" class="table-fill">
               <a-table
+                v-model:selected-keys="selectedIds"
                 :loading="isLoading"
                 :data="dataList"
                 :columns="columns"
@@ -1207,7 +1208,6 @@ function shortSha(sha: string | null | undefined): string {
                 :scroll="{ minWidth: 1480, y: tableHeight }"
                 @page-change="onPageChange"
                 @page-size-change="onPageSizeChange"
-                @selection-change="handleSelectionChange"
                 @filter-change="onWontFixReasonFilter"
               >
                 <template #defectCode="{ record }">
@@ -1265,6 +1265,13 @@ function shortSha(sha: string | null | undefined): string {
                     mini
                   >
                     <span>{{ formatTime(record.introduced_at) }}</span>
+                  </a-tooltip>
+                </template>
+                <template #hitCount="{ record }">
+                  <!-- 命中 = 该缺陷累计被检出的次数（首次为 1，重扫再次命中同一指纹 +1），
+                       用来判断问题是否反复出现；最近一次命中时间看「更新时间」 -->
+                  <a-tooltip content="累计被检出的次数：首次检出为 1，之后每次扫描再次命中同一问题 +1；最近一次命中时间见「更新时间」" position="top" mini>
+                    <span class="cell-nowrap">{{ record.hit_count }}</span>
                   </a-tooltip>
                 </template>
                 <template #updatedAt="{ record }">
