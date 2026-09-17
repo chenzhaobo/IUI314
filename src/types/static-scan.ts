@@ -869,6 +869,33 @@ export interface IssueTransitionSummary {
   message: string
 }
 
+/** 差量基线（比较域内的 active 基线；差量向导展示用） */
+export interface ScanBaselineView {
+  id: string
+  repository_id: string
+  branch: string
+  scope_type: string
+  scope_key: string
+  /** 基线提交（差量基准） */
+  commit_sha?: string | null
+  /** 短 sha（列表展示） */
+  commit_short?: string | null
+  /** adopted / provisional */
+  trust_level: string
+  /** 承载基线的扫描 run */
+  baseline_run_id: string
+  created_at: string
+}
+
+/** 人工采纳基线结果 */
+export interface ScanBaselineAdoptResult {
+  baseline: ScanBaselineView
+  /** false = 该 run 已是当前基线（幂等） */
+  created: boolean
+  replaced_baseline_id?: string | null
+  message: string
+}
+
 /** 缺陷 Excel 导入结果（逐行错误带 Excel 行号） */
 export interface IssueImportSummary {
   total: number
@@ -1016,6 +1043,12 @@ export interface CrossRunAggRow {
   branch?: string | null
   commit_sha?: string | null
   commit_time?: string | null
+  /** 扫描策略：差量类型（见 deltaKindLabels；空=全量） */
+  delta_kind?: string | null
+  /** 差量基线 commit（差量运行的比对基准） */
+  base_commit?: string | null
+  /** 领域范围（空=全部领域） */
+  domains?: string | null
   created_at: string
   status: string
   ai_model?: string | null

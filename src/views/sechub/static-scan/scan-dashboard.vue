@@ -510,6 +510,8 @@ interface EstimateRange {
 interface DeltaPlanPreview {
   plan_id: string
   delta_kind: string
+  /** 本次预览是否复用了已存在的相同规格未冻结计划（true 时没有新建 run/计划） */
+  reused?: boolean
   base_commit?: string | null
   target_commit?: string | null
   added_files: number
@@ -545,7 +547,7 @@ const previewingDelta = ref(false)
 const executingDelta = ref(false)
 // 仓库差量向导：0=选择范围与策略，1=核对计划并执行
 const prescanStep = ref(0)
-// 已冻结预览对应的请求指纹（见 doPrescanConfirm 的复用判断）
+// 上一次预览对应的请求指纹（见 doPrescanConfirm 的本地复用判断；后端另有按规格的复用）
 let previewRequestKey = ''
 
 // 规则目录（正式规则集）：空 = 平台默认目录（perf_config 配置，当前为「安全 + 性能合并目录」，
@@ -853,6 +855,10 @@ async function openPrescanModal() {
   if (prescanBranch.value) {
     await loadPrescanCommits(prescanBranch.value)
   }
+  // 差量向导：顺带查该仓库/分支的当前差量基线（「自动选择可信基线」用的就是它）
+  if (isDeltaWizard.value) {
+    await loadBaseline()
+  }
 }
 
 // 显式刷新分支：点击刷新按钮才用 refresh=true 真正 git fetch
@@ -895,6 +901,57 @@ async function onPrescanBranchChange(value: SelectChangeValue) {
   const branchName = String(value)
   // 切换分支必须重新加载 commit 列表，不允许残留上一分支的 commit
   await loadPrescanCommits(branchName)
+  // 差量基线按「仓库 + 分支」比较域隔离，换分支要重新查
+  await loadBaseline()
+}
+
+// ===== 差量基线（DELTA-02 接线）：当前 active 基线 + 人工采纳 =====
+const baseline = ref<ScanBaselineView | null>(null)
+const baselineLoading = ref(false)
+const baselineAdopting = ref(false)
+
+async function loadBaseline() {
+  if (!selectedRepoId.value || !prescanBranch.value) {
+    baseline.value = null
+    return
+  }
+  baselineLoading.value = true
+  try {
+    const { data, execute } = useGet<ScanBaselineView | null>(
+      ApiSecPrescan.baseline,
+      { repository_id: selectedRepoId.value, branch: prescanBranch.value },
+      { immediate: false },
+    )
+    await execute()
+    baseline.value = data.value ?? null
+  }
+  catch {
+    baseline.value = null
+  }
+  finally {
+    baselineLoading.value = false
+  }
+}
+
+/** 采纳最近一个合格的扫描为基线（完整扫描收尾后平台也会自动采纳，这里是人工兜底） */
+async function adoptBaseline() {
+  if (!selectedRepoId.value || !prescanBranch.value)
+    return
+  baselineAdopting.value = true
+  try {
+    const res = await postAction<ScanBaselineAdoptResult>(ApiSecPrescan.baselineAdopt, {
+      repository_id: selectedRepoId.value,
+      branch: prescanBranch.value,
+      force: true,
+    })
+    if (!res)
+      return
+    Message.success(res.message)
+    await loadBaseline()
+  }
+  finally {
+    baselineAdopting.value = false
+  }
 }
 
 async function acceptDirectTrigger(result: PrescanTriggerResponse, message: string) {
@@ -930,7 +987,7 @@ async function triggerDirectPrescan() {
     await acceptDirectTrigger(result, '已启动反编译源码全量扫描')
 }
 
-async function doPrescanConfirm() {
+async function doPrescanConfirm(forceRegenerate = false) {
   if (!selectedRepoId.value)
     return
   if (isDomainTarget.value || isLocalRepository.value) {
@@ -954,6 +1011,7 @@ async function doPrescanConfirm() {
     Message.warning('目标 Commit SHA 须为 7~40 位十六进制字符')
     return
   }
+  // force=true：跳过复用，按当前输入重新生成计划（命令行里改了代码后想换计划时用）
   const body: Record<string, unknown> = {
     repository_id: selectedRepoId.value,
     requested_delta_kind: deltaScanMode.value,
@@ -964,12 +1022,12 @@ async function doPrescanConfirm() {
     scan_mode: deltaScanMode.value === 'full_baseline' ? 'full' : 'diff',
     base_commit: scanScope.value === 'diff_commit' ? baseCommitInput.value.trim() : undefined,
     diff_granularity: deltaScanMode.value === 'hunk_quick' ? 'hunk' : 'file',
-    force: false,
+    force: forceRegenerate,
   }
-  // 输入未变时重复点「下一步」直接复用已冻结计划：每次请求都会在后端新建一条
-  // 预览 run（planned，不扫描），重复新建只会污染扫描记录。
-  const requestKey = JSON.stringify(body)
-  if (deltaPreview.value && previewRequestKey === requestKey) {
+  // 输入未变时重复点「下一步」直接复用上一次预览结果（后端也会按输入规格复用未冻结计划，
+  // 这里只是少一次往返）
+  const requestKey = JSON.stringify({ ...body, force: false })
+  if (!forceRegenerate && deltaPreview.value && previewRequestKey === requestKey) {
     prescanStep.value = 1
     return
   }
@@ -979,14 +1037,23 @@ async function doPrescanConfirm() {
     const preview = await postAction<DeltaPlanPreview>(ApiSecPrescan.deltaPreview, body)
     if (preview) {
       deltaPreview.value = preview
-      previewRequestKey = requestKey
+      // 强制重新生成过就不缓存：下次点「下一步」应重新取（否则会一直用旧结果）
+      previewRequestKey = forceRegenerate ? '' : requestKey
       prescanStep.value = 1
-      Message.success('差量计划已冻结，请核对估算与关闭资格后确认执行')
+      if (preview.reused)
+        Message.info('输入与已有计划一致，已复用那条未执行计划（要按当前代码重新生成点「重新生成计划」）')
+      else
+        Message.success('差量计划已生成，请核对估算与关闭资格后确认执行')
     }
   }
   finally {
     previewingDelta.value = false
   }
+}
+
+/** 用户要求不复用、按当前输入重新生成计划 */
+async function regenerateDeltaPreview() {
+  await doPrescanConfirm(true)
 }
 
 async function executeDeltaPreview() {
@@ -2072,6 +2139,13 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
               估算口径：{{ deltaPreview.estimate_basis.join('；') }}
             </div>
           </div>
+          <!-- 复用了同参数的未执行计划：说清楚，并给"按当前代码重新生成"的出口 -->
+          <a-alert v-if="deltaPreview.reused" type="info" style="margin-top: 8px">
+            <div>输入与一条未执行计划完全一致，已复用那条计划（没有新建运行记录）。</div>
+            <a-button size="mini" :loading="previewingDelta" style="margin-top: 6px" @click="regenerateDeltaPreview">
+              重新生成计划
+            </a-button>
+          </a-alert>
           <a-alert v-if="deltaPreview.call_graph_truncated" type="warning" style="margin-top: 8px">
             调用图已截断，禁止自动关闭。
           </a-alert>
@@ -2091,7 +2165,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
             type="primary"
             :loading="executingDelta"
             :disabled="isDomainTarget && selectedAssetIds.length === 0"
-            @click="doPrescanConfirm"
+            @click="doPrescanConfirm(false)"
           >
             {{ isDomainTarget ? '冻结资产范围并扫描' : '开始全量扫描' }}
           </a-button>
@@ -2103,7 +2177,7 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
               v-if="prescanStep === 0"
               type="primary"
               :loading="previewingDelta"
-              @click="doPrescanConfirm"
+              @click="doPrescanConfirm(false)"
             >
               下一步：生成差量计划
             </a-button>

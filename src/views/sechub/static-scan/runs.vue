@@ -728,6 +728,32 @@ const modeLabels: Record<string, { label: string, color: string }> = {
   agent: { label: '自主审计', color: 'purple' },
 }
 
+// 扫描策略（sec_prescan_run.delta_kind）：空 = 全量扫描；差量类型 + 比对基线一起看才知道"扫的是什么范围"
+const deltaKindLabels: Record<string, string> = {
+  skip: '跳过',
+  code_delta: '代码差量',
+  rule_delta: '规则差量',
+  hybrid_delta: '混合差量',
+  full_baseline: '全量基线',
+  hunk_quick: '按行差量',
+  reconfirm: '重新确认',
+}
+
+function strategyLabel(record: CrossRunAggRow): string {
+  if (!record.delta_kind)
+    return '全量'
+  const label = deltaKindLabels[record.delta_kind] ?? record.delta_kind
+  return record.base_commit ? `${label} @${record.base_commit.slice(0, 8)}` : label
+}
+
+function strategyTooltip(record: CrossRunAggRow): string {
+  const parts = [`策略：${record.delta_kind ? (deltaKindLabels[record.delta_kind] ?? record.delta_kind) : '全量扫描'}`]
+  if (record.base_commit)
+    parts.push(`差量基线：${record.base_commit}`)
+  parts.push(`领域范围：${record.domains?.trim() || '全部领域'}`)
+  return parts.join('\n')
+}
+
 /**
  * 提取 commit 短 sha（前 8 位）。
  * commit_sha 可能为 null/undefined，返回空字符串时模板展示占位符。
@@ -757,6 +783,8 @@ const crossColumns = computed(() => [
   { title: 'Commit', dataIndex: 'commit_sha', slotName: 'crCommit', width: 110, resizable: true },
   { title: '模型', dataIndex: 'ai_model', slotName: 'crModel', width: 150, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('ai_model') },
   { title: '模式', dataIndex: 'ai_mode', slotName: 'crMode', width: 95, resizable: true },
+  // 策略列：这一批"扫的是什么范围"——全量 / 差量类型 + 比对基线 + 领域范围
+  { title: '策略', dataIndex: 'delta_kind', slotName: 'crStrategy', width: 150, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('delta_kind') },
   { title: '总数', dataIndex: 'total', width: 70, resizable: true, filterable: filterableOf('total') },
   { title: '确认进度', dataIndex: 'progress', slotName: 'crProgress', width: 90, resizable: true },
   { title: '确认问题', dataIndex: 'confirmed', width: 85, resizable: true, filterable: filterableOf('confirmed') },
@@ -935,6 +963,13 @@ const crossColumns = computed(() => [
             </a-space>
           </template>
           <span v-else class="text-placeholder">-</span>
+        </template>
+
+        <!-- 策略列：全量 / 差量类型 + 比对基线，悬浮里补充领域范围 -->
+        <template #crStrategy="{ record }">
+          <a-tooltip :content="strategyTooltip(record)" mini>
+            <span>{{ strategyLabel(record) }}</span>
+          </a-tooltip>
         </template>
 
         <!-- 确认率列 -->
