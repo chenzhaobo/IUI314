@@ -230,9 +230,9 @@ const ruleTree = computed(() => {
         key: `sp:${spId}`,
         title: spRules[0].scan_point_name || spId,
         spStats: {
-          open: spRules.reduce((s, r) => s + r.open, 0),
-          fixing: spRules.reduce((s, r) => s + r.fixing, 0),
-          fixed: spRules.reduce((s, r) => s + r.fixed, 0),
+          pending: spRules.reduce((s, r) => s + r.pending, 0),
+          inProgress: spRules.reduce((s, r) => s + r.in_progress, 0),
+          handled: spRules.reduce((s, r) => s + r.handled, 0),
           total: spRules.reduce((s, r) => s + r.total, 0),
         },
         children: spRules.map(r => ({
@@ -1139,6 +1139,11 @@ function shortSha(sha: string | null | undefined): string {
       <a-card :bordered="false" class="m-b-12px">
         <a-space wrap>
           <a-select v-model="queryParams.project_group_id" allow-search allow-clear placeholder="项目组" style="width: 200px" @change="refresh">
+            <!-- 未分组：仓库维度上没有归属项目组（模块没挂项目组 / 未绑定模块），
+                 与治理看板「未分组」行同一口径 —— 用于排查那些数据的来源 -->
+            <a-option value="__none__">
+              未分组
+            </a-option>
             <a-option v-for="pg in pgOptions" :key="pg.value" :value="pg.value">
               {{ pg.label }}
             </a-option>
@@ -1259,7 +1264,7 @@ function shortSha(sha: string | null | undefined): string {
           <a-card :bordered="false" size="small" class="split-card scroll-body">
             <template #title>
               规则分布
-              <small class="card-sub">打开/修复中/已修复/总数</small>
+              <small class="card-sub">待处理/处理中/已处理/总数</small>
             </template>
             <a-spin :loading="ruleStatsLoading" style="width: 100%">
               <a-tree
@@ -1273,10 +1278,10 @@ function shortSha(sha: string | null | undefined): string {
                   <div class="rule-node">
                     <span class="rule-name" :title="node.title">{{ node.title }}</span>
                     <span v-if="node.rule" class="rule-stats">
-                      <span class="s-open">{{ node.rule.open }}</span>/<span class="s-fixing">{{ node.rule.fixing }}</span>/<span class="s-fixed">{{ node.rule.fixed }}</span>/<span class="s-total">{{ node.rule.total }}</span>
+                      <span class="s-pending">{{ node.rule.pending }}</span>/<span class="s-progress">{{ node.rule.in_progress }}</span>/<span class="s-handled">{{ node.rule.handled }}</span>/<span class="s-total">{{ node.rule.total }}</span>
                     </span>
                     <span v-else-if="node.spStats" class="rule-stats">
-                      <span class="s-open">{{ node.spStats.open }}</span>/<span class="s-fixing">{{ node.spStats.fixing }}</span>/<span class="s-fixed">{{ node.spStats.fixed }}</span>/<span class="s-total">{{ node.spStats.total }}</span>
+                      <span class="s-pending">{{ node.spStats.pending }}</span>/<span class="s-progress">{{ node.spStats.inProgress }}</span>/<span class="s-handled">{{ node.spStats.handled }}</span>/<span class="s-total">{{ node.spStats.total }}</span>
                     </span>
                   </div>
                 </template>
@@ -1869,9 +1874,9 @@ function shortSha(sha: string | null | undefined): string {
 .rule-node { display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; }
 .rule-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rule-stats { flex-shrink: 0; font-size: 12px; color: var(--color-text-3); }
-.s-open { color: rgb(var(--red-6)); font-weight: 500; }
-.s-fixing { color: rgb(var(--blue-6)); }
-.s-fixed { color: rgb(var(--green-6)); }
+.s-pending { color: rgb(var(--red-6)); font-weight: 500; }
+.s-progress { color: rgb(var(--blue-6)); }
+.s-handled { color: rgb(var(--green-6)); }
 .s-total { color: var(--color-text-2); }
 .event-item { display: flex; align-items: center; gap: 8px; }
 .event-transition { font-size: 13px; color: var(--color-text-2); }
