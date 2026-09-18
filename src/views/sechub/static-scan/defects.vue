@@ -385,11 +385,11 @@ function exportIssues() {
 function canWontFix(status: string): boolean {
   return status === 'open' || status === 'reopened' || status === 'verification_failed'
 }
-// 可发起复核的：待验证 / 验证不通过 / 已验证（终态复核）。
-// 不处理是人工决策要复核先重开；AI 复核中不重复提交；未修完的没有可验证对象。
+// 可发起复核的：**任意状态**都能验（内网批量导入的历史缺陷大多没走过人工流程，
+// 却可能早已在代码里修掉了 —— 要求先手工标「已修复」再验证不现实）。
+// 只有两点例外：失活（扫描未再发现，已自动关闭）没有复核对象；复核中不重复提交。
 function canVerify(row: ScanIssueRow): boolean {
-  return row.coverage_state !== 'inactive'
-    && (row.status === 'fixed' || row.status === 'verification_failed' || row.status === 'verified')
+  return row.coverage_state !== 'inactive' && row.status !== 'verifying'
 }
 
 // ===== 缺陷处理：转交（选处理人；人从系统用户表来，与性能问题列表同口径）=====
@@ -804,7 +804,7 @@ function openVerifyDialog() {
   }
   const eligible = selectedRows.value.filter(canVerify)
   if (!eligible.length) {
-    Message.warning('所选缺陷中没有可重新验证的（仅「已修复/验证不通过/已验证」可发起；不处理请先重开，复核中的请等结果）')
+    Message.warning('所选缺陷中没有可重新验证的（失活已自动关闭的不再复核；复核中的请等结果）')
     return
   }
   verifyTargets.value = eligible
@@ -1027,6 +1027,23 @@ const coverageReasonLabels: Record<string, { label: string, color: string }> = {
   verdict_rejected: { label: '判定撤销', color: 'gray' },
   finding_absent: { label: '扫描未再发现', color: 'gray' },
   file_deleted: { label: '文件已删除', color: 'gray' },
+}
+
+/** AI 直接判过（复核前没人把它标成「已修复」）—— 与走完人工流程的「已验证」区分开 */
+function isAiDirectVerified(row: ScanIssueRow): boolean {
+  if (row.status !== 'verified')
+    return false
+  const from = (row.last_verify_from_status ?? '').trim()
+  return from !== '' && from !== 'fixed'
+}
+
+/** 状态列悬浮：最近一次复核摘要；AI 直判的额外说明复核前状态 */
+function statusTooltip(row: ScanIssueRow): string {
+  const base = `最近复核（${formatTime(row.last_verify_at)}）\n${row.last_verify_reason || ''}`
+  if (!isAiDirectVerified(row))
+    return base
+  const fromLabel = statusLabels[`${row.last_verify_from_status}`]?.label ?? row.last_verify_from_status
+  return `${base}\n\nAI 直判：复核前状态为「${fromLabel}」，未经人工标记「已修复」`
 }
 
 function issueStatusLabel(row: ScanIssueRow): { label: string, color: string } {
@@ -1384,20 +1401,27 @@ function shortSha(sha: string | null | undefined): string {
                   <span v-else class="text-muted">-</span>
                 </template>
                 <template #status="{ record }">
-                  <!-- 有复核记录时悬浮展示最近一次复核结果（时间 + 结论与依据） -->
+                  <!-- 有复核记录时悬浮展示最近一次复核结果（时间 + 结论与依据）；
+                       AI 直判（复核前未人工标记「已修复」）额外标一枚小徽标，便于和人工流程区分 -->
                   <a-tooltip
                     v-if="record.last_verify_at"
-                    :content="`最近复核（${formatTime(record.last_verify_at)}）\n${record.last_verify_reason || ''}`"
+                    :content="statusTooltip(record)"
                     position="top"
                     mini
                   >
+                    <span class="status-cell">
+                      <a-tag :color="issueStatusLabel(record).color" size="small">
+                        {{ issueStatusLabel(record).label }}
+                      </a-tag>
+                      <span v-if="isAiDirectVerified(record)" class="ai-direct-badge">AI直判</span>
+                    </span>
+                  </a-tooltip>
+                  <span v-else class="status-cell">
                     <a-tag :color="issueStatusLabel(record).color" size="small">
                       {{ issueStatusLabel(record).label }}
                     </a-tag>
-                  </a-tooltip>
-                  <a-tag v-else :color="issueStatusLabel(record).color" size="small">
-                    {{ issueStatusLabel(record).label }}
-                  </a-tag>
+                    <span v-if="isAiDirectVerified(record)" class="ai-direct-badge">AI直判</span>
+                  </span>
                 </template>
                 <template #introducedAt="{ record }">
                   <!-- 引入时间列：为空时显示 -，悬浮展示完整 commit / 作者 / 时间 -->
@@ -1879,6 +1903,22 @@ function shortSha(sha: string | null | undefined): string {
 .dmp-empty {
   color: var(--color-text-4);
   font-size: 12px;
+}
+
+/* 状态 + AI 直判徽标同一行：徽标小一号、弱化配色，别抢状态本身的注意力 */
+.status-cell {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.ai-direct-badge {
+  padding: 0 4px;
+  color: var(--color-text-3);
+  font-size: 11px;
+  line-height: 16px;
+  background: var(--color-fill-2);
+  border-radius: 3px;
 }
 
 .import-error {

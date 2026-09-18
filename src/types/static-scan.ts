@@ -854,6 +854,8 @@ export interface ScanIssueRow {
   last_verify_type?: string | null
   /** 最近一次复核的说明（含模型、结论与判定依据），供状态列悬浮展示 */
   last_verify_reason?: string | null
+  /** 最近一次复核前的状态：fixed = 人工标记过「已修复」；open/fixing 等 = AI 直接判过（状态列标「AI直判」） */
+  last_verify_from_status?: string | null
 }
 
 export interface ScanIssuePage {
