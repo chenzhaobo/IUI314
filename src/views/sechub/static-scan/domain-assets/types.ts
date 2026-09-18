@@ -605,8 +605,8 @@ export const matchStatusFilterOptions: { value: string, label: string }[] = ['ex
 
 /** 问题状态沿用缺陷页（defects.vue）的中文口径 */
 export const issueStatusLabels: Record<string, { label: string, color: string }> = {
-  open: { label: '打开', color: 'red' },
-  reopened: { label: '重新打开', color: 'orangered' },
+  open: { label: '待修复', color: 'red' },
+  reopened: { label: '待修复', color: 'red' },
   fixing: { label: '修复中', color: 'blue' },
   fixed: { label: '已修复', color: 'green' },
   verified: { label: '已验证', color: 'green' },

@@ -607,7 +607,7 @@ function openWontFixModal() {
   }
   const eligible = selectedRows.value.filter(r => canWontFix(r.status))
   if (!eligible.length) {
-    Message.warning('所选缺陷中没有可标记不处理的（仅「打开/重新打开/验证不通过」状态可操作）')
+    Message.warning('所选缺陷中没有可标记不处理的（仅「待修复/验证不通过」状态可操作）')
     return
   }
   wontFixTargets.value = eligible
@@ -1015,8 +1015,10 @@ const riskLabels: Record<string, { label: string, color: string }> = {
   info: { label: '提示', color: 'gray' },
 }
 const statusLabels: Record<string, { label: string, color: string }> = {
-  open: { label: '打开', color: 'red' },
-  reopened: { label: '重新打开', color: 'orangered' },
+  // open 与 reopened 对外都是一个状态：待修复（是否"重新打开"是内部流转细节，
+  // 在流转记录里看动作即可，状态列不区分）
+  open: { label: '待修复', color: 'red' },
+  reopened: { label: '待修复', color: 'red' },
   fixing: { label: '修复中', color: 'blue' },
   fixed: { label: '已修复', color: 'green' },
   verified: { label: '已验证', color: 'green' },
@@ -1166,11 +1168,10 @@ function shortSha(sha: string | null | undefined): string {
             </a-option>
           </a-select>
           <a-select v-model="queryParams.status" allow-clear placeholder="状态" style="width: 130px" @change="onStatusChange">
-            <a-option value="open">
-              打开
-            </a-option>
-            <a-option value="reopened">
-              重新打开
+            <!-- 待修复 = open + reopened（后端 __pending_fix__ 哨兵）：状态列两者同名，
+                 筛选项也合并成一个，避免出现两个一模一样的选项 -->
+            <a-option value="__pending_fix__">
+              待修复
             </a-option>
             <a-option value="fixing">
               修复中
@@ -1268,7 +1269,7 @@ function shortSha(sha: string | null | undefined): string {
           <a-card :bordered="false" size="small" class="split-card scroll-body">
             <template #title>
               规则分布
-              <small class="card-sub">待处理/处理中/已处理/总数</small>
+              <small class="card-sub">待修复/处理中/已处理/总数</small>
             </template>
             <a-spin :loading="ruleStatsLoading" style="width: 100%">
               <a-tree
@@ -1518,7 +1519,7 @@ function shortSha(sha: string | null | undefined): string {
       <a-modal v-model:visible="transferVisible" title="转交缺陷" :width="520" :footer="false" unmount-on-close>
         <a-form layout="vertical" :model="layoutOnlyModel">
           <a-alert type="info" class="m-b-12px">
-            将把 {{ selectedIds.length }} 条缺陷转交给指定处理人（「打开/重新打开」会同时进入修复中）
+            将把 {{ selectedIds.length }} 条缺陷转交给指定处理人（「待修复」会同时进入修复中）
           </a-alert>
           <a-form-item label="处理人" required>
             <a-select v-model="transferAssignee" allow-search allow-create :loading="transferUsersLoading" placeholder="从系统用户中选择（也可直接输入）">
@@ -1545,7 +1546,7 @@ function shortSha(sha: string | null | undefined): string {
       <a-modal v-model:visible="wontFixVisible" :title="`标记不处理（${wontFixTargets.length} 条）`" width="560px" :ok-loading="wontFixLoading" @ok="submitWontFix" @cancel="wontFixVisible = false">
         <a-form layout="vertical" :model="layoutOnlyModel">
           <a-alert type="warning" class="m-b-12px">
-            将对 {{ wontFixTargets.length }} 条「打开/重新打开」的缺陷统一标记为不处理
+            将对 {{ wontFixTargets.length }} 条「待修复」的缺陷统一标记为不处理
           </a-alert>
           <!-- 不处理原因分类（必选，后续统计与过滤的依据） -->
           <a-form-item label="原因分类" required>

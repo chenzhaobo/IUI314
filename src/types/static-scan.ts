@@ -790,7 +790,7 @@ export interface IssueRuleStatRow {
   domain: string
   category: string
   total: number
-  /** 待处理 = 打开 + 重新打开 */
+  /** 待修复 = open + reopened（对外同一个状态名） */
   pending: number
   /** 处理中 = 修复中 + 验证不通过 + AI 复核中（与治理看板同口径） */
   in_progress: number
