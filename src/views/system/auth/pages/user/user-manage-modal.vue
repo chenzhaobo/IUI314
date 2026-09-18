@@ -2,6 +2,7 @@
 import { Message } from '@arco-design/web-vue'
 import { IconEdit, IconPlus } from '@arco-design/web-vue/es/icon'
 import type { SelectOptionData } from '@arco-design/web-vue/es/select/interface'
+import md5 from 'blueimp-md5'
 import { type PropType, computed, h, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ErrorFlag } from '@/api/apis'
@@ -338,7 +339,10 @@ async function submitForm() {
     Message.success(t('sys.TipUpdateSuccess'))
   }
   else {
-    const { execute, data } = usePost(ApiSysUser.add, form)
+    // 与登录/重置密码同一口径：前端先做一次 MD5 再传输，后端存 md5(md5(明文)+盐)。
+    // 漏了这一步会存成 md5(明文+盐)，登录时按 md5(md5(明文)+盐) 校验 —— 新用户永远登不上。
+    const payload = { ...form.value, user_password: md5(form.value.user_password ?? '') }
+    const { execute, data } = usePost(ApiSysUser.add, payload)
     await execute()
     if (data.value === ErrorFlag)
       return
