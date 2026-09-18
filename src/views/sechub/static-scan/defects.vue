@@ -965,9 +965,12 @@ function metaPrefix(meta: VerifyEventMeta | null): string {
   return meta?.kind === 'ai_verify' ? 'AI 复核' : '复核'
 }
 
-/** AI 复核结论标签：三态判定 → 中文（与后端 normalize_verdict 口径一致） */
+/** AI 复核结论标签：四态判定 → 中文（与后端 classify_verify_verdict 口径一致） */
 const verifyVerdictLabels: Record<string, { label: string, color: string }> = {
   confirmed: { label: '问题仍存在', color: 'orange' },
+  fixed: { label: '验证通过（问题已修复）', color: 'green' },
+  // 误报归「不处理·误报」：计入误报率，和「已修复」不是一回事（旧事件里叫 rejected）
+  false_positive: { label: '判定误报（不处理）', color: 'gray' },
   rejected: { label: '验证通过（问题已修复）', color: 'green' },
   review_needed: { label: '无法明确判定', color: 'gray' },
 }
@@ -1064,7 +1067,8 @@ const columns = computed(() => withTableDefaults([
   { title: '领域', dataIndex: 'domain', slotName: 'domain', width: 70, ellipsis: true, tooltip: true },
   { title: '分类', dataIndex: 'category', width: 100 },
   { title: '风险', dataIndex: 'risk_level', slotName: 'risk', width: 65, ellipsis: true, tooltip: true },
-  { title: '状态', dataIndex: 'status', slotName: 'status', width: 90, ellipsis: true, tooltip: true },
+  // 宽度要容下「状态标签 + AI直判徽标」（90 时徽标会被 ellipsis 截掉，看不到）
+  { title: '状态', dataIndex: 'status', slotName: 'status', width: 128, ellipsis: true, tooltip: true },
   { title: '负责人', dataIndex: 'assignee', width: 75 },
   { title: '文件', dataIndex: 'file_path', width: 180 },
   { title: '命中', dataIndex: 'hit_count', slotName: 'hitCount', width: 50 },
