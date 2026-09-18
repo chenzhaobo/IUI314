@@ -1172,6 +1172,9 @@ function shortSha(sha: string | null | undefined): string {
             <a-option value="verified">
               已验证
             </a-option>
+            <a-option value="__ai_direct__">
+              AI 直判
+            </a-option>
             <a-option value="wont_fix">
               不处理
             </a-option>
