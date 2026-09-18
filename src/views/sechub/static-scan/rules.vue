@@ -245,9 +245,37 @@ function dangerousArgOf(record: RuleVersion | null): string {
   return dangerousArgLabels[m.dangerous_argument] || String(m.dangerous_argument)
 }
 
+// 检测知识优先展示顺序（后端 extract_knowledge 按 key 排序渲染给 AI；这里给人看，
+// 按「危害 → 确认条件 → 排除条件 → 形态说明」读起来顺，未知 key 排在后面保持原序）
+const KNOWLEDGE_KEY_ORDER = ['危害', '确认条件', '排除条件', '形态说明']
+
+/**
+ * 检测知识：字符串原样显示；kv 对象渲染成「■ key：value」多行
+ * （与后端 extract_knowledge 同口径 —— 之前直接 String(knowledge) 会显示 [object Object]）。
+ */
 function knowledgeOf(record: RuleVersion | null): string {
-  const m = matcherOf(record)
-  return m.knowledge ? String(m.knowledge) : ''
+  const knowledge = matcherOf(record).knowledge
+  if (!knowledge)
+    return ''
+  if (typeof knowledge === 'string')
+    return knowledge
+  if (typeof knowledge === 'object') {
+    const entries = Object.entries(knowledge as Record<string, unknown>)
+      .filter(([, value]) => typeof value === 'string' && String(value).trim())
+      .sort(([a], [b]) => {
+        const ia = KNOWLEDGE_KEY_ORDER.indexOf(a)
+        const ib = KNOWLEDGE_KEY_ORDER.indexOf(b)
+        if (ia === -1 && ib === -1)
+          return 0
+        if (ia === -1)
+          return 1
+        if (ib === -1)
+          return -1
+        return ia - ib
+      })
+    return entries.map(([key, value]) => `■ ${key}：${String(value).trim()}`).join('\n')
+  }
+  return ''
 }
 
 function regexPatternsOf(record: RuleVersion | null): string {
