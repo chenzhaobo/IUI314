@@ -1531,7 +1531,7 @@ const crossCompareColumns = [
   { title: '低风险', dataIndex: 'risk_low', width: 80 },
   { title: '确认率', dataIndex: 'confirm_rate', slotName: 'crRate', width: 90 },
   { title: '平均置信度', dataIndex: 'avg_confidence', slotName: 'crConf', width: 100 },
-  { title: '时间', dataIndex: 'created_at', width: 130 },
+  { title: '时间', dataIndex: 'created_at', width: 130, render: ({ record }: any) => formatTime(record.created_at) },
 ]
 const crossCompareRows = computed(() => crossCompareData.value.map(row => ({
   ...row,

@@ -5,7 +5,7 @@ import { computed, h, onActivated, onDeactivated, onUnmounted, ref, watch } from
 
 import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import type { ColumnFilterState } from '@/hooks'
-import { applyColumnFilters, emptyFilter, isFilterActive, useFilterPersistence, useTableAutoHeight } from '@/hooks'
+import { applyColumnFilters, emptyFilter, formatTime, isFilterActive, useFilterPersistence, useTableAutoHeight } from '@/hooks'
 import { useRouter } from 'vue-router'
 import { ErrorFlag } from '@/api/apis'
 import { ApiAiExecution } from '@/api/aiApis'
@@ -194,7 +194,7 @@ const queueColumns = [
   { title: '尝试', dataIndex: 'attempt', slotName: 'qattempt', width: 70 },
   { title: '租约到期', dataIndex: 'lease_until', width: 160 },
   { title: '失败原因', dataIndex: 'last_error', width: 260, ellipsis: true, tooltip: true },
-  { title: '创建时间', dataIndex: 'created_at', width: 160 },
+  { title: '创建时间', dataIndex: 'created_at', width: 160, render: ({ record }: any) => formatTime(record.created_at) },
 ]
 
 // ===== 模型结果总览（跨 Run 横评：后端已改为每个 run_id 只返回一行汇总）=====
@@ -803,7 +803,7 @@ const crossColumns = computed(() => [
   { title: '平均置信度', dataIndex: 'avg_confidence', slotName: 'crConf', width: 95, resizable: true },
   // 时间列原先 120px，而 'YYYY-MM-DD HH:MM:SS' 是 19 个字符，必然折行 ——
   // 实测折成三行，把整行撑高、表格也跟着变宽。给足宽度并 ellipsis 兜底。
-  { title: '时间', dataIndex: 'created_at', width: 170, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('created_at') },
+  { title: '时间', dataIndex: 'created_at', width: 170, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('created_at'), render: ({ record }: any) => formatTime(record.created_at) },
   { title: '操作', slotName: 'crOps', width: 160, fixed: 'right' as const },
 ])
 </script>

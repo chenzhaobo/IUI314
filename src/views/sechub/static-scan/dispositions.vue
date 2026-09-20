@@ -4,7 +4,7 @@
  */
 import { computed, ref } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { useGet, usePost, useTableAutoHeight } from '@/hooks'
+import { formatTime, useGet, usePost, useTableAutoHeight } from '@/hooks'
 import { ApiSecDisposition, ApiSecFix } from '@/api/sechubApis'
 
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
@@ -266,7 +266,7 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
               </a-tag>
             </template>
           </a-table-column>
-          <a-table-column title="提交时间" data-index="created_at" :width="160" />
+          <a-table-column title="提交时间" :width="160"><template #cell="{ record }">{{ formatTime(record.created_at) }}</template></a-table-column>
         </template>
       </a-table>
     </a-modal>

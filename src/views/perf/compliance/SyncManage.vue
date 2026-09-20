@@ -229,7 +229,7 @@
               <span v-else>-</span>
             </template>
           </a-table-column>
-          <a-table-column title="时间" data-index="created_at" :width="130" />
+          <a-table-column title="时间" :width="130"><template #cell="{ record }">{{ formatTime(record.created_at) }}</template></a-table-column>
         </template>
       </a-table>
     </a-drawer>
@@ -240,7 +240,7 @@
 import { ref, reactive, computed, watch, onUnmounted, nextTick } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { ApiPerfSyncTask, ApiPerfCompliance } from '@/api/perfApis'
-import { useGet, usePost, usePut, useDelete, useTableAutoHeight } from '@/hooks'
+import { formatTime, useGet, usePost, usePut, useDelete, useTableAutoHeight } from '@/hooks'
 
 defineOptions({ name: 'sync-manage' })
 

@@ -35,7 +35,7 @@
               <a-tag :color="record.status === '1' ? 'green' : 'red'" size="small">{{ record.status === '1' ? '启用' : '停用' }}</a-tag>
             </template>
           </a-table-column>
-          <a-table-column title="更新时间" data-index="updated_at" :width="160" />
+          <a-table-column title="更新时间" :width="160"><template #cell="{ record }">{{ formatTime(record.updated_at) }}</template></a-table-column>
           <a-table-column title="操作" :width="100" fixed="right">
             <template #cell="{ record }">
               <a-link @click="openDetail(record)">查看详情</a-link>
@@ -116,7 +116,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { ApiPerfDatasource } from '@/api/perfApis'
-import { useGet, useTableAutoHeight } from '@/hooks'
+import { formatTime, useGet, useTableAutoHeight } from '@/hooks'
 
 defineOptions({ name: 'datasource-meta' })
 

@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { ApiSecScanRun } from '@/api/apis'
-import { useGet, postAction } from '@/hooks'
+import { formatTime, useGet, postAction } from '@/hooks'
 
 defineOptions({ name: 'scan-run' })
 
@@ -29,8 +29,8 @@ const columns = [
   { title: '运行状态', dataIndex: 'run_status', width: 100 },
   { title: '触发方式', dataIndex: 'trigger_type', width: 80 },
   { title: '触发人', dataIndex: 'trigger_by', width: 100 },
-  { title: '开始时间', dataIndex: 'started_at', width: 160 },
-  { title: '结束时间', dataIndex: 'finished_at', width: 160 },
+  { title: '开始时间', dataIndex: 'started_at', width: 160, render: ({ record }: any) => formatTime(record.started_at) },
+  { title: '结束时间', dataIndex: 'finished_at', width: 160, render: ({ record }: any) => formatTime(record.finished_at) },
   { title: '耗时(秒)', dataIndex: 'duration_sec', width: 80 },
   { title: '总发现', dataIndex: 'total_findings', width: 80 },
   { title: '新发现', dataIndex: 'new_findings', width: 80 },

@@ -4,7 +4,7 @@
  */
 import { computed, ref } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { useGet, usePost, useTableAutoHeight } from '@/hooks'
+import { formatTime, useGet, usePost, useTableAutoHeight } from '@/hooks'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSecApproval } from '@/api/sechubApis'
 
@@ -151,7 +151,7 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
           <a-table-column title="风险等级" data-index="risk_level" :width="90" />
           <a-table-column title="领域审批人" data-index="domain_approver_id" :width="120" ellipsis tooltip />
           <a-table-column title="总监审批人" data-index="director_approver_id" :width="120" ellipsis tooltip />
-          <a-table-column title="申请时间" data-index="created_at" :width="160" ellipsis tooltip />
+          <a-table-column title="申请时间" :width="160" ellipsis tooltip><template #cell="{ record }">{{ formatTime(record.created_at) }}</template></a-table-column>
           <a-table-column title="操作" :width="180" fixed="right">
             <template #cell="{ record }">
               <a-space>

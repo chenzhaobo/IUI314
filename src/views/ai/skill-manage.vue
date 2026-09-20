@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { computed, ref, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { useGet, usePost, usePut, useDelete, useToken, useTableAutoHeight, withTableDefaults } from '@/hooks'
+import { formatTime, useGet, usePost, usePut, useDelete, useToken, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiAiSkill, ApiAiAgent, type AiSkill, type AiAgent, type AiSkillFile, type AiListResult, type AiSkillDeployStatus } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
 
@@ -376,7 +376,7 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
                   <template #cell="{ record }">{{ formatFileSize(record.file_size) }}</template>
                 </a-table-column>
                 <a-table-column title="类型" data-index="content_type" :width="120" ellipsis />
-                <a-table-column title="上传时间" data-index="created_at" :width="170" />
+                <a-table-column title="上传时间" :width="170"><template #cell="{ record }">{{ formatTime(record.created_at) }}</template></a-table-column>
                 <a-table-column title="操作" :width="80" fixed="right">
                   <template #cell="{ record }">
                     <a-popconfirm content="确认删除该文件？" @ok="handleFileDelete(record)">
