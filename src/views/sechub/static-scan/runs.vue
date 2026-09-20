@@ -686,8 +686,8 @@ interface DeleteRunResult {
 /** 正在删除的 run_id（用于单行 loading，同 retryingRunId 写法） */
 const deletingRunId = ref('')
 
-/** status 为 preparing 或 running 时不允许删除 */
-function deleteDisabled(row: CrossRunAggRow): boolean {
+/** 进行中的运行：可能是真在跑，也可能是崩溃后卡住的僵尸 —— 确认框里说清并用强制删除 */
+function isRunningStatus(row: CrossRunAggRow): boolean {
   return row.status === 'preparing' || row.status === 'running'
 }
 
@@ -695,22 +695,27 @@ function deleteDisabled(row: CrossRunAggRow): boolean {
 function confirmDeleteRun(row: CrossRunAggRow): void {
   const appName = row.repository_name ?? row.repository_id
   const commit = shortSha(row.commit_sha) || '(无 commit)'
+  const stuck = isRunningStatus(row)
   Modal.warning({
-    title: '确认删除该扫描运行？',
-    content: `即将删除应用「${appName}」的运行（commit：${commit}）。\n\n此操作将同时删除该运行的扫描结果详情与磁盘产物，且不可恢复。\n已提的问题（sec_scan_issue）不会被删除，会继续保留。`,
-    okText: '确认删除',
+    title: stuck ? '该运行仍在「扫描中」，确认强制删除？' : '确认删除该扫描运行？',
+    content: stuck
+      ? `应用「${appName}」的运行（commit：${commit}）当前状态为「${stuck ? row.status : ''}」。\n\n`
+        + '若服务刚重启过、它是崩溃留下的僵尸运行，强制删除即可；\n'
+        + '若任务真的还在跑，删除会让它后续写入失败（该任务会自行报错结束）。'
+      : `即将删除应用「${appName}」的运行（commit：${commit}）。\n\n此操作将同时删除该运行的扫描结果详情与磁盘产物，且不可恢复。\n已提的问题（sec_scan_issue）不会被删除，会继续保留。`,
+    okText: stuck ? '强制删除' : '确认删除',
     cancelText: '取消',
     okButtonProps: { status: 'danger' },
     onOk: () => {
-      void doDeleteRun(row)
+      void doDeleteRun(row, stuck)
     },
   })
 }
 
-async function doDeleteRun(row: CrossRunAggRow): Promise<void> {
+async function doDeleteRun(row: CrossRunAggRow, force = false): Promise<void> {
   deletingRunId.value = row.run_id
   try {
-    const resp = await postAction<DeleteRunResult>(ApiSecPrescan.runDelete, { run_id: row.run_id })
+    const resp = await postAction<DeleteRunResult>(ApiSecPrescan.runDelete, { run_id: row.run_id, force })
     if (resp) {
       Message.success(resp.summary || '删除成功')
       // 删除成功后刷新列表；被删的行不在列表里，轮询逻辑自然收敛
@@ -1019,18 +1024,9 @@ const crossColumns = computed(() => [
                   <a-spin v-if="retryingRunId === record.run_id" :size="12" />
                   重扫未完成{{ retryableCount(record) ? `(${retryableCount(record)})` : '' }}
                 </a-doption>
-                <!-- 删除运行：preparing/running 时禁用，危险色 -->
-                <a-tooltip
-                  v-if="deleteDisabled(record)"
-                  content="进行中的运行不能删除，请等待其结束（succeeded / failed / skipped）后再操作"
-                  position="left"
-                >
-                  <a-doption disabled>
-                    删除
-                  </a-doption>
-                </a-tooltip>
+                <!-- 删除运行：preparing/running 也允许（崩溃会留下卡住的僵尸运行），
+                     确认框里明确告知风险并按强制删除提交 -->
                 <a-doption
-                  v-else
                   status="danger"
                   :disabled="deletingRunId === record.run_id"
                   @click="() => confirmDeleteRun(record)"
