@@ -180,7 +180,16 @@
     </a-modal>
 
     <!-- 执行记录抽屉 -->
-    <a-drawer v-model:visible="drawerVisible" :title="`执行记录: ${currentTask?.name || ''}`" :width="680" :footer="false">
+    <a-drawer v-model:visible="drawerVisible" :title="`执行记录: ${currentTask?.name || ''}`" :width="drawerWidth" :footer="false">
+      <!-- 左沿拖拽手柄：往左拖加宽。fixed 贴在抽屉左边缘外侧，不依赖 arco 抽屉内部结构；
+           必须盖在抽屉遮罩之上才接得到 mousedown，层级在打开时按抽屉实际 z-index 计算 -->
+      <div
+        v-if="drawerVisible"
+        class="records-resizer"
+        :class="{ 'is-dragging': drawerResizing }"
+        :style="{ right: `${drawerWidth}px`, zIndex: drawerZIndex }"
+        @mousedown.prevent="onDrawerResizeStart"
+      />
       <a-table :data="recordList" :loading="recordLoading" :pagination="false" size="small">
         <template #columns>
           <a-table-column title="状态" :width="100">
@@ -228,7 +237,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, onUnmounted, nextTick } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { ApiPerfSyncTask, ApiPerfCompliance } from '@/api/perfApis'
 import { useGet, usePost, usePut, useDelete, useTableAutoHeight } from '@/hooks'
@@ -405,6 +414,48 @@ watch([drawerVisible, recordList], ([visible, list]) => {
 }, { deep: true })
 onUnmounted(stopRecordTimer)
 
+// ── 抽屉宽度可拖（左沿手柄往左拖加宽，宽度存档）──────────────────
+const DRAWER_MIN_W = 560
+const DRAWER_RESERVED_W = 200 // 抽屉之外至少保留的页面宽度，避免遮死整屏
+const DRAWER_WIDTH_KEY = 'ttp:sync-drawer-width'
+
+function clampDrawerWidth(w: number): number {
+  const max = Math.max(DRAWER_MIN_W, window.innerWidth - DRAWER_RESERVED_W)
+  return Math.min(max, Math.max(DRAWER_MIN_W, Math.round(w)))
+}
+
+const drawerWidth = ref(clampDrawerWidth(Number(localStorage.getItem(DRAWER_WIDTH_KEY)) || 900))
+const drawerResizing = ref(false)
+// 手柄要盖在抽屉遮罩之上才接得到点击：打开时读抽屉实际 z-index + 1（读不到退回 2000）
+const drawerZIndex = ref(2000)
+watch(drawerVisible, async (visible) => {
+  if (!visible) return
+  await nextTick()
+  const wrapper = document.querySelector('.arco-drawer-wrapper') as HTMLElement | null
+  const z = wrapper ? Number.parseInt(getComputedStyle(wrapper).zIndex, 10) : Number.NaN
+  drawerZIndex.value = Number.isFinite(z) ? z + 1 : 2000
+})
+
+function onDrawerResizeStart(e: MouseEvent) {
+  drawerResizing.value = true
+  const startX = e.clientX
+  const startW = drawerWidth.value
+  const onMove = (ev: MouseEvent) => {
+    // 手柄在抽屉左沿：鼠标往左移（clientX 变小）→ 抽屉变宽
+    drawerWidth.value = clampDrawerWidth(startW + startX - ev.clientX)
+  }
+  const onUp = () => {
+    drawerResizing.value = false
+    document.body.style.userSelect = ''
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+    localStorage.setItem(DRAWER_WIDTH_KEY, String(drawerWidth.value))
+  }
+  document.body.style.userSelect = 'none'
+  document.addEventListener('mousemove', onMove)
+  document.addEventListener('mouseup', onUp)
+}
+
 // ── 重试 ──────────────────────────────────
 const retryPayload = ref<any>({})
 const { execute: doRetry } = usePost<any>(ApiPerfSyncTask.retry, retryPayload, { immediate: false })
@@ -447,3 +498,18 @@ function recordOutcomeFull(record: any): string {
   return [record.result_summary, record.error_msg].filter(Boolean).join('；')
 }
 </script>
+
+<style scoped>
+/* 执行记录抽屉的左沿拖拽手柄：fixed 贴在抽屉左边缘，往左拖加宽 */
+.records-resizer {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  cursor: col-resize;
+}
+.records-resizer:hover,
+.records-resizer.is-dragging {
+  background: rgba(var(--primary-6), 0.12);
+}
+</style>
