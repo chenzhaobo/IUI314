@@ -62,7 +62,9 @@
               <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
             </template>
           </a-table-column>
-          <a-table-column title="创建时间" data-index="created_at" :width="180" ellipsis tooltip />
+          <a-table-column title="创建时间" :width="180" ellipsis tooltip>
+            <template #cell="{ record }">{{ formatTime(record.created_at) }}</template>
+          </a-table-column>
           <a-table-column title="操作" :width="180" fixed="right">
             <template #cell="{ record }">
               <a-space>
@@ -218,7 +220,7 @@ import { Message, Modal } from '@arco-design/web-vue'
 import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { ApiPerfReportV2 } from '@/api/perfApis'
-import { useDelete, useDownload, useGet, usePost, usePut, useTableAutoHeight } from '@/hooks'
+import { formatTime, useDelete, useDownload, useGet, usePost, usePut, useTableAutoHeight } from '@/hooks'
 
 defineOptions({ name: 'report-list' })
 
