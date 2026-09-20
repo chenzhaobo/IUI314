@@ -206,7 +206,14 @@
               <span v-if="record.actual_app_numbers" style="margin-left: 4px; color: #666">{{ formatApps(record.actual_app_numbers) }}</span>
             </template>
           </a-table-column>
-          <a-table-column title="结果" data-index="result_summary" ellipsis :width="160" />
+          <a-table-column title="结果 / 失败原因" :width="200" ellipsis>
+            <template #cell="{ record }">
+              <a-tooltip v-if="recordOutcomeFull(record)" :content="recordOutcomeFull(record)">
+                <span :style="record.error_msg && record.status !== 'success' ? 'color: #f53f3f' : ''">{{ recordOutcome(record) }}</span>
+              </a-tooltip>
+              <span v-else>-</span>
+            </template>
+          </a-table-column>
           <a-table-column title="重试" :width="60">
             <template #cell="{ record }">
               <a-link v-if="record.status === 'superset_timeout'" @click="handleRetry(record)">重试</a-link>
@@ -430,4 +437,13 @@ const formatSchedule = (r: any) => {
 const formatApps = (s: string) => { try { const a = JSON.parse(s); return a.length ? a.join(',') : '全部' } catch { return s } }
 const recordStatusText = (s: string) => ({ pending: '等待中', running: '运行中', success: '成功', failed: '失败', superset_timeout: '超时', cancelled: '已取消' }[s] || s)
 const recordStatusColor = (s: string) => ({ pending: 'gray', running: 'blue', success: 'green', failed: 'red', superset_timeout: 'orangered', cancelled: 'orange' }[s] || 'gray')
+
+// 执行记录「结果 / 失败原因」列：成功看结果摘要；失败时原因存在 error_msg
+// （此前只渲染 result_summary，失败时为空的它让原因完全不可见）。
+function recordOutcome(record: any): string {
+  return record.result_summary || record.error_msg || ''
+}
+function recordOutcomeFull(record: any): string {
+  return [record.result_summary, record.error_msg].filter(Boolean).join('；')
+}
 </script>
