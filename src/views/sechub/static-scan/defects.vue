@@ -1319,7 +1319,7 @@ function shortSha(sha: string | null | undefined): string {
                   </a-button>
                   <!-- 处理：状态流转统一入口（不处理需填原因，走弹窗） -->
                   <a-dropdown :disabled="!selectedIds.length" @select="onProcessSelect">
-                    <a-button :disabled="!selectedIds.length" :loading="processLoading">
+                    <a-button type="primary" :disabled="!selectedIds.length" :loading="processLoading">
                       处理
                       <template #icon>
                         <icon-down />
@@ -1331,7 +1331,7 @@ function shortSha(sha: string | null | undefined): string {
                       </a-doption>
                     </template>
                   </a-dropdown>
-                  <a-button :disabled="!selectedIds.length" :loading="batchVerifyLoading" @click="openVerifyDialog">
+                  <a-button status="warning" :disabled="!selectedIds.length" :loading="batchVerifyLoading" @click="openVerifyDialog">
                     重新验证
                   </a-button>
                   <a-tooltip content="把所选缺陷关联到 DMP 单号，可批量填同一个" mini>
@@ -1344,7 +1344,7 @@ function shortSha(sha: string | null | undefined): string {
                       导出
                     </a-button>
                   </a-tooltip>
-                  <a-button @click="openImport">
+                  <a-button status="success" @click="openImport">
                     导入
                   </a-button>
                   <a-button @click="downloadImportTemplate">
