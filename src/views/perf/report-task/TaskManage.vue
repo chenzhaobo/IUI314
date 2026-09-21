@@ -93,7 +93,7 @@ const typeHint = computed(() => ({
 
 const cronPlaceholder = computed(() => ({
   collect: '0 0 23 * * *（每天 23:00 取前一天）',
-  attribute: '0 0 1 * * 1（每周一 01:00）',
+  attribute: '0 0 1 * * 2（每周一 01:00）',
   period: '0 0 12 1 * *（每月 1 日 12:00）',
 }[form.task_type as string] || '0 0 2 * * *（每天 02:00）'))
 
@@ -674,9 +674,10 @@ const layoutOnlyModel = {}
               <a-input v-model="form.cron_expr" :placeholder="cronPlaceholder" allow-clear />
               <template #extra>
                 <span>
-                  6 段（秒 分 时 日 月 周），按业务时区。常用：
+                  6 段（秒 分 时 日 月 周），按业务时区；周字段 1=周日、2=周一 … 7=周六。常用：
                   <a-link @click="form.cron_expr = '0 0 23 * * *'">每天 23:00</a-link>
-                  <a-link @click="form.cron_expr = '0 0 1 * * 1'">每周一 01:00</a-link>
+                  <a-link @click="form.cron_expr = '0 0 1 * * 2'">每周一 01:00</a-link>
+                  <a-link @click="form.cron_expr = '0 0 1 * * 1'">每周日 01:00</a-link>
                   <a-link @click="form.cron_expr = '0 0 3 1 * *'">每月 1 日 03:00</a-link>
                   <a-link @click="form.cron_expr = '0 0 12 1 * *'">每月 1 日 12:00</a-link>
                   。<b>留空表示仅手动触发。</b>
