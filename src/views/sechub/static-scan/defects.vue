@@ -400,13 +400,15 @@ const transferRemark = ref('')
 
 // 处理人下拉：取用户管理（/system/user/list），不从项目组成员取 ——
 // 项目组成员表常常是空的（缺陷行上也没有项目组字段），下拉会没有数据；
-// 直接选系统用户同时避免手输「张三/张三 /zhangsan」三种写法指向同一个人
+// 直接选系统用户同时避免手输「张三/张三 /zhangsan」三种写法指向同一个人。
+// 值取登录名：负责人要和「谁在操作」对得上（标记已修复只认当前处理人），
+// 昵称会改、也可能重名，只用于展示。
 const transferUserQuery = ref({ page_num: 1, page_size: 200 })
 const { isFetching: transferUsersLoading, data: transferUsersRes, execute: loadTransferUsers } = useGet<any>(ApiSysUser.getList, transferUserQuery, { immediate: false })
 const transferUserOptions = computed(() => {
   const list = transferUsersRes.value?.list
   return (Array.isArray(list) ? list : []).map((u: any) => ({
-    value: u.user_nickname || u.user_name,
+    value: u.user_name,
     label: u.user_nickname ? `${u.user_nickname}（${u.user_name}）` : u.user_name,
   }))
 })
@@ -467,23 +469,52 @@ function onProcessSelect(value: unknown) {
     openWontFixModal()
     return
   }
+  // 「已修复」要填修复说明（后端强制），走弹窗而不是点完就提交
+  if (target === 'fixed') {
+    openFixedModal()
+    return
+  }
   void submitTransition(target)
 }
 
-async function submitTransition(target: string) {
+async function submitTransition(target: string, remark?: string): Promise<boolean> {
   processLoading.value = true
   try {
-    const res = await postAction<IssueTransitionSummary>(ApiSecPrescan.issueTransition, { ids: selectedIds.value, target })
+    const res = await postAction<IssueTransitionSummary>(ApiSecPrescan.issueTransition, { ids: selectedIds.value, target, remark })
     if (!res)
-      return
-    // 状态不符的行由后端跳过并在 message 里说明（如「重开」只对终态：已验证/不处理）
+      return false
+    // 状态不符 / 处理人不是自己的行由后端跳过并在 message 里说明
     Message.success(res.message)
     clearSelection()
     void getList()
+    return true
   }
   finally {
     processLoading.value = false
   }
+}
+
+// ===== 标记已修复（说明必填；只有当前处理人能标）=====
+const fixedVisible = ref(false)
+const fixedRemark = ref('')
+
+function openFixedModal() {
+  if (!selectedIds.value.length) {
+    Message.warning('请先勾选缺陷')
+    return
+  }
+  fixedRemark.value = ''
+  fixedVisible.value = true
+}
+
+async function submitFixed() {
+  const remark = fixedRemark.value.trim()
+  if (!remark) {
+    Message.warning('请填写修复说明')
+    return
+  }
+  if (await submitTransition('fixed', remark))
+    fixedVisible.value = false
 }
 
 // ===== DMP 缺陷编码：批量回填 =====
@@ -918,9 +949,10 @@ const eventTypeLabels: Record<string, { label: string, color: string }> = {
   verify_error: { label: '复核执行失败', color: 'orange' },
 }
 
-// ===== 流转事件的结构化上下文（meta_json，复核事件携带）=====
-/** 与后端 verify_meta_json 的字段一一对应（缺省字段为 null） */
+// ===== 流转事件的结构化上下文（meta_json）=====
+/** 与后端 verify_meta_json / assignee_meta_json 的字段一一对应（缺省字段为 null） */
 interface VerifyEventMeta {
+  /** 复核方式（ai_verify / rule_verify）；人工流转事件没有该字段 */
   kind?: string | null
   branch?: string | null
   commit_sha?: string | null
@@ -933,6 +965,20 @@ interface VerifyEventMeta {
   verdict?: string | null
   rationale?: string | null
   execution_id?: string | null
+  /** 处理人变化（转交 / 认领 / 无主缺陷标已修复时的顺带认领） */
+  from_assignee?: string | null
+  to_assignee?: string | null
+}
+
+/** 处理人变化文案：「A → B」，认领（原来没人负责）显示「（无） → B」 */
+function assigneeChangeText(meta: VerifyEventMeta | null): string {
+  if (!meta)
+    return ''
+  const from = (meta.from_assignee ?? '').trim()
+  const to = (meta.to_assignee ?? '').trim()
+  if (!from && !to)
+    return ''
+  return `${from || '（无）'} → ${to || '（无）'}`
 }
 
 /** 解析 meta_json；老事件没有该字段、内容损坏时返回 null（模板退回 reason 文案） */
@@ -1535,7 +1581,8 @@ function shortSha(sha: string | null | undefined): string {
             将把 {{ selectedIds.length }} 条缺陷转交给指定处理人（「待修复」会同时进入修复中）
           </a-alert>
           <a-form-item label="处理人" required>
-            <a-select v-model="transferAssignee" allow-search allow-create :loading="transferUsersLoading" placeholder="从系统用户中选择（也可直接输入）">
+            <!-- 手输请填登录名：「标记已修复」按登录名判定是不是本人 -->
+            <a-select v-model="transferAssignee" allow-search allow-create :loading="transferUsersLoading" placeholder="从系统用户中选择（手输请填登录名）">
               <a-option v-for="u in transferUserOptions" :key="u.value" :value="u.value">
                 {{ u.label }}
               </a-option>
@@ -1553,6 +1600,34 @@ function shortSha(sha: string | null | undefined): string {
             确认转交
           </a-button>
         </div>
+      </a-modal>
+
+      <!-- 标记已修复弹窗（批量）：说明必填，只有当前处理人的行会被改，别人的行由后端跳过 -->
+      <a-modal
+        v-model:visible="fixedVisible"
+        :title="`标记已修复（${selectedIds.length} 条）`"
+        width="560px"
+        :ok-loading="processLoading"
+        @ok="submitFixed"
+        @cancel="fixedVisible = false"
+      >
+        <a-form layout="vertical" :model="layoutOnlyModel">
+          <a-alert type="info" class="m-b-12px">
+            修复说明会写进每条缺陷的流转记录 —— 「怎么修的」是复核与复盘的依据。
+            <br>
+            只有<b>当前处理人</b>能标记：处理人是别人的行会被跳过（请先转交），
+            没人负责的行则把标记人认作处理人。
+          </a-alert>
+          <a-form-item label="修复说明" required>
+            <a-textarea
+              v-model="fixedRemark"
+              placeholder="改了什么、在哪个分支/提交（复核会拉最新代码核对）"
+              :max-length="500"
+              show-word-limit
+              :auto-size="{ minRows: 3 }"
+            />
+          </a-form-item>
+        </a-form>
       </a-modal>
 
       <!-- 标记不处理弹窗（批量） -->
@@ -1615,9 +1690,14 @@ function shortSha(sha: string | null | undefined): string {
                   {{ statusLabels[ev.to_status ?? '']?.label ?? ev.to_status ?? '—' }}
                 </span>
               </div>
+              <!-- 处理人变化（转交 / 认领）：谁经手的缺陷一目了然 -->
+              <div v-if="assigneeChangeText(ev.meta)" class="event-meta-row event-assignee-row">
+                <span class="event-meta-label">处理人</span>
+                <span class="event-meta-value">{{ assigneeChangeText(ev.meta) }}</span>
+              </div>
               <!-- 结构化上下文（复核事件）：分支 / commit / 时间 / 提交人 + 标题 + 结论 / 详情，
-                   比一整行长文案好读；没有 meta 的老事件退回 reason 文案 -->
-              <template v-if="ev.meta">
+                   比一整行长文案好读；人工流转事件没有 kind，退回下面的 reason 文案 -->
+              <template v-if="ev.meta?.kind">
                 <div class="event-meta">
                   <div v-if="ev.meta.branch || ev.meta.commit_sha" class="event-meta-row">
                     <span class="event-meta-label">提交</span>
@@ -1907,6 +1987,7 @@ function shortSha(sha: string | null | undefined): string {
 .event-report-link { margin-top: 2px; }
 .event-commit { margin-top: 2px; font-size: 12px; color: var(--color-text-4); font-family: monospace; }
 .event-operator { margin-top: 2px; font-size: 12px; color: var(--color-text-4); }
+.event-assignee-row { margin-top: 4px; }
 /* 复核事件的结构化上下文：左侧定宽标签列，右侧值自动换行 */
 .event-meta { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
 .event-meta-row { display: flex; align-items: flex-start; gap: 6px; font-size: 12px; color: var(--color-text-2); }
