@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed, watch, h } from 'vue'
 import { Message, type TableColumnData, type TreeNodeData } from '@arco-design/web-vue'
-import { formatTime, isRequestFailed, postAction, useGet, usePut, useAutoHeight, useTableAutoHeight, withTableDefaults } from '@/hooks'
+import { formatTime, isRequestFailed, postAction, useGet, usePut, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiPerfBenchmark, ApiPerfMenu, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
 import * as XLSX from 'xlsx'
 
@@ -90,8 +90,10 @@ const total = computed(() => rawListData.value?.total || 0)
 const { data: statsData, isFetching: statsLoading, execute: fetchStats } = useGet<any>(ApiPerfBenchmark.txnStats, queryParams, { immediate: false })
 
 // ── 左侧菜单树 ──────────────────────────────────
-const treePanel = ref<HTMLElement>()
-const { style: treeStyle } = useAutoHeight(treePanel)
+// 树框高度走 CSS 定高 flex（见 .tree-panel / .fill-card），不再用 useAutoHeight：
+// 该钩子会减掉「下方兄弟」的高度，而这里的下方兄弟正是并排的右侧表格卡，
+// 结果树框被压到下限 160px —— 这是左树显示范围过矮的根因。
+// 布局与「基础配置-元数据管理-菜单目录」保持一致（定高列 + 卡片内滚动）。
 const treeData = ref<any[]>([])
 const selectedKeys = ref<string[]>([])
 const selectedMenuName = ref('')
@@ -556,8 +558,10 @@ const columns: TableColumnData[] = withTableDefaults([
 ])
 
 // ── 表格高度自适应（滚动条在表格内，表头固定）──────────
+// fillParent：容器是定高 flex 列里的 flex:1 子项，高度已由布局链确定；
+// 从视口反推会与这块空间差一截（整行高度由左树列的定高驱动）。
 const tableWrap = ref<HTMLElement>()
-const { tableHeight } = useTableAutoHeight(tableWrap)
+const { tableHeight } = useTableAutoHeight(tableWrap, { fillParent: true })
 
 // ── 脚本关联抽屉 ──────────────────────────────────
 const scriptDrawerVisible = ref(false)
@@ -671,17 +675,19 @@ const scriptColumns = [
     </a-card>
 
     <div v-else class="txn-layout">
-      <!-- 左侧菜单树 -->
-      <div ref="treePanel" class="tree-panel panel-scroll-y" :style="treeStyle">
-        <a-card :bordered="false">
+      <!-- 左侧菜单树：卡片撑满栏高，树在卡片内部滚 -->
+      <div class="tree-panel">
+        <a-card :bordered="false" class="fill-card">
           <template #title>菜单目录</template>
-          <a-tree
-            :data="treeData"
-            v-model:selected-keys="selectedKeys"
-            :field-names="{ key: 'key', title: 'title', children: 'children' }"
-            block-node
-            @select="handleTreeSelect"
-          />
+          <div class="panel-scroll-y tree-fill">
+            <a-tree
+              :data="treeData"
+              v-model:selected-keys="selectedKeys"
+              :field-names="{ key: 'key', title: 'title', children: 'children' }"
+              block-node
+              @select="handleTreeSelect"
+            />
+          </div>
         </a-card>
       </div>
 
@@ -691,7 +697,7 @@ const scriptColumns = [
           {{ selectedMenuName ? `事务列表 - ${selectedMenuName}` : '全部事务' }}
         </template>
 
-        <div ref="tableWrap">
+        <div ref="tableWrap" class="table-fill">
 <a-table
   column-resizable
           :columns="columns"
@@ -822,9 +828,37 @@ const scriptColumns = [
   display: flex;
   gap: 8px;
 }
+/* 布局行：行高由左树列（定高 650px）驱动，右卡片拉伸对齐（同菜单目录页） */
 .tree-panel {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
   width: 300px;
-  min-width: 300px;
+  /* 定高：树数据展开后在框内滚动，不再把整行/页面撑开 */
+  height: 650px;
+  /* min-height:0 是子项能被压缩到内容以下的前提，缺了它树会撑高整行 */
+  min-height: 0;
+}
+/* 卡片撑满栏高，树在卡片内部滚 */
+.fill-card {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.fill-card :deep(.arco-card-body) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.tree-fill {
+  flex: 1;
+}
+/* 表格容器吃掉右栏剩余高度，滚动落在表格体内部 */
+.table-fill {
+  flex: 1;
+  min-height: 0;
 }
 :deep(.arco-tree-node-switcher) {
   width: 22px !important;
@@ -839,8 +873,16 @@ const scriptColumns = [
   padding: 2px 4px;
 }
 .table-panel {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-width: 0;
+  min-height: 0;
+}
+.table-panel :deep(.arco-card-body) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
   min-height: 0;
 }
 </style>
