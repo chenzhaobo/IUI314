@@ -138,9 +138,30 @@ const uploadTab = ref<'single' | 'batch'>('single')
 const dupScript = ref<{ exists: boolean; id: string; name: string } | null>(null)
 let codeCheckTimer: ReturnType<typeof setTimeout> | null = null
 
+// 批量上传状态（与单文件共用同一个弹窗）
+const batchFiles = ref<File[]>([])
+const batchUploading = ref(false)
+const batchProjectGroupId = ref('')
+
+interface BatchUploadError {
+  file_name: string
+  reason: string
+}
+
+interface BatchUploadResult {
+  success: number
+  skipped: number
+  failed: number
+  errors: BatchUploadError[]
+}
+
+const batchResult = ref<BatchUploadResult | null>(null)
+
 function handleUploadClick() {
   uploadForm.value = { name: '', code: '', project_group_id: '', description: '', tags: '', remark: '', test_type: '' }
   uploadFile.value = null
+  batchFiles.value = []
+  batchResult.value = null
   uploadTab.value = 'single'
   dupScript.value = null
   uploadVisible.value = true
@@ -189,14 +210,9 @@ async function handleUploadSubmit() {
   if (!uploadForm.value.code) { Message.warning('请输入脚本编码'); return }
   if (!uploadFile.value) { Message.warning('请选择 .jmx 文件'); return }
 
+  // 编码重复直接拦截（后端同样拒绝，这里先挡一次）
   if (dupScript.value) {
-    Modal.confirm({
-      title: '编码重复',
-      content: `编码「${uploadForm.value.code}」已存在脚本「${dupScript.value.name}」。建议使用「更新JMX」功能更新已有脚本。是否仍要继续上传？`,
-      okText: '继续上传',
-      cancelText: '取消',
-      onOk: () => doUpload(),
-    })
+    Message.error(`脚本编码「${uploadForm.value.code}」已存在脚本「${dupScript.value.name}」，请更换编码或使用「更新JMX」`)
     return
   }
   await doUpload()
@@ -229,7 +245,8 @@ async function doUpload() {
       uploadVisible.value = false
       getList()
     } else {
-      Message.error(data.msg || '上传失败')
+      // 冲突信息可能较长（逐条列出已存在的事务编码），用弹窗完整展示
+      Modal.error({ title: '上传失败', content: data.msg || '上传失败' })
     }
   } catch (e) {
     Message.error('上传失败')
@@ -241,7 +258,12 @@ async function doUpload() {
 function handleUploadOk() {
   if (uploadTab.value === 'single') {
     handleUploadSubmit()
-  } else {
+  }
+  else if (batchResult.value) {
+    // 已有批量结果：确定按钮只负责关闭，避免把同一批文件再传一次
+    uploadVisible.value = false
+  }
+  else {
     handleBatchUploadSubmit()
   }
 }
@@ -756,11 +778,6 @@ async function handleAutoBindAll() {
 }
 
 // ── 批量上传 ──────────────────────────────────
-const batchUploadVisible = ref(false)
-const batchFiles = ref<File[]>([])
-const batchUploading = ref(false)
-const batchProjectGroupId = ref('')
-
 function handleBatchUploadClick() {
   handleUploadClick()
   uploadTab.value = 'batch'
@@ -768,11 +785,13 @@ function handleBatchUploadClick() {
 
 function handleBatchFileChange(fileList: any[]) {
   batchFiles.value = fileList.map((item: any) => item.file || item).filter((f: File) => f && f.name.endsWith('.jmx'))
+  batchResult.value = null
 }
 
 async function handleBatchUploadSubmit() {
   if (batchFiles.value.length === 0) { Message.warning('请选择 .jmx 文件'); return }
   batchUploading.value = true
+  batchResult.value = null
 
   const formData = new FormData()
   for (const f of batchFiles.value) {
@@ -791,11 +810,19 @@ async function handleBatchUploadSubmit() {
     })
     const data = await resp.json()
     if (data.code === 200) {
-      Message.success(data.msg || '批量上传完成')
-      uploadVisible.value = false
+      const result: BatchUploadResult = data.data
       getList()
-    } else {
-      Message.error(data.msg || '批量上传失败')
+      if (result.failed > 0) {
+        // 有失败文件：保留弹窗，在结果面板中逐条说明是哪些脚本、为什么失败
+        batchResult.value = result
+      }
+      else {
+        Message.success(`批量上传完成：成功 ${result.success}，跳过 ${result.skipped}`)
+        uploadVisible.value = false
+      }
+    }
+    else {
+      Modal.error({ title: '批量上传失败', content: data.msg || '批量上传失败' })
     }
   } catch (e) {
     Message.error('批量上传失败')
@@ -979,7 +1006,7 @@ const layoutOnlyModel = {}
             <a-form-item label="脚本编码" required>
               <a-input v-model="uploadForm.code" placeholder="如：login_test" />
               <a-alert v-if="dupScript" type="warning" :style="{ marginTop: '8px' }" show-icon>
-                编码「{{ uploadForm.code }}」已存在脚本「{{ dupScript.name }}」，建议使用「更新JMX」功能。
+                编码「{{ uploadForm.code }}」已存在脚本「{{ dupScript.name }}」，请更换编码或使用「更新JMX」更新已有脚本。
                 <a-button type="text" size="small" status="warning" @click="handleSwitchToUpdateJmx">去更新</a-button>
               </a-alert>
             </a-form-item>
@@ -1005,7 +1032,8 @@ const layoutOnlyModel = {}
         <a-tab-pane key="batch" title="批量上传">
           <a-alert type="info" :style="{ marginBottom: '12px' }">
             文件名需符合规范: code-基准-云-领域-模块-功能-测试类型.jmx
-            系统将从文件名自动解析编码和测试类型，并按MD5查重跳过已存在脚本。
+            系统将从文件名自动解析编码和测试类型，并按MD5查重跳过已存在脚本；
+            脚本编码重复、或脚本内事务编码与已存在事务冲突的文件会上传失败，失败原因在下方单独列出。
           </a-alert>
           <a-form layout="vertical" :model="layoutOnlyModel">
             <a-form-item label="项目组ID（可选）">
@@ -1015,6 +1043,18 @@ const layoutOnlyModel = {}
               <a-upload :auto-upload="false" multiple accept=".jmx" @change="handleBatchFileChange" />
             </a-form-item>
           </a-form>
+          <template v-if="batchResult">
+            <a-divider :margin="12" />
+            <a-alert type="warning" show-icon>
+              上传完成：成功 {{ batchResult.success }}，跳过 {{ batchResult.skipped }}（MD5重复），失败 {{ batchResult.failed }}
+            </a-alert>
+            <div v-if="batchResult.errors.length" class="panel-scroll-y batch-error-list">
+              <div v-for="(e, i) in batchResult.errors" :key="i" class="batch-error-item">
+                <span class="batch-error-file" :title="e.file_name">{{ e.file_name }}</span>
+                <span class="batch-error-reason">{{ e.reason }}</span>
+              </div>
+            </div>
+          </template>
         </a-tab-pane>
       </a-tabs>
     </a-modal>
@@ -1236,4 +1276,21 @@ const layoutOnlyModel = {}
 
 <style scoped>
 .perf-script { padding: 0; }
+/* 批量上传失败明细：逐条列出脚本与失败原因（滚动用全局 .panel-scroll-y） */
+.batch-error-list { margin-top: 8px; max-height: 200px; }
+.batch-error-item {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+  line-height: 18px;
+  border-bottom: 1px dashed var(--color-neutral-3);
+}
+.batch-error-file {
+  flex: 0 0 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.batch-error-reason { flex: 1; color: rgb(var(--red-6)); word-break: break-all; }
 </style>
