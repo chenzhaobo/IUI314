@@ -3,7 +3,8 @@
 // 口径（与后端 issue_governance.rs 一致）：
 //   处理中 = 待修复(open/reopened)/修复中 + 验证不通过（复核确认仍在，回待修复）+ AI 复核中（窗口期）；
 //   已处理 = 已修复+已验证且未失活（失活自动关闭不计入人工修复）；
-//   不处理 = 不处理；修复进度 = 已处理 ÷ (总数 − 不处理)；误报率 = 误报数 ÷ 总数。
+//   不处理 = 不处理；修复进度 = 已处理 ÷ (总数 − 不处理)，分母为 0 时显示「— 无待修复」；
+//   误报率 = 误报数 ÷ 总数。
 import type { TableColumnData } from '@arco-design/web-vue'
 import type { DefectGovernanceDashboard, DefectGovernanceMetrics } from '@/types/static-scan'
 import { Progress } from '@arco-design/web-vue'
@@ -67,6 +68,19 @@ function progressStatus(v: number): 'success' | 'normal' | 'warning' {
   return 'warning'
 }
 
+/**
+ * 修复进度的分母（总数 − 不处理）是否 > 0。
+ *
+ * 全部标不处理（或暂无缺陷）时进度是 0/0，后端兜底给 0 —— 那是「没有分母」，
+ * 不是「一条没修」。界面按 0% 渲染会与旁边的「已处理 0 / 不处理 17」自相矛盾，
+ * 所以这种情况显示「— 无待修复」。
+ */
+function hasFixDenominator(m: DefectGovernanceMetrics | null | undefined): boolean {
+  return !!m && m.total - m.wont_fix > 0
+}
+
+const NO_FIX_DENOMINATOR_HINT = '没有需要修复的缺陷（全部标记为不处理或暂无缺陷），修复进度无分母'
+
 /** 一个领域的 6 个指标列（挂到「安全」「性能」两个分组表头下）。
  *  单元格用列级 render 渲染：这样 12 个指标列不用写 12 个具名插槽 */
 function metricColumns(domain: 'security' | 'performance'): TableColumnData[] {
@@ -82,7 +96,12 @@ function metricColumns(domain: 'security' | 'performance'): TableColumnData[] {
       title: '修复进度',
       width: 170,
       render: ({ record }) => {
-        const v = pick(record)?.fix_progress ?? 0
+        const m = pick(record)
+        // 分母为 0（全不处理 / 无缺陷）：不渲染进度条，别把 0/0 显示成 0%。
+        // 这里用行内样式：渲染发生在 Arco 表格的上下文里，scoped 类名挂不上
+        if (!hasFixDenominator(m))
+          return h('span', { style: { color: 'var(--color-text-3)' }, title: NO_FIX_DENOMINATOR_HINT }, '— 无待修复')
+        const v = m?.fix_progress ?? 0
         // Arco 的 percent 是 0~1 比率（组件内部 ×100 才是显示文本），直接传原始比率
         return h(Progress, { percent: v, size: 'small', status: progressStatus(v) })
       },
@@ -195,8 +214,12 @@ const topOption = computed(() => {
                 <div class="metric-label">
                   修复进度
                 </div>
+                <!-- 分母为 0（全不处理 / 无缺陷）时进度无意义：显示「—」，别显示 0% -->
+                <div v-if="!hasFixDenominator(s)" class="metric-value progress-none" :title="NO_FIX_DENOMINATOR_HINT">
+                  —
+                </div>
                 <!-- Arco 的 percent 是 0~1 比率（组件内部 ×100 才是显示文本），直接传原始比率 -->
-                <a-progress :percent="s.fix_progress" size="small" :status="progressStatus(s.fix_progress)" />
+                <a-progress v-else :percent="s.fix_progress" size="small" :status="progressStatus(s.fix_progress)" />
               </a-col>
               <a-col :span="4">
                 <div class="metric-label">
@@ -251,5 +274,7 @@ const topOption = computed(() => {
 .gen-at { color: var(--color-text-3); font-size: 12px; }
 .metric-label { margin-bottom: 6px; color: var(--color-text-3); font-size: 12px; }
 .metric-value { font-size: 20px; line-height: 1.2; }
+/* 分母为 0 的修复进度：显示「—」，压暗一号免得被当成有效指标 */
+.progress-none { color: var(--color-text-3); }
 .fp-high { color: rgb(var(--red-6)); font-weight: 600; }
 </style>
