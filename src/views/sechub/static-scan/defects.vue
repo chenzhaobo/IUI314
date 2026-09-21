@@ -965,6 +965,18 @@ function metaPrefix(meta: VerifyEventMeta | null): string {
   return meta?.kind === 'ai_verify' ? 'AI 复核' : '复核'
 }
 
+/** 操作人展示名：老事件与自动动作存的是 system，别把英文串直接抛给用户 */
+function operatorLabel(operator?: string | null): string {
+  const value = (operator ?? '').trim()
+  if (!value)
+    return '—'
+  if (value === 'system')
+    return '系统'
+  if (value === 'api-token')
+    return 'API 令牌'
+  return value
+}
+
 /** AI 复核结论标签：四态判定 → 中文（与后端 classify_verify_verdict 口径一致） */
 const verifyVerdictLabels: Record<string, { label: string, color: string }> = {
   confirmed: { label: '问题仍存在', color: 'orange' },
@@ -1042,9 +1054,10 @@ function isAiDirectVerified(row: ScanIssueRow): boolean {
   return from !== '' && from !== 'fixed'
 }
 
-/** 状态列悬浮：最近一次复核摘要；AI 直判的额外说明复核前状态 */
+/** 状态列悬浮：最近一次复核摘要（含提交人）；AI 直判的额外说明复核前状态 */
 function statusTooltip(row: ScanIssueRow): string {
-  const base = `最近复核（${formatTime(row.last_verify_at)}）\n${row.last_verify_reason || ''}`
+  const submitter = row.last_verify_operator ? ` · 提交人：${operatorLabel(row.last_verify_operator)}` : ''
+  const base = `最近复核（${formatTime(row.last_verify_at)}${submitter}）\n${row.last_verify_reason || ''}`
   if (!isAiDirectVerified(row))
     return base
   const fromLabel = statusLabels[`${row.last_verify_from_status}`]?.label ?? row.last_verify_from_status
@@ -1646,6 +1659,11 @@ function shortSha(sha: string | null | undefined): string {
               <div v-if="ev.commit_sha && !ev.meta" class="event-commit">
                 commit: {{ shortSha(ev.commit_sha) }}
               </div>
+              <!-- 操作人：人工动作记登录名，扫描/复核流水线记 system（显示为「系统」）；
+                   历史事件没有该字段，不显示这一行 -->
+              <div v-if="ev.operator" class="event-operator">
+                操作人：{{ operatorLabel(ev.operator) }}
+              </div>
             </a-timeline-item>
           </a-timeline>
           <a-empty v-else description="暂无流转记录" />
@@ -1888,6 +1906,7 @@ function shortSha(sha: string | null | undefined): string {
 .event-reason { margin-top: 4px; font-size: 12px; color: var(--color-text-3); }
 .event-report-link { margin-top: 2px; }
 .event-commit { margin-top: 2px; font-size: 12px; color: var(--color-text-4); font-family: monospace; }
+.event-operator { margin-top: 2px; font-size: 12px; color: var(--color-text-4); }
 /* 复核事件的结构化上下文：左侧定宽标签列，右侧值自动换行 */
 .event-meta { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
 .event-meta-row { display: flex; align-items: flex-start; gap: 6px; font-size: 12px; color: var(--color-text-2); }

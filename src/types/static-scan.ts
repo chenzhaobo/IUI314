@@ -859,6 +859,8 @@ export interface ScanIssueRow {
   last_verify_reason?: string | null
   /** 最近一次复核前的状态：fixed = 人工标记过「已修复」；open/fixing 等 = AI 直接判过（状态列标「AI直判」） */
   last_verify_from_status?: string | null
+  /** 最近一次复核的发起人（登录名；历史事件为 system） */
+  last_verify_operator?: string | null
 }
 
 export interface ScanIssuePage {
