@@ -13,7 +13,13 @@ defineProps<{ record: AnalysisRecord }>()
 </script>
 
 <template>
-  <a-tooltip v-if="record?.impact_score !== null && record?.impact_score !== undefined" position="right">
+  <!-- Arco 默认 .arco-tooltip-content 是 max-width: 350px，四口径对比表（七列）
+       被压成"又窄又高"；content-style 就挂在该元素上，放宽后表格才能单行铺开 -->
+  <a-tooltip
+    v-if="record?.impact_score !== null && record?.impact_score !== undefined"
+    position="right"
+    :content-style="{ maxWidth: '640px' }"
+  >
     <template #content>
       <div style="min-width: 320px">
         <div style="font-weight: 600; margin-bottom: 4px">
