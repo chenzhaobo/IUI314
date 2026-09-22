@@ -263,6 +263,9 @@ const triggerVisible = ref(false)
 const triggerForce = ref(false)
 const triggering = ref(false)
 const triggerDate = ref('')
+// 归因起始日期（可选）：只对归因阶段生效 —— 只做该日期至数据日期之间未归因的日期。
+// 攒了多天未归因时分几次跑，避免单个分析会话被压垮（收尾会批量放弃维度）。
+const triggerAttrFrom = ref('')
 const triggerStage = ref<string>()
 // 非空表示只触发这一个任务（行内入口）；为空表示触发全部启用任务（顶部入口）
 const triggerTarget = ref<any>(null)
@@ -270,11 +273,13 @@ const triggerTarget = ref<any>(null)
 function openTriggerFor(record: any) {
   triggerTarget.value = record
   triggerStage.value = undefined
+  triggerAttrFrom.value = ''
   triggerVisible.value = true
 }
 function openTriggerAll() {
   triggerTarget.value = null
   triggerStage.value = undefined
+  triggerAttrFrom.value = ''
   triggerVisible.value = true
 }
 
@@ -284,12 +289,17 @@ const { data: triggerResult, error: triggerError, execute: doTrigger } = usePost
   immediate: false,
 })
 async function handleTrigger() {
+  if (triggerAttrFrom.value && triggerDate.value && triggerAttrFrom.value > triggerDate.value) {
+    Message.warning('归因起始日期不能晚于数据日期')
+    return
+  }
   triggering.value = true
   try {
     triggerPayload.value = {
       // 指定 task_id 时后端只跑该任务，且不检查 enabled（可显式补跑已停用任务）
       task_id: triggerTarget.value?.id || undefined,
       run_date: triggerDate.value || undefined,
+      attr_from: triggerAttrFrom.value || undefined,
       stage: triggerStage.value || undefined,
       force: triggerForce.value || undefined,
     }
@@ -875,6 +885,16 @@ const layoutOnlyModel = {}
           <span v-if="triggerStage === 'weekly' || triggerStage === 'monthly'" class="hint">
             周报/月报以这个日期为锚点，取它所在的整{{ triggerStage === 'weekly' ? '周' : '月' }}。
             与调度生成的区别只是不等区间闭合、不等触发时刻 —— 同区间重复生成会复用既有报告，不会堆重复。
+          </span>
+        </a-form-item>
+        <a-form-item
+          v-if="!triggerStage || triggerStage === 'defect_attribution'"
+          label="归因起始日期（可选，只对归因生效）"
+        >
+          <a-date-picker v-model="triggerAttrFrom" value-format="YYYY-MM-DD" allow-clear style="width: 100%" />
+          <span class="hint">
+            只做<b>起始日期 ~ 数据日期</b>之间还没归因的日期（已归因的不重做）。留空 = 按任务配置的归因范围。
+            攒了多天未归因时<b>建议分几次跑</b>：一次太多天，单个分析会话会被压垮，收尾时反而批量放弃。
           </span>
         </a-form-item>
         <a-form-item label="强制重跑">
