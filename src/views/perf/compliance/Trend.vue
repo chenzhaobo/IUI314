@@ -88,7 +88,7 @@
               >
                 <template #title="node">
                   <span>{{ displayTitle(node) }}</span>
-                  <span style="margin-left: 6px; font-size: 12px" :style="{ color: getRateColor(node.compliance_rate) }">
+                  <span style="margin-left: 6px; font-size: 12px" :style="{ color: rateColor(node.compliance_rate) }">
                     {{ node.compliance_rate?.toFixed(2) }}%
                   </span>
                 </template>
@@ -105,7 +105,7 @@
           <div v-if="selectedNode" style="margin-bottom: 12px; padding: 8px 12px; background: #f7f8fa; border-radius: 4px">
             <span style="font-weight: 500">{{ selectedNode.title }}</span>
             <span style="margin-left: 12px; color: #666">最新达标率:</span>
-            <span style="margin-left: 4px; font-weight: 500" :style="{ color: getRateColor(selectedNode.compliance_rate) }">
+            <span style="margin-left: 4px; font-weight: 500" :style="{ color: rateColor(selectedNode.compliance_rate) }">
               {{ selectedNode.compliance_rate?.toFixed(2) }}%
             </span>
           </div>
@@ -127,7 +127,7 @@
 import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { ApiPerfCompliance } from '@/api/perfApis'
-import { useGet, useRequest, getQueryUrl, useDownload, useAutoHeight } from '@/hooks'
+import { getQueryUrl, rateColor, useAutoHeight, useDownload, useGet, useRequest } from '@/hooks'
 
 defineOptions({ name: 'compliance-trend' })
 
@@ -617,11 +617,7 @@ const handleExport = async () => {
 }
 
 // ── 辅助 ──────────────────────────────────
-const getRateColor = (rate: number) => {
-  if (rate >= 99) return '#00b42a'
-  if (rate >= 95) return '#ff7d00'
-  return '#f53f3f'
-}
+// 达标率配色与达标率看板/左树共用一份（见 @/hooks 的 rateColor）
 
 onUnmounted(() => {
   window.removeEventListener('resize', resizeChart)

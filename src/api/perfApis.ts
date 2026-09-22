@@ -310,6 +310,10 @@ export enum ApiPerfDiagnosis {
 export enum ApiPerfIssue {
   getList = '/perf/issue/list',
   scopeCounts = '/perf/issue/scope-counts',
+  // 左树（与问题台账同一套建树）：结构 + 问题数 + 当月 3 秒达标率一次取回；
+  // 表单级懒加载按 perf_issue.form_id 聚合。
+  scopeTree = '/perf/issue/scope-tree',
+  formDrill = '/perf/issue/form-drill',
   getById = '/perf/issue/get_by_id',
   add = '/perf/issue/add',
   edit = '/perf/issue/edit',

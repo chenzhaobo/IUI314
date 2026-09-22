@@ -95,7 +95,7 @@
               >
                 <template #title="node">
                   <span>{{ displayTitle(node) }}</span>
-                  <span style="margin-left: 6px; font-size: 12px" :style="{ color: getRateColor(node.compliance_rate) }">
+                  <span style="margin-left: 6px; font-size: 12px" :style="{ color: rateColor(node.compliance_rate) }">
                     {{ node.compliance_rate?.toFixed(2) }}%
                   </span>
                 </template>
@@ -112,7 +112,7 @@
             <a-col :span="6"><a-statistic title="总请求数" :value="overview.total_count" /></a-col>
             <a-col :span="6"><a-statistic title="超3秒数" :value="overview.over_3s_count" :value-style="{ color: '#f53f3f' }" /></a-col>
             <a-col :span="6">
-              <a-statistic title="3秒达标率" :value="overview.compliance_rate" :precision="2" suffix="%" :value-style="{ color: getRateColor(overview.compliance_rate) }" />
+              <a-statistic title="3秒达标率" :value="overview.compliance_rate" :precision="2" suffix="%" :value-style="{ color: rateColor(overview.compliance_rate) }" />
             </a-col>
             <a-col :span="6">
               <div class="arco-statistic">
@@ -129,13 +129,13 @@
               <a-table-column title="名称" data-index="name" :width="180" ellipsis />
               <a-table-column title="3秒达标率" :width="90">
                 <template #cell="{ record }">
-                  <span :style="{ color: getRateColor(record.compliance_rate) }">{{ record.compliance_rate?.toFixed(2) }}%</span>
+                  <span :style="{ color: rateColor(record.compliance_rate) }">{{ record.compliance_rate?.toFixed(2) }}%</span>
                 </template>
               </a-table-column>
               <a-table-column title="1秒达标率" :width="90">
                 <template #cell="{ record }">
                   <a-tooltip :content="thresholdTip(record, '1')" :disabled="record.rate_1s == null">
-                    <span v-if="record.rate_1s != null" :style="{ color: getRateColor(record.rate_1s) }">{{ record.rate_1s.toFixed(2) }}%</span>
+                    <span v-if="record.rate_1s != null" :style="{ color: rateColor(record.rate_1s) }">{{ record.rate_1s.toFixed(2) }}%</span>
                     <span v-else style="color: #86909c">--</span>
                   </a-tooltip>
                 </template>
@@ -143,7 +143,7 @@
               <a-table-column title="2秒达标率" :width="90">
                 <template #cell="{ record }">
                   <a-tooltip :content="thresholdTip(record, '2')" :disabled="record.rate_2s == null">
-                    <span v-if="record.rate_2s != null" :style="{ color: getRateColor(record.rate_2s) }">{{ record.rate_2s.toFixed(2) }}%</span>
+                    <span v-if="record.rate_2s != null" :style="{ color: rateColor(record.rate_2s) }">{{ record.rate_2s.toFixed(2) }}%</span>
                     <span v-else style="color: #86909c">--</span>
                   </a-tooltip>
                 </template>
@@ -151,7 +151,7 @@
               <a-table-column title="10秒达标率" :width="94">
                 <template #cell="{ record }">
                   <a-tooltip :content="thresholdTip(record, '10')" :disabled="record.rate_10s == null">
-                    <span v-if="record.rate_10s != null" :style="{ color: getRateColor(record.rate_10s) }">{{ record.rate_10s.toFixed(2) }}%</span>
+                    <span v-if="record.rate_10s != null" :style="{ color: rateColor(record.rate_10s) }">{{ record.rate_10s.toFixed(2) }}%</span>
                     <span v-else style="color: #86909c">--</span>
                   </a-tooltip>
                 </template>
@@ -190,7 +190,7 @@ import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { ApiPerfCompliance } from '@/api/perfApis'
-import { useGet, useDownload, useTableAutoHeight, useAutoHeight } from '@/hooks'
+import { rateColor, useAutoHeight, useDownload, useGet, useTableAutoHeight } from '@/hooks'
 
 defineOptions({ name: 'compliance-dashboard' })
 
@@ -547,11 +547,8 @@ watch(complianceFilter, reloadFiltered)
 watch(customFilter, reloadFiltered)
 
 // ── 辅助 ──────────────────────────────────
-const getRateColor = (rate: number) => {
-  if (rate >= 99) return '#00b42a'
-  if (rate >= 95) return '#ff7d00'
-  return '#f53f3f'
-}
+// 达标率配色与问题台账/问题列表左树共用一份（见 @/hooks 的 rateColor），
+// 阈值 99/95 与后端 COMPLIANCE_PASS_THRESHOLD 对齐。
 
 // 多阈值达标率悬停提示：显示具体数量（达标数/总数 + 超标数）
 const thresholdTip = (record: any, sec: '1' | '2' | '10') => {
