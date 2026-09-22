@@ -22,6 +22,12 @@ interface ColumnLike {
   ellipsis?: boolean
   tooltip?: boolean | Record<string, any>
   width?: number
+  /**
+   * 列表头排序。显式声明（而不是靠索引签名兜底）是为了让字面量在泛型推断里
+   * 拿到上下文类型 —— 否则 `sortDirections: ['descend', 'ascend']` 会被推宽成
+   * `string[]`，赋给 Arco 的 `('ascend'|'descend')[]` 时类型不兼容。
+   */
+  sortable?: { sortDirections?: ('ascend' | 'descend')[] }
   [key: string]: any
 }
 

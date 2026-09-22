@@ -268,10 +268,10 @@
                 <a-table-column title="发现日期" :width="100">
                   <template #cell="{ record }">{{ formatTime(record.found_date, { precision: 'date' }) }}</template>
                 </a-table-column>
-                <a-table-column title="创建时间" :width="150" ellipsis tooltip>
+                <a-table-column title="创建时间" :width="150" ellipsis tooltip data-index="created_at" :sortable="{ sortDirections: ['descend', 'ascend'] }">
                   <template #cell="{ record }">{{ formatTime(record.created_at) }}</template>
                 </a-table-column>
-                <a-table-column title="更新时间" :width="150" ellipsis tooltip>
+                <a-table-column title="更新时间" :width="150" ellipsis tooltip data-index="updated_at" :sortable="{ sortDirections: ['descend', 'ascend'] }">
                   <template #cell="{ record }">{{ formatTime(record.updated_at) }}</template>
                 </a-table-column>
                 <a-table-column title="操作" :width="180" fixed="right">

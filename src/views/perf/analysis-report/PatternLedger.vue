@@ -284,10 +284,10 @@
                    靠周趋势看不出来，而回填/合并过的台账更需要看 updated_at。 -->
               <!-- 时间统一走 formatTime 转本地时区。直接绑字段会把后端的
                    UTC 字符串原样显示（差 8 小时），看起来像数据错了。 -->
-              <a-table-column title="创建时间" :width="150" ellipsis tooltip>
+              <a-table-column title="创建时间" :width="150" ellipsis tooltip data-index="created_at" :sortable="{ sortDirections: ['descend', 'ascend'] }">
                 <template #cell="{ record }">{{ formatTime(record.created_at) }}</template>
               </a-table-column>
-              <a-table-column title="更新时间" :width="150" ellipsis tooltip>
+              <a-table-column title="更新时间" :width="150" ellipsis tooltip data-index="updated_at" :sortable="{ sortDirections: ['descend', 'ascend'] }">
                 <template #cell="{ record }">{{ formatTime(record.updated_at) }}</template>
               </a-table-column>
               <a-table-column title="操作" :width="150" fixed="right">

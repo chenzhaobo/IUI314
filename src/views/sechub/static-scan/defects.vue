@@ -81,6 +81,9 @@ const queryParams = ref({
   source: '',
   // 负责人过滤（「我负责的」开关；值=登录名,展示名，后端按并集匹配）
   assignee: mineAssigneeValue(),
+  // 表头排序：后端白名单只认 introduced_at / updated_at，空值=默认「更新时间倒序」
+  sort_by: '',
+  sort_order: '',
 })
 
 // Arco 的 multiple 要求数组，后端接受逗号分隔字符串，这里做转换
@@ -95,6 +98,22 @@ if (routeDefectCode.value)
 const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<ScanIssuePage>(ApiSecPrescan.issues, queryParams, { immediate: true })
 const dataList = computed(() => rawListData.value?.list ?? [])
 const total = computed(() => rawListData.value?.total ?? 0)
+
+/** 表头点击排序 → 转成后端参数重新查询。
+ *
+ * 必须走后端：前端只有当页 20 条，在那上面排「最近引入」排出来的不是全量的。 */
+function handleSorterChange(dataIndex: string, direction: string) {
+  if (!direction) {
+    queryParams.value.sort_by = ''
+    queryParams.value.sort_order = ''
+  }
+  else {
+    queryParams.value.sort_by = dataIndex
+    queryParams.value.sort_order = direction === 'ascend' ? 'asc' : 'desc'
+  }
+  queryParams.value.page_num = 1
+  void getList()
+}
 
 /** 「未关联」快捷筛选：再点一次取消，回到全部 */
 function toggleDmpUnlinked() {
@@ -1133,9 +1152,9 @@ const columns = computed(() => withTableDefaults([
   { title: '负责人', dataIndex: 'assignee', width: 75 },
   { title: '文件', dataIndex: 'file_path', width: 180 },
   { title: '命中', dataIndex: 'hit_count', slotName: 'hitCount', width: 50 },
-  { title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 140, ellipsis: true, tooltip: true },
+  { title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 140, ellipsis: true, tooltip: true, sortable: { sortDirections: ['descend', 'ascend'] } },
   { title: 'DMP 编码', dataIndex: 'dmp_defect_code', slotName: 'dmpCode', width: 130, ellipsis: true, tooltip: true },
-  { title: '更新时间', dataIndex: 'updated_at', slotName: 'updatedAt', width: 190 },
+  { title: '更新时间', dataIndex: 'updated_at', slotName: 'updatedAt', width: 190, sortable: { sortDirections: ['descend', 'ascend'] } },
   // 不处理原因列：宽度 130，支持后端过滤，选项来自字典
   // filter 走后端（@filter-change → queryParams.wont_fix_reason_code），本地 filter 函数
   // 固定返回 true，不做客户端行筛选，仅作为 Arco 的必填字段占位。
@@ -1427,6 +1446,7 @@ function shortSha(sha: string | null | undefined): string {
                 :loading="isLoading"
                 :data="dataList"
                 :columns="columns"
+                @sorter-change="handleSorterChange"
                 :pagination="{
                   total,
                   current: queryParams.page_num,
