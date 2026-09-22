@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ApiPerfCompliance, ApiPerfIssue, ApiPerfPatternLedger } from '@/api/perfApis'
 import { useGet, usePost } from '@/hooks'
 
@@ -27,6 +27,12 @@ const emit = defineEmits<{
   change: [scope: IssueScopeFilter]
 }>()
 const ROOT_KEY = 'root:all'
+/**
+ * 台账源（问题台账页）：结构与计数走台账驱动接口（scope-tree / form-drill），
+ * 不依赖达标率周期与快照 —— 旧结构来自 500 万行快照，实测 15 秒级且受 500 节点上限约束；
+ * 台账自身字段分组又快又只出现有数据的节点。
+ */
+const ledgerMode = props.source === 'pattern'
 
 const productLine = ref('星瀚')
 const mode = ref<ScopeMode>('menu')
@@ -40,7 +46,8 @@ const loading = ref(false)
 
 const periodPayload = ref<any>({ period_type: 'monthly', product_line: productLine.value })
 const { execute: fetchPeriods } = useGet<any>(ApiPerfCompliance.periodOptions, periodPayload, {
-  immediate: true,
+  // 台账源没有周期概念（结构与计数来自台账自身），不发这个请求
+  immediate: !ledgerMode,
   onSuccess(data: any) {
     const periods = Array.isArray(data) ? data : []
     selectedPeriod.value = periods[0]?.period || ''
@@ -53,6 +60,11 @@ const treePayload = ref<any>({})
 const treeRequest = useGet<any>(ApiPerfCompliance.tree, treePayload, { immediate: false })
 const drillPayload = ref<any>({})
 const drillRequest = useGet<any>(ApiPerfCompliance.drill, drillPayload, { immediate: false })
+// 台账驱动请求：结构与计数一次取回；表单级由 form-drill 懒加载
+const ledgerTreePayload = ref<any>({})
+const ledgerTreeRequest = useGet<any>(ApiPerfPatternLedger.scopeTree, ledgerTreePayload, { immediate: false })
+const ledgerDrillPayload = ref<any>({})
+const ledgerDrillRequest = useGet<any>(ApiPerfPatternLedger.formDrill, ledgerDrillPayload, { immediate: false })
 const countEndpoint = computed(() => props.source === 'issue' ? ApiPerfIssue.scopeCounts : ApiPerfPatternLedger.scopeCounts)
 const countPayload = ref<any>({ filters: {}, scopes: [] })
 const countRequest = usePost<any>(countEndpoint, countPayload, { immediate: false })
@@ -160,7 +172,88 @@ async function reloadTree() {
   }
 }
 
+/** 台账树节点 → 组件内部形状：计数随结构返回（record_count），children 递归归一。 */
+function normalizeLedgerNode(item: any, parentScope: IssueScopeFilter): any {
+  const level = item.level
+  const code = String(item.code || '')
+  const scope = scopeFor(level, code, parentScope)
+  return {
+    ...item,
+    key: item.key || `${level}:${code}`,
+    code,
+    title: item.title || item.name || code,
+    is_leaf: level === 'form',
+    children: Array.isArray(item.children) ? item.children.map((child: any) => normalizeLedgerNode(child, scope)) : [],
+    scope,
+    record_count: Number(item.count || 0),
+  }
+}
+
+/**
+ * 台账源重建：一次取回「范围→应用」两级（含计数），表单级展开时再拉。
+ *
+ * `resetSelection=true`（换模式/产品线）时回到「全部」并通知右表清范围；
+ * false（右表筛选变化）时尽量保住当前选中节点，节点被筛没了才回退到「全部」。
+ */
+async function reloadLedgerTree(resetSelection: boolean) {
+  const keepKey = resetSelection ? ROOT_KEY : (selectedKeys.value[0] || ROOT_KEY)
+  ledgerTreePayload.value = {
+    mode: mode.value,
+    product_line: productLine.value,
+    ...props.filters,
+  }
+  loading.value = true
+  try {
+    await ledgerTreeRequest.execute()
+    const items = Array.isArray(ledgerTreeRequest.data.value) ? ledgerTreeRequest.data.value : []
+    const children = items.map((item: any) => normalizeLedgerNode(item, { product_line: productLine.value }))
+    if (children.length) {
+      const root: any = createRoot(children)
+      root.record_count = children.reduce((sum: number, child: any) => sum + Number(child.record_count || 0), 0)
+      treeData.value = [root]
+    }
+    else {
+      treeData.value = []
+    }
+    if (resetSelection) {
+      selectedKeys.value = [ROOT_KEY]
+      emit('change', { product_line: productLine.value })
+    }
+    else if (findNode(treeData.value, keepKey)) {
+      selectedKeys.value = [keepKey]
+    }
+    else {
+      selectedKeys.value = [ROOT_KEY]
+      emit('change', { product_line: productLine.value })
+    }
+  }
+  finally {
+    loading.value = false
+  }
+}
+
 async function loadChildren(node: any) {
+  if (ledgerMode) {
+    // 范围/云层的应用子节点已在树响应里；应用层展开才拉表单
+    if (node.level !== 'app')
+      return
+    ledgerDrillPayload.value = {
+      app_number: node.code,
+      product_line: productLine.value,
+      ...props.filters,
+    }
+    await ledgerDrillRequest.execute()
+    const items = Array.isArray(ledgerDrillRequest.data.value) ? ledgerDrillRequest.data.value : []
+    node.children = items.map((item: any) => normalizeLedgerNode(item, node.scope))
+    if (!node.children.length)
+      node.is_leaf = true
+    const origin = findNode(treeData.value, node.key)
+    if (origin && origin !== node) {
+      origin.children = node.children
+      origin.is_leaf = node.is_leaf
+    }
+    return
+  }
   if (node.level === 'root' || node.level === 'form')
     return
   const params: any = {
@@ -224,6 +317,10 @@ function handleSelect(keys: (string | number)[]) {
 }
 
 function handleProductLineChange() {
+  if (ledgerMode) {
+    void reloadLedgerTree(true)
+    return
+  }
   selectedPeriod.value = ''
   periodLabel.value = ''
   periodPayload.value = { period_type: 'monthly', product_line: productLine.value }
@@ -231,7 +328,7 @@ function handleProductLineChange() {
 }
 
 function handleModeChange() {
-  void reloadTree()
+  void (ledgerMode ? reloadLedgerTree(true) : reloadTree())
 }
 
 function nodeTitle(node: any) {
@@ -274,9 +371,15 @@ const treeRenderKey = computed(() => `${productLine.value}:${mode.value}:${selec
 
 watch(
   () => props.filters,
-  () => { void refreshAllCounts() },
+  () => { void (ledgerMode ? reloadLedgerTree(false) : refreshAllCounts()) },
   { deep: true },
 )
+
+// 台账源没有周期请求驱动首次加载，挂载时自己拉一次
+onMounted(() => {
+  if (ledgerMode)
+    void reloadLedgerTree(true)
+})
 </script>
 
 <template>
@@ -305,8 +408,11 @@ watch(
         </a-option>
       </a-select>
     </div>
-    <div class="period-tip">
+    <div v-if="!ledgerMode" class="period-tip">
       范围周期：{{ periodLabel || '加载中…' }} · 当前：{{ selectedNode?.title || '全部' }}
+    </div>
+    <div v-else class="period-tip">
+      范围：台账全量 · 当前：{{ selectedNode?.title || '全部' }}
     </div>
     <div class="scope-stats">
       <span>{{ countLabel }}</span>

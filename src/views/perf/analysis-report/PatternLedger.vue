@@ -1203,7 +1203,14 @@ const handleScopeChange = (scope: {
   pageNum.value = 1
   fetchData()
 }
-const handleSearch = () => { pageNum.value = 1; fetchData() }
+const handleSearch = () => {
+  pageNum.value = 1
+  // 刷新查询条件后，旧勾选可能已不在结果集里，直接清空 ——
+  // 否则批量操作会把看不见的旧行也带上（工具栏计数与实际提交集合同源）。
+  selectedKeys.value = []
+  selectedRowsById.value = new Map()
+  fetchData()
+}
 const handleReset = () => {
   Object.assign(searchForm, {
     // status 回到 'new' 而不是空：与初始状态一致，否则"重置"会变成"看全部"

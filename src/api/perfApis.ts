@@ -408,6 +408,11 @@ export enum ApiPerfTreatment {
 export enum ApiPerfPatternLedger {
   list = '/perf/periodic-report/pattern/list',
   scopeCounts = '/perf/periodic-report/pattern/scope-counts',
+  // 台账左树（台账驱动）：范围→应用两级、计数随结构返回，表单级懒加载。
+  // 不走 scopeCounts 的原因：那套结构与计数打在达标率快照上（生产 500 万行，
+  // 实测 15 秒级且受 500 节点上限约束），台账自身字段分组又快又只出现有数据的节点。
+  scopeTree = '/perf/periodic-report/pattern/scope-tree',
+  formDrill = '/perf/periodic-report/pattern/form-drill',
   export = '/perf/periodic-report/pattern/export',
   logs = '/perf/periodic-report/pattern/logs',
   reportMd = '/perf/periodic-report/pattern/report-md',
