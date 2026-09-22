@@ -779,7 +779,8 @@ async function loadDomainAssets() {
   loadingDomainAssets.value = true
   try {
     // 翻页取全量：只取第一页会让超出部分的资产根本选不到（表单资产一个仓库就可能上百）
-    const PAGE_SIZE = 500
+    // 后端契约 page_size ∈ 1..=200（domain_asset 校验），超过直接 400，曾误写 500 报「参数错误」
+    const PAGE_SIZE = 200
     const MAX_ASSETS = 5000
     const all: DomainAsset[] = []
     let total = 0
