@@ -126,13 +126,13 @@
           <div ref="tableWrap" style="flex: 1; min-height: 0">
           <a-table :data="tableData" :loading="tableLoading" :pagination="false" size="small" row-key="code" :scroll="{ y: tableHeight }" style="flex: 1; min-height: 0">
             <template #columns>
-              <a-table-column title="名称" data-index="name" :width="180" ellipsis />
-              <a-table-column title="3秒达标率" :width="90">
+              <a-table-column title="名称" data-index="name" :width="180" ellipsis :sortable="{ sortDirections: ['ascend', 'descend'], sorter: nameSorter }" />
+              <a-table-column title="3秒达标率" data-index="compliance_rate" :width="90" :sortable="{ sortDirections: ['descend', 'ascend'], sorter: numSorter('compliance_rate') }">
                 <template #cell="{ record }">
                   <span :style="{ color: rateColor(record.compliance_rate) }">{{ record.compliance_rate?.toFixed(2) }}%</span>
                 </template>
               </a-table-column>
-              <a-table-column title="1秒达标率" :width="90">
+              <a-table-column title="1秒达标率" data-index="rate_1s" :width="90" :sortable="{ sortDirections: ['descend', 'ascend'], sorter: numSorter('rate_1s') }">
                 <template #cell="{ record }">
                   <a-tooltip :content="thresholdTip(record, '1')" :disabled="record.rate_1s == null">
                     <span v-if="record.rate_1s != null" :style="{ color: rateColor(record.rate_1s) }">{{ record.rate_1s.toFixed(2) }}%</span>
@@ -140,7 +140,7 @@
                   </a-tooltip>
                 </template>
               </a-table-column>
-              <a-table-column title="2秒达标率" :width="90">
+              <a-table-column title="2秒达标率" data-index="rate_2s" :width="90" :sortable="{ sortDirections: ['descend', 'ascend'], sorter: numSorter('rate_2s') }">
                 <template #cell="{ record }">
                   <a-tooltip :content="thresholdTip(record, '2')" :disabled="record.rate_2s == null">
                     <span v-if="record.rate_2s != null" :style="{ color: rateColor(record.rate_2s) }">{{ record.rate_2s.toFixed(2) }}%</span>
@@ -148,7 +148,7 @@
                   </a-tooltip>
                 </template>
               </a-table-column>
-              <a-table-column title="10秒达标率" :width="94">
+              <a-table-column title="10秒达标率" data-index="rate_10s" :width="94" :sortable="{ sortDirections: ['descend', 'ascend'], sorter: numSorter('rate_10s') }">
                 <template #cell="{ record }">
                   <a-tooltip :content="thresholdTip(record, '10')" :disabled="record.rate_10s == null">
                     <span v-if="record.rate_10s != null" :style="{ color: rateColor(record.rate_10s) }">{{ record.rate_10s.toFixed(2) }}%</span>
@@ -156,16 +156,16 @@
                   </a-tooltip>
                 </template>
               </a-table-column>
-              <a-table-column title="总请求" data-index="total_count" :width="80" />
-              <a-table-column title="超3秒" :width="70">
+              <a-table-column title="总请求" data-index="total_count" :width="80" :sortable="{ sortDirections: ['descend', 'ascend'], sorter: numSorter('total_count') }" />
+              <a-table-column title="超3秒" data-index="over_3s_count" :width="70" :sortable="{ sortDirections: ['descend', 'ascend'], sorter: numSorter('over_3s_count') }">
                 <template #cell="{ record }">
                   <span :style="{ color: record.over_3s_count > 0 ? '#f53f3f' : '' }">{{ record.over_3s_count }}</span>
                 </template>
               </a-table-column>
-              <a-table-column title="平均耗时(秒)" :width="90" align="right">
+              <a-table-column title="平均耗时(秒)" data-index="avg_cost" :width="90" align="right" :sortable="{ sortDirections: ['descend', 'ascend'], sorter: numSorter('avg_cost') }">
                 <template #cell="{ record }">{{ (record.avg_cost / 1000).toFixed(3) }}</template>
               </a-table-column>
-              <a-table-column title="最大耗时(秒)" :width="90" align="right">
+              <a-table-column title="最大耗时(秒)" data-index="max_cost" :width="90" align="right" :sortable="{ sortDirections: ['descend', 'ascend'], sorter: numSorter('max_cost') }">
                 <template #cell="{ record }">{{ (record.max_cost / 1000).toFixed(3) }}</template>
               </a-table-column>
               <a-table-column title="操作" :width="120">
@@ -549,6 +549,26 @@ watch(customFilter, reloadFiltered)
 // ── 辅助 ──────────────────────────────────
 // 达标率配色与问题台账/问题列表左树共用一份（见 @/hooks 的 rateColor），
 // 阈值 99/95 与后端 COMPLIANCE_PASS_THRESHOLD 对齐。
+
+// ── 列排序（明细一次全量取回、无分页，直接在内存里排） ──
+type SortDirection = 'ascend' | 'descend'
+// 数值列：空值恒排最后 —— 1/2/10 秒达标率无数据时后端给 null（界面显示 --），
+// 不兜底的话升序会把一串 -- 顶到最前，看不出真正最差的行；Arco 默认比较器
+// 直接比大小（null 被当成最小值），且自定义 sorter 需自行处理升降序。
+function numSorter(field: string) {
+  return (a: any, b: any, extra: { direction: SortDirection }) => {
+    const av = a[field]
+    const bv = b[field]
+    if (av == null || bv == null)
+      return av == null ? (bv == null ? 0 : 1) : -1
+    return extra.direction === 'descend' ? bv - av : av - bv
+  }
+}
+// 名称按中文习惯排：Arco 默认比较器按 UTF-16 码位比字符串，中文名排出来是乱序
+function nameSorter(a: any, b: any, extra: { direction: SortDirection }) {
+  const byName = String(a.name ?? '').localeCompare(String(b.name ?? ''), 'zh')
+  return extra.direction === 'descend' ? -byName : byName
+}
 
 // 多阈值达标率悬停提示：显示具体数量（达标数/总数 + 超标数）
 const thresholdTip = (record: any, sec: '1' | '2' | '10') => {
