@@ -29,7 +29,7 @@ const props = withDefaults(defineProps<{
   unavailableReason: '',
 })
 
-const { challengeText, submitting, records, loading, load, reset, submit } = usePatternReanalysis()
+const { challengeText, submitting, records, loading, load, reset, submit, agentCode, model, agents, modelOptions } = usePatternReanalysis()
 
 function dotColor(status?: string): string {
   if (status === 'failed')
@@ -84,6 +84,25 @@ onUnmounted(reset)
         :max-length="CHALLENGE_MAX_LENGTH"
         show-word-limit
       />
+      <!-- 复核用哪个 Agent/模型：原来后端写死 kiro-cli、模型留给引擎兜底，
+           而兜底值 auto 已不在 kiro 的模型清单里，提交必失败。模型选项跟随
+           Agent（各 CLI 支持的模型不同且随升级变化），换 Agent 会清掉失效值。 -->
+      <a-row :gutter="12" style="margin-top: 8px">
+        <a-col :span="8">
+          <a-select v-model="agentCode" allow-clear placeholder="复核 Agent">
+            <a-option v-for="a in agents" :key="a.agent_code" :value="a.agent_code">
+              {{ a.agent_name || a.agent_code }}
+            </a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="8">
+          <a-select v-model="model" allow-clear allow-create placeholder="复核模型">
+            <a-option v-for="m in modelOptions" :key="m" :value="m">
+              {{ m }}
+            </a-option>
+          </a-select>
+        </a-col>
+      </a-row>
       <div style="margin-top: 8px">
         <a-button type="primary" :loading="submitting" @click="onSubmit">
           提交复核
@@ -105,6 +124,10 @@ onUnmounted(reset)
                 <span style="color: #86909c; font-size: 12px">{{ formatTime(r.created_at) }}</span>
                 <a-tag v-if="r.challenger_name" size="small">
                   {{ r.challenger_name }}
+                </a-tag>
+                <!-- 哪次用了哪个模型：换模型是结论差异最可能的来源，留痕要看得见 -->
+                <a-tag v-if="r.agent_code || r.model" size="small" color="gray">
+                  {{ [r.agent_code, r.model].filter(Boolean).join(' · ') }}
                 </a-tag>
                 <a-tag v-if="r.status === 'running'" color="orange" size="small">
                   复核中

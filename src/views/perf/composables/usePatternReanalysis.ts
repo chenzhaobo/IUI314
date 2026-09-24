@@ -8,9 +8,11 @@
  *
  * 分层遵循 View → Composable → Api：组件只管渲染与交互，取数与轮询在这里。
  */
+import type { AiAgent, AiListResult } from '@/api/aiApis'
 import type { ReanalysisDecisionMeta, ReanalysisRecord, ReanalysisTarget } from '@/types/perf-reanalysis'
 import { Message } from '@arco-design/web-vue'
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { ApiAiAgent } from '@/api/aiApis'
 import { ApiPerfPatternLedger } from '@/api/perfApis'
 import { isRequestFailed, useGet, usePost } from '@/hooks'
 
@@ -24,6 +26,26 @@ export const CHALLENGE_MAX_LENGTH = 2000
 interface ReanalysisQuery {
   pattern_id?: string
   issue?: string
+}
+
+/** 提交时一并送检的 Agent 与模型。 */
+interface ReanalysisSubmitPayload extends ReanalysisQuery {
+  challenge: string
+  agent_code?: string
+  model?: string
+}
+
+/** 解析 Agent 的可用模型清单（`supported_models_json`，随 CLI 升级变化，不能硬编码）。 */
+function parseModels(agent?: AiAgent): string[] {
+  if (!agent?.supported_models_json)
+    return []
+  try {
+    const parsed = JSON.parse(agent.supported_models_json)
+    return Array.isArray(parsed) ? parsed.filter((v: unknown): v is string => typeof v === 'string' && v.length > 0) : []
+  }
+  catch {
+    return []
+  }
 }
 
 /** 结论 → 颜色与文案。 */
@@ -64,7 +86,39 @@ export function usePatternReanalysis() {
   let timer: ReturnType<typeof setTimeout> | null = null
 
   const historyPayload = ref<ReanalysisQuery>({})
-  const submitPayload = ref<ReanalysisQuery & { challenge: string }>({ challenge: '' })
+  const submitPayload = ref<ReanalysisSubmitPayload>({ challenge: '' })
+
+  // ── 复核用哪个 Agent / 模型 ──────────────────────────────
+  // 后端原来写死 kiro-cli、模型留给引擎兜底，而兜底值 `auto` 已不在 kiro 的模型
+  // 清单里 —— 提交复核必失败（生产实证：Model 'auto' does not exist）。与归因任务
+  // 同一套做法：模型选项跟随所选 Agent 的 supported_models_json，换 Agent 清掉失效值。
+  const agentCode = ref('')
+  const model = ref('')
+  const { data: agentData } = useGet<AiListResult<AiAgent>>(
+    ApiAiAgent.getList,
+    { page_num: 1, page_size: 100 },
+    {
+      immediate: true,
+      // 默认替用户选好：优先 kiro-cli（现网既有默认），模型取该 Agent 的默认模型，
+      // 默认模型不在清单里就退到清单第一项。不预选的话「不选 = 走后端默认」会
+      // 又落回那个失效值上 —— 用户点了提交却拿到一个模型不存在的报错。
+      onSuccess(data) {
+        const list = data?.list || []
+        if (agentCode.value || !list.length)
+          return
+        const preferred = list.find(item => item.agent_code === 'kiro-cli') || list[0]
+        agentCode.value = preferred.agent_code
+        const models = parseModels(preferred)
+        model.value = (preferred.default_model && models.includes(preferred.default_model) ? preferred.default_model : models[0]) || ''
+      },
+    },
+  )
+  const agents = computed(() => agentData.value?.list || [])
+  const modelOptions = computed<string[]>(() => parseModels(agents.value.find(item => item.agent_code === agentCode.value)))
+  watch(agentCode, () => {
+    if (model.value && !modelOptions.value.includes(model.value))
+      model.value = ''
+  })
 
   function stopPoll() {
     if (timer) {
@@ -129,7 +183,12 @@ export function usePatternReanalysis() {
       Message.warning('没有定位到台账，无法提交复核')
       return false
     }
-    submitPayload.value = { ...toQuery(target.value), challenge: text }
+    submitPayload.value = {
+      ...toQuery(target.value),
+      challenge: text,
+      agent_code: agentCode.value || undefined,
+      model: model.value || undefined,
+    }
     submitting.value = true
     try {
       await doSubmit()
@@ -147,5 +206,5 @@ export function usePatternReanalysis() {
     }
   }
 
-  return { challengeText, submitting, records, loading, load, reset, submit, stopPoll }
+  return { challengeText, submitting, records, loading, load, reset, submit, stopPoll, agentCode, model, agents, modelOptions }
 }

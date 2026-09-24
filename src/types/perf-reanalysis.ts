@@ -33,6 +33,10 @@ export interface ReanalysisRecord {
   input_log_files?: string[]
   /** 是否把报告全文一起送检 */
   input_report_md?: boolean
+  /** 本次复核用的 Agent（空 = 当时由后端默认） */
+  agent_code?: string
+  /** 本次复核用的模型（空 = 该 Agent 的默认模型） */
+  model?: string
   created_at?: string
 }
 
