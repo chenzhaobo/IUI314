@@ -313,6 +313,8 @@ export enum ApiSecPrescan {
   taskTrigger = '/sechub/prescan/task-trigger',
   taskRecords = '/sechub/prescan/task-records',
   runDelete = '/sechub/prescan/run-delete',
+  /** W-C 覆盖自证报告（run 维度只读；该 run 尚无报告时后端给 404） */
+  coverageReport = '/sechub/prescan/{run_id}/coverage-report',
 }
 
 // ── 反编译源码库（外网标品包源码，供性能分析与 local-test 扫描） ──

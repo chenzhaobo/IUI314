@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import type { AiAgent } from '@/api/aiApis'
 import type { ColumnFilterState } from '@/hooks'
+
 import type {
   CandidateDetailPage,
   CandidateDetailRow,
@@ -9,18 +11,16 @@ import type {
   RuleStatRow,
   ScanIssueRow,
 } from '@/types/static-scan'
-
-import type { AiAgent } from '@/api/aiApis'
 import { Message } from '@arco-design/web-vue'
 import { MdPreview } from 'md-editor-v3'
-import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiAiAgent } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
-import { downloadText, formatTime, getAction, useAutoHeight, useGet, usePost } from '@/hooks'
 import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
-import { emptyFilter, isFilterActive, toServerFilters, useFilterPersistence } from '@/hooks'
+import { downloadText, emptyFilter, formatTime, getAction, isFilterActive, toServerFilters, useAutoHeight, useFilterPersistence, useGet, usePost } from '@/hooks'
+import CoverageReportTab from './coverage-report/CoverageReportTab.vue'
 import 'md-editor-v3/lib/style.css'
 
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
@@ -1001,18 +1001,37 @@ const candidates = computed(() => candidatePage.value?.list ?? [])
 // （不能挂 a-table 组件），useAutoHeight 的 height 是数字，正好给 :scroll.y。
 // 布局行实测定高：左右两栏由它派生高度
 const layoutRow = ref<HTMLElement>()
-const { height: layoutRowH } = useAutoHeight(layoutRow)
+const { height: layoutRowH, measure: measureLayoutRow } = useAutoHeight(layoutRow)
 
 const candidateTableWrap = ref<HTMLElement>()
 // fillParent：容器在定高 flex 列里、高度已确定；从视口反推会差一截，
 // 表格溢出后分页条被顶出视口。
-const { height: candidateTableH } = useAutoHeight(candidateTableWrap, { fillParent: true })
+const { height: candidateTableH, measure: measureCandidateTable } = useAutoHeight(candidateTableWrap, { fillParent: true })
 const candidateScroll = computed(() => {
   const base = { x: 1500 }
   return candidates.value.length > 12
     ? { ...base, y: candidateTableH.value }
     : base
 })
+
+// ===== 结果区 tab：候选明细 / 覆盖自证 =====
+/** 覆盖自证是只读报告（W-C），不轮询：组件在 run 切换时拉一次，手动「刷新」重拉 */
+const activeTab = ref<'candidates' | 'coverage'>('candidates')
+
+/**
+ * 切回候选明细时补一次高度实测。
+ *
+ * tab 隐藏期间元素 rect 顶边为 0，useAutoHeight 会跳过测量（否则会把整屏高度
+ * 当成可用空间）；若窗口尺寸在隐藏期间变化过，不补测就会一直用旧高度。
+ */
+function onResultTabChange(key: string | number) {
+  if (key !== 'candidates')
+    return
+  nextTick(() => {
+    measureLayoutRow()
+    measureCandidateTable()
+  })
+}
 
 // ===== 初始化：从路由读取 repository_id / run_id / ai_model / ai_mode / scan_point_id =====
 /**
@@ -1255,277 +1274,293 @@ watch(() => route.query, (newQ, oldQ) => {
       暂无数据，请选择应用与轮次（可从「扫描运行」页点击「查看明细」直达），或点击「查询」加载全部数据。
     </a-alert>
 
-    <!-- 左树右表（可拖拽分栏） -->
-      <!--
-        布局行必须有**确定高度**：原来只写 `flex: 1`，但父级不是 flex 容器，
-        `flex: 1` 无效，整行高度由内容决定 —— 左树越展开页面越长，
-        右表又各自从视口反推，两边加起来超出视口。
-      -->
-    <div v-if="currentRun" ref="layoutRow" class="split-layout" :class="{ dragging: isDragging }" :style="{ height: layoutRowH + 'px' }">
-      <!-- 左树：规则统计 -->
-      <div class="split-left" :style="{ width: `${leftPanelWidth}px` }">
-        <a-card :bordered="false" size="small" class="split-card scroll-body">
-          <template #title>
-            规则分布
-            <small class="card-sub">确认/待确认/已排除/总数</small>
-          </template>
-          <a-spin :loading="ruleStatsLoading" style="width: 100%">
-            <a-tree
-              v-if="ruleTree.length"
-              v-model:expanded-keys="expandedKeys"
-              :data="ruleTree"
-              :selected-keys="[selectedRuleId]"
-              @select="onTreeSelect"
-            >
-              <template #title="node">
-                <div class="rule-node">
-                  <span class="rule-name" :title="node.title">{{ node.title }}</span>
-                  <span v-if="node.rule" class="rule-stats">
-                    <span class="s-confirmed">{{ node.rule.confirmed }}</span>/<span class="s-pending">{{ node.rule.pending + node.rule.error + node.rule.review_needed }}</span>/<span class="s-rejected">{{ node.rule.rejected }}</span>/<span class="s-total">{{ node.rule.total }}</span>
-                  </span>
-                  <span v-else-if="node.spStats" class="rule-stats">
-                    <span class="s-confirmed">{{ node.spStats.confirmed }}</span>/<span class="s-pending">{{ node.spStats.pending }}</span>/<span class="s-rejected">{{ node.spStats.rejected }}</span>/<span class="s-total">{{ node.spStats.total }}</span>
-                  </span>
-                </div>
+    <!-- 结果区 tab：候选明细（左树右表）/ 覆盖自证（W-C run 级只读自证报告） -->
+    <a-tabs
+      v-if="currentRun"
+      v-model:active-key="activeTab"
+      lazy-load
+      class="result-tabs"
+      @change="onResultTabChange"
+    >
+      <a-tab-pane key="candidates" title="候选明细">
+        <!-- 左树右表（可拖拽分栏） -->
+        <!--
+            布局行必须有**确定高度**：原来只写 `flex: 1`，但父级不是 flex 容器，
+            `flex: 1` 无效，整行高度由内容决定 —— 左树越展开页面越长，
+            右表又各自从视口反推，两边加起来超出视口。
+          -->
+        <div ref="layoutRow" class="split-layout" :class="{ dragging: isDragging }" :style="{ height: `${layoutRowH}px` }">
+          <!-- 左树：规则统计 -->
+          <div class="split-left" :style="{ width: `${leftPanelWidth}px` }">
+            <a-card :bordered="false" size="small" class="split-card scroll-body">
+              <template #title>
+                规则分布
+                <small class="card-sub">确认/待确认/已排除/总数</small>
               </template>
-            </a-tree>
-            <a-empty v-else description="该轮次暂无候选" />
-          </a-spin>
-        </a-card>
-      </div>
-
-      <!-- 拖拽手柄 -->
-      <div class="split-handle" @mousedown="onDragStart" />
-
-      <!-- 右表：候选明细 -->
-      <div class="split-right">
-        <a-card :bordered="false" class="split-card fill-body">
-          <template #title>
-            候选明细
-            <small class="card-sub">
-              {{ roundModelLabel(currentRun) }} · {{ modeLabels[currentRun.ai_mode]?.label ?? (currentRun.ai_mode?.trim() ? currentRun.ai_mode : '待确认') }}
-            </small>
-          </template>
-          <template #extra>
-            <a-space :size="8">
-              <a-button
-                type="primary"
-                size="small"
-                :disabled="selectedCandidateIds.length === 0"
-                :loading="bulkBusy"
-                @click="bulkRetryCandidates"
-              >
-                重扫选中({{ bulkRetryableIds.length }})
-              </a-button>
-              <!-- 补偿生成缺陷：AI 确认收尾失败时 confirmed 候选不会写出缺陷，
-                   这里"确认问题"有数、缺陷列表却查不到。选中就只补这些，没选补整轮次 -->
-              <a-tooltip content="已确认的候选若没生成缺陷记录，用这个补齐（不选则补整个轮次）" mini>
-                <a-button type="outline" size="small" :loading="bulkBusy" @click="compensateIssues">
-                  补偿生成缺陷
-                </a-button>
-              </a-tooltip>
-              <!-- 一键补偿引入时间：候选缺 introduced_at 时按 git blame 批量回填 -->
-              <a-tooltip content="按 git blame 批量回填候选的引入时间/引入人（缺数据的候选）" mini>
-                <a-button type="outline" size="small" :loading="compensating" :disabled="!currentRun" @click="compensateBlame">
-                  一键补偿引入时间
-                </a-button>
-              </a-tooltip>
-              <!-- 「查看批次」跳转带入的候选过滤：只显示命中的那一条，可一键清除 -->
-              <a-tag v-if="candidateIdFilter" closable color="arcoblue" @close="clearCandidateFilter">
-                仅看候选 {{ candidateIdFilter.slice(0, 8) }}
-              </a-tag>
-              <!-- 显示列：原有列默认全显示，新增的「方法」「引入人」默认隐藏，按需勾出 -->
-              <a-select
-                v-model="visibleColumnKeys"
-                multiple
-                :max-tag-count="1"
-                placeholder="显示列"
-                style="width: 180px"
-                :options="columnOptions"
-              />
-            </a-space>
-          </template>
-          <div ref="candidateTableWrap" class="table-fill">
-          <a-table
-            v-model:selected-keys="selectedCandidateIds"
-            v-model:expanded-keys="expandedRowKeys"
-            :loading="candidateLoading"
-            :data="candidates"
-            :columns="candidateColumns"
-            column-resizable
-            :pagination="{
-              current: pageNum,
-              pageSize,
-              total: candidatePage?.total ?? 0,
-              showTotal: true,
-              showPageSize: true,
-              pageSizeOptions: PAGE_SIZE_OPTIONS,
-            }"
-            :row-selection="{ type: 'checkbox', showCheckedAll: true }"
-            :expandable="{ title: '' }"
-            row-key="id"
-            size="small"
-            :scroll="candidateScroll"
-            @page-change="(p: number) => { pageNum = p; loadCandidates() }"
-            @page-size-change="onPageSizeChange"
-            @sorter-change="onCandidateSorterChange"
-          >
-            <template #filter-file_path>
-              <ColumnFilterPanel v-model="columnFilters.file_path" @change="onColumnFilterChange" />
-            </template>
-            <template #filter-start_line>
-              <ColumnFilterPanel v-model="columnFilters.start_line" @change="onColumnFilterChange" />
-            </template>
-            <template #filter-matched_text>
-              <ColumnFilterPanel v-model="columnFilters.matched_text" @change="onColumnFilterChange" />
-            </template>
-            <template #filter-method_name>
-              <ColumnFilterPanel v-model="columnFilters.method_name" @change="onColumnFilterChange" />
-            </template>
-            <template #filter-ai_rationale>
-              <ColumnFilterPanel v-model="columnFilters.ai_rationale" @change="onColumnFilterChange" />
-            </template>
-            <template #filter-ai_confidence>
-              <ColumnFilterPanel v-model="columnFilters.ai_confidence" @change="onColumnFilterChange" />
-            </template>
-            <template #filter-introduced_at>
-              <ColumnFilterPanel v-model="columnFilters.introduced_at" @change="onColumnFilterChange" />
-            </template>
-            <template #filter-introduced_author>
-              <ColumnFilterPanel v-model="columnFilters.introduced_author" @change="onColumnFilterChange" />
-            </template>
-            <template #aiStatus="{ record }">
-              <a-tag :color="aiStatusLabels[record.ai_status]?.color ?? 'gray'" size="small">
-                {{ aiStatusLabels[record.ai_status]?.label ?? record.ai_status }}
-              </a-tag>
-              <!-- 重扫待确认：把「上次结论」带回列表（复位不再抹结论字段） -->
-              <a-tooltip v-if="pendingLastVerdictText(record)" :content="pendingLastVerdictTip(record)" mini>
-                <a-tag color="arcoblue" size="small" class="verdict-changed-tag">
-                  {{ pendingLastVerdictText(record) }}
-                </a-tag>
-              </a-tooltip>
-              <!-- 结论被推翻（换模型重扫改判）：悬停给出「上次 vs 本次」，
-                   点它直接展开该行的历次结论对比 -->
-              <a-tooltip v-if="record.verdict_changed" mini>
-                <template #content>
-                  结论变更：{{ verdictLabel(record.previous_verdict) }}（{{ record.previous_ai_model || '未记录模型' }}）
-                  → {{ verdictLabel(record.ai_status) }}（{{ record.ai_model || '未记录模型' }}）
-                </template>
-                <a-tag color="orangered" size="small" class="verdict-changed-tag">
-                  结论变更
-                </a-tag>
-              </a-tooltip>
-            </template>
-            <template #riskLevel="{ record }">
-              <a-tag v-if="record.ai_risk_level" :color="riskLabels[record.ai_risk_level]?.color ?? 'gray'" size="small">
-                {{ riskLabels[record.ai_risk_level]?.label ?? record.ai_risk_level }}
-              </a-tag>
-              <span v-else class="text-muted">-</span>
-            </template>
-            <template #confidence="{ record }">
-              {{ record.ai_confidence != null ? Number(record.ai_confidence).toFixed(2) : '-' }}
-            </template>
-            <template #updatedAt="{ record }">
-              <!-- 更新时间 = 当前展示（采信）结论的写入时间；还没结论时显示 - -->
-              <span>{{ formatTime(record.updated_at) }}</span>
-            </template>
-            <template #introducedAt="{ record }">
-              <!-- 引入时间列：为空时显示 -，悬浮展示完整 commit / 作者 / 时间 -->
-              <a-tooltip
-                :content="record.introduced_commit || record.introduced_author || record.introduced_at
-                  ? `Commit：${record.introduced_commit || '-'}\n引入者：${record.introduced_author || '-'}\n时间：${formatTime(record.introduced_at)}`
-                  : '非 git 仓库或该行未被版本控制，无法定位引入时间'"
-                position="top"
-                mini
-              >
-                <span>{{ formatTime(record.introduced_at) }}</span>
-              </a-tooltip>
-            </template>
-            <template #ops="{ record }">
-              <a-space :size="4">
-                <a-button
-                  type="text"
-                  size="small"
-                  @click="viewReport(record)"
+              <a-spin :loading="ruleStatsLoading" style="width: 100%">
+                <a-tree
+                  v-if="ruleTree.length"
+                  v-model:expanded-keys="expandedKeys"
+                  :data="ruleTree"
+                  :selected-keys="[selectedRuleId]"
+                  @select="onTreeSelect"
                 >
-                  报告
-                </a-button>
-                <!-- 其余动作收进「更多」：与缺陷列表同一形态，操作列不再随按钮增删变宽 -->
-                <a-dropdown trigger="click" @select="(value: unknown) => onOpsSelect(value, record)">
-                  <a-button type="text" size="small">
-                    更多
-                    <template #icon>
-                      <icon-down />
-                    </template>
-                  </a-button>
-                  <template #content>
-                    <a-doption value="retry">
-                      重扫
-                    </a-doption>
-                    <a-doption value="manual">
-                      人工裁定
-                    </a-doption>
-                    <a-doption value="issue">
-                      联查缺陷
-                    </a-doption>
+                  <template #title="node">
+                    <div class="rule-node">
+                      <span class="rule-name" :title="node.title">{{ node.title }}</span>
+                      <span v-if="node.rule" class="rule-stats">
+                        <span class="s-confirmed">{{ node.rule.confirmed }}</span>/<span class="s-pending">{{ node.rule.pending + node.rule.error + node.rule.review_needed }}</span>/<span class="s-rejected">{{ node.rule.rejected }}</span>/<span class="s-total">{{ node.rule.total }}</span>
+                      </span>
+                      <span v-else-if="node.spStats" class="rule-stats">
+                        <span class="s-confirmed">{{ node.spStats.confirmed }}</span>/<span class="s-pending">{{ node.spStats.pending }}</span>/<span class="s-rejected">{{ node.spStats.rejected }}</span>/<span class="s-total">{{ node.spStats.total }}</span>
+                      </span>
+                    </div>
                   </template>
-                </a-dropdown>
-              </a-space>
-            </template>
-            <!-- 展开行：同一候选的多次结论（换模型复核后可直接对比判定差异） -->
-            <template #expand-row="{ record }">
-              <div class="verdict-panel">
-                <a-empty v-if="!record.verdicts?.length" description="暂无结论记录（该候选还没经过 AI 确认）" />
-                <template v-else>
-                  <div class="verdict-hint">
-                    共 {{ record.verdicts.length }} 次结论。换模型重扫会**追加**一条而不是覆盖，
-                    下面按时间倒序列出；标「采信」的那条就是列表页展示的结论。
-                    <span v-if="verdictDisagrees(record)" class="verdict-warn">⚠️ 不同模型结论不一致，建议人工裁定</span>
-                  </div>
-                  <a-table
-                    :data="record.verdicts"
-                    :columns="verdictColumns"
-                    :pagination="false"
-                    row-key="id"
-                    size="mini"
-                  >
-                    <template #vAdopted="{ record: v }">
-                      <a-tag v-if="v.adopted" color="arcoblue" size="small">
-                        采信
-                      </a-tag>
-                      <span v-else class="text-muted">历史</span>
-                    </template>
-                    <template #vVerdict="{ record: v }">
-                      <a-tag :color="aiStatusLabels[v.verdict]?.color ?? 'gray'" size="small">
-                        {{ aiStatusLabels[v.verdict]?.label ?? v.verdict }}
-                      </a-tag>
-                    </template>
-                    <template #vMode="{ record: v }">
-                      {{ modeLabels[v.ai_mode ?? '']?.label ?? (v.ai_mode || '-') }}
-                    </template>
-                    <template #vConfidence="{ record: v }">
-                      {{ v.confidence != null ? Number(v.confidence).toFixed(2) : '-' }}
-                    </template>
-                    <template #vReport="{ record: v }">
-                      <a-button v-if="v.has_report" type="text" size="mini" @click="viewVerdictReport(record, v)">
-                        查看
-                      </a-button>
-                      <a-tooltip v-else content="该次结论没有落盘报告；confirmed / 需人工复核的结论现在会被服务端强制要求报告，缺失即拒绝入库" mini>
-                        <span class="text-muted">无</span>
-                      </a-tooltip>
-                    </template>
-                    <template #vCreatedAt="{ record: v }">
-                      {{ formatTime(v.created_at) }}
-                    </template>
-                  </a-table>
-                </template>
-              </div>
-            </template>
-          </a-table>
+                </a-tree>
+                <a-empty v-else description="该轮次暂无候选" />
+              </a-spin>
+            </a-card>
           </div>
-        </a-card>
-      </div>
-    </div>
+
+          <!-- 拖拽手柄 -->
+          <div class="split-handle" @mousedown="onDragStart" />
+
+          <!-- 右表：候选明细 -->
+          <div class="split-right">
+            <a-card :bordered="false" class="split-card fill-body">
+              <template #title>
+                候选明细
+                <small class="card-sub">
+                  {{ roundModelLabel(currentRun) }} · {{ modeLabels[currentRun.ai_mode]?.label ?? (currentRun.ai_mode?.trim() ? currentRun.ai_mode : '待确认') }}
+                </small>
+              </template>
+              <template #extra>
+                <a-space :size="8">
+                  <a-button
+                    type="primary"
+                    size="small"
+                    :disabled="selectedCandidateIds.length === 0"
+                    :loading="bulkBusy"
+                    @click="bulkRetryCandidates"
+                  >
+                    重扫选中({{ bulkRetryableIds.length }})
+                  </a-button>
+                  <!-- 补偿生成缺陷：AI 确认收尾失败时 confirmed 候选不会写出缺陷，
+                   这里"确认问题"有数、缺陷列表却查不到。选中就只补这些，没选补整轮次 -->
+                  <a-tooltip content="已确认的候选若没生成缺陷记录，用这个补齐（不选则补整个轮次）" mini>
+                    <a-button type="outline" size="small" :loading="bulkBusy" @click="compensateIssues">
+                      补偿生成缺陷
+                    </a-button>
+                  </a-tooltip>
+                  <!-- 一键补偿引入时间：候选缺 introduced_at 时按 git blame 批量回填 -->
+                  <a-tooltip content="按 git blame 批量回填候选的引入时间/引入人（缺数据的候选）" mini>
+                    <a-button type="outline" size="small" :loading="compensating" :disabled="!currentRun" @click="compensateBlame">
+                      一键补偿引入时间
+                    </a-button>
+                  </a-tooltip>
+                  <!-- 「查看批次」跳转带入的候选过滤：只显示命中的那一条，可一键清除 -->
+                  <a-tag v-if="candidateIdFilter" closable color="arcoblue" @close="clearCandidateFilter">
+                    仅看候选 {{ candidateIdFilter.slice(0, 8) }}
+                  </a-tag>
+                  <!-- 显示列：原有列默认全显示，新增的「方法」「引入人」默认隐藏，按需勾出 -->
+                  <a-select
+                    v-model="visibleColumnKeys"
+                    multiple
+                    :max-tag-count="1"
+                    placeholder="显示列"
+                    style="width: 180px"
+                    :options="columnOptions"
+                  />
+                </a-space>
+              </template>
+              <div ref="candidateTableWrap" class="table-fill">
+                <a-table
+                  v-model:selected-keys="selectedCandidateIds"
+                  v-model:expanded-keys="expandedRowKeys"
+                  :loading="candidateLoading"
+                  :data="candidates"
+                  :columns="candidateColumns"
+                  column-resizable
+                  :pagination="{
+                    current: pageNum,
+                    pageSize,
+                    total: candidatePage?.total ?? 0,
+                    showTotal: true,
+                    showPageSize: true,
+                    pageSizeOptions: PAGE_SIZE_OPTIONS,
+                  }"
+                  :row-selection="{ type: 'checkbox', showCheckedAll: true }"
+                  :expandable="{ title: '' }"
+                  row-key="id"
+                  size="small"
+                  :scroll="candidateScroll"
+                  @page-change="(p: number) => { pageNum = p; loadCandidates() }"
+                  @page-size-change="onPageSizeChange"
+                  @sorter-change="onCandidateSorterChange"
+                >
+                  <template #filter-file_path>
+                    <ColumnFilterPanel v-model="columnFilters.file_path" @change="onColumnFilterChange" />
+                  </template>
+                  <template #filter-start_line>
+                    <ColumnFilterPanel v-model="columnFilters.start_line" @change="onColumnFilterChange" />
+                  </template>
+                  <template #filter-matched_text>
+                    <ColumnFilterPanel v-model="columnFilters.matched_text" @change="onColumnFilterChange" />
+                  </template>
+                  <template #filter-method_name>
+                    <ColumnFilterPanel v-model="columnFilters.method_name" @change="onColumnFilterChange" />
+                  </template>
+                  <template #filter-ai_rationale>
+                    <ColumnFilterPanel v-model="columnFilters.ai_rationale" @change="onColumnFilterChange" />
+                  </template>
+                  <template #filter-ai_confidence>
+                    <ColumnFilterPanel v-model="columnFilters.ai_confidence" @change="onColumnFilterChange" />
+                  </template>
+                  <template #filter-introduced_at>
+                    <ColumnFilterPanel v-model="columnFilters.introduced_at" @change="onColumnFilterChange" />
+                  </template>
+                  <template #filter-introduced_author>
+                    <ColumnFilterPanel v-model="columnFilters.introduced_author" @change="onColumnFilterChange" />
+                  </template>
+                  <template #aiStatus="{ record }">
+                    <a-tag :color="aiStatusLabels[record.ai_status]?.color ?? 'gray'" size="small">
+                      {{ aiStatusLabels[record.ai_status]?.label ?? record.ai_status }}
+                    </a-tag>
+                    <!-- 重扫待确认：把「上次结论」带回列表（复位不再抹结论字段） -->
+                    <a-tooltip v-if="pendingLastVerdictText(record)" :content="pendingLastVerdictTip(record)" mini>
+                      <a-tag color="arcoblue" size="small" class="verdict-changed-tag">
+                        {{ pendingLastVerdictText(record) }}
+                      </a-tag>
+                    </a-tooltip>
+                    <!-- 结论被推翻（换模型重扫改判）：悬停给出「上次 vs 本次」，
+                   点它直接展开该行的历次结论对比 -->
+                    <a-tooltip v-if="record.verdict_changed" mini>
+                      <template #content>
+                        结论变更：{{ verdictLabel(record.previous_verdict) }}（{{ record.previous_ai_model || '未记录模型' }}）
+                        → {{ verdictLabel(record.ai_status) }}（{{ record.ai_model || '未记录模型' }}）
+                      </template>
+                      <a-tag color="orangered" size="small" class="verdict-changed-tag">
+                        结论变更
+                      </a-tag>
+                    </a-tooltip>
+                  </template>
+                  <template #riskLevel="{ record }">
+                    <a-tag v-if="record.ai_risk_level" :color="riskLabels[record.ai_risk_level]?.color ?? 'gray'" size="small">
+                      {{ riskLabels[record.ai_risk_level]?.label ?? record.ai_risk_level }}
+                    </a-tag>
+                    <span v-else class="text-muted">-</span>
+                  </template>
+                  <template #confidence="{ record }">
+                    {{ record.ai_confidence != null ? Number(record.ai_confidence).toFixed(2) : '-' }}
+                  </template>
+                  <template #updatedAt="{ record }">
+                    <!-- 更新时间 = 当前展示（采信）结论的写入时间；还没结论时显示 - -->
+                    <span>{{ formatTime(record.updated_at) }}</span>
+                  </template>
+                  <template #introducedAt="{ record }">
+                    <!-- 引入时间列：为空时显示 -，悬浮展示完整 commit / 作者 / 时间 -->
+                    <a-tooltip
+                      :content="record.introduced_commit || record.introduced_author || record.introduced_at
+                        ? `Commit：${record.introduced_commit || '-'}\n引入者：${record.introduced_author || '-'}\n时间：${formatTime(record.introduced_at)}`
+                        : '非 git 仓库或该行未被版本控制，无法定位引入时间'"
+                      position="top"
+                      mini
+                    >
+                      <span>{{ formatTime(record.introduced_at) }}</span>
+                    </a-tooltip>
+                  </template>
+                  <template #ops="{ record }">
+                    <a-space :size="4">
+                      <a-button
+                        type="text"
+                        size="small"
+                        @click="viewReport(record)"
+                      >
+                        报告
+                      </a-button>
+                      <!-- 其余动作收进「更多」：与缺陷列表同一形态，操作列不再随按钮增删变宽 -->
+                      <a-dropdown trigger="click" @select="(value: unknown) => onOpsSelect(value, record)">
+                        <a-button type="text" size="small">
+                          更多
+                          <template #icon>
+                            <icon-down />
+                          </template>
+                        </a-button>
+                        <template #content>
+                          <a-doption value="retry">
+                            重扫
+                          </a-doption>
+                          <a-doption value="manual">
+                            人工裁定
+                          </a-doption>
+                          <a-doption value="issue">
+                            联查缺陷
+                          </a-doption>
+                        </template>
+                      </a-dropdown>
+                    </a-space>
+                  </template>
+                  <!-- 展开行：同一候选的多次结论（换模型复核后可直接对比判定差异） -->
+                  <template #expand-row="{ record }">
+                    <div class="verdict-panel">
+                      <a-empty v-if="!record.verdicts?.length" description="暂无结论记录（该候选还没经过 AI 确认）" />
+                      <template v-else>
+                        <div class="verdict-hint">
+                          共 {{ record.verdicts.length }} 次结论。换模型重扫会**追加**一条而不是覆盖，
+                          下面按时间倒序列出；标「采信」的那条就是列表页展示的结论。
+                          <span v-if="verdictDisagrees(record)" class="verdict-warn">⚠️ 不同模型结论不一致，建议人工裁定</span>
+                        </div>
+                        <a-table
+                          :data="record.verdicts"
+                          :columns="verdictColumns"
+                          :pagination="false"
+                          row-key="id"
+                          size="mini"
+                        >
+                          <template #vAdopted="{ record: v }">
+                            <a-tag v-if="v.adopted" color="arcoblue" size="small">
+                              采信
+                            </a-tag>
+                            <span v-else class="text-muted">历史</span>
+                          </template>
+                          <template #vVerdict="{ record: v }">
+                            <a-tag :color="aiStatusLabels[v.verdict]?.color ?? 'gray'" size="small">
+                              {{ aiStatusLabels[v.verdict]?.label ?? v.verdict }}
+                            </a-tag>
+                          </template>
+                          <template #vMode="{ record: v }">
+                            {{ modeLabels[v.ai_mode ?? '']?.label ?? (v.ai_mode || '-') }}
+                          </template>
+                          <template #vConfidence="{ record: v }">
+                            {{ v.confidence != null ? Number(v.confidence).toFixed(2) : '-' }}
+                          </template>
+                          <template #vReport="{ record: v }">
+                            <a-button v-if="v.has_report" type="text" size="mini" @click="viewVerdictReport(record, v)">
+                              查看
+                            </a-button>
+                            <a-tooltip v-else content="该次结论没有落盘报告；confirmed / 需人工复核的结论现在会被服务端强制要求报告，缺失即拒绝入库" mini>
+                              <span class="text-muted">无</span>
+                            </a-tooltip>
+                          </template>
+                          <template #vCreatedAt="{ record: v }">
+                            {{ formatTime(v.created_at) }}
+                          </template>
+                        </a-table>
+                      </template>
+                    </div>
+                  </template>
+                </a-table>
+              </div>
+            </a-card>
+          </div>
+        </div>
+      </a-tab-pane>
+
+      <!-- 覆盖自证：只读报告，run 切换时由组件内部重拉；无报告（404）渲染空态 -->
+      <a-tab-pane key="coverage" title="覆盖自证">
+        <CoverageReportTab :run-id="currentRun.run_id" />
+      </a-tab-pane>
+    </a-tabs>
 
     <!-- 重扫弹窗：确认执行方式（平台编排 / 自主审计）+ Agent + 模型 -->
     <a-modal
@@ -1680,6 +1715,9 @@ watch(() => route.query, (newQ, oldQ) => {
 
 <style scoped>
 .static-scan-results { padding: 0; display: flex; flex-direction: column; min-height: 0; }
+/* 结果区 tab：默认内容区 16px 上边距与筛选卡片间距叠加偏大，收紧到 8px */
+.result-tabs { min-height: 0; }
+.result-tabs :deep(.arco-tabs-content) { padding-top: 8px; }
 .selector-label { color: var(--color-text-2); }
 .card-sub { margin-left: 12px; color: var(--color-text-3); font-weight: normal; font-size: 12px; }
 .text-muted { color: var(--color-text-4); }
