@@ -931,11 +931,23 @@ export interface DefectGovernanceSummary extends DefectGovernanceMetrics {
   domain: string
 }
 
+/** 缺陷治理看板：处理中缺陷按优先级（risk_level）分档计数；空/未知值计入 unclassified */
+export interface DefectGovernancePriorityCounts {
+  critical: number
+  high: number
+  medium: number
+  low: number
+  info: number
+  unclassified: number
+}
+
 /** 缺陷治理看板：项目组 × 领域明细行 */
 export interface DefectGovernanceGroupRow extends DefectGovernanceMetrics {
   project_group_id: string
   project_group_name: string
   domain: string
+  /** 处理中缺陷按优先级分档（六档之和 = in_progress） */
+  in_progress_by_priority: DefectGovernancePriorityCounts
 }
 
 export interface DefectGovernanceDashboard {

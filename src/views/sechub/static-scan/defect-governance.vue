@@ -5,8 +5,11 @@
 //   已处理 = 已修复+已验证且未失活（失活自动关闭不计入人工修复）；
 //   不处理 = 不处理；修复进度 = 已处理 ÷ (总数 − 不处理)，分母为 0 时显示「— 无待修复」；
 //   误报率 = 误报数 ÷ 总数。
+//   优先级分档 = 仅统计处理中，按 risk_level 分 6 档（严重/高/中/低/提示/未定级），
+//   六档之和恒等于处理中；「未定级」= risk_level 为空的存量缺陷。
+// 过滤：来源（扫描/导入）+ 产品领域（默认集团财务）+ 业务领域，三者同时生效。
 import type { TableColumnData } from '@arco-design/web-vue'
-import type { DefectGovernanceDashboard, DefectGovernanceMetrics } from '@/types/static-scan'
+import type { DefectGovernanceDashboard, DefectGovernanceGroupRow, DefectGovernanceMetrics, DefectGovernancePriorityCounts } from '@/types/static-scan'
 import { Progress } from '@arco-design/web-vue'
 import { BarChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
@@ -15,7 +18,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { computed, h, ref } from 'vue'
 import VChart from 'vue-echarts'
 import { ApiSecPrescan } from '@/api/sechubApis'
-import { formatTime, useGet } from '@/hooks'
+import { formatTime, useDicts, useGet } from '@/hooks'
 
 // 组件名必须与路由 name（= sys_menu.path 'defect-governance'）逐字一致，
 // keep-alive :include 才能缓存本页（见 app-main.vue 注释）。
@@ -25,10 +28,21 @@ defineOptions({ name: 'defect-governance' })
 
 use([BarChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer])
 
-const { data: rawData, isFetching: loading, execute: reload } = useGet<DefectGovernanceDashboard>(ApiSecPrescan.defectGovernance, {}, { immediate: true })
+/**
+ * 过滤条件：来源（scan=扫描检出 / import=Excel 导入）、产品领域（默认集团财务）、业务领域。
+ * vueuse 的 useFetch 不监听 url，筛选项变更后必须显式 reload()。
+ */
+const queryParams = ref({ source: '', product_domain: '集团财务', business_area: '' })
+
+const { data: rawData, isFetching: loading, execute: reload } = useGet<DefectGovernanceDashboard>(ApiSecPrescan.defectGovernance, queryParams, { immediate: true })
 const dashboard = computed(() => rawData.value ?? null)
 const summaries = computed(() => dashboard.value?.summaries ?? [])
 const groups = computed(() => dashboard.value?.groups ?? [])
+
+// 领域下拉取自项目组字典（与项目组管理页同源），过滤按值精确匹配项目组字段
+const dicts = useDicts('sec_pg_product_domain', 'sec_pg_business_area')
+const productDomainOptions = computed(() => (dicts.value.sec_pg_product_domain ?? []).map(d => ({ label: d.label, value: d.value })))
+const businessAreaOptions = computed(() => (dicts.value.sec_pg_business_area ?? []).map(d => ({ label: d.label, value: d.value })))
 
 const domainLabels: Record<string, string> = { security: '安全', performance: '性能' }
 const domainColors: Record<string, string> = { security: 'red', performance: 'blue' }
@@ -37,8 +51,8 @@ const domainColors: Record<string, string> = { security: 'red', performance: 'bl
 interface DetailGroupRow {
   row_key: string
   project_group_name: string
-  security: DefectGovernanceMetrics | null
-  performance: DefectGovernanceMetrics | null
+  security: DefectGovernanceGroupRow | null
+  performance: DefectGovernanceGroupRow | null
 }
 
 const detailRows = computed<DetailGroupRow[]>(() => {
@@ -84,7 +98,7 @@ const NO_FIX_DENOMINATOR_HINT = '没有需要修复的缺陷（全部标记为�
 /** 一个领域的 6 个指标列（挂到「安全」「性能」两个分组表头下）。
  *  单元格用列级 render 渲染：这样 12 个指标列不用写 12 个具名插槽 */
 function metricColumns(domain: 'security' | 'performance'): TableColumnData[] {
-  const pick = (record: Record<string, unknown>): DefectGovernanceMetrics | null => (record[domain] as DefectGovernanceMetrics | null) ?? null
+  const pick = (record: Record<string, unknown>): DefectGovernanceGroupRow | null => (record[domain] as DefectGovernanceGroupRow | null) ?? null
   // 指标列没有对应的顶层字段，用 dataIndex 作列标识（Arco 需要唯一列键，且 render 会覆盖取值）
   return [
     { dataIndex: `${domain}_total`, title: '总数', width: 72, align: 'center', render: ({ record }) => String(pick(record)?.total ?? 0) },
@@ -123,6 +137,37 @@ const columns: TableColumnData[] = [
   { title: '项目组', dataIndex: 'project_group_name', width: 220, ellipsis: true, tooltip: true, fixed: 'left' },
   { title: '安全', dataIndex: 'group_security', children: metricColumns('security') },
   { title: '性能', dataIndex: 'group_performance', children: metricColumns('performance') },
+]
+
+/** 优先级档位（列序：严重 → 未定级，与后端 PriorityCounts 字段序一致） */
+const priorityBuckets: { key: keyof DefectGovernancePriorityCounts, label: string }[] = [
+  { key: 'critical', label: '严重' },
+  { key: 'high', label: '高' },
+  { key: 'medium', label: '中' },
+  { key: 'low', label: '低' },
+  { key: 'info', label: '提示' },
+  { key: 'unclassified', label: '未定级' },
+]
+
+/** 优先级明细的列：处理中 + 六个档位的数量（同样挂到「安全」「性能」分组表头下） */
+function priorityMetricColumns(domain: 'security' | 'performance'): TableColumnData[] {
+  const pick = (record: Record<string, unknown>): DefectGovernanceGroupRow | null => (record[domain] as DefectGovernanceGroupRow | null) ?? null
+  return [
+    { dataIndex: `${domain}_pri_in_progress`, title: '处理中', width: 80, align: 'center', render: ({ record }) => String(pick(record)?.in_progress ?? 0) },
+    ...priorityBuckets.map((bucket): TableColumnData => ({
+      dataIndex: `${domain}_pri_${bucket.key}`,
+      title: bucket.label,
+      width: 72,
+      align: 'center',
+      render: ({ record }) => String(pick(record)?.in_progress_by_priority?.[bucket.key] ?? 0),
+    })),
+  ]
+}
+
+const priorityColumns: TableColumnData[] = [
+  { title: '项目组', dataIndex: 'project_group_name', width: 220, ellipsis: true, tooltip: true, fixed: 'left' },
+  { title: '安全', dataIndex: 'group_security_priority', children: priorityMetricColumns('security') },
+  { title: '性能', dataIndex: 'group_performance_priority', children: priorityMetricColumns('performance') },
 ]
 
 /** TOP15 图当前口径：汇总（安全+性能合并）/ 单领域（对应卡片右上角的切换按钮） */
@@ -180,6 +225,24 @@ const topOption = computed(() => {
   <div class="defect-governance">
     <a-card :bordered="false" class="m-b-12px">
       <a-space>
+        <a-select v-model="queryParams.source" allow-clear placeholder="来源" style="width: 110px" @change="reload()">
+          <a-option value="scan">
+            扫描
+          </a-option>
+          <a-option value="import">
+            导入
+          </a-option>
+        </a-select>
+        <a-select v-model="queryParams.product_domain" allow-clear placeholder="产品领域" style="width: 160px" @change="reload()">
+          <a-option v-for="opt in productDomainOptions" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </a-option>
+        </a-select>
+        <a-select v-model="queryParams.business_area" allow-clear placeholder="业务领域" style="width: 140px" @change="reload()">
+          <a-option v-for="opt in businessAreaOptions" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </a-option>
+        </a-select>
         <a-button :loading="loading" @click="reload()">
           刷新
         </a-button>
@@ -265,6 +328,23 @@ const topOption = computed(() => {
           :scroll="{ x: 1400 }"
         />
       </a-card>
+
+      <!-- 优先级明细：只统计处理中的缺陷，行序与上方「按项目组明细」一致，便于上下对照 -->
+      <a-card :bordered="false" size="small" class="m-t-12px">
+        <template #title>
+          按项目组优先级明细（处理中）
+          <span class="title-hint">未定级 = 风险等级为空的存量缺陷</span>
+        </template>
+        <a-table
+          :data="detailRows"
+          :columns="priorityColumns"
+          :pagination="false"
+          row-key="row_key"
+          size="small"
+          column-resizable
+          :scroll="{ x: 1300 }"
+        />
+      </a-card>
     </a-spin>
   </div>
 </template>
@@ -272,6 +352,8 @@ const topOption = computed(() => {
 <style scoped>
 .defect-governance { padding: 0; }
 .gen-at { color: var(--color-text-3); font-size: 12px; }
+/* 卡片标题旁的补充说明（未定级口径），压小压暗避免抢主标题 */
+.title-hint { margin-left: 8px; color: var(--color-text-3); font-size: 12px; font-weight: 400; }
 .metric-label { margin-bottom: 6px; color: var(--color-text-3); font-size: 12px; }
 .metric-value { font-size: 20px; line-height: 1.2; }
 /* 分母为 0 的修复进度：显示「—」，压暗一号免得被当成有效指标 */
