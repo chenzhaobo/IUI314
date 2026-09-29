@@ -40,6 +40,8 @@ const STATUS_META: Record<string, { label: string, color: string, tag: string }>
   rejected: { label: '已排除', color: 'rgb(var(--green-6))', tag: 'green' },
   error: { label: '错误', color: 'rgb(var(--orange-6))', tag: 'orange' },
   review_needed: { label: '需人工', color: 'rgb(var(--orangered-6))', tag: 'orangered' },
+  // 004：命中白名单第二层（规则×范围豁免）的候选，落库即此状态，不进 AI
+  waived: { label: '已豁免', color: 'rgb(var(--gray-6))', tag: 'gray' },
 }
 
 function statusLabel(value: string): string {
