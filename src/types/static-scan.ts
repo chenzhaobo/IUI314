@@ -799,7 +799,6 @@ export interface IssueRuleStatRow {
   wont_fix: number
 }
 
-
 /** 白名单规则维度聚合行（白名单页左树） */
 export interface WaiverRuleStatRow {
   rule_version_id: string
@@ -956,9 +955,28 @@ export interface DefectGovernanceMetrics {
   false_positive_rate: number
 }
 
+/** 缺陷治理看板：处理中缺陷的「计划完成时间」统计（只算处理中；超期按业务时区今天算，计划日当天不算超期） */
+export interface DefectGovernancePlanStats {
+  /** 处理中且已标注 */
+  set: number
+  /** 处理中且未标注（这个要进通报：不填日期就无从判断延期） */
+  missing: number
+  /** 已超期 */
+  overdue: number
+  /** 3 天内到期 */
+  due_soon: number
+  /** 超期且风险为 critical/high */
+  high_overdue: number
+  /** 超期最久多少天（通报里「超期 N 条」要附这个才有压力） */
+  overdue_max_days: number
+  /** 计划日距今 > 30 天（自填日期的防灌水观察项） */
+  far_future: number
+}
+
 /** 缺陷治理看板：全平台汇总（按领域） */
 export interface DefectGovernanceSummary extends DefectGovernanceMetrics {
   domain: string
+  plan: DefectGovernancePlanStats
 }
 
 /** 缺陷治理看板：处理中缺陷按优先级（risk_level）分档计数；空/未知值计入 unclassified */
@@ -978,6 +996,8 @@ export interface DefectGovernanceGroupRow extends DefectGovernanceMetrics {
   domain: string
   /** 处理中缺陷按优先级分档（六档之和 = in_progress） */
   in_progress_by_priority: DefectGovernancePriorityCounts
+  /** 处理中缺陷的计划完成时间统计（标注率 / 超期 / 临期 / 高危超期） */
+  plan: DefectGovernancePlanStats
 }
 
 export interface DefectGovernanceDashboard {

@@ -85,6 +85,8 @@ const queryParams = ref({
   // 业务领域 / 产品领域过滤（左树点节点写入；__unclassified__ = 未分类）
   business_area: '',
   product_domain: '',
+  // 「计划完成」过滤：__overdue__ / __due_soon__ / __none__（未标注）/ __planned__，只对处理中生效
+  plan_finish: '',
   // 负责人过滤（「我负责的」开关；值=登录名,展示名，后端按并集匹配）
   assignee: mineAssigneeValue(),
   // 表头排序：后端白名单只认 introduced_at / updated_at，空值=默认「更新时间倒序」
@@ -1354,6 +1356,22 @@ function shortSha(sha: string | null | undefined): string {
             </a-option>
             <a-option value="import">
               导入
+            </a-option>
+          </a-select>
+          <!-- 计划完成：四个选项都只筛「处理中」的缺陷（已处理/不处理不该被催），
+               伪值口径与后端 PLAN_FILTER_* 一致 -->
+          <a-select v-model="queryParams.plan_finish" allow-clear placeholder="计划完成" style="width: 130px" @change="refresh">
+            <a-option value="__overdue__">
+              已超期
+            </a-option>
+            <a-option value="__due_soon__">
+              3 天内到期
+            </a-option>
+            <a-option value="__none__">
+              未标注
+            </a-option>
+            <a-option value="__planned__">
+              已标注
             </a-option>
           </a-select>
           <a-button @click="refresh">
