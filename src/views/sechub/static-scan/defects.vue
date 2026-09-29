@@ -356,7 +356,8 @@ function canWontFix(status: string): boolean {
 // 却可能早已在代码里修掉了 —— 要求先手工标「已修复」再验证不现实）。
 // 只有两点例外：失活（扫描未再发现，已自动关闭）没有复核对象；复核中不重复提交。
 function canVerify(row: ScanIssueRow): boolean {
-  return row.coverage_state !== 'inactive' && row.status !== 'verifying'
+  // 004c：定位丢失（文件在、锚点消失）正需要复核；随代码移除（文件已删）无复核对象
+  return row.coverage_state !== 'inactive' && row.coverage_state !== 'removed_with_code' && row.status !== 'verifying'
 }
 
 // ===== 缺陷处理：转交（选处理人；人从系统用户表来，与性能问题列表同口径）=====
@@ -1177,6 +1178,9 @@ function statusTooltip(row: ScanIssueRow): string {
 }
 
 function issueStatusLabel(row: ScanIssueRow): { label: string, color: string } {
+  // 004c：新覆盖状态本身即语义（状态列保留原处置状态，这里以覆盖状态提示为准）
+  if (row.coverage_state === 'location_lost' || row.coverage_state === 'removed_with_code')
+    return coverageReasonLabels[row.coverage_state] ?? { label: row.coverage_state, color: 'gray' }
   if (row.coverage_state === 'inactive' && row.coverage_reason)
     return coverageReasonLabels[row.coverage_reason] ?? { label: '扫描范围失活', color: 'gray' }
   return statusLabels[row.status] ?? { label: row.status, color: 'gray' }
