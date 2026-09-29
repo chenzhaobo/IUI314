@@ -101,6 +101,7 @@ const queueStats = ref<Record<string, number>>({})
 const queueKindLabels: Record<string, string> = {
   static_scan_confirm: '平台编排确认',
   static_scan_agent: '自主审计分片',
+  static_scan_verify: '自动复核',
 }
 const queueStatusLabels: Record<string, { label: string, color: string }> = {
   pending: { label: '待领取', color: 'gray' },
