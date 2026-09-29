@@ -742,6 +742,8 @@ const aiStatusLabels: Record<string, { label: string, color: string }> = {
   confirmed: { label: '确认问题', color: 'red' },
   rejected: { label: '已排除', color: 'green' },
   error: { label: '错误', color: 'orange' },
+  // 004：命中白名单第二层（规则×范围豁免）的候选，落库即此状态，不进 AI
+  waived: { label: '已豁免', color: 'gray' },
 }
 const runStatusLabels: Record<string, { label: string, color: string }> = {
   succeeded: { label: '扫描完成', color: 'green' },

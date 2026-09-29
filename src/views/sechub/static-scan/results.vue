@@ -836,6 +836,8 @@ const aiStatusLabels: Record<string, { label: string, color: string }> = {
   rejected: { label: '已排除', color: 'green' },
   error: { label: '错误', color: 'orange' },
   review_needed: { label: '需人工', color: 'orangered' },
+  // 004：命中白名单第二层（规则×范围豁免）的候选，落库即此状态，不进 AI
+  waived: { label: '已豁免', color: 'gray' },
 }
 /** 状态/结论值 → 中文（结论变更提示用） */
 function verdictLabel(value: string | null | undefined): string {

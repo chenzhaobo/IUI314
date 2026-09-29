@@ -87,6 +87,10 @@ const queryParams = ref({
   product_domain: '',
   // 「计划完成」过滤：__overdue__ / __due_soon__ / __none__（未标注）/ __planned__，只对处理中生效
   plan_finish: '',
+  // 004：issue 状态 merged（身份归并的产物行）默认不进列表/左树/导出，后端按 exclude_status 剔除该状态。
+  // 后端契约待 004c 落地：目前未知查询参数被忽略，发它不改变现状；落地后默认即隐藏。
+  // 用户显式选状态时清掉（见 onStatusChange），否则筛「已合并」永远是空。
+  exclude_status: 'merged',
   // 负责人过滤（「我负责的」开关；值=登录名,展示名，后端按并集匹配）
   assignee: mineAssigneeValue(),
   // 表头排序：后端白名单只认 introduced_at / updated_at，空值=默认「更新时间倒序」
@@ -288,6 +292,8 @@ function onDomainSelectChange() {
 // 状态下拉变更：仅重载列表
 function onStatusChange() {
   queryParams.value.page_num = 1
+  // 显式选状态 = 就看这个状态：撤掉默认的「排除已合并」（选「已合并」才查得到）；清空回默认
+  queryParams.value.exclude_status = queryParams.value.status ? '' : 'merged'
   void getList()
 }
 
@@ -1136,12 +1142,20 @@ const statusLabels: Record<string, { label: string, color: string }> = {
   verification_failed: { label: '验证不通过', color: 'orange' },
   /** 提交后的后台 AI 复核窗口期（完成后按判定回写） */
   verifying: { label: 'AI 复核中', color: 'arcoblue' },
+  /** 004：身份归并的产物行（已并入 merged_into_issue_id 指向的主行），默认不进列表 */
+  merged: { label: '已合并', color: 'gray' },
+  /** 004：白名单免检（候选侧写 `ai_status='waived'`；缺陷行上出现该状态时同样显示「已豁免」） */
+  waived: { label: '已豁免', color: 'gray' },
 }
 
 const coverageReasonLabels: Record<string, { label: string, color: string }> = {
   verdict_rejected: { label: '判定撤销', color: 'gray' },
   finding_absent: { label: '扫描未再发现', color: 'gray' },
   file_deleted: { label: '文件已删除', color: 'gray' },
+  /** 004c：文件还在、锚点消失（进复核，不据此关闭） */
+  location_lost: { label: '定位丢失', color: 'gray' },
+  /** 004c：文件已随代码移除（不置已修复） */
+  removed_with_code: { label: '随代码移除', color: 'gray' },
 }
 
 /** AI 直接判过（复核前没人把它标成「已修复」）—— 与走完人工流程的「已验证」区分开 */
@@ -1299,6 +1313,10 @@ function shortSha(sha: string | null | undefined): string {
             </a-option>
             <a-option value="verification_failed">
               验证不通过
+            </a-option>
+            <!-- 004：身份归并的产物行（已并入主行），默认列表不含；选中即显式查它们 -->
+            <a-option value="merged">
+              已合并
             </a-option>
           </a-select>
           <!-- 风险等级多选：诉求是"优先处理高等级"，通常要 high 与 medium 一起看；
