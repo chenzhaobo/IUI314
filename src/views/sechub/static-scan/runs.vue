@@ -1,17 +1,19 @@
 <script setup lang="ts">
+import type { NewScanOpenOptions, ScanTargetType } from './new-scan/types'
+import type { ColumnFilterState } from '@/hooks'
 import type { CrossRunAggRow, ModuleWithRepository } from '@/types/static-scan'
 import { Checkbox, Message, Modal } from '@arco-design/web-vue'
-import { computed, h, onActivated, onDeactivated, onUnmounted, ref, watch } from 'vue'
 
-import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
-import type { ColumnFilterState } from '@/hooks'
-import { applyColumnFilters, emptyFilter, formatTime, isFilterActive, useFilterPersistence, useTableAutoHeight } from '@/hooks'
-import { useRouter } from 'vue-router'
-import { ErrorFlag } from '@/api/apis'
+import { computed, h, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ApiAiExecution } from '@/api/aiApis'
 import { ApiSecModuleRepository, ApiSecPrescan } from '@/api/sechubApis'
-import { useGet, usePost } from '@/hooks'
+import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
+import { applyColumnFilters, emptyFilter, formatTime, isFilterActive, postAction, useFilterPersistence, useGet, useTableAutoHeight } from '@/hooks'
 import { pendingSubLabel, pendingTooltip, runStatusLabels } from './labels'
+import AiConfirmModal from './new-scan/AiConfirmModal.vue'
+import { aiConfirmBlockedReason } from './new-scan/labels'
+import NewScanModal from './new-scan/NewScanModal.vue'
 
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
 // （见 components/layout/app-main.vue 的注释）。lint 的 PascalCase 提示只是警告，
@@ -19,6 +21,7 @@ import { pendingSubLabel, pendingTooltip, runStatusLabels } from './labels'
 // eslint-disable-next-line vue/component-definition-name-casing
 defineOptions({ name: 'runs' })
 
+const route = useRoute()
 const router = useRouter()
 
 // ===== 应用列表 =====
@@ -63,15 +66,6 @@ async function fetchJson<T>(url: string): Promise<T | null> {
   const { data, execute } = useGet<T>(url, {}, { immediate: false })
   await execute()
   return data.value ?? null
-}
-
-// ===== POST 通用封装（业务错误时 hook 已弹 Message，返回 null 表示失败）=====
-async function postAction<T = unknown>(url: string, payload: Record<string, any>): Promise<T | null> {
-  const request = usePost<T>(url, payload, { immediate: false })
-  await request.execute()
-  if (request.error.value || request.data.value === ErrorFlag)
-    return null
-  return request.data.value
 }
 
 // ===== 任务队列（静态扫描的 AI 确认/自主审计任务在这里排队）=====
@@ -139,8 +133,8 @@ async function deleteQueueSelected() {
     title: '确认删除选中的队列任务？',
     content: runningPicked > 0
       ? `选中 ${queueSelected.value.length} 条，其中 ${runningPicked} 条为「执行中」。\n\n`
-        + '默认会跳过执行中的行（避免误删真正在跑的任务）。若这些任务实际已死'
-        + '（例如刚重启过），请改用「标记失败」，或勾选下方强制删除。'
+      + '默认会跳过执行中的行（避免误删真正在跑的任务）。若这些任务实际已死'
+      + '（例如刚重启过），请改用「标记失败」，或勾选下方强制删除。'
       : `将删除 ${queueSelected.value.length} 条队列任务。此操作不可恢复。`,
     okText: runningPicked > 0 ? '跳过执行中并删除' : '确认删除',
     cancelText: '取消',
@@ -219,6 +213,11 @@ const columnFilters = ref<Record<string, ColumnFilterState>>({
   risk_high: emptyFilter('number'),
   created_at: emptyFilter('date'),
 })
+
+// ===== 分页（客户端分页：cross-run-compare 一次返回全量，这里切页展示）=====
+// 声明在过滤逻辑之前：onColumnFilterChange 需要重置页码
+const pageNum = ref(1)
+const pageSize = ref(20)
 
 /** 过滤条件变化后回到第一页，否则可能停在一个已经没有数据的页码上 */
 function onColumnFilterChange() {
@@ -310,8 +309,83 @@ onDeactivated(pausePoll)
 onActivated(() => {
   if (hasActiveWork())
     void loadCrossRows(true)
+  void applyNewScanQuery()
 })
+onMounted(() => void applyNewScanQuery())
 onUnmounted(pausePoll)
+
+// ===== 新建扫描 / AI 确认（入口从扫描看板迁来）=====
+const newScanRef = ref<InstanceType<typeof NewScanModal>>()
+const aiConfirmRef = ref<InstanceType<typeof AiConfirmModal>>()
+
+/** 新建弹窗「已有 N 条扫描记录」幂等提示的计数来源：当前列表里该应用的运行数 */
+function countRunsOfRepository(repositoryId: string): number {
+  return crossRows.value.filter(row => row.repository_id === repositoryId).length
+}
+
+function openNewScan() {
+  void newScanRef.value?.open({ repositoryId: selectedRepoId.value })
+}
+
+function onNewScanCreated() {
+  void loadCrossRows()
+}
+
+/** 行级 AI 确认：仅「预扫描完成」的批次有候选可确认 */
+function openAiConfirm(row: CrossRunAggRow) {
+  if (aiConfirmBlockedReason(row.run_id, row.status))
+    return
+  aiConfirmRef.value?.open(row.run_id)
+}
+
+function onAiConfirmSubmitted() {
+  void loadCrossRows()
+}
+
+/** 路由里的扫描范围：只认表单/微服务；后端个别形态写作 micro（见 domain-assets/types.ts 的 assetKind） */
+function normalizeScanTarget(value: unknown): ScanTargetType | undefined {
+  const raw = Array.isArray(value) ? value[0] : value
+  if (raw === 'form' || raw === 'microservice')
+    return raw
+  if (raw === 'micro')
+    return 'microservice'
+  return undefined
+}
+
+/** 资产 id 支持逗号分隔与重复传参两种形态 */
+function parseAssetIds(value: unknown): string[] | undefined {
+  const raw = Array.isArray(value) ? value.join(',') : value
+  if (typeof raw !== 'string' || !raw)
+    return undefined
+  return raw.split(',').map(id => id.trim()).filter(Boolean)
+}
+
+/**
+ * 路由预填：资产详情「发起专项扫描」跳来带
+ * `new_scan=1&repository_id=..&scan_target=..&asset_ids=..`，据此直接打开新建弹窗并预选。
+ *
+ * 本页被 keep-alive 缓存：首次进入只触发 onMounted、之后从别的页签回来触发 onActivated，
+ * 两处都要处理；`handledQueryKey` 兜住首次进入时两个钩子先后触发的重复打开。
+ * 处理过就把 query replace 掉，避免刷新/回退时再次弹窗。
+ */
+let handledQueryKey = ''
+async function applyNewScanQuery() {
+  if (!('new_scan' in route.query)) {
+    handledQueryKey = ''
+    return
+  }
+  const key = route.fullPath
+  if (handledQueryKey === key)
+    return
+  handledQueryKey = key
+  const opts: NewScanOpenOptions = {
+    repositoryId: typeof route.query.repository_id === 'string' ? route.query.repository_id : undefined,
+    scanTargetType: normalizeScanTarget(route.query.scan_target),
+    assetIds: parseAssetIds(route.query.asset_ids),
+  }
+  await router.replace({ path: route.path, query: {} })
+  void newScanRef.value?.open(opts)
+}
 
 // 默认加载全部数据
 loadCrossRows()
@@ -319,10 +393,6 @@ loadCrossRows()
 function onSearch() {
   void loadCrossRows()
 }
-
-// ===== 分页（客户端分页：cross-run-compare 一次返回全量，这里切页展示）=====
-const pageNum = ref(1)
-const pageSize = ref(20)
 
 /**
  * 表格滚动配置：横向固定宽度，纵向用自适应高度（滚动条落在表格内、表头固定）。
@@ -578,7 +648,7 @@ function confirmStateTooltip(row: CrossRunAggRow): string {
   const running = row.queue_running ?? row.ai_exec_running ?? 0
   const queued = row.queue_pending ?? row.ai_exec_pending ?? 0
   if (!confirmTriggered(row)) {
-    lines.push('尚未触发 AI 确认。可在扫描看板选中该运行后点「AI 确认」。')
+    lines.push('尚未触发 AI 确认。可在本页该行「更多」里点「AI 确认」。')
   }
   else {
     if (queued > 0)
@@ -626,19 +696,16 @@ function confirmRetryScope(opts: {
     title: opts.title,
     content: () => h('div', { style: 'line-height:1.7' }, [
       h('div', `${opts.scopeText}，其中未完成（错误/未确认）${opts.unfinished} 条。`),
-      h('div', { style: 'color:#86909c;margin-top:4px' },
-        '默认只重扫未完成部分，已确认/待人工复核/已排除的结论不受影响。'),
+      h('div', { style: 'color:#86909c;margin-top:4px' }, '默认只重扫未完成部分，已确认/待人工复核/已排除的结论不受影响。'),
       opts.settled > 0
         ? h('div', { style: 'margin-top:10px' }, [
             h(Checkbox, {
               'modelValue': include.value,
               'onUpdate:modelValue': (v: any) => { include.value = Boolean(v) },
             }, () => `连已出结论的一起重扫（额外 ${opts.settled} 条：已确认 + 待人工复核）`),
-            h('div', { style: 'color:#f77234;margin-top:4px;font-size:12px' },
-              '勾选后这些候选的 AI 结论与详细报告会被清空并重新判定，请确认已无人跟进。'),
+            h('div', { style: 'color:#f77234;margin-top:4px;font-size:12px' }, '勾选后这些候选的 AI 结论与详细报告会被清空并重新判定，请确认已无人跟进。'),
           ])
-        : h('div', { style: 'color:#86909c;margin-top:8px;font-size:12px' },
-            '该范围内没有已出结论的候选。'),
+        : h('div', { style: 'color:#86909c;margin-top:8px;font-size:12px' }, '该范围内没有已出结论的候选。'),
     ]),
     okText: '确认重扫',
     cancelText: '取消',
@@ -701,8 +768,8 @@ function confirmDeleteRun(row: CrossRunAggRow): void {
     title: stuck ? '该运行仍在「扫描中」，确认强制删除？' : '确认删除该扫描运行？',
     content: stuck
       ? `应用「${appName}」的运行（commit：${commit}）当前状态为「${stuck ? row.status : ''}」。\n\n`
-        + '若服务刚重启过、它是崩溃留下的僵尸运行，强制删除即可；\n'
-        + '若任务真的还在跑，删除会让它后续写入失败（该任务会自行报错结束）。'
+      + '若服务刚重启过、它是崩溃留下的僵尸运行，强制删除即可；\n'
+      + '若任务真的还在跑，删除会让它后续写入失败（该任务会自行报错结束）。'
       : `即将删除应用「${appName}」的运行（commit：${commit}）。\n\n此操作将同时删除该运行的扫描结果详情与磁盘产物，且不可恢复。\n已提的问题（sec_scan_issue）不会被删除，会继续保留。`,
     okText: stuck ? '强制删除' : '确认删除',
     cancelText: '取消',
@@ -863,6 +930,12 @@ const crossColumns = computed(() => [
       </template>
       <template #extra>
         <a-space>
+          <a-button type="primary" @click="openNewScan">
+            <template #icon>
+              <icon-plus />
+            </template>
+            新建扫描
+          </a-button>
           <a-button
             type="primary"
             status="warning"
@@ -875,171 +948,179 @@ const crossColumns = computed(() => [
         </a-space>
       </template>
       <div ref="tableWrap">
-      <a-table
-        v-model:selectedKeys="selectedRunKeys"
-        :loading="crossLoading"
-        :data="pagedCrossRows"
-        :columns="crossColumns"
-        column-resizable
-        :row-selection="{ type: 'checkbox', showCheckedAll: true }"
-        :pagination="{
-          total: filteredCrossRows.length,
-          current: pageNum,
-          pageSize,
-          showTotal: true,
-          showPageSize: true,
-          pageSizeOptions: [10, 20, 50, 100],
-        }"
-        row-key="key"
-        size="small"
-        :bordered="{ cell: true }"
-        :scroll="crossScroll"
-        @page-change="(p: number) => (pageNum = p)"
-        @page-size-change="(s: number) => { pageSize = s; pageNum = 1 }"
-      >
-        <template #filter-repository_name="{ }">
-          <ColumnFilterPanel v-model="columnFilters.repository_name" @change="onColumnFilterChange" />
-        </template>
-        <template #filter-branch="{ }">
-          <ColumnFilterPanel v-model="columnFilters.branch" @change="onColumnFilterChange" />
-        </template>
-        <template #filter-ai_model="{ }">
-          <ColumnFilterPanel v-model="columnFilters.ai_model" @change="onColumnFilterChange" />
-        </template>
-        <template #filter-total="{ }">
-          <ColumnFilterPanel v-model="columnFilters.total" @change="onColumnFilterChange" />
-        </template>
-        <template #filter-confirmed="{ }">
-          <ColumnFilterPanel v-model="columnFilters.confirmed" @change="onColumnFilterChange" />
-        </template>
-        <template #filter-rejected="{ }">
-          <ColumnFilterPanel v-model="columnFilters.rejected" @change="onColumnFilterChange" />
-        </template>
-        <template #filter-error="{ }">
-          <ColumnFilterPanel v-model="columnFilters.error" @change="onColumnFilterChange" />
-        </template>
-        <template #filter-risk_high="{ }">
-          <ColumnFilterPanel v-model="columnFilters.risk_high" @change="onColumnFilterChange" />
-        </template>
-        <template #filter-created_at="{ }">
-          <ColumnFilterPanel v-model="columnFilters.created_at" @change="onColumnFilterChange" />
-        </template>
-        <!-- 分支列：null 时展示占位符 -->
-        <template #crBranch="{ record }">
-          <span class="branch-name">{{ record.branch ?? '-' }}</span>
-        </template>
+        <a-table
+          v-model:selected-keys="selectedRunKeys"
+          :loading="crossLoading"
+          :data="pagedCrossRows"
+          :columns="crossColumns"
+          column-resizable
+          :row-selection="{ type: 'checkbox', showCheckedAll: true }"
+          :pagination="{
+            total: filteredCrossRows.length,
+            current: pageNum,
+            pageSize,
+            showTotal: true,
+            showPageSize: true,
+            pageSizeOptions: [10, 20, 50, 100],
+          }"
+          row-key="key"
+          size="small"
+          :bordered="{ cell: true }"
+          :scroll="crossScroll"
+          @page-change="(p: number) => (pageNum = p)"
+          @page-size-change="(s: number) => { pageSize = s; pageNum = 1 }"
+        >
+          <template #filter-repository_name>
+            <ColumnFilterPanel v-model="columnFilters.repository_name" @change="onColumnFilterChange" />
+          </template>
+          <template #filter-branch>
+            <ColumnFilterPanel v-model="columnFilters.branch" @change="onColumnFilterChange" />
+          </template>
+          <template #filter-ai_model>
+            <ColumnFilterPanel v-model="columnFilters.ai_model" @change="onColumnFilterChange" />
+          </template>
+          <template #filter-total>
+            <ColumnFilterPanel v-model="columnFilters.total" @change="onColumnFilterChange" />
+          </template>
+          <template #filter-confirmed>
+            <ColumnFilterPanel v-model="columnFilters.confirmed" @change="onColumnFilterChange" />
+          </template>
+          <template #filter-rejected>
+            <ColumnFilterPanel v-model="columnFilters.rejected" @change="onColumnFilterChange" />
+          </template>
+          <template #filter-error>
+            <ColumnFilterPanel v-model="columnFilters.error" @change="onColumnFilterChange" />
+          </template>
+          <template #filter-risk_high>
+            <ColumnFilterPanel v-model="columnFilters.risk_high" @change="onColumnFilterChange" />
+          </template>
+          <template #filter-created_at>
+            <ColumnFilterPanel v-model="columnFilters.created_at" @change="onColumnFilterChange" />
+          </template>
+          <!-- 分支列：null 时展示占位符 -->
+          <template #crBranch="{ record }">
+            <span class="branch-name">{{ record.branch ?? '-' }}</span>
+          </template>
 
-        <!-- Commit 列：短 sha，tooltip 展示完整 sha + 提交时间 -->
-        <template #crCommit="{ record }">
-          <a-tooltip v-if="record.commit_sha" :content="commitTooltip(record)" position="top">
-            <span class="commit-sha">{{ shortSha(record.commit_sha) }}</span>
-          </a-tooltip>
-          <span v-else class="text-placeholder">-</span>
-        </template>
+          <!-- Commit 列：短 sha，tooltip 展示完整 sha + 提交时间 -->
+          <template #crCommit="{ record }">
+            <a-tooltip v-if="record.commit_sha" :content="commitTooltip(record)" position="top">
+              <span class="commit-sha">{{ shortSha(record.commit_sha) }}</span>
+            </a-tooltip>
+            <span v-else class="text-placeholder">-</span>
+          </template>
 
-        <!-- 模型列：ai_model 非空直接展示；为空但 ai_pending_model 有值时展示进行中模型；两者都空展示占位符 -->
-        <template #crModel="{ record }">
-          <template v-if="modelLabel(record).text">
-            <a-tooltip :content="record.ai_model ?? record.ai_pending_model ?? ''" position="top">
-              <span :class="modelLabel(record).pending ? 'model-name model-pending' : 'model-name'">
-                {{ modelLabel(record).text }}
-              </span>
+          <!-- 模型列：ai_model 非空直接展示；为空但 ai_pending_model 有值时展示进行中模型；两者都空展示占位符 -->
+          <template #crModel="{ record }">
+            <template v-if="modelLabel(record).text">
+              <a-tooltip :content="record.ai_model ?? record.ai_pending_model ?? ''" position="top">
+                <span :class="modelLabel(record).pending ? 'model-name model-pending' : 'model-name'">
+                  {{ modelLabel(record).text }}
+                </span>
+              </a-tooltip>
+            </template>
+            <span v-else class="text-placeholder">-</span>
+          </template>
+
+          <!-- 确认进度列 -->
+          <template #crProgress="{ record }">
+            <span :class="{ 'progress-done': progressDone(record) }">{{ progressLabel(record) }}</span>
+          </template>
+
+          <!-- 模式列：ai_mode 可能是逗号拼接的多值（如 "batch,agent"），拆分后逐个映射中文，用顿号连接 -->
+          <template #crMode="{ record }">
+            <template v-if="record.ai_mode?.trim()">
+              <a-space :size="2" wrap>
+                <a-tag
+                  v-for="code in record.ai_mode.split(',').map((s: string) => s.trim()).filter(Boolean)"
+                  :key="code"
+                  :color="modeLabels[code]?.color ?? 'gray'"
+                  size="small"
+                >
+                  {{ modeLabels[code]?.label ?? code }}
+                </a-tag>
+              </a-space>
+            </template>
+            <span v-else class="text-placeholder">-</span>
+          </template>
+
+          <!-- 策略列：全量 / 差量类型 + 比对基线，悬浮里补充领域范围 -->
+          <template #crStrategy="{ record }">
+            <a-tooltip :content="strategyTooltip(record)" mini>
+              <span>{{ strategyLabel(record) }}</span>
             </a-tooltip>
           </template>
-          <span v-else class="text-placeholder">-</span>
-        </template>
 
-        <!-- 确认进度列 -->
-        <template #crProgress="{ record }">
-          <span :class="{ 'progress-done': progressDone(record) }">{{ progressLabel(record) }}</span>
-        </template>
+          <!-- 确认率列 -->
+          <template #crRate="{ record }">
+            {{ record.confirm_rate != null ? `${(record.confirm_rate * 100).toFixed(1)}%` : '-' }}
+          </template>
 
-        <!-- 模式列：ai_mode 可能是逗号拼接的多值（如 "batch,agent"），拆分后逐个映射中文，用顿号连接 -->
-        <template #crMode="{ record }">
-          <template v-if="record.ai_mode?.trim()">
-            <a-space :size="2" wrap>
-              <a-tag
-                v-for="code in record.ai_mode.split(',').map((s: string) => s.trim()).filter(Boolean)"
-                :key="code"
-                :color="modeLabels[code]?.color ?? 'gray'"
-                size="small"
-              >
-                {{ modeLabels[code]?.label ?? code }}
+          <!-- 平均置信度列 -->
+          <template #crConf="{ record }">
+            {{ record.avg_confidence != null ? Number(record.avg_confidence).toFixed(2) : '-' }}
+          </template>
+
+          <!-- 待确认列：先表达 AI 确认的「是否触发 / 排队中 / 执行中」，再表达候选结果分布 -->
+          <template #crPending="{ record }">
+            <a-tooltip :content="confirmStateTooltip(record)" position="top">
+              <a-tag :color="confirmStateColor(record)" size="small">
+                {{ confirmStateLabel(record) }}
               </a-tag>
+            </a-tooltip>
+          </template>
+
+          <!-- 操作列：最常用"查看明细"在外，其余收入"更多"下拉 -->
+          <template #crOps="{ record }">
+            <a-space :size="4">
+              <!-- 主操作：查看明细 -->
+              <a-button type="text" size="small" @click="viewDetail(record)">
+                查看明细
+              </a-button>
+              <!-- 更多操作下拉 -->
+              <a-dropdown trigger="click">
+                <a-button type="text" size="small">
+                  更多<icon-down />
+                </a-button>
+                <template #content>
+                  <!-- 查看错误：仅在有 error 时启用 -->
+                  <a-doption
+                    :disabled="!record.error"
+                    @click="() => record.error && viewErrors(record)"
+                  >
+                    查看错误{{ record.error ? `(${record.error})` : '' }}
+                  </a-doption>
+                  <!-- 重扫未完成：可重跑数量为 0 时禁用 -->
+                  <a-doption
+                    :disabled="retryableCount(record) === 0 || retryingRunId === record.run_id"
+                    @click="() => retryableCount(record) > 0 && retryErrors(record)"
+                  >
+                    <a-spin v-if="retryingRunId === record.run_id" :size="12" />
+                    重扫未完成{{ retryableCount(record) ? `(${retryableCount(record)})` : '' }}
+                  </a-doption>
+                  <!-- AI 确认：仅预扫描 succeeded 的运行可发起；禁用时 title 说明原因 -->
+                  <a-doption
+                    :disabled="!!aiConfirmBlockedReason(record.run_id, record.status)"
+                    :title="aiConfirmBlockedReason(record.run_id, record.status) || '对该运行的候选发起 AI 确认'"
+                    @click="() => openAiConfirm(record)"
+                  >
+                    AI 确认
+                  </a-doption>
+                  <!-- 删除运行：preparing/running 也允许（崩溃会留下卡住的僵尸运行），
+                     确认框里明确告知风险并按强制删除提交 -->
+                  <a-doption
+                    status="danger"
+                    :disabled="deletingRunId === record.run_id"
+                    @click="() => confirmDeleteRun(record)"
+                  >
+                    <a-spin v-if="deletingRunId === record.run_id" :size="12" />
+                    <span :style="deletingRunId !== record.run_id ? { color: 'rgb(var(--danger-6))' } : {}">删除</span>
+                  </a-doption>
+                </template>
+              </a-dropdown>
             </a-space>
           </template>
-          <span v-else class="text-placeholder">-</span>
-        </template>
-
-        <!-- 策略列：全量 / 差量类型 + 比对基线，悬浮里补充领域范围 -->
-        <template #crStrategy="{ record }">
-          <a-tooltip :content="strategyTooltip(record)" mini>
-            <span>{{ strategyLabel(record) }}</span>
-          </a-tooltip>
-        </template>
-
-        <!-- 确认率列 -->
-        <template #crRate="{ record }">
-          {{ record.confirm_rate != null ? `${(record.confirm_rate * 100).toFixed(1)}%` : '-' }}
-        </template>
-
-        <!-- 平均置信度列 -->
-        <template #crConf="{ record }">
-          {{ record.avg_confidence != null ? Number(record.avg_confidence).toFixed(2) : '-' }}
-        </template>
-
-        <!-- 待确认列：先表达 AI 确认的「是否触发 / 排队中 / 执行中」，再表达候选结果分布 -->
-        <template #crPending="{ record }">
-          <a-tooltip :content="confirmStateTooltip(record)" position="top">
-            <a-tag :color="confirmStateColor(record)" size="small">
-              {{ confirmStateLabel(record) }}
-            </a-tag>
-          </a-tooltip>
-        </template>
-
-        <!-- 操作列：最常用"查看明细"在外，其余收入"更多"下拉 -->
-        <template #crOps="{ record }">
-          <a-space :size="4">
-            <!-- 主操作：查看明细 -->
-            <a-button type="text" size="small" @click="viewDetail(record)">
-              查看明细
-            </a-button>
-            <!-- 更多操作下拉 -->
-            <a-dropdown trigger="click">
-              <a-button type="text" size="small">
-                更多<icon-down />
-              </a-button>
-              <template #content>
-                <!-- 查看错误：仅在有 error 时启用 -->
-                <a-doption
-                  :disabled="!record.error"
-                  @click="() => record.error && viewErrors(record)"
-                >
-                  查看错误{{ record.error ? `(${record.error})` : '' }}
-                </a-doption>
-                <!-- 重扫未完成：可重跑数量为 0 时禁用 -->
-                <a-doption
-                  :disabled="retryableCount(record) === 0 || retryingRunId === record.run_id"
-                  @click="() => retryableCount(record) > 0 && retryErrors(record)"
-                >
-                  <a-spin v-if="retryingRunId === record.run_id" :size="12" />
-                  重扫未完成{{ retryableCount(record) ? `(${retryableCount(record)})` : '' }}
-                </a-doption>
-                <!-- 删除运行：preparing/running 也允许（崩溃会留下卡住的僵尸运行），
-                     确认框里明确告知风险并按强制删除提交 -->
-                <a-doption
-                  status="danger"
-                  :disabled="deletingRunId === record.run_id"
-                  @click="() => confirmDeleteRun(record)"
-                >
-                  <a-spin v-if="deletingRunId === record.run_id" :size="12" />
-                  <span :style="deletingRunId !== record.run_id ? { color: 'rgb(var(--danger-6))' } : {}">删除</span>
-                </a-doption>
-              </template>
-            </a-dropdown>
-          </a-space>
-        </template>
-      </a-table>
+        </a-table>
       </div>
     </a-card>
 
@@ -1055,12 +1136,22 @@ const crossColumns = computed(() => [
       </template>
       <a-space class="m-b-8px">
         <a-select v-model="queueStatus" placeholder="队列状态" allow-clear style="width: 150px" @change="loadQueue">
-          <a-option value="pending">待领取</a-option>
-          <a-option value="running">执行中</a-option>
-          <a-option value="succeeded">成功</a-option>
-          <a-option value="dead">已失败</a-option>
+          <a-option value="pending">
+            待领取
+          </a-option>
+          <a-option value="running">
+            执行中
+          </a-option>
+          <a-option value="succeeded">
+            成功
+          </a-option>
+          <a-option value="dead">
+            已失败
+          </a-option>
         </a-select>
-        <a-button type="primary" @click="loadQueue">刷新</a-button>
+        <a-button type="primary" @click="loadQueue">
+          刷新
+        </a-button>
         <a-button status="warning" :disabled="queueSelected.length === 0" @click="forceFailQueueSelected">
           标记失败{{ queueSelected.length ? `(${queueSelected.length})` : '' }}
         </a-button>
@@ -1069,7 +1160,7 @@ const crossColumns = computed(() => [
         </a-button>
       </a-space>
       <a-table
-        v-model:selectedKeys="queueSelected"
+        v-model:selected-keys="queueSelected"
         :loading="queueLoading"
         :data="queueRows"
         :columns="queueColumns"
@@ -1093,6 +1184,11 @@ const crossColumns = computed(() => [
         </template>
       </a-table>
     </a-card>
+
+    <!-- 新建扫描弹窗：入口在本页头部按钮与 route query 预填（看板/资产详情跳转） -->
+    <NewScanModal ref="newScanRef" :run-count-of="countRunsOfRepository" @created="onNewScanCreated" />
+    <!-- AI 确认弹窗：对指定 run 的候选批量发起确认 -->
+    <AiConfirmModal ref="aiConfirmRef" :runs="crossRows" @submitted="onAiConfirmSubmitted" />
   </div>
 </template>
 

@@ -21,7 +21,8 @@ import type { secTestEnv } from '@/types/sechub'
 import type { ModuleWithRepository, PageResult } from '@/types/static-scan'
 import { Message } from '@arco-design/web-vue'
 import { computed, reactive, ref, watch } from 'vue'
-import { ApiSecDomainAsset, ApiSecModuleRepository, ApiSecPrescan, ApiSecTestEnv, resolveStaticScanApi } from '@/api/sechubApis'
+import { useRouter } from 'vue-router'
+import { ApiSecDomainAsset, ApiSecModuleRepository, ApiSecTestEnv, resolveStaticScanApi } from '@/api/sechubApis'
 import { formatTime, getAction, isRequestFailed, postAction, useGet, usePagedQuery, useRequest } from '@/hooks'
 import {
   applyManualFields,
@@ -35,7 +36,6 @@ import {
   buildManualFieldsPayload,
   buildMenuRows,
   buildPluginRows,
-  buildPrescanTriggerPayload,
   CANDIDATE_COLUMNS,
   cellTagMeta,
   compactQuery,
@@ -64,6 +64,8 @@ const emit = defineEmits<{
   'update:visible': [visible: boolean]
   'changed': []
 }>()
+
+const router = useRouter()
 
 // ── 详情 ──────────────────────────────────────────
 
@@ -456,18 +458,27 @@ async function handleRematchConfirm() {
 
 const scanDisabledReason = computed(() => scanTriggerDisabledReason(snapshot.value))
 
-async function handleSpecialScan() {
+/** 可用时跳「扫描运行」页并预填新建扫描弹窗（仓库 + 资产范围）；闸门未开放前按钮为禁用态 */
+function handleSpecialScan() {
   const reason = scanDisabledReason.value
   if (reason) {
     Message.warning(reason)
     return
   }
   const asset = snapshot.value
-  if (!asset)
+  if (!asset?.repository_id)
     return
-  const res = await postAction<Record<string, unknown>>(ApiSecPrescan.trigger, buildPrescanTriggerPayload(asset))
-  if (res)
-    Message.success('已发起专项扫描')
+  // 资产维度用 form/microservice 表达；后端个别形态写作 micro，页面侧统一归一
+  const kind = assetKind(asset.asset_type)
+  void router.push({
+    path: '/static-scan/scan/runs',
+    query: {
+      new_scan: '1',
+      repository_id: asset.repository_id,
+      scan_target: kind === 'form' ? 'form' : 'microservice',
+      asset_ids: asset.id,
+    },
+  })
 }
 
 // ── 打开 / 刷新 / 重新匹配后的数据同步 ─────────────
