@@ -24,11 +24,13 @@ defineOptions({ name: 'defects' })
 const router = useRouter()
 const route = useRoute()
 
-// 「我负责的」开关（默认开）：只看负责人是自己的缺陷。
+// 「我负责的」开关（默认关）：打开后只看负责人是自己的缺陷。
 // 负责人历史上存了两种写法 —— 认领记登录名（kd_xxx/admin），转交记展示名（陈钊波）——
 // 所以过滤时两种标识都带上，否则「我负责的」会漏掉另一条链路认下的缺陷。
+// 默认关的理由：项目组是围着整批缺陷做治理（标注计划完成时间、批量流转），
+// 默认只看自己的会让人以为列表漏了数据。
 const userStore = useUserStore()
-const mineOnly = ref(true)
+const mineOnly = ref(false)
 function mineAssigneeValue(): string {
   if (!mineOnly.value)
     return ''
