@@ -319,6 +319,8 @@ export enum ApiSecPrescan {
   runDelete = '/sechub/prescan/run-delete',
   /** W-C 覆盖自证报告（run 维度只读；该 run 尚无报告时后端给 404） */
   coverageReport = '/sechub/prescan/{run_id}/coverage-report',
+  /** 规则效果（规则版本 × 扫描点 × 仓库 × 模型，只读，服务端分页排序） */
+  ruleEffects = '/sechub/prescan/rule-effects',
 }
 
 // ── 反编译源码库（外网标品包源码，供性能分析与 local-test 扫描） ──
