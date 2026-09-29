@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import type { AiAgent } from '@/api/aiApis'
-import type { BranchesControlResponse, IssueImportSummary, IssueRuleStatRow, IssueTransitionSummary, ModuleWithRepository, RepositoryBranch, RepositoryCommit, RepositoryCommitListResponse, ScanIssueEventRow, ScanIssuePage, ScanIssueRow } from '@/types/static-scan'
+import type { BranchesControlResponse, IssueImportSummary, IssueTransitionSummary, ModuleWithRepository, RepositoryBranch, RepositoryCommit, RepositoryCommitListResponse, ScanIssueEventRow, ScanIssuePage, ScanIssueRow } from '@/types/static-scan'
 import { Message } from '@arco-design/web-vue'
 import { MdPreview } from 'md-editor-v3'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiAiAgent } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
@@ -11,6 +11,7 @@ import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api
 import { ApiSysUser } from '@/api/sysApis'
 import { downloadText, formatTime, getAction, useAutoHeight, useDicts, useDownload, useGet, usePost, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
 import { useUserStore } from '@/stores'
+import IssueScopeTree from './components/IssueScopeTree.vue'
 import 'md-editor-v3/lib/style.css'
 
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
@@ -81,6 +82,9 @@ const queryParams = ref({
   defect_code: '',
   // 来源过滤：scan=扫描检出 / import=Excel 导入
   source: '',
+  // 业务领域 / 产品领域过滤（左树点节点写入；__unclassified__ = 未分类）
+  business_area: '',
+  product_domain: '',
   // 负责人过滤（「我负责的」开关；值=登录名,展示名，后端按并集匹配）
   assignee: mineAssigneeValue(),
   // 表头排序：后端白名单只认 introduced_at / updated_at，空值=默认「更新时间倒序」
@@ -193,11 +197,37 @@ async function handleImportUpload(fileList: any[]) {
   }
 }
 
-// ===== 左树：缺陷规则维度统计 =====
-const issueRuleStats = ref<IssueRuleStatRow[]>([])
-const ruleStatsLoading = ref(false)
-const selectedRuleId = ref('all')
-const expandedKeys = ref<string[]>([])
+// ===== 左树：维度树（规则分布 / 项目组 / 业务领域 / 产品领域，组件见 components/IssueScopeTree.vue）=====
+const scopeTreeRef = ref<{ reload: () => void } | null>(null)
+
+/** 左树的筛选输入：与列表同一套条件，去掉分页/排序（不该因为翻页就重算整棵树） */
+const scopeTreeFilters = computed(() => {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(queryParams.value)) {
+    if (key === 'page_num' || key === 'page_size' || key === 'sort_by' || key === 'sort_order')
+      continue
+    out[key] = value
+  }
+  return out
+})
+
+/**
+ * 左树点节点 → 写回列表范围。
+ *
+ * 先清空全部范围字段再套新范围（与性能问题台账同一套语义）：节点只来自当前维度，
+ * 跨维度混用会出现「项目组A ∩ 业务领域B」这类空集。
+ */
+function onScopeChange(scope: Record<string, string>) {
+  queryParams.value.project_group_id = scope.project_group_id ?? ''
+  queryParams.value.repository_id = scope.repository_id ?? ''
+  queryParams.value.business_area = scope.business_area ?? ''
+  queryParams.value.product_domain = scope.product_domain ?? ''
+  queryParams.value.domain = scope.domain ?? ''
+  queryParams.value.rule_version_id = scope.rule_version_id ?? ''
+  queryParams.value.scan_point_id = scope.scan_point_id ?? ''
+  queryParams.value.page_num = 1
+  void getList()
+}
 
 // ===== 左树宽度拖拽 =====
 const leftPanelWidth = ref(230)
@@ -227,107 +257,16 @@ async function fetchJson<T>(url: string): Promise<T | null> {
   return data.value ?? null
 }
 
-// 左树数据：全部（根）→ domain 分组 → 扫描点 → 规则版本节点
-const ruleTree = computed(() => {
-  const groups = new Map<string, IssueRuleStatRow[]>()
-  for (const r of issueRuleStats.value) {
-    const d = r.domain || '未分类'
-    if (!groups.has(d))
-      groups.set(d, [])
-    groups.get(d)!.push(r)
-  }
-  const domainNodes = Array.from(groups.entries()).map(([domain, rules]) => {
-    const spGroups = new Map<string, IssueRuleStatRow[]>()
-    for (const r of rules) {
-      const spId = r.scan_point_id || 'unknown'
-      if (!spGroups.has(spId))
-        spGroups.set(spId, [])
-      spGroups.get(spId)!.push(r)
-    }
-    return {
-      key: `domain:${domain}`,
-      title: domainLabel(domain),
-      children: Array.from(spGroups.entries()).map(([spId, spRules]) => ({
-        key: `sp:${spId}`,
-        title: spRules[0].scan_point_name || spId,
-        spStats: {
-          pending: spRules.reduce((s, r) => s + r.pending, 0),
-          inProgress: spRules.reduce((s, r) => s + r.in_progress, 0),
-          handled: spRules.reduce((s, r) => s + r.handled, 0),
-          total: spRules.reduce((s, r) => s + r.total, 0),
-        },
-        children: spRules.map(r => ({
-          key: r.rule_version_id,
-          title: r.rule_name,
-          rule: r,
-        })),
-      })),
-    }
-  })
-  return [{
-    key: 'all',
-    title: '全部',
-    children: domainNodes,
-  }]
-})
-
-function domainLabel(d: string): string {
-  const map: Record<string, string> = { security: '安全', performance: '性能' }
-  return map[d] ?? d
-}
-
-async function loadRuleStats() {
-  ruleStatsLoading.value = true
-  try {
-    const params = new URLSearchParams()
-    if (queryParams.value.project_group_id)
-      params.set('project_group_id', queryParams.value.project_group_id)
-    if (queryParams.value.repository_id)
-      params.set('repository_id', queryParams.value.repository_id)
-    issueRuleStats.value = await fetchJson<IssueRuleStatRow[]>(`${ApiSecPrescan.issueRuleStats}?${params.toString()}`) ?? []
-    // 默认展开：全部 + 领域 + 扫描点层
-    expandedKeys.value = ['all', ...ruleTree.value.flatMap(n => [n.key, ...(n.children ?? []).map(c => c.key)])]
-  }
-  finally {
-    ruleStatsLoading.value = false
-  }
-}
-
-function onTreeSelect(keys: (string | number)[]) {
-  const key = keys.length ? String(keys[0]) : 'all'
-  selectedRuleId.value = key
-  queryParams.value.page_num = 1
-  if (key === 'all') {
-    queryParams.value.domain = ''
-    queryParams.value.rule_version_id = ''
-    queryParams.value.scan_point_id = ''
-  }
-  else if (key.startsWith('domain:')) {
-    queryParams.value.domain = key.slice(7)
-    queryParams.value.rule_version_id = ''
-    queryParams.value.scan_point_id = ''
-  }
-  else if (key.startsWith('sp:')) {
-    queryParams.value.domain = ''
-    queryParams.value.rule_version_id = ''
-    queryParams.value.scan_point_id = key.slice(3)
-  }
-  else {
-    queryParams.value.domain = ''
-    queryParams.value.rule_version_id = key
-    queryParams.value.scan_point_id = ''
-  }
-  void getList()
-}
-
 function refresh() {
   queryParams.value.page_num = 1
-  // 项目组/应用变更后重新加载左树；树选择重置为全部
-  selectedRuleId.value = 'all'
+  // 项目组/应用等下拉变更：左树原有的范围选择在新视角下没有意义，回到全量
   queryParams.value.rule_version_id = ''
   queryParams.value.scan_point_id = ''
+  queryParams.value.business_area = ''
+  queryParams.value.product_domain = ''
   void getList()
-  void loadRuleStats()
+  // 下拉变了但筛选字段不一定变（如只改了项目组又改回来），显式让树重算一次
+  scopeTreeRef.value?.reload()
 }
 
 /** 切换「我负责的」：重算负责人过滤值并刷新列表 */
@@ -336,12 +275,11 @@ function onMineOnlyChange() {
   refresh()
 }
 
-// 领域下拉变更：仅重载列表（不重载左树），同步树选中到对应领域节点
+// 领域下拉变更：仅重载列表（左树由筛选变化自动重算，会收窄到该领域）
 function onDomainSelectChange() {
   queryParams.value.page_num = 1
   queryParams.value.rule_version_id = ''
   queryParams.value.scan_point_id = ''
-  selectedRuleId.value = queryParams.value.domain ? `domain:${queryParams.value.domain}` : 'all'
   void getList()
 }
 
@@ -1270,10 +1208,6 @@ const columns = computed(() => withTableDefaults([
   { title: '操作', slotName: 'ops', width: 120, fixed: 'right' as const },
 ]))
 
-onMounted(() => {
-  void loadRuleStats()
-})
-
 // keep-alive 页面：再次带着 query 跳进来时 onMounted 不会再跑，用 watch 兜住
 // （结果页「联查缺陷」→ 换一条候选再跳，路由变化必须重新过滤）
 watch(routeDefectCode, (code) => {
@@ -1437,36 +1371,9 @@ function shortSha(sha: string | null | undefined): string {
         给这一行实测的确定高度后，左右两栏才有共同基准，各自内部滚动。
       -->
       <div ref="layoutRow" class="split-layout" :class="{ dragging: isDragging }" :style="{ height: `${layoutRowH}px` }">
-        <!-- 左树：规则分布 -->
+        <!-- 左树：可切换维度（规则分布 / 项目组 / 业务领域 / 产品领域） -->
         <div class="split-left" :style="{ width: `${leftPanelWidth}px` }">
-          <a-card :bordered="false" size="small" class="split-card scroll-body">
-            <template #title>
-              规则分布
-              <small class="card-sub">待修复/处理中/已处理/总数</small>
-            </template>
-            <a-spin :loading="ruleStatsLoading" style="width: 100%">
-              <a-tree
-                v-if="ruleTree.length"
-                v-model:expanded-keys="expandedKeys"
-                :data="ruleTree"
-                :selected-keys="[selectedRuleId]"
-                @select="onTreeSelect"
-              >
-                <template #title="node">
-                  <div class="rule-node">
-                    <span class="rule-name" :title="node.title">{{ node.title }}</span>
-                    <span v-if="node.rule" class="rule-stats">
-                      <span class="s-pending">{{ node.rule.pending }}</span>/<span class="s-progress">{{ node.rule.in_progress }}</span>/<span class="s-handled">{{ node.rule.handled }}</span>/<span class="s-total">{{ node.rule.total }}</span>
-                    </span>
-                    <span v-else-if="node.spStats" class="rule-stats">
-                      <span class="s-pending">{{ node.spStats.pending }}</span>/<span class="s-progress">{{ node.spStats.inProgress }}</span>/<span class="s-handled">{{ node.spStats.handled }}</span>/<span class="s-total">{{ node.spStats.total }}</span>
-                    </span>
-                  </div>
-                </template>
-              </a-tree>
-              <a-empty v-else description="暂无缺陷" />
-            </a-spin>
-          </a-card>
+          <IssueScopeTree ref="scopeTreeRef" :filters="scopeTreeFilters" @change="onScopeChange" />
         </div>
 
         <!-- 拖拽手柄 -->
@@ -2097,7 +2004,6 @@ function shortSha(sha: string | null | undefined): string {
 
 <style scoped>
 .static-scan-defects { padding: 0; display: flex; flex-direction: column; min-height: 0; flex: 1; }
-.card-sub { margin-left: 12px; color: var(--color-text-3); font-weight: normal; font-size: 12px; }
 .selected-hint { color: var(--color-text-2); font-size: 13px; }
 /* 工具栏：按钮靠左、开关靠右（卡片标题行宽度有限，用 space-between 撑开） */
 .defect-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -2111,17 +2017,8 @@ function shortSha(sha: string | null | undefined): string {
 .split-layout { display: flex; gap: 0; align-items: stretch; flex: 1 1 auto; min-height: 0; }
 .split-layout.dragging { user-select: none; cursor: col-resize; }
 .split-left { flex-shrink: 0; overflow: hidden; }
-/* 卡片撑满栏高但**自己不滚**；滚不滚由下面两个修饰类决定 */
+/* 卡片撑满栏高但**自己不滚**；滚不滚由下面的修饰类决定 */
 .split-card { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-
-/* 左树卡片：标题固定，内容区滚动（原来整卡滚动，标题会跟着滚走） */
-.scroll-body :deep(.arco-card-body) {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  /* 只写 overflow-y 时横向会被计算成 auto，探出的子元素会长出横向滚动条 */
-  overflow-x: hidden;
-}
 
 /* 右侧卡片：内容区做纵向 flex，让表格容器吃掉剩余高度，滚动落在表格体内部 */
 .fill-body :deep(.arco-card-body) {
@@ -2137,13 +2034,6 @@ function shortSha(sha: string | null | undefined): string {
 }
 .split-handle:hover, .split-layout.dragging .split-handle { background: rgb(var(--primary-6)); }
 .split-right { flex: 1; min-width: 0; min-height: 0; }
-.rule-node { display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; }
-.rule-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rule-stats { flex-shrink: 0; font-size: 12px; color: var(--color-text-3); }
-.s-pending { color: rgb(var(--red-6)); font-weight: 500; }
-.s-progress { color: rgb(var(--blue-6)); }
-.s-handled { color: rgb(var(--green-6)); }
-.s-total { color: var(--color-text-2); }
 .event-item { display: flex; align-items: center; gap: 8px; }
 .event-transition { font-size: 13px; color: var(--color-text-2); }
 .event-reason { margin-top: 4px; font-size: 12px; color: var(--color-text-3); }

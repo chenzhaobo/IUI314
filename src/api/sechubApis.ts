@@ -286,6 +286,8 @@ export enum ApiSecPrescan {
   crossRunCompare = '/sechub/prescan/cross-run-compare',
   ruleStats = '/sechub/prescan/rule-stats',
   issueRuleStats = '/sechub/prescan/issue-rule-stats',
+  /** 缺陷页左树：按维度（规则/项目组/业务领域/产品领域）返回节点与分桶计数 */
+  issueScopeTree = '/sechub/prescan/issue-scope-tree',
   issues = '/sechub/prescan/issues',
   issueEvents = '/sechub/prescan/issue-events',
   issueWontFix = '/sechub/prescan/issue-wont-fix',

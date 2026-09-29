@@ -1,0 +1,183 @@
+<script setup lang="ts">
+// 缺陷页左侧「维度树」：规则分布 / 项目组 / 业务领域 / 产品领域，节点带分桶计数。
+//
+// 口径与取舍（与后端 issue_scope.rs 一致）：
+//   · 计数走**与列表同一套筛选**，所以节点数字 = 点它之后列表的 total（含 Excel 导入行）；
+//   · 右侧筛选一变就防抖重算（状态/风险/来源/负责人…），保证「树上的数字跟列表对得上」；
+//   · 点节点 = 在树上继续下钻（把范围写回列表筛选，树随之收窄），点根节点「全部」回到全量。
+import type { IssueScopeCounts, IssueScopeNode } from '@/types/static-scan'
+import { ref, watch } from 'vue'
+import { ApiSecPrescan } from '@/api/sechubApis'
+import { getAction } from '@/hooks'
+
+const props = defineProps<{
+  /** 与右侧列表同一套筛选（分页/排序/勾选 id 不参与） */
+  filters: Record<string, unknown>
+}>()
+
+const emit = defineEmits<{
+  /** 选中的范围（空对象 = 全部）；父页面据此收窄列表 */
+  (e: 'change', scope: Record<string, string>): void
+}>()
+
+const ROOT_KEY = 'root'
+/** 只在筛选真正变化后重算树，避免连续改动打出一串请求 */
+const RELOAD_DEBOUNCE_MS = 300
+
+const MODE_OPTIONS = [
+  { value: 'project_group', label: '项目组' },
+  { value: 'business_area', label: '业务领域' },
+  { value: 'product_domain', label: '产品领域' },
+  { value: 'rule', label: '规则分布' },
+] as const
+
+type ScopeMode = (typeof MODE_OPTIONS)[number]['value']
+
+const mode = ref<ScopeMode>('project_group')
+const loading = ref(false)
+const tree = ref<IssueScopeNode[]>([])
+const selectedKeys = ref<string[]>([])
+const expandedKeys = ref<string[]>([])
+
+/** 树的请求参数：调用方给的筛选 + 维度（分页/排序由调用方剔除） */
+function buildQuery(): Record<string, string> {
+  const query: Record<string, string> = { mode: mode.value }
+  for (const [key, value] of Object.entries(props.filters)) {
+    if (value !== '' && value != null)
+      query[key] = String(value)
+  }
+  return query
+}
+
+/** 节点 key → 要写回列表的范围（前缀语义见后端 issue_scope.rs 模块头） */
+function scopeOfKey(key: string): Record<string, string> {
+  const sep = key.indexOf(':')
+  if (sep < 0)
+    return {}
+  const prefix = key.slice(0, sep)
+  const value = key.slice(sep + 1)
+  switch (prefix) {
+    case 'repo': return { repository_id: value }
+    case 'pg': return { project_group_id: value }
+    case 'ba': return { business_area: value }
+    case 'pd': return { product_domain: value }
+    case 'dom': return { domain: value }
+    case 'sp': return { scan_point_id: value }
+    case 'rule': return { rule_version_id: value }
+    default: return {}
+  }
+}
+
+async function load(resetSelection = false) {
+  loading.value = true
+  try {
+    if (resetSelection) {
+      selectedKeys.value = []
+      emit('change', {})
+    }
+    const data = await getAction<IssueScopeNode>(ApiSecPrescan.issueScopeTree, buildQuery())
+    tree.value = data?.key ? [data] : []
+    // 默认展开根与第一层（维度节点）；应用层按需展开
+    expandedKeys.value = data?.key ? [data.key, ...(data.children ?? []).map(child => child.key)] : []
+  }
+  finally {
+    loading.value = false
+  }
+}
+
+/** 供父页面在批量操作后主动刷新（那些操作不改筛选，watcher 不会触发） */
+function reload() {
+  void load()
+}
+
+defineExpose({ reload })
+
+let debounceTimer: ReturnType<typeof setTimeout> | undefined
+// 按序列化结果比对：父页面的筛选对象每次计算都会换新身份（含翻页这类改动），
+// 直接 deep watch 会白刷一次树；筛选字段本身没变就不该重算
+watch(() => JSON.stringify(props.filters ?? {}), () => {
+  if (debounceTimer)
+    clearTimeout(debounceTimer)
+  debounceTimer = setTimeout(() => void load(), RELOAD_DEBOUNCE_MS)
+})
+
+// 首帧直接拉（不走防抖）
+void load()
+
+/** 切维度：清掉旧范围（上一个维度的范围在新维度里没有意义）再重拉 */
+function onModeChange() {
+  void load(true)
+}
+
+function onSelect(keys: (string | number)[]) {
+  const key = keys.length ? String(keys[0]) : ROOT_KEY
+  selectedKeys.value = [key]
+  emit('change', scopeOfKey(key))
+}
+
+/** 节点悬浮提示：四个桶 + 总数（胶囊里只放总数，避免左树变宽） */
+function countsText(counts: IssueScopeCounts): string {
+  return `待修复 ${counts.pending} · 处理中 ${counts.in_progress} · 已处理 ${counts.handled} · 不处理 ${counts.wont_fix} · 共 ${counts.total}`
+}
+</script>
+
+<template>
+  <a-card :bordered="false" size="small" class="split-card scroll-body">
+    <template #title>
+      <div class="scope-head">
+        <a-select v-model="mode" size="small" style="width: 104px" @change="onModeChange">
+          <a-option v-for="opt in MODE_OPTIONS" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </a-option>
+        </a-select>
+        <span class="scope-legend">数字与右侧列表口径一致</span>
+      </div>
+    </template>
+    <a-spin :loading="loading" style="width: 100%">
+      <a-tree
+        v-if="tree.length"
+        v-model:expanded-keys="expandedKeys"
+        :data="tree"
+        :selected-keys="selectedKeys"
+        @select="onSelect"
+      >
+        <template #title="node">
+          <div class="scope-node">
+            <span class="scope-name" :title="node.title">{{ node.title }}</span>
+            <a-tooltip position="right" mini :content="countsText(node.counts)">
+              <span class="scope-count">{{ node.counts?.total ?? 0 }}</span>
+            </a-tooltip>
+          </div>
+        </template>
+      </a-tree>
+      <a-empty v-else description="暂无缺陷" />
+    </a-spin>
+  </a-card>
+</template>
+
+<style scoped>
+/* 与右侧表格栏同款的栏布局约定：卡片撑满栏高但自己不滚，内容区滚动（标题固定）。
+   注意不能借用父页面的 scoped 类 —— scoped 样式作用不到子组件内部 */
+.split-card { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.scroll-body :deep(.arco-card-body) {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* 只写 overflow-y 时横向会被计算成 auto，探出的子元素会长出横向滚动条 */
+  overflow-x: hidden;
+}
+.scope-head { display: flex; align-items: center; gap: 8px; }
+.scope-legend { color: var(--color-text-3); font-size: 12px; font-weight: 400; }
+.scope-node { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.scope-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 总数胶囊：灰底小圆角，跟性能问题台账左树一致 */
+.scope-count {
+  flex-shrink: 0;
+  padding: 0 6px;
+  color: var(--color-text-2);
+  font-size: 12px;
+  line-height: 16px;
+  background: var(--color-fill-2);
+  border-radius: 8px;
+}
+</style>

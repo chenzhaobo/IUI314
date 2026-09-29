@@ -799,6 +799,7 @@ export interface IssueRuleStatRow {
   wont_fix: number
 }
 
+
 /** 白名单规则维度聚合行（白名单页左树） */
 export interface WaiverRuleStatRow {
   rule_version_id: string
@@ -872,6 +873,29 @@ export interface ScanIssueRow {
 export interface ScanIssuePage {
   list: ScanIssueRow[]
   total: number
+}
+
+/** 缺陷页左树：单节点计数（口径与列表一致，含 Excel 导入行） */
+export interface IssueScopeCounts {
+  total: number
+  /** 待修复：open + reopened */
+  pending: number
+  /** 处理中：fixing + 验证不通过 + AI 复核中 */
+  in_progress: number
+  /** 已处理：已修复 + 已验证且覆盖未失活 */
+  handled: number
+  /** 不处理 */
+  wont_fix: number
+}
+
+/** 缺陷页左树节点；key 自带语义前缀（root/dom:/sp:/rule:/pg:/ba:/pd:/repo:） */
+export interface IssueScopeNode {
+  key: string
+  title: string
+  /** root / domain / scan_point / rule / project_group / business_area / product_domain / app */
+  level: string
+  counts: IssueScopeCounts
+  children: IssueScopeNode[]
 }
 
 /** 缺陷批量流转/转交结果 */
