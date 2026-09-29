@@ -851,6 +851,8 @@ export interface ScanIssueRow {
   defect_code?: string | null
   /** 缺陷来源：scan=平台扫描检出 / import=Excel 导入 */
   source?: string
+  /** 计划处理完成时间（项目组标注）：纯日期 "YYYY-MM-DD"，未标注为 null */
+  plan_finish_date?: string | null
   /** 最近一次复核（AI 复核/规则验证）的时间；没有复核过为 null */
   last_verify_at?: string | null
   /** 最近一次复核的事件类型：verified（有结论）/ verify_error（执行失败） */
@@ -861,6 +863,10 @@ export interface ScanIssueRow {
   last_verify_from_status?: string | null
   /** 最近一次复核的发起人（登录名；历史事件为 system） */
   last_verify_operator?: string | null
+  /** 最近一次复核事件的 id：状态悬浮里按它精确打开那一轮的报告 */
+  last_verify_event_id?: string | null
+  /** 最近一次复核是否留了报告正文（正文不在列表里，点开时才按事件取） */
+  last_verify_has_report?: boolean
 }
 
 export interface ScanIssuePage {

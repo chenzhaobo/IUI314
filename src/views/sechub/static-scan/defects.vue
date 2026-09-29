@@ -577,6 +577,97 @@ async function submitDmpCode() {
 // ===== 补偿匹配白名单 =====
 const whitelistBusy = ref(false)
 
+// ===== 计划处理完成时间：项目组标注（批量 + 单条）=====
+// 纯日期、纯标注：不卡流转；空值提交即清除。逾期口径 —— 业务时区（+08）的
+// 「今天」晚于计划日才算超期（计划日当天仍算「今天到期」，不算超期）。
+const planFinishVisible = ref(false)
+const planFinishTargets = ref<ScanIssueRow[]>([])
+const planFinishDate = ref<string>('')
+const planFinishLoading = ref(false)
+
+/** 业务时区（+08）的今天，YYYY-MM-DD —— 计划日是业务日期，不能用浏览器时区算 */
+function businessToday(): string {
+  return new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10)
+}
+
+/** 计划完成的提示与着色：超期红、3 天内橙、其余中性灰 */
+function planFinishHint(row: ScanIssueRow): { text: string, cls: string } {
+  const plan = (row.plan_finish_date ?? '').trim()
+  if (!plan)
+    return { text: '', cls: '' }
+  const planMs = Date.parse(`${plan}T00:00:00Z`)
+  const todayMs = Date.parse(`${businessToday()}T00:00:00Z`)
+  if (Number.isNaN(planMs) || Number.isNaN(todayMs))
+    return { text: '', cls: '' }
+  const days = Math.round((planMs - todayMs) / 86400000)
+  if (days < 0)
+    return { text: `超期 ${-days} 天`, cls: 'plan-overdue' }
+  if (days <= 3)
+    return { text: `剩 ${days} 天`, cls: 'plan-soon' }
+  return { text: `剩 ${days} 天`, cls: 'plan-far' }
+}
+
+/** 批量入口：工具栏按钮（需先勾选） */
+function openPlanFinishModal() {
+  if (!selectedIds.value.length) {
+    Message.warning('请先勾选缺陷')
+    return
+  }
+  planFinishTargets.value = [...selectedRows.value]
+  // 已有日期且全都一样时预填，方便在原值上改；不一致就留空，避免误覆盖
+  const dates = new Set(planFinishTargets.value.map(r => (r.plan_finish_date ?? '').trim()))
+  planFinishDate.value = dates.size === 1 ? [...dates][0] : ''
+  planFinishVisible.value = true
+}
+
+/** 单条入口：点「计划完成」列的单元格 */
+function openPlanFinishModalFor(row: ScanIssueRow) {
+  planFinishTargets.value = [row]
+  planFinishDate.value = (row.plan_finish_date ?? '').trim()
+  planFinishVisible.value = true
+}
+
+async function submitPlanFinish() {
+  planFinishLoading.value = true
+  try {
+    const res = await postAction(ApiSecPrescan.issuePlanFinish, {
+      ids: planFinishTargets.value.map(r => r.id),
+      plan_finish_date: planFinishDate.value || '',
+    })
+    if (res !== null) {
+      Message.success(planFinishDate.value
+        ? `已设置计划完成时间（${planFinishTargets.value.length} 条）`
+        : `已清除计划完成时间（${planFinishTargets.value.length} 条）`)
+      planFinishVisible.value = false
+      if (planFinishTargets.value.length > 1)
+        clearSelection()
+      void getList()
+    }
+  }
+  finally {
+    planFinishLoading.value = false
+  }
+}
+
+/**
+ * 状态悬浮里的「查看复核报告」：点开时才拉这条缺陷的流转，取那一轮的事件。
+ * 列表行只带 last_verify_event_id / has_report（报告正文可能上万字，塞进列表会把
+ * 每页都拖重），拿到事件后复用「流转记录」里的同一个报告弹窗。
+ */
+async function openVerifyReport(row: ScanIssueRow) {
+  const events = await getAction<ScanIssueEventRow[]>(ApiSecPrescan.issueEvents, { issue_id: row.id })
+  if (!events?.length) {
+    Message.warning('没有找到复核记录')
+    return
+  }
+  const target = events.find(ev => ev.id === row.last_verify_event_id) ?? events.find(ev => !!ev.detail_report)
+  if (!target?.detail_report) {
+    Message.warning('这一轮复核没有留下报告')
+    return
+  }
+  viewEventReport(target)
+}
+
 /**
  * 把命中白名单的待处理缺陷批量标记为不处理。
  *
@@ -1150,6 +1241,8 @@ const columns = computed(() => withTableDefaults([
   // 宽度要容下「状态标签 + AI直判徽标」（90 时徽标会被 ellipsis 截掉，看不到）
   { title: '状态', dataIndex: 'status', slotName: 'status', width: 128, ellipsis: true, tooltip: true },
   { title: '负责人', dataIndex: 'assignee', width: 75 },
+  // 计划完成：点单元格可单条改；表头排序按后端白名单的 plan_finish_date（最早到期在前）
+  { title: '计划完成', dataIndex: 'plan_finish_date', slotName: 'planFinish', width: 124, sortable: { sortDirections: ['ascend', 'descend'] } },
   { title: '文件', dataIndex: 'file_path', width: 180 },
   { title: '命中', dataIndex: 'hit_count', slotName: 'hitCount', width: 50 },
   { title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 140, ellipsis: true, tooltip: true, sortable: { sortDirections: ['descend', 'ascend'] } },
@@ -1417,6 +1510,11 @@ function shortSha(sha: string | null | undefined): string {
                       DMP 编码
                     </a-button>
                   </a-tooltip>
+                  <a-tooltip content="项目组标注所选缺陷的计划处理完成时间（留空即清除）" mini>
+                    <a-button :disabled="!selectedIds.length" @click="openPlanFinishModal">
+                      计划完成
+                    </a-button>
+                  </a-tooltip>
                   <a-tooltip :content="selectedIds.length ? `只导出勾选的 ${selectedIds.length} 条` : '导出当前筛选下全部缺陷'" mini>
                     <a-button @click="exportIssues">
                       导出
@@ -1493,14 +1591,22 @@ function shortSha(sha: string | null | undefined): string {
                   <span v-else class="text-muted">-</span>
                 </template>
                 <template #status="{ record }">
-                  <!-- 有复核记录时悬浮展示最近一次复核结果（时间 + 结论与依据）；
+                  <!-- 有复核记录时悬浮展示最近一次复核结果（时间 + 结论与依据）+ 直接打开那一轮报告；
                        AI 直判（复核前未人工标记「已修复」）额外标一枚小徽标，便于和人工流程区分 -->
                   <a-tooltip
                     v-if="record.last_verify_at"
-                    :content="statusTooltip(record)"
                     position="top"
                     mini
+                    :content-style="{ maxWidth: '460px' }"
                   >
+                    <template #content>
+                      <div class="status-tip">
+                        {{ statusTooltip(record) }}
+                      </div>
+                      <div v-if="record.last_verify_has_report" class="tip-report-link" @click="openVerifyReport(record)">
+                        查看复核报告 →
+                      </div>
+                    </template>
                     <span class="status-cell">
                       <a-tag :color="issueStatusLabel(record).color" size="small">
                         {{ issueStatusLabel(record).label }}
@@ -1513,6 +1619,24 @@ function shortSha(sha: string | null | undefined): string {
                       {{ issueStatusLabel(record).label }}
                     </a-tag>
                     <span v-if="isAiDirectVerified(record)" class="ai-direct-badge">AI直判</span>
+                  </span>
+                </template>
+                <template #planFinish="{ record }">
+                  <!-- 计划完成时间：点单元格可单条改；着色口径见 planFinishHint -->
+                  <span
+                    v-if="!record.plan_finish_date"
+                    class="plan-empty"
+                    title="未标注计划完成时间（点击设置）"
+                    @click.stop="openPlanFinishModalFor(record)"
+                  >未标注</span>
+                  <span
+                    v-else
+                    class="plan-cell"
+                    :title="`计划完成：${record.plan_finish_date}（点击修改）`"
+                    @click.stop="openPlanFinishModalFor(record)"
+                  >
+                    {{ record.plan_finish_date }}
+                    <span v-if="planFinishHint(record).text" :class="planFinishHint(record).cls">{{ planFinishHint(record).text }}</span>
                   </span>
                 </template>
                 <template #introducedAt="{ record }">
@@ -1590,6 +1714,23 @@ function shortSha(sha: string | null | undefined): string {
           </a-form-item>
           <a-alert v-if="!dmpCode.trim()" type="warning">
             留空提交会清除所选 {{ dmpTargets.length }} 条缺陷的 DMP 编码
+          </a-alert>
+        </a-form>
+      </a-modal>
+
+      <!-- 计划处理完成时间：留空提交即清除（项目组标注，纯日期，不卡流转） -->
+      <a-modal
+        v-model:visible="planFinishVisible"
+        :title="`设置计划处理完成时间（${planFinishTargets.length} 条）`"
+        :ok-loading="planFinishLoading"
+        @ok="submitPlanFinish"
+      >
+        <a-form :model="{ planFinishDate }" layout="vertical">
+          <a-form-item label="计划处理完成时间">
+            <a-date-picker v-model="planFinishDate" value-format="YYYY-MM-DD" style="width: 100%" placeholder="选择日期（精确到日）" allow-clear />
+          </a-form-item>
+          <a-alert v-if="!planFinishDate" type="warning">
+            未选日期提交会清除所选 {{ planFinishTargets.length }} 条缺陷的计划完成时间
           </a-alert>
         </a-form>
       </a-modal>
@@ -2063,4 +2204,15 @@ function shortSha(sha: string | null | undefined): string {
 .cell-nowrap {
   white-space: nowrap;
 }
+
+/* 计划完成时间：未标注压暗但可点；超期红、3 天内橙、其余中性灰 */
+.plan-empty { color: var(--color-text-3); font-size: 12px; cursor: pointer; }
+.plan-cell { cursor: pointer; }
+.plan-overdue { color: rgb(var(--red-6)); font-weight: 600; }
+.plan-soon { color: rgb(var(--orange-6)); }
+.plan-far { color: var(--color-text-3); }
+
+/* 状态悬浮：摘要按换行渲染（statusTooltip 用 \n 分行）；复核报告入口在深色气泡上用白字下划线 */
+.status-tip { white-space: pre-line; }
+.tip-report-link { margin-top: 6px; color: #fff; font-weight: 600; text-decoration: underline; cursor: pointer; }
 </style>
