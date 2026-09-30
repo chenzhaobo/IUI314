@@ -4,7 +4,7 @@ import type { AutoCloseAlert, DeltaPlanPreview, DeltaPreviewRow, EstimateRange }
  *
  * 只有输入到输出的映射，不碰接口也不持有状态，便于模板直接调用与单测。
  */
-import type { AgentRunProgress, RepositoryCommit, RuleSet, ScanBaselineView } from '@/types/static-scan'
+import type { AgentRunProgress, CrossRunAggRow, RepositoryCommit, RuleSet, ScanBaselineView } from '@/types/static-scan'
 import { formatTime } from '@/hooks'
 import { domainLabels } from '../labels'
 
@@ -167,4 +167,72 @@ export function aiConfirmBlockedReason(runId: string | null | undefined, status:
 export function agentProgressText(p: AgentRunProgress): string {
   const settled = (p.confirmed ?? 0) + (p.rejected ?? 0)
   return `Agent 审计 ${settled}/${p.total}（确认 ${p.confirmed} / 排除 ${p.rejected} / 待复核 ${p.review_needed} / 待处理 ${p.pending}）`
+}
+
+/**
+ * 该 run 是否已经触发过 AI 确认（原在 runs.vue，批量门槛与确认状态列共用）。
+ *
+ * 两个依据取其一即可：
+ * - 有关联的 AI 执行记录（batch/agent 的 caller_id 都是 run_id）
+ * - 或候选里已经出现过任何 AI 结论（历史 run 的执行记录挂在 rule_version_id 上，查不到）
+ */
+export function confirmTriggered(row: CrossRunAggRow): boolean {
+  if ((row.ai_exec_total ?? 0) > 0)
+    return true
+  return (row.confirmed ?? 0) > 0 || (row.rejected ?? 0) > 0
+    || (row.error ?? 0) > 0 || (row.review_needed ?? 0) > 0
+}
+
+/**
+ * 确认任务在途数（排队 + 执行中）：以任务队列为真相源，旧数据缺字段时退回 ai_exec_*。
+ */
+export function inFlightCount(row: CrossRunAggRow): number {
+  return (row.queue_pending ?? row.ai_exec_pending ?? 0) + (row.queue_running ?? row.ai_exec_running ?? 0)
+}
+
+/**
+ * 批量「AI 确认」是否可用（'' = 可用）。
+ * 口径：尚未开始确认的运行才可以批量触发 —— 预扫描完成、无在途任务、没触发过确认、
+ * 且确实还有待确认候选。已触发过但仍有错误/未确认候选的行交给「批量重扫未完成」。
+ */
+export function batchAiConfirmBlockedReason(row: CrossRunAggRow): string {
+  const stage = aiConfirmBlockedReason(row.run_id, row.status)
+  if (stage)
+    return stage
+  const inFlight = inFlightCount(row)
+  if (inFlight > 0)
+    return `已有 ${inFlight} 个确认任务在途，请等待完成后再触发`
+  if (confirmTriggered(row))
+    return '已触发过 AI 确认（要重跑用「重扫未完成」）'
+  if ((row.pending ?? 0) === 0)
+    return '没有待确认候选'
+  return ''
+}
+
+/**
+ * 行勾选框是否可用（'' = 可勾选）。
+ *
+ * 勾选列同时服务「批量 AI 确认」与「批量重扫未完成」两个动作，只要对其中一个
+ * 有效就允许勾选；两个都用不上的行（未成功 / 确认中 / 已确认过且没有待确认、
+ * 错误候选）置灰。未成功但仍有错误候选这类极端残留交给行内「更多」里的动作处理。
+ */
+export function rowCheckboxBlockedReason(row: CrossRunAggRow): string {
+  const stage = aiConfirmBlockedReason(row.run_id, row.status)
+  if (stage)
+    return stage
+  const inFlight = inFlightCount(row)
+  if (inFlight > 0)
+    return `有 ${inFlight} 个确认任务在途，请等待完成后再操作`
+  if ((row.pending ?? 0) > 0 || (row.error ?? 0) > 0)
+    return ''
+  return confirmTriggered(row) ? '已确认过，且没有待确认/错误候选，无可用操作' : '没有待确认候选，无可用操作'
+}
+
+/** 勾选框 tooltip：不可勾选 → 原因；可勾选但不参与批量 AI 确认 → 说明差异；其余为空 */
+export function rowCheckboxTooltip(row: CrossRunAggRow): string {
+  const blocked = rowCheckboxBlockedReason(row)
+  if (blocked)
+    return blocked
+  const confirmBlocked = batchAiConfirmBlockedReason(row)
+  return confirmBlocked ? `可勾选用于「批量重扫未完成」；不参与批量 AI 确认：${confirmBlocked}` : ''
 }

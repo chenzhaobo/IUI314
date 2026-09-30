@@ -133,6 +133,11 @@ export interface AiConfirmBody {
 export interface NewScanOpenOptions {
   /** 默认选中的仓库 id */
   repositoryId?: string
+  /**
+   * 锁定仓库：左侧应用范围树选中某个仓库后打开弹窗时带上，
+   * 弹窗里的仓库下拉禁用、不允许改选（弹窗展示的就是左树选定的范围）。
+   */
+  lockRepository?: boolean
   /** 预置扫描范围（资产详情跳转时带表单/微服务） */
   scanTargetType?: ScanTargetType
   /** 预选资产 id（不在当前仓库可扫描范围内时会被忽略） */
