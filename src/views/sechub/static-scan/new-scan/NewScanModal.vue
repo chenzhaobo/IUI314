@@ -40,11 +40,17 @@ defineExpose({ open: ctx.open })
         <a-step>核对计划并执行</a-step>
       </a-steps>
       <!-- 待扫描的应用（仓库）：原来是看板左树选中的仓库，现在在弹窗里选。
-           select 的 value 用 repository_id 而不是对象——对象比较依赖引用相等，reactive 后容易选不中 -->
-      <a-form-item label="应用（仓库）">
+           select 的 value 用 repository_id 而不是对象——对象比较依赖引用相等，reactive 后容易选不中。
+           从运行页左树带仓库打开时锁定选择，弹窗展示的就是左树选定的范围 -->
+      <a-form-item>
+        <template #label>
+          应用（仓库）
+          <span v-if="ctx.repositoryLocked" class="repo-lock-hint">已按左侧应用范围锁定</span>
+        </template>
         <a-select
           :model-value="ctx.repository?.repository_id"
           :loading="ctx.repoLoading"
+          :disabled="ctx.repositoryLocked"
           placeholder="选择要扫描的应用"
           allow-search
           style="width: 100%"
@@ -93,3 +99,7 @@ defineExpose({ open: ctx.open })
     </a-form>
   </a-modal>
 </template>
+
+<style scoped>
+.repo-lock-hint { margin-left: 8px; color: var(--color-text-3); font-size: 12px; font-weight: 400; }
+</style>

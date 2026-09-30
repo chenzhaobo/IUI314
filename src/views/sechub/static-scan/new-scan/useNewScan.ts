@@ -32,6 +32,9 @@ export function useNewScan(options: UseNewScanOptions = {}) {
   const { scanTargetType, selectedAssetIds, includeAmbiguous, isDomainTarget } = target
 
   const visible = ref(false)
+  /** 被锁定仓库的 id（左侧应用范围树选定后打开时非空）：下拉禁用、不允许改选 */
+  const lockedRepositoryId = ref('')
+  const repositoryLocked = computed(() => lockedRepositoryId.value !== '')
 
   // ── 差量向导 ──
   const scanScope = ref<ScanScope>('diff_last')
@@ -64,6 +67,7 @@ export function useNewScan(options: UseNewScanOptions = {}) {
   function resetState() {
     resetSource()
     target.resetTarget()
+    lockedRepositoryId.value = ''
     scanScope.value = 'diff_last'
     deltaPreview.value = null
     step.value = 0
@@ -98,6 +102,9 @@ export function useNewScan(options: UseNewScanOptions = {}) {
     const hit = source.repoOptions.value.find(item => item.repository_id === opts.repositoryId)
     const kept = source.repoOptions.value.find(item => item.repository_id === repository.value?.repository_id)
     repository.value = hit ?? kept ?? source.repoOptions.value[0]
+    // 树选中仓库后打开（lockRepository）时锁死选择；仓库不在列表里则不锁，退回可自由选择
+    if (opts.lockRepository && hit)
+      lockedRepositoryId.value = hit.repository_id
     if (opts.scanTargetType)
       scanTargetType.value = opts.scanTargetType
     // 规则目录选项懒加载；失败不阻断弹窗，留空仍走平台默认
@@ -111,6 +118,9 @@ export function useNewScan(options: UseNewScanOptions = {}) {
    * 对象比较依赖引用相等，reactive 包装后容易选不中。
    */
   async function onRepositoryChange(repositoryId: unknown) {
+    // 锁定状态（下拉已禁用）下不改选，防御性兜底
+    if (repositoryLocked.value)
+      return
     if (typeof repositoryId !== 'string' || !repositoryId || repositoryId === repository.value?.repository_id)
       return
     const hit = source.repoOptions.value.find(item => item.repository_id === repositoryId)
@@ -255,6 +265,7 @@ export function useNewScan(options: UseNewScanOptions = {}) {
     visible,
     open,
     onRepositoryChange,
+    repositoryLocked,
     onScanTargetChange,
     isLocalRepository,
     isDeltaWizard,
