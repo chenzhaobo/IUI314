@@ -3,10 +3,11 @@
 //
 // 口径与取舍（与后端 issue_scope.rs 一致）：
 //   · 计数走**与列表同一套筛选**，所以节点数字 = 点它之后列表的 total（含 Excel 导入行）；
-//   · 右侧筛选一变就防抖重算（状态/风险/来源/负责人…），保证「树上的数字跟列表对得上」；
-//   · 树不随选中节点收窄：结构维度不参与左树自身查询；点节点只收窄右侧列表，点根节点「全部」回到全量；
+//   · 参与查询的筛选（状态/风险/来源/负责人/计划…）一变就防抖重算，保证「树上的数字跟列表对得上」；
+//   · 结构维度（项目组/应用/业务领域/产品领域/领域/扫描点/规则版本）不参与左树自身查询：
+//     点节点只收窄右侧列表 —— 左树不重拉、也不塌缩；点根节点「全部」回到全量；
 //   · 展开态跨重载保持（仍存在的已展开 key 不收起，选中节点的祖先链自动展开），
-//     只有切换维度才回到默认展开（根 + 第一层，规则分布再加分类层）。
+//     默认只展开根 + 第一层，只有切换维度才回到默认展开。
 import type { IssueScopeTreeNode } from './ruleCategoryTree'
 import type { IssueScopeCounts } from '@/types/static-scan'
 import { ref, watch } from 'vue'
@@ -100,15 +101,12 @@ function indexParents(nodes: IssueScopeTreeNode[], parentKey: string, out: Map<s
   }
 }
 
-/** 默认展开：根 + 第一层（维度节点）；规则分布再展开分类层。应用层按需展开 */
+/** 默认展开：根 + 第一层（维度节点）；更深的层级由用户按需展开 */
 function defaultExpandedKeys(root: IssueScopeTreeNode | null): string[] {
   if (!root)
     return []
   const firstLevel = root.children ?? []
-  const categoryLevel = mode.value === 'rule'
-    ? firstLevel.flatMap(child => (child.children ?? []).map(grand => grand.key))
-    : []
-  return [root.key, ...firstLevel.map(child => child.key), ...categoryLevel]
+  return [root.key, ...firstLevel.map(child => child.key)]
 }
 
 /** 自下而上取祖先链（不含自身），用于保证选中节点在新树里可见 */
@@ -168,9 +166,19 @@ function reload() {
 defineExpose({ reload })
 
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
+// 只盯真正参与左树查询的筛选：结构维度（点节点 / 项目组/应用/领域下拉写回的那批）变化不会改变
+// 树的内容，重拉纯属浪费 —— 点节点不再触发任何树请求；其余筛选照常防抖重算。
 // 按序列化结果比对：父页面的筛选对象每次计算都会换新身份（含翻页这类改动），
 // 直接 deep watch 会白刷一次树；筛选字段本身没变就不该重算
-watch(() => JSON.stringify(props.filters ?? {}), () => {
+watch(() => {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(props.filters ?? {})) {
+    if (STRUCTURE_DIMENSION_KEYS.has(key))
+      continue
+    out[key] = value
+  }
+  return JSON.stringify(out)
+}, () => {
   if (debounceTimer)
     clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => void load(), RELOAD_DEBOUNCE_MS)

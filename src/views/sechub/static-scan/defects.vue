@@ -287,7 +287,7 @@ function onMineOnlyChange() {
   refresh()
 }
 
-// 领域下拉变更：仅重载列表（左树由筛选变化自动重算，会收窄到该领域）
+// 领域下拉变更：仅重载列表（领域属结构维度，左树不随之收窄；树只跟状态/风险/来源等查询筛选联动）
 function onDomainSelectChange() {
   queryParams.value.page_num = 1
   queryParams.value.rule_version_id = ''
