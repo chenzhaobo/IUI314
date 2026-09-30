@@ -1,5 +1,3 @@
-import { Notification } from '@arco-design/web-vue'
-
 import { registerSW } from 'virtual:pwa-register'
 import { createApp } from 'vue'
 import { loadMessages, useSetupI18n } from '@/i18n'
@@ -13,48 +11,77 @@ import './assets/css/main.scss'
 import 'uno.css'
 import 'virtual:svg-icons-register'
 
-// ── 发版自更新 ────────────────────────────────────────────────
-// PWA 是 registerType=autoUpdate：新 SW 激活时运行时会自动 reload 页面。
-// 但浏览器只在**导航**（或 24h 启发式）时去查 sw.js —— 长期挂着的标签页永远
-// 查不到新版，用户不手动刷新就一直是旧页面。这里强制定期（+ 切回标签页时）
-// 主动 update()，配合 onNeedReload 做「先提示、再刷新」，不必再提醒用户刷新。
-const SW_UPDATE_CHECK_INTERVAL_MS = 3 * 60 * 1000
-const UPDATE_RELOAD_DELAY_MS = 3 * 1000
+// ── 发版自更新（空闲 30 分钟后应用）─────────────────────────────
+// PWA 用 registerType='prompt'：新版本先「待命」（不抢控制权，避免新旧资源混用），
+// 由我们挑切换时机 —— 时机 = 用户 30 分钟没有任何操作。此刻刷新不会打断工作、
+// 也不会丢未保存的输入；用户回来就是新版本。
+// 不做高频轮询：平时只有一条「空闲闹钟」，任何操作都会重置它；到点才查一次 SW。
+const IDLE_APPLY_AFTER_MS = 30 * 60 * 1000
+const ACTIVITY_THROTTLE_MS = 5 * 1000
+const ACTIVITY_EVENTS = ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart', 'scroll'] as const
 
-let reloadingForUpdate = false
-function reloadForNewVersion() {
-  if (reloadingForUpdate)
-    return
-  reloadingForUpdate = true
-  try {
-    Notification.info({
-      title: '平台已更新',
-      content: '检测到新版本，正在自动刷新…',
-      duration: UPDATE_RELOAD_DELAY_MS,
-    })
-  }
-  catch {
-    // 提示失败不影响刷新本身
-  }
-  setTimeout(() => window.location.reload(), UPDATE_RELOAD_DELAY_MS)
+let updateServiceWorker: ((reloadPage?: boolean) => Promise<void>) | undefined
+let swRegistration: ServiceWorkerRegistration | undefined
+let pendingUpdate = false
+let idleTimer: ReturnType<typeof setTimeout> | undefined
+let lastActivityRecordedAt = 0
+
+/** 重置空闲闹钟：用户任何操作都重新开始计时 */
+function armIdleTimer() {
+  if (idleTimer)
+    clearTimeout(idleTimer)
+  idleTimer = setTimeout(() => void applyUpdateWhenIdle(), IDLE_APPLY_AFTER_MS)
 }
 
-registerSW({
+/** 发起切换：发 SKIP_WAITING 让新版接管（接管会触发下面的 controllerchange 刷新） */
+function requestUpdateApply() {
+  void updateServiceWorker?.(true)
+}
+
+/** 空闲到点：查一次有没有新版本；有待命的新版就切换（接管后自动刷新），没有就继续等 */
+async function applyUpdateWhenIdle() {
+  if (!swRegistration || !updateServiceWorker) {
+    armIdleTimer()
+    return
+  }
+  if (pendingUpdate || swRegistration.waiting) {
+    requestUpdateApply()
+    return
+  }
+  // 本地还没有待命的新版：主动查一次（网络抖动就当这轮没查到，等下一个空闲窗口）
+  await swRegistration.update().catch(() => undefined)
+  // 更新检查是异步落定的：给 5 秒宽限，等 onNeedRefresh 触发
+  await new Promise(resolve => setTimeout(resolve, 5_000))
+  if (pendingUpdate || swRegistration.waiting)
+    requestUpdateApply()
+  else
+    armIdleTimer()
+}
+
+// SW 接管即刷新：本页自己切换、或别的标签页触发了切换（跨标签页一致性），
+// 都立刻刷新 —— 否则旧页面配新 SW，懒加载分包可能拉不到（新部署已换哈希文件名）。
+navigator.serviceWorker?.addEventListener('controllerchange', () => window.location.reload())
+
+function markActivity() {
+  const now = Date.now()
+  if (now - lastActivityRecordedAt < ACTIVITY_THROTTLE_MS)
+    return
+  lastActivityRecordedAt = now
+  armIdleTimer()
+}
+
+for (const event of ACTIVITY_EVENTS)
+  window.addEventListener(event, markActivity, { passive: true, capture: true })
+armIdleTimer()
+
+updateServiceWorker = registerSW({
   immediate: true,
-  onNeedReload: reloadForNewVersion,
+  onNeedRefresh() {
+    // 新版本已就绪（等待接管）：留给空闲窗口应用
+    pendingUpdate = true
+  },
   onRegisteredSW(_swUrl, registration) {
-    if (!registration)
-      return
-    const checkUpdate = () => {
-      // 离线/网络抖动失败无需打扰：下一轮再试
-      registration.update().catch(() => { /* 静默等下一次检查 */ })
-    }
-    setInterval(checkUpdate, SW_UPDATE_CHECK_INTERVAL_MS)
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible')
-        checkUpdate()
-    })
-    window.addEventListener('focus', checkUpdate)
+    swRegistration = registration
   },
 })
 

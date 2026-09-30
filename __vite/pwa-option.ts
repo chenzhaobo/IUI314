@@ -1,7 +1,9 @@
 import type { VitePWAOptions } from 'vite-plugin-pwa'
 
 export const getPwaOptions: Partial<VitePWAOptions> = {
-  registerType: 'autoUpdate',
+  // prompt：新版本先「待命」不抢控制权（autoUpdate 会在安装后立刻接管并强制刷新，
+  // 无法推迟到用户空闲时）。切换时机由 src/main.ts 的「空闲 30 分钟」逻辑决定。
+  registerType: 'prompt',
   devOptions: {
     enabled: false,
     type: 'module',
