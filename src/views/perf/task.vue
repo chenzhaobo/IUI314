@@ -4,7 +4,10 @@ import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { deleteAction, formatTime, postAction, putAction, useGet, usePost, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiPerfTask, ApiPerfScript, ApiPerfIteration, ApiPerfDomain, ApiPerfLoadNode } from '@/api/apis'
+import TaskObserveDrawer from './task/TaskObserveDrawer.vue'
 
+// 组件名必须与路由 name（= sys_menu.path 'task'）逐字一致，keep-alive :include 才能缓存本页
+// eslint-disable-next-line vue/component-definition-name-casing
 defineOptions({ name: 'task' })
 const router = useRouter()
 
@@ -263,6 +266,15 @@ function handleViewRuns(record: any) {
   router.push({ path: '/perf/run-group/run', query: { task_id: record.id } })
 }
 
+// ── 观测抽屉（批次资源曲线 / 复跑结论） ──────────────────────────────────
+const observeVisible = ref(false)
+const observeTaskId = ref('')
+
+function handleObserve(record: any) {
+  observeTaskId.value = record.id
+  observeVisible.value = true
+}
+
 // ── 自动刷新轮询（用户操作后 60s 重置）──────────────────────────────────
 const POLL_INTERVAL = 60000 // 60秒
 let pollTimer: ReturnType<typeof setTimeout> | null = null
@@ -380,6 +392,7 @@ function getProgress(record: any): number {
         <template #operations="{ record }">
           <a-space>
             <a-button type="text" size="small" @click="handleViewRuns(record)">查看执行</a-button>
+            <a-button type="text" size="small" @click="handleObserve(record)">观测</a-button>
             <a-button v-if="record.task_status === 'partial_failed' || record.task_status === 'failed'" type="text" size="small" status="warning" @click="handleRetryFailed(record)">重试失败</a-button>
             <a-button v-if="record.task_status === 'running' || record.task_status === 'pending'" type="text" size="small" status="warning" @click="handleCancel(record)">取消</a-button>
             <a-popconfirm content="确认删除？" @ok="handleDelete(record)">
@@ -460,6 +473,12 @@ function getProgress(record: any): number {
         </a-form-item>
       </a-form>
     </a-modal>
+
+    <!-- 批次观测抽屉（101e）：资源曲线 / 脚本排行 / 复跑结论 -->
+    <TaskObserveDrawer
+      v-model:visible="observeVisible"
+      v-model:task-id="observeTaskId"
+    />
   </div>
 </template>
 

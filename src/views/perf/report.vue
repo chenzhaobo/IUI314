@@ -4,7 +4,10 @@ import { useRoute } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { formatTime, getAction, useGet, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
 import { ApiPerfReport, ApiPerfScript, ApiPerfIteration, ApiPerfRun } from '@/api/apis'
+import ResourceTab from './report/ResourceTab.vue'
 
+// 组件名必须与路由 name（= sys_menu.path 'report'）逐字一致，keep-alive :include 才能缓存本页
+// eslint-disable-next-line vue/component-definition-name-casing
 defineOptions({ name: 'report' })
 const route = useRoute()
 
@@ -57,6 +60,8 @@ const columns = withTableDefaults([
 const detailLoading = ref(false)
 const detailList = ref<any[]>([])
 const detailScriptName = ref('')
+// 「资源数据」页签按当前明细的 run_id 懒加载（切到该页签才挂载组件）
+const detailRunId = ref('')
 
 const detailColumns = withTableDefaults([
   { title: 'Label', dataIndex: 'label', width: 250, fixed: 'left' as const },
@@ -83,6 +88,7 @@ const { tableHeight: detailTableHeight } = useTableAutoHeight(detailWrap)
 
 async function handleViewDetail(record: any) {
   detailScriptName.value = record.script_name || ''
+  detailRunId.value = record.id || ''
   activeTab.value = 'detail'
   detailLoading.value = true
   detailList.value = []
@@ -295,6 +301,13 @@ async function handleDownloadJmx(record: any) {
           </a-table>
         </a-card>
         </div>
+      </a-tab-pane>
+
+      <!-- 资源数据（101e）：按当前明细的 run_id 取 run/metrics 与快照 -->
+      <a-tab-pane key="resource" title="资源数据">
+        <a-card :bordered="false">
+          <ResourceTab v-if="activeTab === 'resource'" :run-id="detailRunId" />
+        </a-card>
       </a-tab-pane>
     </a-tabs>
 
