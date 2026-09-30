@@ -256,6 +256,10 @@ export function resolveStaticScanApi(
 export enum ApiSecPrescan {
   trigger = '/sechub/prescan/trigger',
   domainTrigger = '/sechub/prescan/domain-trigger',
+  /** 006 统一扫描：一个仓库一次触发（自动选取该仓全部在用表单/微服务资产） */
+  unifiedTrigger = '/sechub/prescan/unified-trigger',
+  /** 006 统一扫描：新建弹窗的自动资产摘要（blocked_reason 非空时不可提交） */
+  unifiedPreview = '/sechub/prescan/unified-preview',
   deltaPreview = '/sechub/static-prescan/delta/preview',
   deltaPlan = '/sechub/static-prescan/delta/{plan_id}',
   deltaExecute = '/sechub/static-prescan/delta/{plan_id}/execute',

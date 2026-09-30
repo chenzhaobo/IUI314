@@ -20,7 +20,12 @@ import { ErrorFlag } from '@/api/apis'
 import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
 import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import { downloadText, emptyFilter, formatTime, getAction, isFilterActive, toServerFilters, useAutoHeight, useFilterPersistence, useGet, usePost } from '@/hooks'
+import { buildRuleStatTree, defaultRuleTreeExpandedKeys } from './components/ruleCategoryTree'
+import { useScanPointCategories } from './components/useScanPointCategories'
 import CoverageReportTab from './coverage-report/CoverageReportTab.vue'
+import { aiStatusLabels } from './labels'
+import CandidateConsistencyPanel from './results/CandidateConsistencyPanel.vue'
+import VerdictConflictTag from './results/VerdictConflictTag.vue'
 import 'md-editor-v3/lib/style.css'
 
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
@@ -194,6 +199,8 @@ const ruleStats = ref<RuleStatRow[]>([])
 const ruleStatsLoading = ref(false)
 const selectedRuleId = ref('all')
 const expandedKeys = ref<string[]>([])
+/** 扫描点 → 分类映射（规则分布左树的「分类」层） */
+const { scanPointCategories, ensureScanPointCategories } = useScanPointCategories()
 
 // ===== 左树宽度拖拽 =====
 const leftPanelWidth = ref(230)
@@ -230,9 +237,14 @@ async function loadRuleStats() {
     // 轮次 = 一个 run（聚合表每个 run 恰好一行，模型/模式是 run 内非空值的并集，仅作展示）。
     // 一旦把并集值当作过滤条件下发，agent 模式确认（不上报模型，ai_model 为空）的候选
     // 会被整体排除 —— 看板总数 263、明细只剩 4 条就是这么来的。候选列表按 run 取全量。
-    ruleStats.value = await fetchJson<RuleStatRow[]>(`${ApiSecPrescan.ruleStats}?${params.toString()}`) ?? []
-    // 默认展开：全部 + 领域 + 扫描点层
-    expandedKeys.value = ['all', ...ruleTree.value.flatMap(n => [n.key, ...(n.children ?? []).map(c => c.key)])]
+    // 分类层取自扫描点树（与规则版本页同源），与规则统计并行加载
+    const [stats] = await Promise.all([
+      fetchJson<RuleStatRow[]>(`${ApiSecPrescan.ruleStats}?${params.toString()}`),
+      ensureScanPointCategories(),
+    ])
+    ruleStats.value = stats ?? []
+    // 默认展开：全部 + 领域 + 分类层
+    expandedKeys.value = defaultRuleTreeExpandedKeys(ruleTree.value)
     // 自动选中跳转携带的 scan_point_id 对应的扫描点节点
     if (pendingScanPointId.value) {
       const match = ruleStats.value.find(r => r.scan_point_id === pendingScanPointId.value)
@@ -250,55 +262,8 @@ async function loadRuleStats() {
   }
 }
 
-// 左树数据：全部（根）→ domain 分组 → 扫描点 → 规则版本节点
-const ruleTree = computed(() => {
-  const groups = new Map<string, RuleStatRow[]>()
-  for (const r of ruleStats.value) {
-    const d = r.domain || '未分类'
-    if (!groups.has(d))
-      groups.set(d, [])
-    groups.get(d)!.push(r)
-  }
-  const domainNodes = Array.from(groups.entries()).map(([domain, rules]) => {
-    // 域内按扫描点分组，扫描点下挂规则版本
-    const spGroups = new Map<string, RuleStatRow[]>()
-    for (const r of rules) {
-      const spId = r.scan_point_id || 'unknown'
-      if (!spGroups.has(spId))
-        spGroups.set(spId, [])
-      spGroups.get(spId)!.push(r)
-    }
-    return {
-      key: `domain:${domain}`,
-      title: domainLabel(domain),
-      children: Array.from(spGroups.entries()).map(([spId, spRules]) => ({
-        key: `sp:${spId}`,
-        title: spRules[0].scan_point_name || spId,
-        spStats: {
-          confirmed: spRules.reduce((s, r) => s + r.confirmed, 0),
-          pending: spRules.reduce((s, r) => s + r.pending + r.error + r.review_needed, 0),
-          rejected: spRules.reduce((s, r) => s + r.rejected, 0),
-          total: spRules.reduce((s, r) => s + r.total, 0),
-        },
-        children: spRules.map(r => ({
-          key: r.rule_version_id,
-          title: r.rule_name,
-          rule: r,
-        })),
-      })),
-    }
-  })
-  return [{
-    key: 'all',
-    title: '全部',
-    children: domainNodes,
-  }]
-})
-
-function domainLabel(d: string): string {
-  const map: Record<string, string> = { security: '安全', performance: '性能' }
-  return map[d] ?? d
-}
+// 左树数据：全部（根）→ 域 → 分类（中文）→ 扫描点 → 规则版本（与规则版本页同一层级，见 ruleCategoryTree）
+const ruleTree = computed(() => buildRuleStatTree(ruleStats.value, scanPointCategories.value))
 
 function onTreeSelect(keys: (string | number)[]) {
   const key = keys.length ? String(keys[0]) : 'all'
@@ -381,6 +346,13 @@ function onCandidateSorterChange(dataIndex: string, direction: string) {
 // 刷新仍回到带参进入的路径，行为一致）
 function clearCandidateFilter() {
   candidateIdFilter.value = ''
+  pageNum.value = 1
+  void loadCandidates()
+}
+
+/** 009a：跳到同 run 的另一条候选（同类冲突对端 / 同位置其他规则），复用「仅看候选」过滤 */
+function locateCandidate(candidateId: string) {
+  candidateIdFilter.value = candidateId
   pageNum.value = 1
   void loadCandidates()
 }
@@ -829,16 +801,8 @@ function roundModelLabel(row: { ai_model?: string | null, ai_mode?: string | nul
   return '默认模型'
 }
 
-// ===== 标签映射（需在轮次展示辅助函数之前声明，避免 use-before-define）=====
-const aiStatusLabels: Record<string, { label: string, color: string }> = {
-  pending: { label: '待确认', color: 'gray' },
-  confirmed: { label: '确认问题', color: 'red' },
-  rejected: { label: '已排除', color: 'green' },
-  error: { label: '错误', color: 'orange' },
-  review_needed: { label: '需人工', color: 'orangered' },
-  // 004：命中白名单第二层（规则×范围豁免）的候选，落库即此状态，不进 AI
-  waived: { label: '已豁免', color: 'gray' },
-}
+// ===== 标签映射 =====
+// AI 状态标签用共享的 aiStatusLabels（./labels，含 009b 的 evidence=证据（已并入））
 /** 状态/结论值 → 中文（结论变更提示用） */
 function verdictLabel(value: string | null | undefined): string {
   const key = (value ?? '').trim()
@@ -994,6 +958,8 @@ const candidateColumns = computed(() =>
 // 后端 filters 参数：服务端分页下前端筛只筛当前页，用户搜一个在第 3 页的
 // 记录会搜不到 —— 比没有筛选更糟。序列化见 toServerFilters。
 const candidates = computed(() => candidatePage.value?.list ?? [])
+/** 009a run 级同类结论冲突数（旧后端不返回时为 null，不展示） */
+const runVerdictConflicts = computed(() => candidatePage.value?.run_verdict_conflicts ?? null)
 
 /**
  * 表格滚动配置。数据少时不设 y —— 固定高度会让空白区留在滚动容器内，
@@ -1225,6 +1191,9 @@ watch(() => route.query, (newQ, oldQ) => {
             <a-option value="pending">
               待确认
             </a-option>
+            <a-option value="evidence">
+              证据（已并入）
+            </a-option>
             <a-option :value="STATUS_FILTER_CHANGED">
               结论变更
             </a-option>
@@ -1313,8 +1282,8 @@ watch(() => route.query, (newQ, oldQ) => {
                       <span v-if="node.rule" class="rule-stats">
                         <span class="s-confirmed">{{ node.rule.confirmed }}</span>/<span class="s-pending">{{ node.rule.pending + node.rule.error + node.rule.review_needed }}</span>/<span class="s-rejected">{{ node.rule.rejected }}</span>/<span class="s-total">{{ node.rule.total }}</span>
                       </span>
-                      <span v-else-if="node.spStats" class="rule-stats">
-                        <span class="s-confirmed">{{ node.spStats.confirmed }}</span>/<span class="s-pending">{{ node.spStats.pending }}</span>/<span class="s-rejected">{{ node.spStats.rejected }}</span>/<span class="s-total">{{ node.spStats.total }}</span>
+                      <span v-else-if="node.stats" class="rule-stats">
+                        <span class="s-confirmed">{{ node.stats.confirmed }}</span>/<span class="s-pending">{{ node.stats.pending }}</span>/<span class="s-rejected">{{ node.stats.rejected }}</span>/<span class="s-total">{{ node.stats.total }}</span>
                       </span>
                     </div>
                   </template>
@@ -1335,6 +1304,12 @@ watch(() => route.query, (newQ, oldQ) => {
                 <small class="card-sub">
                   {{ roundModelLabel(currentRun) }} · {{ modeLabels[currentRun.ai_mode]?.label ?? (currentRun.ai_mode?.trim() ? currentRun.ai_mode : '待确认') }}
                 </small>
+                <!-- 009a：run 级同类结论冲突数（与本页筛选无关；结论行全部保留，由人工对照裁定） -->
+                <a-tooltip v-if="runVerdictConflicts !== null" content="本 run 带「同类结论冲突」标记的候选数：同文件同位置、同问题类别的候选结论对立" mini>
+                  <a-tag :color="runVerdictConflicts > 0 ? 'magenta' : 'gray'" size="small" class="verdict-changed-tag">
+                    同类结论冲突 {{ runVerdictConflicts }}
+                  </a-tag>
+                </a-tooltip>
               </template>
               <template #extra>
                 <a-space :size="8">
@@ -1445,6 +1420,7 @@ watch(() => route.query, (newQ, oldQ) => {
                         结论变更
                       </a-tag>
                     </a-tooltip>
+                    <VerdictConflictTag v-if="record.verdict_conflict" :conflict="record.verdict_conflict" @locate="locateCandidate" />
                   </template>
                   <template #riskLevel="{ record }">
                     <a-tag v-if="record.ai_risk_level" :color="riskLabels[record.ai_risk_level]?.color ?? 'gray'" size="small">
@@ -1505,6 +1481,8 @@ watch(() => route.query, (newQ, oldQ) => {
                   <!-- 展开行：同一候选的多次结论（换模型复核后可直接对比判定差异） -->
                   <template #expand-row="{ record }">
                     <div class="verdict-panel">
+                      <!-- 009a/009b：同类结论冲突 / 同位置其他规则结论 / 并入的证据（结论行全部保留展示） -->
+                      <CandidateConsistencyPanel :row="record" @locate="locateCandidate" />
                       <a-empty v-if="!record.verdicts?.length" description="暂无结论记录（该候选还没经过 AI 确认）" />
                       <template v-else>
                         <div class="verdict-hint">

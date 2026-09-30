@@ -1,32 +1,51 @@
 <script setup lang="ts">
+import { ref, watch } from 'vue'
 import ScanModeTip from '../components/ScanModeTip.vue'
 /**
- * 新建扫描第 1 步：扫描范围（整仓 / 表单资产 / 微服务资产）、目标分支与 commit、
- * 扫描策略与差量基准、规则目录。
+ * 新建扫描第 1 步：扫描范围（默认统一扫描；过渡期旧轨：整仓 / 表单资产 / 微服务资产）、
+ * 目标分支与 commit、扫描策略与差量基准、规则目录。
  *
  * 各 form-item 的显示条件与原看板弹窗逐条对应（导航空白步骤组件由单根 div 承载）。
  */
 import { baselineMetaText, formatCommitLabel, ruleSetLabel } from './labels'
+import NewScanUnifiedSummary from './NewScanUnifiedSummary.vue'
 import { useNewScanContext } from './useNewScan'
 
 const ctx = useNewScanContext()
+
+/** 旧轨折叠项：处于旧轨（资产详情预填 / 反编译源码库 / 手动选过）时自动展开，统一模式默认收起 */
+const legacyActiveKeys = ref<(string | number)[]>([])
+watch(() => ctx.isUnified, (unified) => {
+  legacyActiveKeys.value = unified ? [] : ['legacy']
+}, { immediate: true })
 </script>
 
 <template>
   <div>
+    <!-- 006c：统一扫描为默认；旧三种范围收进「过渡期旧轨」折叠项（验收通过后下线） -->
     <a-form-item v-if="!ctx.isDeltaWizard || ctx.step === 0" label="扫描范围">
-      <a-radio-group v-model="ctx.scanTargetType" type="button" :disabled="ctx.isLocalRepository" @change="ctx.onScanTargetChange">
-        <a-radio value="repository">
-          整个仓库
-        </a-radio>
-        <a-radio value="form">
-          表单资产
-        </a-radio>
-        <a-radio value="microservice">
-          微服务资产
+      <a-radio-group :model-value="ctx.isUnified ? 'unified' : ''" type="button" :disabled="ctx.isLocalRepository" @change="ctx.selectUnified">
+        <a-radio value="unified">
+          统一扫描（推荐）
         </a-radio>
       </a-radio-group>
     </a-form-item>
+    <NewScanUnifiedSummary v-if="ctx.isUnified" />
+    <a-collapse v-if="!ctx.isDeltaWizard || ctx.step === 0" v-model:active-key="legacyActiveKeys" :bordered="false" style="margin-bottom: 12px">
+      <a-collapse-item key="legacy" header="过渡期旧轨（整仓差量 / 表单资产 / 微服务资产）">
+        <a-radio-group :model-value="ctx.isUnified ? '' : ctx.scanTargetType" type="button" :disabled="ctx.isLocalRepository" @change="ctx.selectLegacyTarget">
+          <a-radio value="repository">
+            整个仓库
+          </a-radio>
+          <a-radio value="form">
+            表单资产
+          </a-radio>
+          <a-radio value="microservice">
+            微服务资产
+          </a-radio>
+        </a-radio-group>
+      </a-collapse-item>
+    </a-collapse>
     <a-form-item v-if="ctx.isDomainTarget" :label="ctx.scanTargetType === 'form' ? '表单资产' : '微服务资产'">
       <a-space style="width: 100%">
         <a-select
@@ -191,7 +210,7 @@ const ctx = useNewScanContext()
     <a-alert v-if="ctx.isDeltaWizard && ctx.step === 0 && ctx.deltaScanMode === 'hunk_quick'" type="warning" style="margin-bottom: 8px">
       新增行快速检查固定 may_auto_close=false，不会关闭任何历史问题。
     </a-alert>
-    <a-form-item v-if="ctx.isLocalRepository || (ctx.isDeltaWizard && ctx.step === 0)" label="规则目录">
+    <a-form-item v-if="ctx.isUnified || ctx.isLocalRepository || (ctx.isDeltaWizard && ctx.step === 0)" label="规则目录">
       <a-select
         v-model="ctx.ruleSetId"
         allow-clear

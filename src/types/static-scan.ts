@@ -740,6 +740,35 @@ export interface CandidateDetailRow {
    * 所以同一条候选下可以并排看到不同模型的判定差异。
    */
   verdicts?: CandidateVerdictRow[]
+  /** 009a：同类结论冲突（同文件同位置同问题类别的候选结论对立时非空；null = 无冲突） */
+  verdict_conflict?: CandidateVerdictConflict | null
+  /** 009a：同 run 同文件同行的其他候选（多规则命中同一位置时对照各规则结论） */
+  same_location_candidates?: SameLocationCandidate[]
+  /** 009b：并入本候选的证据型候选（ai_status='evidence' 且指向本行） */
+  evidence_candidates?: EvidenceCandidateRef[]
+}
+
+/** 009a：同类结论冲突标记 */
+export interface CandidateVerdictConflict {
+  /** 问题类别 code（sec_problem_category.code） */
+  category_code: string
+  /** 冲突对端候选 id */
+  peer_candidate_ids: string[]
+}
+
+/** 009a：同位置其他规则的候选摘要 */
+export interface SameLocationCandidate {
+  candidate_id: string
+  rule_key: string
+  rule_name: string
+  ai_status: string
+}
+
+/** 009b：并入的证据型候选摘要 */
+export interface EvidenceCandidateRef {
+  candidate_id: string
+  rule_key: string
+  matched_text?: string | null
 }
 
 /** 单条候选的一次 AI 结论（多模型对比用） */
@@ -763,6 +792,8 @@ export interface CandidateVerdictRow {
 export interface CandidateDetailPage {
   list: CandidateDetailRow[]
   total: number
+  /** 009a：本 run 带同类结论冲突标记的候选数（run 级，与本页筛选无关；旧后端不返回） */
+  run_verdict_conflicts?: number
 }
 
 /** 规则维度聚合统计行（扫描结果详情左树） */
@@ -1148,6 +1179,10 @@ export interface CrossRunAggRow {
   queue_pending?: number | null
   /** 队列中该 run 正在执行的任务数 */
   queue_running?: number | null
+  /** 006：扫描范围（unified = 统一扫描；repository/form/microservice = 过渡期旧轨；旧后端不返回） */
+  target_type?: string | null
+  /** 006：判定生命周期（null = 历史 run；pending/judging/finalized/finalize_failed） */
+  confirm_state?: string | null
 }
 
 // ── 仓库 Commit 相关类型 ────────────────────────────

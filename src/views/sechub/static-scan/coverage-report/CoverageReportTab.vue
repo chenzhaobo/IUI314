@@ -19,7 +19,7 @@ import { useCoverageReport } from './useCoverageReport'
 
 const props = defineProps<{ runId: string }>()
 
-const { loading, report, absent, failed, load, reset } = useCoverageReport()
+const { loading, report, absent, failed, notFinalized, load, reset } = useCoverageReport()
 
 watch(
   () => props.runId,
@@ -42,6 +42,8 @@ const STATUS_META: Record<string, { label: string, color: string, tag: string }>
   review_needed: { label: '需人工', color: 'rgb(var(--orangered-6))', tag: 'orangered' },
   // 004：命中白名单第二层（规则×范围豁免）的候选，落库即此状态，不进 AI
   waived: { label: '已豁免', color: 'rgb(var(--gray-6))', tag: 'gray' },
+  // 009b：证据型规则候选，已并入同行权威候选
+  evidence: { label: '证据（已并入）', color: 'rgb(var(--lime-6))', tag: 'lime' },
 }
 
 function statusLabel(value: string): string {
@@ -135,6 +137,18 @@ function refresh() {
         <p class="coverage-state-tip">
           报告在预扫描收口或 AI 确认完成后自动生成；若本 run 仍在进行，稍后点「刷新」重试。
         </p>
+      </div>
+      <!-- 统一扫描 run 未定稿（run_not_finalized）：判定生命周期中的正常状态 -->
+      <div v-else-if="notFinalized && !loading" class="coverage-state">
+        <a-empty description="判定中，定稿后可看报告" />
+        <p class="coverage-state-tip">
+          统一扫描的报告在全部候选判完且回写成功（已定稿）后开放；可在「扫描运行」页查看判定状态，稍后点「刷新」重试。
+        </p>
+        <div class="coverage-state-action">
+          <a-button size="small" @click="refresh">
+            刷新
+          </a-button>
+        </div>
       </div>
       <div v-else-if="failed && !loading" class="coverage-state">
         <a-empty description="覆盖自证报告加载失败" />
@@ -402,6 +416,7 @@ function refresh() {
 .card-sub { margin-left: 12px; color: var(--color-text-3); font-weight: normal; font-size: 12px; }
 .coverage-state { padding: 48px 0; }
 .coverage-state-tip { margin-top: 8px; color: var(--color-text-3); font-size: 12px; text-align: center; }
+.coverage-state-action { margin-top: 8px; text-align: center; }
 .warn-list { margin: 0; padding-left: 18px; }
 .coverage-note { margin: 4px 0 0; color: var(--color-text-3); font-size: 12px; line-height: 1.6; }
 .digest-mismatch { color: rgb(var(--warning-6)); font-weight: 600; }
