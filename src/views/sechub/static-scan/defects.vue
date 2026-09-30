@@ -206,7 +206,13 @@ async function handleImportUpload(fileList: any[]) {
 // ===== 左树：维度树（规则分布 / 项目组 / 业务领域 / 产品领域，组件见 components/IssueScopeTree.vue）=====
 const scopeTreeRef = ref<{ reload: () => void } | null>(null)
 
-/** 左树的筛选输入：与列表同一套条件，去掉分页/排序（不该因为翻页就重算整棵树） */
+/**
+ * 左树的筛选输入：与列表同一套条件，去掉分页/排序（不该因为翻页就重算整棵树）。
+ *
+ * 结构维度（项目组/应用/业务领域/产品领域/领域/扫描点/规则版本）虽然也在 queryParams 里，
+ * 但由 IssueScopeTree 组件内部剔除：它们不参与左树自身查询，保证树结构稳定 ——
+ * 点节点只收窄右侧列表，左树不会塌缩成只剩该节点。
+ */
 const scopeTreeFilters = computed(() => {
   const out: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(queryParams.value)) {

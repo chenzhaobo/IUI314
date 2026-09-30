@@ -4,7 +4,9 @@
 // 口径与取舍（与后端 issue_scope.rs 一致）：
 //   · 计数走**与列表同一套筛选**，所以节点数字 = 点它之后列表的 total（含 Excel 导入行）；
 //   · 右侧筛选一变就防抖重算（状态/风险/来源/负责人…），保证「树上的数字跟列表对得上」；
-//   · 点节点 = 在树上继续下钻（把范围写回列表筛选，树随之收窄），点根节点「全部」回到全量。
+//   · 树不随选中节点收窄：结构维度不参与左树自身查询；点节点只收窄右侧列表，点根节点「全部」回到全量；
+//   · 展开态跨重载保持（仍存在的已展开 key 不收起，选中节点的祖先链自动展开），
+//     只有切换维度才回到默认展开（根 + 第一层，规则分布再加分类层）。
 import type { IssueScopeTreeNode } from './ruleCategoryTree'
 import type { IssueScopeCounts } from '@/types/static-scan'
 import { ref, watch } from 'vue'
@@ -26,6 +28,23 @@ const ROOT_KEY = 'root'
 /** 只在筛选真正变化后重算树，避免连续改动打出一串请求 */
 const RELOAD_DEBOUNCE_MS = 300
 
+/**
+ * 结构维度：树自己就是按这些维度聚合出来的。
+ *
+ * 它们若回流进树自身的查询，就会「点节点 → 该筛选进入树请求 → 树只剩该子集 →
+ * 其它节点消失」，所以 buildQuery 一律跳过；这些 key 只由父页面用于收窄右侧列表。
+ * 与 scopeOfKey 的前缀映射一一对应。
+ */
+const STRUCTURE_DIMENSION_KEYS = new Set([
+  'project_group_id',
+  'repository_id',
+  'business_area',
+  'product_domain',
+  'domain',
+  'scan_point_id',
+  'rule_version_id',
+])
+
 const MODE_OPTIONS = [
   { value: 'project_group', label: '项目组' },
   { value: 'business_area', label: '业务领域' },
@@ -42,10 +61,12 @@ const selectedKeys = ref<string[]>([])
 const expandedKeys = ref<string[]>([])
 const { scanPointCategories, ensureScanPointCategories } = useScanPointCategories()
 
-/** 树的请求参数：调用方给的筛选 + 维度（分页/排序由调用方剔除） */
+/** 树的请求参数：调用方给的筛选 + 维度（分页/排序由调用方剔除，结构维度由组件剔除，保证树结构稳定） */
 function buildQuery(): Record<string, string> {
   const query: Record<string, string> = { mode: mode.value }
   for (const [key, value] of Object.entries(props.filters)) {
+    if (STRUCTURE_DIMENSION_KEYS.has(key))
+      continue
     if (value !== '' && value != null)
       query[key] = String(value)
   }
@@ -71,6 +92,36 @@ function scopeOfKey(key: string): Record<string, string> {
   }
 }
 
+/** key → 父节点 key（根节点的父为 ''），用于把选中节点的祖先链展开 */
+function indexParents(nodes: IssueScopeTreeNode[], parentKey: string, out: Map<string, string>): void {
+  for (const node of nodes) {
+    out.set(node.key, parentKey)
+    indexParents(node.children ?? [], node.key, out)
+  }
+}
+
+/** 默认展开：根 + 第一层（维度节点）；规则分布再展开分类层。应用层按需展开 */
+function defaultExpandedKeys(root: IssueScopeTreeNode | null): string[] {
+  if (!root)
+    return []
+  const firstLevel = root.children ?? []
+  const categoryLevel = mode.value === 'rule'
+    ? firstLevel.flatMap(child => (child.children ?? []).map(grand => grand.key))
+    : []
+  return [root.key, ...firstLevel.map(child => child.key), ...categoryLevel]
+}
+
+/** 自下而上取祖先链（不含自身），用于保证选中节点在新树里可见 */
+function ancestorKeys(key: string | undefined, parents: Map<string, string>): string[] {
+  const out: string[] = []
+  let current = key ? parents.get(key) : undefined
+  while (current) {
+    out.push(current)
+    current = parents.get(current)
+  }
+  return out
+}
+
 async function load(resetSelection = false) {
   loading.value = true
   try {
@@ -88,10 +139,21 @@ async function load(resetSelection = false) {
     if (data?.key)
       root = isRuleMode ? insertIssueCategoryLevel(data, scanPointCategories.value) : data
     tree.value = root ? [root] : []
-    // 默认展开根与第一层（维度节点）；规则分布再展开分类层。应用层按需展开
-    const firstLevel = root?.children ?? []
-    const categoryLevel = isRuleMode ? firstLevel.flatMap(child => child.children.map(grand => grand.key)) : []
-    expandedKeys.value = root ? [root.key, ...firstLevel.map(child => child.key), ...categoryLevel] : []
+    const parents = new Map<string, string>()
+    if (root)
+      indexParents([root], '', parents)
+    // 展开态跨重载保持：只保留仍在新树里的已展开 key，并确保选中节点的祖先链展开；
+    // 只有切换维度（resetSelection）才回到默认展开
+    const kept = resetSelection
+      ? defaultExpandedKeys(root)
+      : [...expandedKeys.value].filter(key => parents.has(key))
+    const selectedKey = selectedKeys.value[0]
+    expandedKeys.value = root
+      ? [...new Set([...kept, ...ancestorKeys(selectedKey, parents)])]
+      : []
+    // 选中节点被新筛选筛没了：静默清掉选中态（范围已写过列表，不重复通知父页面）
+    if (selectedKey && !parents.has(selectedKey))
+      selectedKeys.value = []
   }
   finally {
     loading.value = false
