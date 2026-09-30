@@ -12,6 +12,8 @@ import { ApiSysUser } from '@/api/sysApis'
 import { downloadText, formatTime, getAction, useAutoHeight, useDicts, useDownload, useGet, usePost, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
 import { useUserStore } from '@/stores'
 import IssueScopeTree from './components/IssueScopeTree.vue'
+import { canConfirmRepro, DEFAULT_EXCLUDE_STATUS, ISSUE_SOURCE_OPTIONS, issueSourceLabel, REPRO_STATUS_LABELS } from './defects/issueStates'
+import { useConfirmRepro } from './defects/useConfirmRepro'
 import 'md-editor-v3/lib/style.css'
 
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
@@ -87,10 +89,10 @@ const queryParams = ref({
   product_domain: '',
   // 「计划完成」过滤：__overdue__ / __due_soon__ / __none__（未标注）/ __planned__，只对处理中生效
   plan_finish: '',
-  // 004：issue 状态 merged（身份归并的产物行）默认不进列表/左树/导出，后端按 exclude_status 剔除该状态。
-  // 后端契约待 004c 落地：目前未知查询参数被忽略，发它不改变现状；落地后默认即隐藏。
-  // 用户显式选状态时清掉（见 onStatusChange），否则筛「已合并」永远是空。
-  exclude_status: 'merged',
+  // 004/007a：merged（身份归并产物行）与 unstable（多次未复现）默认不进列表/左树/导出，
+  // 后端按 exclude_status（逗号分隔）剔除。
+  // 用户显式选状态时清掉（见 onStatusChange），否则筛「已合并/不稳定」永远是空。
+  exclude_status: DEFAULT_EXCLUDE_STATUS,
   // 负责人过滤（「我负责的」开关；值=登录名,展示名，后端按并集匹配）
   assignee: mineAssigneeValue(),
   // 表头排序：后端白名单只认 introduced_at / updated_at，空值=默认「更新时间倒序」
@@ -298,8 +300,8 @@ function onDomainSelectChange() {
 // 状态下拉变更：仅重载列表
 function onStatusChange() {
   queryParams.value.page_num = 1
-  // 显式选状态 = 就看这个状态：撤掉默认的「排除已合并」（选「已合并」才查得到）；清空回默认
-  queryParams.value.exclude_status = queryParams.value.status ? '' : 'merged'
+  // 显式选状态 = 就看这个状态：撤掉默认的排除（选「已合并/不稳定」才查得到）；清空回默认
+  queryParams.value.exclude_status = queryParams.value.status ? '' : DEFAULT_EXCLUDE_STATUS
   void getList()
 }
 
@@ -354,9 +356,9 @@ function exportIssues() {
 }
 
 // ===== 状态能力判断 =====
-// 可标记不处理：待处理，以及"验证不通过"（复核确认仍在，但决定不修）
+// 可标记不处理：待处理，以及"验证不通过"（复核确认仍在，但决定不修）；007a 待复现/不稳定同样允许
 function canWontFix(status: string): boolean {
-  return status === 'open' || status === 'reopened' || status === 'verification_failed'
+  return ['open', 'reopened', 'verification_failed', 'pending_repro', 'unstable'].includes(status)
 }
 // 可发起复核的：**任意状态**都能验（内网批量导入的历史缺陷大多没走过人工流程，
 // 却可能早已在代码里修掉了 —— 要求先手工标「已修复」再验证不现实）。
@@ -703,7 +705,7 @@ function openWontFixModal() {
   }
   const eligible = selectedRows.value.filter(r => canWontFix(r.status))
   if (!eligible.length) {
-    Message.warning('所选缺陷中没有可标记不处理的（仅「待修复/验证不通过」状态可操作）')
+    Message.warning('所选缺陷中没有可标记不处理的（仅「待修复/验证不通过/待复现/不稳定」状态可操作）')
     return
   }
   wontFixTargets.value = eligible
@@ -1106,12 +1108,16 @@ function viewReport(row: ScanIssueRow) {
   reportVisible.value = true
 }
 
+// 007a「确认复现」：成功后重拉列表（该行升级为待修复）
+const { confirmRepro } = useConfirmRepro(() => void getList())
 /** 操作列「更多」下拉的分发（默认只露「报告 + 更多」） */
 function onOpsSelect(value: unknown, row: ScanIssueRow) {
   if (value === 'batch')
     void viewInResults(row)
   else if (value === 'events')
     void viewEvents(row)
+  else if (value === 'confirmRepro')
+    confirmRepro(row)
 }
 
 // 下载 AI 生成的原始 md 报告。
@@ -1153,6 +1159,8 @@ const statusLabels: Record<string, { label: string, color: string }> = {
   merged: { label: '已合并', color: 'gray' },
   /** 004：白名单免检（候选侧写 `ai_status='waived'`；缺陷行上出现该状态时同样显示「已豁免」） */
   waived: { label: '已豁免', color: 'gray' },
+  /** 007a：pending_repro（仅 AI 发现、待复现）/ unstable（多次未复现，默认不进列表） */
+  ...REPRO_STATUS_LABELS,
 }
 
 const coverageReasonLabels: Record<string, { label: string, color: string }> = {
@@ -1200,7 +1208,7 @@ const wontFixReasonFilters = computed(() =>
 const columns = computed(() => withTableDefaults([
   { title: '缺陷编号', dataIndex: 'defect_code', slotName: 'defectCode', width: 210, ellipsis: true, tooltip: true },
   { title: '缺陷标题', dataIndex: 'title', width: 240 },
-  { title: '来源', dataIndex: 'source', slotName: 'source', width: 64 },
+  { title: '来源', dataIndex: 'source', slotName: 'source', width: 80 },
   { title: '领域', dataIndex: 'domain', slotName: 'domain', width: 70, ellipsis: true, tooltip: true },
   { title: '分类', dataIndex: 'category', width: 100 },
   { title: '风险', dataIndex: 'risk_level', slotName: 'risk', width: 65, ellipsis: true, tooltip: true },
@@ -1328,6 +1336,10 @@ function shortSha(sha: string | null | undefined): string {
             <a-option value="merged">
               已合并
             </a-option>
+            <!-- 007a：仅 AI 发现待复现 / 多次未复现（后者默认列表不含） -->
+            <a-option v-for="(item, value) in REPRO_STATUS_LABELS" :key="value" :value="value">
+              {{ item.label }}
+            </a-option>
           </a-select>
           <!-- 风险等级多选：诉求是"优先处理高等级"，通常要 high 与 medium 一起看；
                  单选每次只能看一档、反复切换很别扭，所以做成 multiple -->
@@ -1379,11 +1391,8 @@ function shortSha(sha: string | null | undefined): string {
             @clear="refresh"
           />
           <a-select v-model="queryParams.source" allow-clear placeholder="来源" style="width: 110px" @change="refresh">
-            <a-option value="scan">
-              扫描
-            </a-option>
-            <a-option value="import">
-              导入
+            <a-option v-for="opt in ISSUE_SOURCE_OPTIONS" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
             </a-option>
           </a-select>
           <!-- 计划完成：四个选项都只筛「处理中」的缺陷（已处理/不处理不该被催），
@@ -1524,8 +1533,8 @@ function shortSha(sha: string | null | undefined): string {
                   <span v-else class="text-muted">-</span>
                 </template>
                 <template #source="{ record }">
-                  <a-tag :color="record.source === 'import' ? 'orange' : 'arcoblue'" size="small">
-                    {{ record.source === 'import' ? '导入' : '扫描' }}
+                  <a-tag :color="issueSourceLabel(record.source).color" size="small">
+                    {{ issueSourceLabel(record.source).label }}
                   </a-tag>
                 </template>
                 <template #domain="{ record }">
@@ -1644,6 +1653,9 @@ function shortSha(sha: string | null | undefined): string {
                         </a-doption>
                         <a-doption value="events">
                           流转
+                        </a-doption>
+                        <a-doption v-if="canConfirmRepro(record)" value="confirmRepro">
+                          确认复现
                         </a-doption>
                       </template>
                     </a-dropdown>

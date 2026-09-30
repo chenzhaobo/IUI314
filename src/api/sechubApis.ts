@@ -325,6 +325,12 @@ export enum ApiSecPrescan {
   coverageReport = '/sechub/prescan/{run_id}/coverage-report',
   /** 规则效果（规则版本 × 扫描点 × 仓库 × 模型，只读，服务端分页排序） */
   ruleEffects = '/sechub/prescan/rule-effects',
+  /** 007c 规则优化提案：列表（服务端分页）/ 采纳或驳回（仅 pending 可决策）/ 手动生成 */
+  ruleProposals = '/sechub/prescan/rule-proposals',
+  ruleProposalDecide = '/sechub/prescan/rule-proposals/{id}/decide',
+  ruleProposalGenerate = '/sechub/prescan/rule-proposals/generate',
+  /** 007a 人工确认复现：pending_repro → open */
+  issueConfirmRepro = '/sechub/prescan/issues/confirm-repro',
 }
 
 // ── 反编译源码库（外网标品包源码，供性能分析与 local-test 扫描） ──
