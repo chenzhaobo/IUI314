@@ -15,6 +15,8 @@ export function useCoverageReport() {
   const absent = ref(false)
   /** 请求失败（拦截器已弹提示）；与 absent 分开，空态文案不同 */
   const failed = ref(false)
+  /** 统一扫描 run 判定未定稿（run_not_finalized）：报告在定稿后才开放，属正常生命周期 */
+  const notFinalized = ref(false)
   /** 防竞态：快速切换轮次时，旧 run 的响应不得覆盖新 run 的状态 */
   let seq = 0
 
@@ -29,11 +31,13 @@ export function useCoverageReport() {
         report.value = result.report
         absent.value = false
         failed.value = false
+        notFinalized.value = false
       }
       else {
         report.value = null
         absent.value = result.status === 'absent'
         failed.value = result.status === 'failed'
+        notFinalized.value = result.status === 'not_finalized'
       }
     }
     finally {
@@ -49,7 +53,8 @@ export function useCoverageReport() {
     report.value = null
     absent.value = false
     failed.value = false
+    notFinalized.value = false
   }
 
-  return { loading, report, absent, failed, load, reset }
+  return { loading, report, absent, failed, notFinalized, load, reset }
 }

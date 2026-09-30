@@ -14,6 +14,7 @@ import { ApiSecPrescan } from '@/api/sechubApis'
 import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import { applyColumnFilters, emptyFilter, formatTime, isFilterActive, postAction, useFilterPersistence, useGet, useTableAutoHeight } from '@/hooks'
 import RepoScopeTree from './components/RepoScopeTree.vue'
+import RunLifecycleTags from './components/RunLifecycleTags.vue'
 import { pendingSubLabel, pendingTooltip, runStatusLabels } from './labels'
 import AiConfirmModal from './new-scan/AiConfirmModal.vue'
 import BatchAiConfirmModal from './new-scan/BatchAiConfirmModal.vue'
@@ -890,8 +891,8 @@ const crossColumns = computed(() => [
   { title: 'Commit', dataIndex: 'commit_sha', slotName: 'crCommit', width: 110, resizable: true },
   { title: '模型', dataIndex: 'ai_model', slotName: 'crModel', width: 150, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('ai_model') },
   { title: '模式', dataIndex: 'ai_mode', slotName: 'crMode', width: 95, resizable: true },
-  // 策略列：这一批"扫的是什么范围"——全量 / 差量类型 + 比对基线 + 领域范围
-  { title: '策略', dataIndex: 'delta_kind', slotName: 'crStrategy', width: 150, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('delta_kind') },
+  // 策略列：这一批"扫的是什么范围"——统一扫描/判定状态标签 + 全量 / 差量类型 + 比对基线 + 领域范围
+  { title: '策略', dataIndex: 'delta_kind', slotName: 'crStrategy', width: 220, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('delta_kind') },
   { title: '总数', dataIndex: 'total', width: 70, resizable: true, filterable: filterableOf('total') },
   { title: '确认进度', dataIndex: 'progress', slotName: 'crProgress', width: 90, resizable: true },
   { title: '确认问题', dataIndex: 'confirmed', width: 85, resizable: true, filterable: filterableOf('confirmed') },
@@ -1133,6 +1134,7 @@ function toggleRunChecked(runId: string, checked: boolean) {
 
               <!-- 策略列：全量 / 差量类型 + 比对基线，悬浮里补充领域范围 -->
               <template #crStrategy="{ record }">
+                <RunLifecycleTags :target-type="record.target_type" :confirm-state="record.confirm_state" />
                 <a-tooltip :content="strategyTooltip(record)" mini>
                   <span>{{ strategyLabel(record) }}</span>
                 </a-tooltip>

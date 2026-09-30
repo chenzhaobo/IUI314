@@ -236,3 +236,26 @@ export function rowCheckboxTooltip(row: CrossRunAggRow): string {
   const confirmBlocked = batchAiConfirmBlockedReason(row)
   return confirmBlocked ? `可勾选用于「批量重扫未完成」；不参与批量 AI 确认：${confirmBlocked}` : ''
 }
+
+
+/** 统一扫描阻断原因码（unified-preview.blocked_reason）→ 人话；未收录的码原样透出便于排查 */
+const UNIFIED_BLOCK_LABELS: Record<string, string> = {
+  no_in_use_assets: '该仓库没有在用（active + in_scope）的表单/微服务资产，统一扫描不以零资产兜底为整仓扫描',
+  sync_run_missing: '在用资产缺少可追溯的同步批次，请先重新同步资产',
+  multiple_sync_runs: '在用资产分属多个同步批次，请先重新同步使其属于同一批次',
+  sync_run_not_succeeded: '在用资产所属同步批次未成功，请先重新同步资产',
+  sync_run_domain_mismatch: '同步批次与资产类型不一致，请联系管理员核对资产同步',
+}
+const UNIFIED_BLOCK_DOMAIN: Record<string, string> = { form: '表单资产', microservice: '微服务资产' }
+
+export function unifiedBlockedText(reason: string): string {
+  const direct = UNIFIED_BLOCK_LABELS[reason]
+  if (direct)
+    return direct
+  // 按域的码形如 form_sync_run_missing / microservice_multiple_sync_runs
+  const domain = Object.keys(UNIFIED_BLOCK_DOMAIN).find(key => reason.startsWith(`${key}_`))
+  const suffixLabel = domain ? UNIFIED_BLOCK_LABELS[reason.slice(domain.length + 1)] : undefined
+  if (domain && suffixLabel)
+    return `${UNIFIED_BLOCK_DOMAIN[domain]}：${suffixLabel}`
+  return reason
+}

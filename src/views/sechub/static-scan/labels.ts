@@ -31,13 +31,24 @@ export const securityCategoryLabels: Record<string, string> = {
   'xpath-injection': 'XPath注入',
   'xss': 'XSS跨站脚本',
   'xxe': 'XXE实体注入',
+  // 扫描点分类里直接落库的引擎名（未翻译）：结构模式引擎按实际检测对象命名
+  'ast_query结构模式引擎': '结构模式·DB 调用点',
+  'ast_query循环结构模式': '结构模式·循环内 DB 调用',
+}
+
+/**
+ * 分类 category → 中文（不分领域）。
+ *
+ * 性能域的扫描点分类本身就是中文（线程/数据库/循环成本…），安全域多为英文代码；
+ * 统一查一张表，查不到原样返回 —— 规则版本页、结果页、缺陷页左树都走这里，口径一致。
+ */
+export function categoryLabel(category: string): string {
+  return securityCategoryLabels[category] ?? category
 }
 
 /** 根据领域与分类 key 获取中文标签 */
-export function categoryZhLabel(domain: string, category: string): string {
-  if (domain === 'security')
-    return securityCategoryLabels[category] ?? category
-  return category
+export function categoryZhLabel(_domain: string, category: string): string {
+  return categoryLabel(category)
 }
 
 /** Run 运行状态 → 中文标签 + 色值 */
@@ -61,6 +72,24 @@ export const aiStatusLabels: Record<string, { label: string, color: string }> = 
   review_needed: { label: '需人工', color: 'orangered' },
   // 004：命中白名单第二层（规则×范围豁免）的候选，落库即此状态，不进 AI
   waived: { label: '已豁免', color: 'gray' },
+  // 009b：证据型规则候选，已并入同行权威候选（不进 AI、不回写缺陷）
+  evidence: { label: '证据（已并入）', color: 'lime' },
+}
+
+/** 扫描范围 target_type → 中文（006：unified = 统一扫描；其余为过渡期旧轨） */
+export const runTargetTypeLabels: Record<string, { label: string, color: string }> = {
+  unified: { label: '统一扫描', color: 'arcoblue' },
+  repository: { label: '整仓（旧轨）', color: 'gray' },
+  form: { label: '表单资产（旧轨）', color: 'gray' },
+  microservice: { label: '微服务资产（旧轨）', color: 'gray' },
+}
+
+/** 判定生命周期 confirm_state → 中文（null = 历史 run，不展示） */
+export const confirmStateLabels: Record<string, { label: string, color: string, tip: string }> = {
+  pending: { label: '待判定', color: 'gray', tip: '统一 run 已建，尚未触发 AI 判定；报告在定稿后可看' },
+  judging: { label: '判定中', color: 'blue', tip: 'AI 判定进行中；定稿（全部判完且回写成功）后可看报告' },
+  finalized: { label: '已定稿', color: 'green', tip: '判定已定稿，报告/导出可用' },
+  finalize_failed: { label: '定稿失败', color: 'red', tip: '仍有未完成候选或回写失败；可重扫未完成后再次定稿' },
 }
 
 /**

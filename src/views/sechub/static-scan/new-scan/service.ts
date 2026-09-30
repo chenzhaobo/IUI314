@@ -1,5 +1,5 @@
 import type { DomainAsset, DomainAssetPage } from '../domain-assets/types'
-import type { AiConfirmBody, DeltaPlanPreview, DeltaPreviewRequest, DomainTriggerRequest, FullTriggerRequest, RepoOption, ScanTargetType } from './types'
+import type { AiConfirmBody, DeltaPlanPreview, DeltaPreviewRequest, DomainTriggerRequest, FullTriggerRequest, RepoOption, ScanTargetType, UnifiedPreview, UnifiedTriggerRequest, UnifiedTriggerResponse } from './types'
 /**
  * 「新建扫描」用到的全部接口调用（View → Composable → Service → Api 的 service 层）。
  *
@@ -120,6 +120,16 @@ export function adoptBaseline(repositoryId: string, branch: string): Promise<Sca
 /** 整仓（含反编译源码库）全量扫描 */
 export function triggerFull(body: FullTriggerRequest): Promise<PrescanTriggerResponse | null> {
   return postAction<PrescanTriggerResponse>(ApiSecPrescan.trigger, body)
+}
+
+/** 统一扫描预览：自动选取的表单/微服务资产数与阻断原因（只读，不冻结） */
+export function fetchUnifiedPreview(repositoryId: string): Promise<UnifiedPreview | null> {
+  return getAction<UnifiedPreview>(ApiSecPrescan.unifiedPreview, { repository_id: repositoryId })
+}
+
+/** 统一扫描触发：一个仓库一次触发（后端自动选资产、冻结规则/技能/多范围 manifest） */
+export function triggerUnified(body: UnifiedTriggerRequest): Promise<UnifiedTriggerResponse | null> {
+  return postAction<UnifiedTriggerResponse>(ApiSecPrescan.unifiedTrigger, body)
 }
 
 /** 表单/微服务资产扫描：后端按资产逐条冻结范围 */

@@ -5,10 +5,12 @@
 //   · 计数走**与列表同一套筛选**，所以节点数字 = 点它之后列表的 total（含 Excel 导入行）；
 //   · 右侧筛选一变就防抖重算（状态/风险/来源/负责人…），保证「树上的数字跟列表对得上」；
 //   · 点节点 = 在树上继续下钻（把范围写回列表筛选，树随之收窄），点根节点「全部」回到全量。
-import type { IssueScopeCounts, IssueScopeNode } from '@/types/static-scan'
+import type { IssueScopeTreeNode } from './ruleCategoryTree'
+import type { IssueScopeCounts } from '@/types/static-scan'
 import { ref, watch } from 'vue'
-import { ApiSecPrescan } from '@/api/sechubApis'
-import { getAction } from '@/hooks'
+import { insertIssueCategoryLevel } from './ruleCategoryTree'
+import { fetchIssueScopeTree } from './service'
+import { useScanPointCategories } from './useScanPointCategories'
 
 const props = defineProps<{
   /** 与右侧列表同一套筛选（分页/排序/勾选 id 不参与） */
@@ -35,9 +37,10 @@ type ScopeMode = (typeof MODE_OPTIONS)[number]['value']
 
 const mode = ref<ScopeMode>('project_group')
 const loading = ref(false)
-const tree = ref<IssueScopeNode[]>([])
+const tree = ref<IssueScopeTreeNode[]>([])
 const selectedKeys = ref<string[]>([])
 const expandedKeys = ref<string[]>([])
+const { scanPointCategories, ensureScanPointCategories } = useScanPointCategories()
 
 /** 树的请求参数：调用方给的筛选 + 维度（分页/排序由调用方剔除） */
 function buildQuery(): Record<string, string> {
@@ -75,10 +78,20 @@ async function load(resetSelection = false) {
       selectedKeys.value = []
       emit('change', {})
     }
-    const data = await getAction<IssueScopeNode>(ApiSecPrescan.issueScopeTree, buildQuery())
-    tree.value = data?.key ? [data] : []
-    // 默认展开根与第一层（维度节点）；应用层按需展开
-    expandedKeys.value = data?.key ? [data.key, ...(data.children ?? []).map(child => child.key)] : []
+    const isRuleMode = mode.value === 'rule'
+    // 规则分布：与规则版本页同一层级（域 → 分类 → 扫描点 → 规则），分类取自扫描点树
+    const [data] = await Promise.all([
+      fetchIssueScopeTree(buildQuery()),
+      isRuleMode ? ensureScanPointCategories() : Promise.resolve(),
+    ])
+    let root: IssueScopeTreeNode | null = null
+    if (data?.key)
+      root = isRuleMode ? insertIssueCategoryLevel(data, scanPointCategories.value) : data
+    tree.value = root ? [root] : []
+    // 默认展开根与第一层（维度节点）；规则分布再展开分类层。应用层按需展开
+    const firstLevel = root?.children ?? []
+    const categoryLevel = isRuleMode ? firstLevel.flatMap(child => child.children.map(grand => grand.key)) : []
+    expandedKeys.value = root ? [root.key, ...firstLevel.map(child => child.key), ...categoryLevel] : []
   }
   finally {
     loading.value = false

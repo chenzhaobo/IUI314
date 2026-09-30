@@ -16,7 +16,7 @@ import { BarChart, PieChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import { computed, onActivated, onDeactivated, onUnmounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import VChart from 'vue-echarts'
 import { useRouter } from 'vue-router'
 import { ErrorFlag } from '@/api/apis'
@@ -354,7 +354,6 @@ function onTreeSelect(keys: (string | number)[]) {
 // ===== 预扫描状态 =====
 const currentRunId = ref('')
 const prescanStatus = ref<PrescanStatusResponse | null>(null)
-const polling = ref(false)
 
 // ===== Run 列表（分支/commit 对比选择） =====
 const runList = ref<UnifiedScanRunRow[]>([])
@@ -459,72 +458,9 @@ watch(selectedRepoId, async (repoId) => {
   }
 })
 
-// 轮询状态
-let pollTimer: ReturnType<typeof setInterval> | null = null
-
-// 只停定时器、保留 polling 状态：切页签（onDeactivated）暂停用，回来后按状态恢复
-function clearPollTimer() {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
-}
-
-function startPolling() {
-  clearPollTimer()
-  polling.value = true
-  pollTimer = setInterval(async () => {
-    await refreshStatus()
-    // skipped 也是终态：代码与规则未变更（或并发撞同一输入），未真正重扫。
-    // preparing 不是终态——记录已建但还在拉代码/建清单，要继续轮询到 running。
-    if (prescanStatus.value && ['succeeded', 'failed', 'cancelled', 'skipped'].includes(prescanStatus.value.status)) {
-      stopPolling()
-      // 刷新 run 列表
-      if (selectedRepo.value) {
-        await loadRunList(selectedRepo.value.repository_name)
-      }
-      if (prescanStatus.value.status === 'succeeded') {
-        Message.success('预扫描完成')
-        loadDashboardData()
-      }
-      else {
-        Message.error(`预扫描失败: ${prescanStatus.value.error_message ?? '未知错误'}`)
-      }
-    }
-  }, 2000)
-}
-function stopPolling() {
-  clearPollTimer()
-  polling.value = false
-}
-
-async function refreshStatus() {
-  if (!currentRunId.value)
-    return
-  const { data, execute } = useGet<PrescanStatusResponse>(
-    `${ApiSecPrescan.status}?run_id=${currentRunId.value}`,
-    {},
-    { immediate: false },
-  )
-  await execute()
-  if (data.value)
-    prescanStatus.value = data.value
-}
-
-// ── 缓存安全（keep-alive）──────────────────────────────────────────────
-// 本页被缓存后，切页签只触发 onDeactivated（不再触发 onUnmounted）：进行中的轮询
-// 必须在这里停掉，否则后台照跑（多开页签 = 多路轮询同时跑、把渲染拖死，见 app-main.vue）。
-// 回来时只恢复「进行中」的轮询，不重新拉取数据 —— 保留已选应用与展开状态。
-onDeactivated(() => {
-  clearPollTimer()
-})
-onActivated(() => {
-  if (polling.value)
-    startPolling()
-})
-onUnmounted(() => {
-  stopPolling()
-})
+// 006c C03：看板已无触发入口（新建扫描迁到「扫描运行」页），原先跟踪本页触发的
+// run 状态轮询（pollTimer / polling / startPolling / refreshStatus）没有任何启动点，已移除。
+// 看板只读：选应用/选 run 时一次性加载，进度跟踪在「扫描运行」页。
 
 // ===== 看板数据 =====
 const loadingDashboard = ref(false)
@@ -800,9 +736,6 @@ const aiModeLabels: Record<string, { label: string, color: string }> = {
         <a-tag v-if="prescanStatus" :color="runStatusLabels[prescanStatus.status]?.color ?? 'gray'">
           {{ runStatusLabels[prescanStatus.status]?.label ?? prescanStatus.status }}
         </a-tag>
-        <a-typography-text v-if="polling" type="secondary">
-          扫描中...
-        </a-typography-text>
       </a-space>
     </a-card>
 

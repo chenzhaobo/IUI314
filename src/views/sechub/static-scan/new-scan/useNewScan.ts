@@ -8,15 +8,20 @@
  *
  * 请求载荷与原实现逐字段一致（含空值走 undefined、JSON 序列化时整键消失的行为），见 confirmScope/triggerDirect。
  * "扫描来源"（仓库/分支/commit/规则目录/基线）在 ./useScanSource，"范围与资产"在 ./useScanTarget，这里组合并实现差量向导与触发。
+ * 006c：默认"统一扫描"（./useUnifiedScan，自动资产摘要 + 单 run 全量）；旧三种范围为"过渡期旧轨"，载荷不变。
  */
 import type { InjectionKey, UnwrapNestedRefs } from 'vue'
-import type { DeltaPlanPreview, DeltaPreviewRequest, DeltaScanMode, DiffGranularity, NewScanOpenOptions, ScanScope } from './types'
+import type { DeltaPlanPreview, DeltaPreviewRequest, DeltaScanMode, DiffGranularity, NewScanOpenOptions, ScanScope, ScanTargetType } from './types'
 import { Message } from '@arco-design/web-vue'
 import { computed, inject, ref } from 'vue'
 import { buildAutoCloseAlert, buildDeltaPreviewRows, isCommitSha } from './labels'
 import { executeDelta, previewDelta, triggerDomain, triggerFull } from './service'
 import { useScanSource } from './useScanSource'
 import { useScanTarget } from './useScanTarget'
+import { useUnifiedScan } from './useUnifiedScan'
+
+/** 过渡期旧轨的三种扫描范围（折叠项里的单选值） */
+const LEGACY_TARGETS: readonly ScanTargetType[] = ['repository', 'form', 'microservice']
 
 export interface UseNewScanOptions {
   /** 「该应用已有 N 条扫描记录」幂等提示的计数来源（运行页按其列表按 repository_id 统计） */
@@ -28,6 +33,7 @@ export interface UseNewScanOptions {
 export function useNewScan(options: UseNewScanOptions = {}) {
   const source = useScanSource()
   const target = useScanTarget()
+  const unified = useUnifiedScan()
   const { repository, branch, commit, ruleSetId, loadBranches, loadCommits, loadBaseline, resetSource } = source
   const { scanTargetType, selectedAssetIds, includeAmbiguous, isDomainTarget } = target
 
@@ -53,7 +59,9 @@ export function useNewScan(options: UseNewScanOptions = {}) {
   // ── 派生状态 ──
   /** 反编译源码库不是 Git 仓库：只能全量扫描，不读分支/commit/基线 */
   const isLocalRepository = computed(() => repository.value?.git_url.startsWith('local-test:') ?? false)
-  const isDeltaWizard = computed(() => !isDomainTarget.value && !isLocalRepository.value)
+  /** 统一扫描：默认模式；反编译源码库没有资产维度，仍走旧轨全量 */
+  const isUnified = computed(() => unified.scanMode.value === 'unified' && !isLocalRepository.value)
+  const isDeltaWizard = computed(() => !isUnified.value && !isDomainTarget.value && !isLocalRepository.value)
   const runCount = computed(() => (repository.value ? options.runCountOf?.(repository.value.repository_id) ?? 0 : 0))
   const previewRows = computed(() => (deltaPreview.value ? buildDeltaPreviewRows(deltaPreview.value, source.ruleSetLabelText.value) : []))
   const autoCloseAlert = computed(() => buildAutoCloseAlert(deltaPreview.value))
@@ -63,10 +71,34 @@ export function useNewScan(options: UseNewScanOptions = {}) {
     deltaPreview.value = null
   }
 
+  /** 选统一扫描：旧轨的范围/资产与差量计划作废 */
+  async function selectUnified() {
+    unified.scanMode.value = 'unified'
+    target.resetTarget()
+    deltaPreview.value = null
+    step.value = 0
+    await unified.ensureUnifiedPreview(repository.value?.repository_id)
+  }
+
+  /** 选过渡期旧轨的某个范围（整仓 / 表单资产 / 微服务资产）；之后与迁移前的行为逐字一致 */
+  async function selectLegacyTarget(value: unknown) {
+    const legacyTarget = LEGACY_TARGETS.find(item => item === value)
+    if (!legacyTarget)
+      return
+    unified.scanMode.value = 'legacy'
+    scanTargetType.value = legacyTarget
+    step.value = 0
+    await onScanTargetChange()
+    // 统一模式下不查差量基线（没有差量向导）；切到整仓旧轨时补查
+    if (isDeltaWizard.value)
+      await loadBaseline()
+  }
+
   // ── 打开 / 复位 ──
   function resetState() {
     resetSource()
     target.resetTarget()
+    unified.resetUnified()
     lockedRepositoryId.value = ''
     scanScope.value = 'diff_last'
     deltaPreview.value = null
@@ -79,6 +111,8 @@ export function useNewScan(options: UseNewScanOptions = {}) {
   /** 仓库确定后加载分支/commit/基线/资产。这些都要看仓库类型（本地仓没有 Git 维度），不能与复位同批 */
   async function loadForRepository(assetIds?: string[]) {
     deltaScanMode.value = isLocalRepository.value ? 'full_baseline' : 'auto_delta'
+    if (isUnified.value)
+      await unified.loadUnifiedPreview(repository.value?.repository_id)
     if (isDomainTarget.value) {
       await target.loadDomainAssets(repository.value?.repository_id)
       if (assetIds?.length)
@@ -105,8 +139,11 @@ export function useNewScan(options: UseNewScanOptions = {}) {
     // 树选中仓库后打开（lockRepository）时锁死选择；仓库不在列表里则不锁，退回可自由选择
     if (opts.lockRepository && hit)
       lockedRepositoryId.value = hit.repository_id
-    if (opts.scanTargetType)
+    if (opts.scanTargetType) {
+      // 资产详情「发起专项扫描」指定了表单/微服务范围：走过渡期旧轨（带预选资产）
+      unified.scanMode.value = 'legacy'
       scanTargetType.value = opts.scanTargetType
+    }
     // 规则目录选项懒加载；失败不阻断弹窗，留空仍走平台默认
     await source.ensureRuleSets()
     await loadForRepository(opts.assetIds)
@@ -173,6 +210,10 @@ export function useNewScan(options: UseNewScanOptions = {}) {
     const repo = repository.value
     if (!repo)
       return
+    if (isUnified.value) {
+      await submitUnified()
+      return
+    }
     if (isDomainTarget.value || isLocalRepository.value) {
       executingDelta.value = true
       try {
@@ -239,6 +280,16 @@ export function useNewScan(options: UseNewScanOptions = {}) {
     await confirmScope(true)
   }
 
+  /** 统一扫描提交：预览阻断时不发请求（按钮已禁用，这里兜底） */
+  async function submitUnified() {
+    const repo = repository.value
+    if (!repo || !unified.unifiedCanSubmit.value)
+      return
+    const result = await unified.submitUnifiedTrigger(repo.repository_id, ruleSetId.value)
+    if (result)
+      await acceptCreated(result.run_id, `已启动统一扫描（表单资产 ${result.assets.form} / 微服务资产 ${result.assets.microservice}）`)
+  }
+
   /** 按冻结计划启动扫描 */
   async function executePreview() {
     const preview = deltaPreview.value
@@ -261,6 +312,12 @@ export function useNewScan(options: UseNewScanOptions = {}) {
     ...source,
     // 扫描范围与资产
     ...target,
+    // 统一扫描（默认）
+    ...unified,
+    isUnified,
+    selectUnified,
+    selectLegacyTarget,
+    submitUnified,
     // 弹窗与差量向导
     visible,
     open,

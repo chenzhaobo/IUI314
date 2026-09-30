@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 新建扫描弹窗（壳）：仓库选择 + 两步向导的步骤切换与底部动作。
+ * 新建扫描弹窗（壳）：仓库选择 + 扫描方式（默认统一扫描；过渡期旧轨两步向导）的切换与底部动作。
  *
  * 状态机在 useNewScan（组合式函数），范围/资产与冻结计划预览拆给两个步骤组件，
  * 三者通过 provide/inject 共享同一份 reactive 状态（避免几十个 prop 来回透传）。
@@ -68,7 +68,16 @@ defineExpose({ open: ctx.open })
           取消
         </a-button>
         <a-button
-          v-if="ctx.isDomainTarget || ctx.isLocalRepository"
+          v-if="ctx.isUnified"
+          type="primary"
+          :loading="ctx.triggeringUnified"
+          :disabled="!ctx.unifiedCanSubmit"
+          @click="ctx.submitUnified"
+        >
+          开始统一扫描
+        </a-button>
+        <a-button
+          v-else-if="ctx.isDomainTarget || ctx.isLocalRepository"
           type="primary"
           :loading="ctx.executingDelta"
           :disabled="ctx.isDomainTarget && ctx.selectedAssetIds.length === 0"

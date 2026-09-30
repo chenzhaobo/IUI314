@@ -5,8 +5,39 @@
  * 状态机在 ./useNewScan 与 ./useAiConfirm（View → Composable → Service → Api）。
  */
 
-/** 扫描范围：整仓 / 表单资产 / 微服务资产（三条触发路径） */
+/** 扫描范围：整仓 / 表单资产 / 微服务资产（过渡期旧轨的三条触发路径） */
 export type ScanTargetType = 'repository' | 'form' | 'microservice'
+
+/**
+ * 扫描方式（006）：unified = 统一扫描（默认；整仓全量 + 自动选取全部在用表单/微服务资产，单 run）；
+ * legacy = 过渡期旧轨（上面三种 ScanTargetType，验收通过后下线）。
+ */
+export type ScanMode = 'unified' | 'legacy'
+
+/** 统一扫描触发请求体（POST /sechub/prescan/unified-trigger） */
+export interface UnifiedTriggerRequest {
+  repository_id: string
+  rule_set_id?: string
+  force: boolean
+}
+
+/** 统一扫描触发响应 */
+export interface UnifiedTriggerResponse {
+  run_id: string
+  status: string
+  idempotent: boolean
+  /** 自动选中的资产数 */
+  assets: { form: number, microservice: number }
+}
+
+/** 统一扫描预览（GET /sechub/prescan/unified-preview）：blocked_reason 非空时不可提交 */
+export interface UnifiedPreview {
+  form_assets: number
+  microservice_assets: number
+  form_sync_run_id?: string | null
+  microservice_sync_run_id?: string | null
+  blocked_reason?: string | null
+}
 
 /** 差量向导的扫描策略（原样透传给后端 requested_delta_kind） */
 export type DeltaScanMode
