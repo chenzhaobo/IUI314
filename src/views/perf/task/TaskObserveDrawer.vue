@@ -1,11 +1,11 @@
 <script lang="ts" setup>
 /**
- * 批次观测抽屉：资源视角（曲线 + 排行 + 取证）/ 复跑结论（裁决表）。
+ * 批次观测抽屉：资源视角（曲线 + 排行 + 取证）/ 复跑结论（裁决表）/ 诊断（101i 共享卡片）。
  *
  * 顶部常驻 `observe_state` 标签；`env_suspect` 时红色横幅给出原因与「继续复跑」。
- * 诊断页签（101i）不在本段范围。
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import DiagnosisPanel from '../components/DiagnosisPanel.vue'
 import TaskRerunDecision from './TaskRerunDecision.vue'
 import TaskResourceView from './TaskResourceView.vue'
 import { observeStateText } from './types'
@@ -40,6 +40,7 @@ const {
 } = useTaskObserve(taskId, visible)
 
 const stateText = computed(() => observeStateText(observeState.value))
+const activeTab = ref('resource')
 </script>
 
 <template>
@@ -72,7 +73,7 @@ const stateText = computed(() => observeStateText(observeState.value))
         </a-button>
       </a-alert>
 
-      <a-tabs>
+      <a-tabs v-model:active-key="activeTab">
         <a-tab-pane key="resource" title="资源视角">
           <TaskResourceView
             v-model:keyword="keyword"
@@ -90,6 +91,9 @@ const stateText = computed(() => observeStateText(observeState.value))
         </a-tab-pane>
         <a-tab-pane key="rerun" title="复跑结论">
           <TaskRerunDecision :view="rerun" />
+        </a-tab-pane>
+        <a-tab-pane key="diagnosis" title="诊断">
+          <DiagnosisPanel v-if="activeTab === 'diagnosis'" scope="task" :scope-id="taskId" />
         </a-tab-pane>
       </a-tabs>
     </a-spin>

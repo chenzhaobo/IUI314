@@ -1,12 +1,11 @@
 /**
- * @description: 性能观测 API（101e：run/批次资源视图、指标模板、摸底压测、复跑台账）
+ * @description: 性能观测 API（101e：资源视图、指标模板、摸底压测、复跑台账、火焰图、诊断）
  *
  * 与 perfApis.ts（脚本/任务/报告/比对）分开：这一组是 `/perf/observe/*` 下的新接口。
  *
- * 契约以已合入后端 `ttp-ro-be-aac3@aac3cac6` 的
- * `api/src/perf/observe.rs` + `service/src/perf/observe/{query,rerun,probe}.rs` 为准。
- * 其中 **火焰图与诊断（101h/101i）尚未合入**，本文件只留「取证跑」入口，
- * 见文件末尾注释。
+ * 契约以已合入后端 `ttp-ro-be-final@dbf4f25d` 的
+ * `api/src/perf/observe.rs` + `service/src/perf/observe/{query,rerun,probe,flame,diagnosis,diagnosis_ai}.rs`
+ * 为准（101h 火焰图、101i 诊断均已合入并核对）。
  */
 
 // ── run 观测视图（query.rs）─────────────────────────
@@ -42,14 +41,30 @@ export enum ApiPerfObserveProbe {
   override = '/perf/observe/probe/override',
 }
 
-// ── 取证跑（101h，待后端落地核对）───────────────────
-/**
- * `POST /perf/observe/evidence` 在 `aac3cac6` 中**不存在**（101h-be 未合入）。
- * 请求体按 spec R13 / plan §4.6 取最小集：`run_id`（取证对象）+ `event`
- * （cpu / alloc / lock / wall / itimer，基准回归取证默认 wall）。
- * 响应按同组其余"发起类"接口口径取 `string`（新 run id 或提示语）。
- * 后端落地后需核对：路径、事件枚举、返回体。
- */
+// ── 火焰图（101h，flame.rs）─────────────────────────
+export enum ApiPerfObserveFlame {
+  /** GET ?run_id= → FlameVo[]（台账，时间序） */
+  list = '/perf/observe/flame/list',
+  /** GET ?id= → 火焰图 HTML 原文（需 Authorization；text/html + CSP sandbox） */
+  html = '/perf/observe/flame/html',
+  /** GET ?id=&n=20 → TopRow[]（self/total 占比，%） */
+  top = '/perf/observe/flame/top',
+  /** GET ?base=&cur=&n=30 → DiffRow[]；任一不可差分返回 400 并说明 */
+  diff = '/perf/observe/flame/diff',
+}
+
+// ── 资源四步诊断（101i，diagnosis.rs / diagnosis_ai.rs）─────
+export enum ApiPerfObserveDiagnosis {
+  /** GET ?scope=&scope_id= → perf_run_diagnosis 行（四步固定顺序） */
+  list = '/perf/observe/diagnosis/list',
+  /** POST {diagnosis_id} → ToIssueResult（仅 hit 可转，同指纹未关闭缺陷直接关联） */
+  toIssue = '/perf/observe/diagnosis/to-issue',
+  /** POST {scope, scope_id} → InterpretResult（结果存 perf_analysis_report，返回 report_id） */
+  ai = '/perf/observe/diagnosis/ai',
+}
+
+// ── 取证跑（101h，flame.rs start_evidence）──────────
 export enum ApiPerfObserveEvidence {
+  /** POST {run_id, event?} → 新 run_id（Res<String>）；采样-执行-归档在 job 里串行 */
   create = '/perf/observe/evidence',
 }

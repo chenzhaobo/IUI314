@@ -1,13 +1,13 @@
 /**
  * 批次观测抽屉的 DTO 与展示口径。
  *
- * 后端契约（已合入 `ttp-ro-be-aac3@aac3cac6`）：
+ * 后端契约（已合入 `ttp-ro-be-final@dbf4f25d`）：
  * `service/src/perf/observe/query.rs` 的 `TaskResourceView`（`runs` / `series` / `windows`）
- * 与 `service/src/perf/observe/rerun.rs` 的 `TaskRerunView`。
+ * 与 `service/src/perf/observe/rerun.rs` 的 `TaskRerunView`；
+ * 取证跑见文件末尾（`flame.rs::start_evidence`，已核对）。
  *
  * `WorkloadRankRow` 的取值有两层「无」：**键缺失** = 该 run 没有这一行指标；
  * **键值为 null** = 有指标行但值为 NULL。前端统一按「无数据」展示。
- * 取证跑接口见文件末尾（101h 未合入）。
  */
 
 /** 排行行里的一个 workload */
@@ -171,15 +171,16 @@ export function toMs(value?: string | null): number | null {
   return Number.isNaN(ms) ? null : ms
 }
 
-/** 取证事件（spec R13.2；基准回归取证默认 wall） */
+/** 取证事件（后端 `FLAME_EVENTS` 全集；基准回归取证默认 wall） */
 export const EVIDENCE_EVENTS = [
   { label: 'wall（墙钟，基准回归默认）', value: 'wall' },
   { label: 'cpu', value: 'cpu' },
   { label: 'alloc', value: 'alloc' },
   { label: 'lock', value: 'lock' },
+  { label: 'itimer', value: 'itimer' },
 ]
 
-/** 取证跑请求体（101h，待后端落地核对：字段按 spec R13 / plan §4.6 取最小集） */
+/** 取证跑请求体（后端 `EvidenceReq`：event 缺省 wall，非法值报错） */
 export interface EvidenceRunPayload {
   run_id: string
   event: string
