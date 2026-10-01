@@ -1,7 +1,7 @@
 /**
  * 报告页「资源数据」页签的 DTO 与展示口径。
  *
- * 后端契约（已合入 `ttp-ro-be-aac3@aac3cac6`）：
+ * 后端契约（已合入 `ttp-ro-be-final@dbf4f25d`）：
  * `service/src/perf/observe/query.rs` 的 `RunMetricsView` / `SnapshotView`
  * 与实体 `perf_run_metric` / `perf_txn_resource` / `perf_env_snapshot` / `perf_hw_profile`。
  */

@@ -24,8 +24,9 @@ export function resumeTaskRerun(taskId: string): Promise<string | null> {
 }
 
 /**
- * 对单个 run 发起取证跑（101h，**待后端落地核对**）。
- * 后端 `aac3cac6` 无此路由；返回体按同组"发起类"接口口径取 string。
+ * 对单个 run 发起取证跑（后端 `flame.rs::start_evidence`，已核对）。
+ * 返回新 run_id（克隆原 run，run_mode=evidence / compare_role=aux，数值不参与基线比对）；
+ * 采样-执行-归档在 job 里串行进行。
  */
 export function createEvidenceRun(payload: EvidenceRunPayload): Promise<string | null> {
   return postAction<string>(ApiPerfObserveEvidence.create, payload)

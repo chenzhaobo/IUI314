@@ -114,7 +114,7 @@ export function useTaskObserve(taskId: Ref<string>, visible: Ref<boolean>) {
     highlightRow(record)
   }
 
-  // ── 取证跑（101h，待后端落地核对）───────────────
+  // ── 取证跑（101h，接口已核对）────────────────────
   const evidenceEvent = ref('wall')
   const evidenceSubmitting = ref(false)
 

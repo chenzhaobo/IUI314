@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { formatTime, getAction, useGet, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
 import { ApiPerfReport, ApiPerfScript, ApiPerfIteration, ApiPerfRun } from '@/api/apis'
+import ProfileTab from './report/ProfileTab.vue'
 import ResourceTab from './report/ResourceTab.vue'
 
 // 组件名必须与路由 name（= sys_menu.path 'report'）逐字一致，keep-alive :include 才能缓存本页
@@ -307,6 +308,13 @@ async function handleDownloadJmx(record: any) {
       <a-tab-pane key="resource" title="资源数据">
         <a-card :bordered="false">
           <ResourceTab v-if="activeTab === 'resource'" :run-id="detailRunId" />
+        </a-card>
+      </a-tab-pane>
+
+      <!-- 性能剖析（101e-fe2）：按当前明细的 run_id 取火焰图台账与差分 -->
+      <a-tab-pane key="profile" title="性能剖析">
+        <a-card :bordered="false">
+          <ProfileTab v-if="activeTab === 'profile'" :run-id="detailRunId" />
         </a-card>
       </a-tab-pane>
     </a-tabs>
