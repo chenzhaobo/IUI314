@@ -465,6 +465,10 @@ export interface RuleSet {
   blockers: ReadinessBlocker[]
   /** 20261008 E：是否为平台默认目录（perf_config 配置）；旧后端不返回 */
   is_default?: boolean
+  /** 能否直接用于发起扫描（运行时快照校验） */
+  runnable?: boolean
+  /** runnable=false 时的原因 */
+  runnable_reason?: string | null
 }
 
 export interface Finding {

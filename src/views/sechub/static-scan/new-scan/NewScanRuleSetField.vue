@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 规则目录下拉（契约 E）：`名称 · 安全+性能 · N 条规则`，默认目录带「默认」标签；
- * complete_scan_ready=false 的目录置灰并在悬浮里给出 blockers。留空 = 默认目录（名称取后端）。
+ * 不能用于扫描（runnable=false）的目录置灰并在悬浮里给出原因。留空 = 默认目录（名称取后端）。
  */
 import { ruleSetBlockersText, ruleSetLabel, ruleSetSelectable } from './labels'
 import { useNewScanContext } from './useNewScan'

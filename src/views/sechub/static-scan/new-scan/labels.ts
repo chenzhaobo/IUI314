@@ -44,15 +44,17 @@ export function ruleSetLabel(item: RuleSet): string {
   return `${item.name} · ${ruleSetDomainsText(item)} · ${item.item_count ?? 0} 条规则`
 }
 
-/** 目录不可用于完整扫描的原因（悬浮提示用）；后端没给 blockers 时给通用说明 */
+/** 目录不可用于扫描的原因（悬浮提示用，取后端运行时校验结果） */
 export function ruleSetBlockersText(item: RuleSet): string {
-  const messages = (item.blockers ?? []).map(blocker => blocker.message || blocker.code).filter(Boolean)
-  return messages.length ? `不可用：${messages.join('；')}` : '不可用：该目录不满足完整扫描条件'
+  return `不可用：${item.runnable_reason || '该目录未通过运行时校验'}`
 }
 
-/** 规则目录是否可选（complete_scan_ready 显式 false 才禁用；旧后端缺字段时放行） */
+/**
+ * 规则目录是否可选：以后端 runnable（与触发时的运行时快照校验同一口径）为准；
+ * complete_scan_ready 是更严格的治理就绪度，不作为选择闸门。旧后端缺字段时放行。
+ */
 export function ruleSetSelectable(item: RuleSet): boolean {
-  return item.complete_scan_ready !== false
+  return item.runnable !== false
 }
 
 /**
