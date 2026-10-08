@@ -6,6 +6,7 @@
  * useAiConfirmOptions 的表单/选项）。
  */
 import { computed, reactive } from 'vue'
+import AiConfirmScopeField from './AiConfirmScopeField.vue'
 import { useBatchAiConfirm } from './useBatchAiConfirm'
 
 const emit = defineEmits<{ submitted: [] }>()
@@ -47,6 +48,7 @@ defineExpose({ open: batch.open })
           </a-tag>
         </div>
       </a-form-item>
+      <AiConfirmScopeField v-model="batch.scope" :options="batch.scopeOptions" :loading="batch.loadingScanPoints" :disabled="batch.submitting" batch />
       <a-form-item label="确认模式">
         <a-radio-group v-model="batch.mode" type="button" :disabled="batch.submitting">
           <a-radio value="batch">
@@ -83,11 +85,11 @@ defineExpose({ open: batch.open })
     <!-- 提交进度与逐行结果（批量入口不跟踪队列进度，完成情况看这一块） -->
     <div v-if="batch.results.length" class="batch-results">
       <div class="batch-summary">
-        已提交 {{ batch.doneCount }}/{{ batch.targets.length }} · 成功 {{ batch.okCount }} · 失败 {{ batch.failCount }}
+        已提交 {{ batch.doneCount }}/{{ batch.targets.length }} · 成功 {{ batch.okCount }} · 失败 {{ batch.failCount }}{{ batch.skippedCount ? ` · 跳过 ${batch.skippedCount}` : '' }}
       </div>
       <div v-for="item in batch.results" :key="item.run_id" class="batch-result-row">
-        <a-tag :color="item.ok ? 'green' : 'red'" size="small">
-          {{ item.ok ? '成功' : '失败' }}
+        <a-tag :color="item.skipped ? 'gray' : item.ok ? 'green' : 'red'" size="small">
+          {{ item.skipped ? '跳过' : item.ok ? '成功' : '失败' }}
         </a-tag>
         <span class="batch-result-label">{{ item.label }}</span>
         <span class="batch-result-msg" :title="item.message">{{ item.message }}</span>

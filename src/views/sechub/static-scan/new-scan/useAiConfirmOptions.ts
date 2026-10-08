@@ -8,6 +8,7 @@ import type { AiConfirmBody } from './types'
 import type { AiAgent, AiSkill } from '@/api/aiApis'
 import { computed, ref } from 'vue'
 import { fetchAgents, fetchSkills } from './service'
+import { AI_CONFIRM_SCOPE_ALL } from './useRunScanPoints'
 
 /** 批量确认的默认模型（任务约定：弹窗默认 DeepSeek-Flash，'' = Agent 默认模型） */
 export const DEFAULT_BATCH_MODEL = 'DeepSeek-Flash'
@@ -28,6 +29,8 @@ export function useAiConfirmOptions() {
   const model = ref('')
   const agentCode = ref('')
   const skillCode = ref('')
+  /** 确认范围：'all' 或某个 scan_point_id（选项见 ./useRunScanPoints） */
+  const scope = ref<string>(AI_CONFIRM_SCOPE_ALL)
 
   const agentList = ref<AiAgent[]>([])
   const agentLoading = ref(false)
@@ -85,7 +88,7 @@ export function useAiConfirmOptions() {
 
   /** 组装确认请求体（空值不发送，由后端按默认处理） */
   function buildBody(runId: string): AiConfirmBody {
-    const body: AiConfirmBody = { run_id: runId, scope: 'all', mode: mode.value }
+    const body: AiConfirmBody = { run_id: runId, scope: scope.value || AI_CONFIRM_SCOPE_ALL, mode: mode.value }
     if (model.value)
       body.model = model.value
     if (agentCode.value)
@@ -100,6 +103,7 @@ export function useAiConfirmOptions() {
     model,
     agentCode,
     skillCode,
+    scope,
     agentList,
     agentLoading,
     skillList,

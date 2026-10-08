@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// 扫描策略的「?」帮助：怎么选、怎么用、第一次怎么用。
-// 放在 label 里共用，避免预扫描向导与扫描任务两处文案各写各的、时间一长就漂移。
+/**
+ * 「扫描策略」旁的问号提示：说明各差量策略怎么选（扫描任务页的表单在用）。
+ */
 </script>
 
 <template>
@@ -27,23 +28,8 @@
 </template>
 
 <style scoped>
-.scan-mode-tip-icon {
-  margin-left: 4px;
-  color: var(--color-text-3);
-  cursor: help;
-}
-/* a-tooltip 默认不换行，长说明要显式给宽度与行距 */
-.scan-mode-tip {
-  max-width: 420px;
-  line-height: 1.7;
-  white-space: normal;
-}
-.scan-mode-tip-title {
-  margin-bottom: 4px;
-  font-weight: 600;
-}
-.scan-mode-tip-note {
-  margin-top: 6px;
-  color: var(--color-text-3);
-}
+.scan-mode-tip-icon { margin-left: 4px; color: var(--color-text-3); cursor: help; }
+.scan-mode-tip { max-width: 420px; line-height: 1.7; white-space: normal; }
+.scan-mode-tip-title { margin-bottom: 4px; font-weight: 600; }
+.scan-mode-tip-note { margin-top: 6px; color: var(--color-text-3); }
 </style>

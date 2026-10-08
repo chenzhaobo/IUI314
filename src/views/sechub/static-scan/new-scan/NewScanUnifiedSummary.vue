@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 统一扫描的自动资产摘要（006c C01）：展示 unified-preview 自动选中的表单/微服务资产数，
+ * 统一扫描的自动资产摘要：展示 unified-preview 自动选中的表单/微服务资产数，
  * 阻断原因非空时给出说明（提交按钮由弹窗底部按 unifiedCanSubmit 禁用）。
  */
 import { useNewScanContext } from './useNewScan'
@@ -19,7 +19,7 @@ const ctx = useNewScanContext()
         <a-tag color="purple" size="small">
           微服务资产 {{ ctx.unifiedPreview.microservice_assets }}
         </a-tag>
-        <span class="unified-meta">整仓全量 + 全部在用资产，一次扫描一个 run；本期不支持差量</span>
+        <span class="unified-meta">全部在用资产 + 全仓文件，一次扫描一个 run</span>
       </template>
       <span v-else class="unified-meta">未取到自动资产摘要（接口失败时不可提交，可稍后重新打开弹窗）</span>
     </div>

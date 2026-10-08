@@ -12,6 +12,7 @@ import { ApiSysUser } from '@/api/sysApis'
 import { downloadText, formatTime, getAction, useAutoHeight, useDicts, useDownload, useGet, usePost, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
 import { useUserStore } from '@/stores'
 import IssueScopeTree from './components/IssueScopeTree.vue'
+import IssueDetectionsPanel from './defects/IssueDetectionsPanel.vue'
 import { canConfirmRepro, DEFAULT_EXCLUDE_STATUS, ISSUE_SOURCE_OPTIONS, issueSourceLabel, REPRO_STATUS_LABELS } from './defects/issueStates'
 import { useConfirmRepro } from './defects/useConfirmRepro'
 import 'md-editor-v3/lib/style.css'
@@ -1103,8 +1104,11 @@ const verifyVerdictLabels: Record<string, { label: string, color: string }> = {
 // ===== 查看报告（MdPreview 抽屉）=====
 const reportVisible = ref(false)
 const reportRow = ref<ScanIssueRow | null>(null)
+/** 报告弹窗的页签：主报告 / 检出记录（每次打开回到主报告） */
+const reportTab = ref<string | number>('main')
 function viewReport(row: ScanIssueRow) {
   reportRow.value = row
+  reportTab.value = 'main'
   reportVisible.value = true
 }
 
@@ -1928,17 +1932,25 @@ function shortSha(sha: string | null | undefined): string {
             <span v-else>-</span>
           </a-descriptions-item>
         </a-descriptions>
-        <!-- 下载原始 md：内容已在前端手里，本地存盘即可，不必再走后端 -->
-        <div v-if="reportRow?.ai_detail_report" class="report-toolbar">
-          <a-button size="small" @click="downloadReport">
-            <template #icon>
-              <icon-download />
-            </template>
-            下载 md
-          </a-button>
-        </div>
-        <MdPreview v-if="reportRow?.ai_detail_report" :model-value="reportRow.ai_detail_report" />
-        <a-empty v-else description="暂无详细报告" />
+        <!-- 契约 A：主报告 = 代表检出的报告；「检出记录」列出该缺陷历次全部检出，可切换查看各自报告 -->
+        <a-tabs v-model:active-key="reportTab" lazy-load>
+          <a-tab-pane key="main" title="主报告">
+            <!-- 下载原始 md：内容已在前端手里，本地存盘即可，不必再走后端 -->
+            <div v-if="reportRow?.ai_detail_report" class="report-toolbar">
+              <a-button size="small" @click="downloadReport">
+                <template #icon>
+                  <icon-download />
+                </template>
+                下载 md
+              </a-button>
+            </div>
+            <MdPreview v-if="reportRow?.ai_detail_report" :model-value="reportRow.ai_detail_report" />
+            <a-empty v-else description="暂无详细报告" />
+          </a-tab-pane>
+          <a-tab-pane key="detections" title="检出记录">
+            <IssueDetectionsPanel v-if="reportRow" :issue-id="reportRow.id" />
+          </a-tab-pane>
+        </a-tabs>
       </a-modal>
     </div>
     <!-- 重新验证弹窗：选分支/commit/Agent/模型，提交后由后台 AI 复核 -->

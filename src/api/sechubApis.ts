@@ -258,8 +258,12 @@ export enum ApiSecPrescan {
   domainTrigger = '/sechub/prescan/domain-trigger',
   /** 006 统一扫描：一个仓库一次触发（自动选取该仓全部在用表单/微服务资产） */
   unifiedTrigger = '/sechub/prescan/unified-trigger',
-  /** 006 统一扫描：新建弹窗的自动资产摘要（blocked_reason 非空时不可提交） */
+  /** 006 统一扫描：新建弹窗的自动资产摘要（blocked_reason 非空时不可提交）；20261008 D 增加基线/目标 commit */
   unifiedPreview = '/sechub/prescan/unified-preview',
+  /** 20261008 C：规则目录的 域 → 分类 → 扫描点 → 规则 树（rule_set_id 空 = 默认目录），统一扫描选规则用 */
+  ruleSetTree = '/sechub/prescan/rule-set-tree',
+  /** 20261008 A：某缺陷的全部检出记录（按检出时间倒序） */
+  issueDetections = '/sechub/prescan/issue-detections',
   deltaPreview = '/sechub/static-prescan/delta/preview',
   deltaPlan = '/sechub/static-prescan/delta/{plan_id}',
   deltaExecute = '/sechub/static-prescan/delta/{plan_id}/execute',

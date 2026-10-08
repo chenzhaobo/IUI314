@@ -463,6 +463,8 @@ export interface RuleSet {
   required_item_count: number
   complete_scan_ready: boolean
   blockers: ReadinessBlocker[]
+  /** 20261008 E：是否为平台默认目录（perf_config 配置）；旧后端不返回 */
+  is_default?: boolean
 }
 
 export interface Finding {
@@ -1183,6 +1185,10 @@ export interface CrossRunAggRow {
   target_type?: string | null
   /** 006：判定生命周期（null = 历史 run；pending/judging/finalized/finalize_failed） */
   confirm_state?: string | null
+  /** 20261008 C/D：扫描方式 full / partial / incremental（历史 run 为空，不展示） */
+  scan_scope?: string | null
+  /** 20261008 C：部分扫描实际执行的规则数 */
+  rule_count?: number | null
 }
 
 // ── 仓库 Commit 相关类型 ────────────────────────────

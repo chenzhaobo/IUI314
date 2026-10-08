@@ -8,15 +8,13 @@
 import { onMounted } from 'vue'
 import ListPage from '@/components/common/ListPage.vue'
 import {
-  WAIVER_PATH_GLOB_PLACEHOLDER,
-  WAIVER_SCOPE_KIND_OPTIONS,
   WAIVER_STATUS_COLORS,
   WAIVER_STATUS_OPTIONS,
-  WAIVER_TYPE_OPTIONS,
   waiverScopeText,
   waiverStatusLabel,
 } from './waivers/types'
 import { useWaivers } from './waivers/useWaivers'
+import WaiverCreateModal from './waivers/WaiverCreateModal.vue'
 
 // 组件名必须与路由 name（= sys_menu.path 'waivers'）逐字一致，keep-alive :include 才能缓存本页
 // （见 components/layout/app-main.vue 注释）。lint 的 PascalCase 提示只是警告，改名却会让页签缓存失效。
@@ -124,16 +122,25 @@ onMounted(() => {
           :loading="loading"
           :pagination="pagination"
           row-key="id"
-          :scroll="{ minWidth: 1320, y: tableHeight }"
+          :scroll="{ minWidth: 1480, y: tableHeight }"
           @page-change="onPageChange"
           @page-size-change="onPageSizeChange"
         >
           <template #columns>
             <a-table-column title="规则代码" data-index="rule_code" :width="140" ellipsis tooltip />
             <!-- 004 契约：白名单分层（范围排除/规则×范围豁免/单问题/规则豁免）；历史行只有 path_pattern -->
-            <a-table-column title="类型/范围" data-index="waiver_type" :width="200" ellipsis tooltip>
+            <a-table-column title="类型/范围" data-index="waiver_type" :width="240" ellipsis tooltip>
               <template #cell="{ record }">
                 {{ waiverScopeText(record) }}
+              </template>
+            </a-table-column>
+            <!-- 20261008 B：单条豁免绑定的缺陷（回写时按缺陷归属生效）；未绑定显示 — -->
+            <a-table-column title="绑定缺陷" data-index="issue_id" :width="120">
+              <template #cell="{ record }">
+                <a-tooltip v-if="record.issue_id" :content="record.issue_id" mini>
+                  <span class="font-mono">{{ String(record.issue_id).slice(0, 8) }}</span>
+                </a-tooltip>
+                <span v-else class="card-sub" style="margin-left: 0">—</span>
               </template>
             </a-table-column>
             <a-table-column title="原因" data-index="reason" :width="200" ellipsis tooltip />
@@ -166,62 +173,15 @@ onMounted(() => {
     </ListPage>
 
     <!-- 创建申请弹窗 -->
-    <a-modal v-model:visible="formVisible" title="新建白名单申请" :ok-loading="formLoading" @ok="submitForm">
-      <a-form :model="formData" layout="vertical">
-        <a-form-item label="白名单类型">
-          <a-select v-model="formData.waiver_type" :options="WAIVER_TYPE_OPTIONS" placeholder="不选则由规则版本/路径推断" allow-clear />
-        </a-form-item>
-        <a-form-item label="规则版本ID" required>
-          <a-input v-model="formData.rule_version_id" placeholder="规则版本 ID（范围排除可留空）" data-testid="form-rule-version" />
-        </a-form-item>
-        <a-form-item label="规则代码">
-          <a-input v-model="formData.rule_code" placeholder="如: SEC-001" />
-        </a-form-item>
-        <a-form-item label="豁免范围维度">
-          <a-select
-            v-model="formData.scope_kind"
-            :options="WAIVER_SCOPE_KIND_OPTIONS"
-            placeholder="可选；选了才发送 scope_kind"
-            allow-clear
-            @change="onScopeKindChange"
-          />
-        </a-form-item>
-        <a-form-item label="范围值">
-          <!-- 枚举维度走下拉，path_glob 走自由输入的 glob；顺序由 scopeValueOptions 决定，模板不猜 -->
-          <a-select
-            v-if="scopeValueOptions.length"
-            v-model="formData.scope_value"
-            :options="scopeValueOptions"
-            placeholder="选择范围值"
-            allow-clear
-          />
-          <a-input
-            v-else
-            v-model="formData.scope_value"
-            :disabled="!formData.scope_kind"
-            :placeholder="formData.scope_kind ? WAIVER_PATH_GLOB_PLACEHOLDER : '先选豁免范围维度'"
-          />
-        </a-form-item>
-        <a-form-item label="项目组">
-          <a-select v-model="formData.project_group_id" :options="pgOptions" placeholder="可选，空=全局" allow-clear />
-        </a-form-item>
-        <a-form-item label="模块仓库ID">
-          <a-input v-model="formData.module_repository_id" placeholder="可选" />
-        </a-form-item>
-        <a-form-item label="路径模式">
-          <a-input v-model="formData.path_pattern" :placeholder="WAIVER_PATH_GLOB_PLACEHOLDER" />
-        </a-form-item>
-        <a-form-item label="原因说明" required>
-          <a-textarea v-model="formData.reason" placeholder="申请白名单的原因" data-testid="form-reason" />
-        </a-form-item>
-        <a-form-item label="影响说明">
-          <a-textarea v-model="formData.impact" placeholder="可选" />
-        </a-form-item>
-        <a-form-item label="过期时间">
-          <a-date-picker v-model="formData.effective_to" show-time value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" />
-        </a-form-item>
-      </a-form>
-    </a-modal>
+    <WaiverCreateModal
+      v-model:visible="formVisible"
+      v-model:form="formData"
+      :loading="formLoading"
+      :pg-options="pgOptions"
+      :scope-value-options="scopeValueOptions"
+      @submit="submitForm"
+      @scope-kind-change="onScopeKindChange"
+    />
 
     <!-- 审批弹窗 -->
     <a-modal v-model:visible="approveVisible" title="白名单审批" :ok-loading="approveLoading" @ok="submitApprove">
@@ -229,6 +189,9 @@ onMounted(() => {
         <a-form-item label="审批对象">
           <span class="approve-target">{{ currentRow?.rule_code || currentRow?.rule_version_id || currentRow?.id }}</span>
           <span class="card-sub">{{ currentRow ? waiverScopeText(currentRow) : '' }}</span>
+        </a-form-item>
+        <a-form-item v-if="currentRow?.issue_id" label="绑定缺陷">
+          <span class="approve-target font-mono">{{ currentRow.issue_id }}</span>
         </a-form-item>
         <a-form-item label="审批决定" required>
           <a-radio-group v-model="approveForm.approved" data-testid="approve-radio">

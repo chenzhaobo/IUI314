@@ -124,6 +124,10 @@ export interface WaiverRow {
   scope_value?: string | null
   /** 问题级豁免关联的问题哈希 */
   fingerprint?: string | null
+  /** 20261008 B：单条豁免绑定的缺陷（issue_exempt 创建时写入；存量行由迁移回填，回填不出为空） */
+  issue_id?: string | null
+  /** 20261008 B：方法名范围（glob，匹配候选 method_name，形如 Class#method 或 method）；空 = 不限方法 */
+  method_pattern?: string | null
   created_at?: string | null
   updated_at?: string | null
 }
@@ -187,7 +191,7 @@ export function waiverRuleTitle(row: WaiverRuleStatRow): string {
   return row.rule_version_id || '全规则 / 未关联规则版本'
 }
 
-/** 列表「类型/范围」列：类型 + 范围维度/值；历史行退回 path_pattern；都没有给「—」 */
+/** 列表「类型/范围」列：类型 + 范围维度/值 + 方法名范围；历史行退回 path_pattern；都没有给「—」 */
 export function waiverScopeText(row: WaiverRow): string {
   const parts: string[] = []
   if (row.waiver_type)
@@ -199,7 +203,21 @@ export function waiverScopeText(row: WaiverRow): string {
   else if (row.path_pattern) {
     parts.push(`路径：${row.path_pattern}`)
   }
+  if (row.method_pattern)
+    parts.push(`方法：${row.method_pattern}`)
   return parts.length ? parts.join(' · ') : '—'
+}
+
+/** 方法名范围的输入提示（glob，匹配候选 method_name） */
+export const WAIVER_METHOD_PATTERN_PLACEHOLDER = 'Class#method 或 method'
+
+/**
+ * 该类型是否支持方法名范围（契约 B：规则/路径豁免可选）。
+ * 单问题误报按缺陷归属生效、范围排除在检出前生效（还没有候选方法名），两者都不适用；
+ * 未选类型（后端按字段推断）时放开，由后端校验。
+ */
+export function waiverSupportsMethodPattern(waiverType: string): boolean {
+  return waiverType !== 'issue_exempt' && waiverType !== 'scope_exclude'
 }
 
 /**
@@ -222,6 +240,8 @@ export interface WaiverForm {
   scope_kind: string
   /** 范围值：path_glob 自由输入 / code_role、entry_kind 下拉枚举 */
   scope_value: string
+  /** 方法名范围（glob）；空 = 不发送（与改造前一致：不限方法） */
+  method_pattern: string
 }
 
 /** 空白表单（打开弹窗时用；每次新建都换新对象，避免残留上一次的输入） */
@@ -238,6 +258,7 @@ export function emptyWaiverForm(): WaiverForm {
     waiver_type: '',
     scope_kind: '',
     scope_value: '',
+    method_pattern: '',
   }
 }
 
@@ -266,5 +287,9 @@ export function buildWaiverPayload(form: WaiverForm): Record<string, unknown> {
   const scopeValue = form.scope_value.trim()
   if (scopeValue)
     payload.scope_value = scopeValue
+  // 方法名范围只在适用的类型下发送；为空不出现（老后端收到的 body 与改造前一致）
+  const methodPattern = form.method_pattern.trim()
+  if (methodPattern && waiverSupportsMethodPattern(form.waiver_type))
+    payload.method_pattern = methodPattern
   return payload
 }

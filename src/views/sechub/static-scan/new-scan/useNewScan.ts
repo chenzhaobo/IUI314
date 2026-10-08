@@ -1,27 +1,22 @@
 /**
- * 「新建扫描」状态机（迁自 scan-dashboard.vue 的预扫描弹窗，SD 467-1108）。
+ * 「新建扫描」状态机。
  *
- * 与原实现的两处关键差异，都是把"看板耦合"改成参数：
- * 1. 仓库不再来自看板左树，而是弹窗内的仓库下拉（含未绑定模块的本地仓，否则反编译源码库选不到）；
- *    打开时用 `open({ repositoryId })` 指定默认仓库。
- * 2. run 建立后不再刷新看板自身（`currentRunId/startPolling/refreshStatus`），改为回调 `onCreated(runId)`。
+ * 20261008（契约 C/D/E）：过渡期旧轨（整仓差量向导 / 表单资产 / 微服务资产）已移除，只剩
+ * - 统一扫描：分支 + 目标 commit + 扫描方式（全量 / 增量，基线自动取）+ 规则目录 + 规则范围（全部 / 自选 = 部分扫描）；
+ * - 反编译源码库（local-test:）：没有 Git 维度与资产，仍走整仓全量（/prescan/trigger）。
  *
- * 请求载荷与原实现逐字段一致（含空值走 undefined、JSON 序列化时整键消失的行为），见 confirmScope/triggerDirect。
- * "扫描来源"（仓库/分支/commit/规则目录/基线）在 ./useScanSource，"范围与资产"在 ./useScanTarget，这里组合并实现差量向导与触发。
- * 006c：默认"统一扫描"（./useUnifiedScan，自动资产摘要 + 单 run 全量）；旧三种范围为"过渡期旧轨"，载荷不变。
+ * "扫描来源"在 ./useScanSource，"扫描方式与预览"在 ./useUnifiedScan，"规则范围"在 ./useRuleScope，
+ * 这里只做组合、打开/换仓库编排与触发。run 建立后回调 `onCreated(runId)`（运行页刷新列表）。
  */
 import type { InjectionKey, UnwrapNestedRefs } from 'vue'
-import type { DeltaPlanPreview, DeltaPreviewRequest, DeltaScanMode, DiffGranularity, NewScanOpenOptions, ScanScope, ScanTargetType } from './types'
+import type { NewScanOpenOptions, RuleScopeMode, UnifiedTriggerRequest, UnifiedTriggerResponse } from './types'
 import { Message } from '@arco-design/web-vue'
 import { computed, inject, ref } from 'vue'
-import { buildAutoCloseAlert, buildDeltaPreviewRows, isCommitSha } from './labels'
-import { executeDelta, previewDelta, triggerDomain, triggerFull } from './service'
+import { isCommitSha } from './labels'
+import { triggerFull } from './service'
+import { useRuleScope } from './useRuleScope'
 import { useScanSource } from './useScanSource'
-import { useScanTarget } from './useScanTarget'
 import { useUnifiedScan } from './useUnifiedScan'
-
-/** 过渡期旧轨的三种扫描范围（折叠项里的单选值） */
-const LEGACY_TARGETS: readonly ScanTargetType[] = ['repository', 'form', 'microservice']
 
 export interface UseNewScanOptions {
   /** 「该应用已有 N 条扫描记录」幂等提示的计数来源（运行页按其列表按 repository_id 统计） */
@@ -30,132 +25,75 @@ export interface UseNewScanOptions {
   onCreated?: (runId: string) => void | Promise<void>
 }
 
+/** 统一扫描成功提示：扫描方式 + 规则数 + 资产数 */
+function unifiedCreatedMessage(result: UnifiedTriggerResponse): string {
+  const scope = result.scan_scope === 'incremental' ? '增量' : result.scan_scope === 'partial' ? '部分' : '全量'
+  const rules = result.rule_count != null ? ` · ${result.rule_count} 条规则` : ''
+  return `已启动统一扫描（${scope}${rules}；表单资产 ${result.assets.form} / 微服务资产 ${result.assets.microservice}）`
+}
+
 export function useNewScan(options: UseNewScanOptions = {}) {
   const source = useScanSource()
-  const target = useScanTarget()
   const unified = useUnifiedScan()
-  const { repository, branch, commit, ruleSetId, loadBranches, loadCommits, loadBaseline, resetSource } = source
-  const { scanTargetType, selectedAssetIds, includeAmbiguous, isDomainTarget } = target
+  const scope = useRuleScope()
+  const { repository, branch, commit, ruleSetId } = source
 
   const visible = ref(false)
+  const executingFull = ref(false)
   /** 被锁定仓库的 id（左侧应用范围树选定后打开时非空）：下拉禁用、不允许改选 */
   const lockedRepositoryId = ref('')
   const repositoryLocked = computed(() => lockedRepositoryId.value !== '')
 
-  // ── 差量向导 ──
-  const scanScope = ref<ScanScope>('diff_last')
-  const baseCommitInput = ref('')
-  /** 见 types.DiffGranularity：当前"设了不发"，保持原样 */
-  const diffGranularity = ref<DiffGranularity>('file')
-  const deltaScanMode = ref<DeltaScanMode>('auto_delta')
-  const deltaPreview = ref<DeltaPlanPreview | null>(null)
-  const previewingDelta = ref(false)
-  const executingDelta = ref(false)
-  /** 向导步骤：0=选择范围与策略，1=核对计划并执行 */
-  const step = ref(0)
-  /** 上一次预览对应的请求指纹（输入未变时本地复用，少一次往返） */
-  let previewRequestKey = ''
-
-  // ── 派生状态 ──
-  /** 反编译源码库不是 Git 仓库：只能全量扫描，不读分支/commit/基线 */
+  /** 反编译源码库不是 Git 仓库：只能整仓全量扫描，不读分支/commit/基线 */
   const isLocalRepository = computed(() => repository.value?.git_url.startsWith('local-test:') ?? false)
-  /** 统一扫描：默认模式；反编译源码库没有资产维度，仍走旧轨全量 */
-  const isUnified = computed(() => unified.scanMode.value === 'unified' && !isLocalRepository.value)
-  const isDeltaWizard = computed(() => !isUnified.value && !isDomainTarget.value && !isLocalRepository.value)
   const runCount = computed(() => (repository.value ? options.runCountOf?.(repository.value.repository_id) ?? 0 : 0))
-  const previewRows = computed(() => (deltaPreview.value ? buildDeltaPreviewRows(deltaPreview.value, source.ruleSetLabelText.value) : []))
-  const autoCloseAlert = computed(() => buildAutoCloseAlert(deltaPreview.value))
+  /** 留空时的默认目录名：get_all 的 is_default 优先，其次默认目录树自带的名称（不再前端写死） */
+  const defaultRuleSetName = computed(() => {
+    if (source.defaultRuleSet.value)
+      return source.defaultRuleSet.value.name
+    const tree = scope.ruleTree.value
+    return !ruleSetId.value && tree?.rule_set_name ? tree.rule_set_name : ''
+  })
+  const ruleSetPlaceholder = computed(() => (defaultRuleSetName.value ? `默认：${defaultRuleSetName.value}` : '默认目录'))
 
-  async function onScanTargetChange() {
-    await target.onScanTargetChange(repository.value?.repository_id)
-    deltaPreview.value = null
-  }
-
-  /** 选统一扫描：旧轨的范围/资产与差量计划作废 */
-  async function selectUnified() {
-    unified.scanMode.value = 'unified'
-    target.resetTarget()
-    deltaPreview.value = null
-    step.value = 0
-    await unified.ensureUnifiedPreview(repository.value?.repository_id)
-  }
-
-  /** 选过渡期旧轨的某个范围（整仓 / 表单资产 / 微服务资产）；之后与迁移前的行为逐字一致 */
-  async function selectLegacyTarget(value: unknown) {
-    const legacyTarget = LEGACY_TARGETS.find(item => item === value)
-    if (!legacyTarget)
-      return
-    unified.scanMode.value = 'legacy'
-    scanTargetType.value = legacyTarget
-    step.value = 0
-    await onScanTargetChange()
-    // 统一模式下不查差量基线（没有差量向导）；切到整仓旧轨时补查
-    if (isDeltaWizard.value)
-      await loadBaseline()
-  }
-
-  // ── 打开 / 复位 ──
   function resetState() {
-    resetSource()
-    target.resetTarget()
+    source.resetSource()
     unified.resetUnified()
-    lockedRepositoryId.value = ''
-    scanScope.value = 'diff_last'
-    deltaPreview.value = null
-    step.value = 0
-    previewRequestKey = ''
-    baseCommitInput.value = ''
-    diffGranularity.value = 'file'
+    scope.resetRuleScope()
   }
 
-  /** 仓库确定后加载分支/commit/基线/资产。这些都要看仓库类型（本地仓没有 Git 维度），不能与复位同批 */
-  async function loadForRepository(assetIds?: string[]) {
-    deltaScanMode.value = isLocalRepository.value ? 'full_baseline' : 'auto_delta'
-    if (isUnified.value)
-      await unified.loadUnifiedPreview(repository.value?.repository_id)
-    if (isDomainTarget.value) {
-      await target.loadDomainAssets(repository.value?.repository_id)
-      if (assetIds?.length)
-        target.applyPrefilledAssets(assetIds)
-    }
+  /** 仓库确定后加载分支/commit/预览（本地仓没有 Git 维度，只要规则目录） */
+  async function loadForRepository() {
     if (!repository.value || isLocalRepository.value)
       return
-    await loadBranches(false)
-    if (branch.value)
-      await loadCommits(branch.value)
-    if (isDeltaWizard.value)
-      await loadBaseline()
+    await source.loadBranches(false)
+    await Promise.all([
+      source.loadCommits(branch.value),
+      unified.loadUnifiedPreview(repository.value.repository_id, branch.value),
+    ])
   }
 
   /** 打开弹窗：opts.repositoryId 为默认仓库（运行页当前筛选 / 资产详情的仓库） */
   async function open(opts: NewScanOpenOptions = {}) {
+    const keptId = repository.value?.repository_id
     resetState()
+    lockedRepositoryId.value = ''
     visible.value = true
     await source.ensureRepoOptions()
     // 默认仓库：显式传入 → 上次选过且仍在列表 → 列表第一项
     const hit = source.repoOptions.value.find(item => item.repository_id === opts.repositoryId)
-    const kept = source.repoOptions.value.find(item => item.repository_id === repository.value?.repository_id)
+    const kept = source.repoOptions.value.find(item => item.repository_id === keptId)
     repository.value = hit ?? kept ?? source.repoOptions.value[0]
     // 树选中仓库后打开（lockRepository）时锁死选择；仓库不在列表里则不锁，退回可自由选择
     if (opts.lockRepository && hit)
       lockedRepositoryId.value = hit.repository_id
-    if (opts.scanTargetType) {
-      // 资产详情「发起专项扫描」指定了表单/微服务范围：走过渡期旧轨（带预选资产）
-      unified.scanMode.value = 'legacy'
-      scanTargetType.value = opts.scanTargetType
-    }
     // 规则目录选项懒加载；失败不阻断弹窗，留空仍走平台默认
     await source.ensureRuleSets()
-    await loadForRepository(opts.assetIds)
+    await loadForRepository()
   }
 
-  /**
-   * 换仓库：分支/commit/基线/资产都与仓库绑定，整体复位后重载。
-   * 入参是下拉的选中值（repository_id 字符串）：避免用对象做 select value，
-   * 对象比较依赖引用相等，reactive 包装后容易选不中。
-   */
+  /** 换仓库：入参是下拉选中值（repository_id 字符串，避免对象做 select value 的引用相等问题） */
   async function onRepositoryChange(repositoryId: unknown) {
-    // 锁定状态（下拉已禁用）下不改选，防御性兜底
     if (repositoryLocked.value)
       return
     if (typeof repositoryId !== 'string' || !repositoryId || repositoryId === repository.value?.repository_id)
@@ -163,121 +101,72 @@ export function useNewScan(options: UseNewScanOptions = {}) {
     const hit = source.repoOptions.value.find(item => item.repository_id === repositoryId)
     if (!hit)
       return
-    repository.value = hit
     resetState()
+    repository.value = hit
     await loadForRepository()
   }
 
-  // ── 触发 ──
-  /** run 已建立：关弹窗 + 提示 + 通知调用方（原来是刷新看板自身并开始轮询） */
+  /** 换分支：commit 列表与基线（按 仓库+分支 取）都要重查 */
+  async function onBranchChange(value: unknown) {
+    if (typeof value !== 'string' || !repository.value)
+      return
+    await Promise.all([
+      source.loadCommits(value),
+      unified.loadUnifiedPreview(repository.value.repository_id, value),
+    ])
+  }
+
+  /** 显式刷新分支（git fetch）；当前分支消失被切到默认分支时联动重载 */
+  async function refreshBranches() {
+    if (await source.refreshBranches())
+      await onBranchChange(branch.value)
+  }
+
+  async function onRuleSetChange() {
+    await scope.onRuleSetChanged(ruleSetId.value)
+  }
+
+  async function onRuleScopeModeChange(value: unknown) {
+    const mode: RuleScopeMode | null = value === 'all' || value === 'custom' ? value : null
+    if (!mode)
+      return
+    scope.ruleScopeMode.value = mode
+    if (mode === 'custom')
+      await scope.ensureRuleTree(ruleSetId.value)
+  }
+
   async function acceptCreated(runId: string, message: string) {
     visible.value = false
     Message.success(message)
     await options.onCreated?.(runId)
   }
 
-  /** 领域资产 / 反编译源码库：没有可预览的冻结计划，直接触发 */
-  async function triggerDirect() {
-    const repo = repository.value
-    if (!repo)
-      return
-    if (scanTargetType.value !== 'repository') {
-      if (selectedAssetIds.value.length === 0) {
-        Message.warning(`请至少选择一个${scanTargetType.value === 'form' ? '表单' : '微服务'}资产`)
-        return
-      }
-      const result = await triggerDomain({
-        scope_type: scanTargetType.value,
-        asset_ids: selectedAssetIds.value,
-        include_ambiguous: includeAmbiguous.value,
-      })
-      if (result)
-        await acceptCreated(result.run_id, '已冻结领域资产范围并启动扫描')
-      return
-    }
-    const result = await triggerFull({
-      repository_id: repo.repository_id,
-      scan_mode: 'full',
-      rule_set_id: ruleSetId.value || undefined,
-      force: false,
-    })
-    if (result)
-      await acceptCreated(result.run_id, '已启动反编译源码全量扫描')
-  }
-
-  /** 向导「下一步」：领域/本地仓直接执行；git 仓生成差量计划预览（forceRegenerate=true 等价「重新生成计划」） */
-  async function confirmScope(forceRegenerate = false) {
-    const repo = repository.value
-    if (!repo)
-      return
-    if (isUnified.value) {
-      await submitUnified()
-      return
-    }
-    if (isDomainTarget.value || isLocalRepository.value) {
-      executingDelta.value = true
-      try {
-        await triggerDirect()
-      }
-      finally {
-        executingDelta.value = false
-      }
-      return
-    }
-    if (scanScope.value === 'diff_commit') {
-      const value = baseCommitInput.value.trim()
-      if (!value || !isCommitSha(value)) {
-        Message.warning('基准 Commit SHA 须为 7~40 位十六进制字符')
-        return
-      }
-    }
-    if (commit.value && !isCommitSha(commit.value.trim())) {
+  /** 组装统一触发请求体；校验不过返回 null（已提示） */
+  function buildUnifiedBody(repositoryId: string): UnifiedTriggerRequest | null {
+    const targetCommit = commit.value.trim()
+    if (targetCommit && !isCommitSha(targetCommit)) {
       Message.warning('目标 Commit SHA 须为 7~40 位十六进制字符')
-      return
+      return null
     }
-    // force=true：跳过复用，按当前输入重新生成计划（命令行里改了代码后想换计划时用）
-    const body: DeltaPreviewRequest = {
-      repository_id: repo.repository_id,
-      requested_delta_kind: deltaScanMode.value,
-      // 空即平台默认目录（安全 + 性能合并目录）；单独扫某个域时才传显式目录
-      rule_set_id: ruleSetId.value || undefined,
-      branch: branch.value || undefined,
-      commit_sha: commit.value || undefined,
-      scan_mode: deltaScanMode.value === 'full_baseline' ? 'full' : 'diff',
-      base_commit: scanScope.value === 'diff_commit' ? baseCommitInput.value.trim() : undefined,
-      diff_granularity: deltaScanMode.value === 'hunk_quick' ? 'hunk' : 'file',
-      force: forceRegenerate,
-    }
-    // 输入未变时重复点「下一步」直接复用上一次预览结果（后端也会按输入规格复用未冻结计划，
-    // 这里只是少一次往返）
-    const requestKey = JSON.stringify({ ...body, force: false })
-    if (!forceRegenerate && deltaPreview.value && previewRequestKey === requestKey) {
-      step.value = 1
-      return
-    }
-    previewingDelta.value = true
-    deltaPreview.value = null
-    try {
-      const preview = await previewDelta(body)
-      if (preview) {
-        deltaPreview.value = preview
-        // 强制重新生成过就不缓存：下次点「下一步」应重新取（否则会一直用旧结果）
-        previewRequestKey = forceRegenerate ? '' : requestKey
-        step.value = 1
-        if (preview.reused)
-          Message.info('输入与已有计划一致，已复用那条未执行计划（要按当前代码重新生成点「重新生成计划」）')
-        else
-          Message.success('差量计划已生成，请核对估算与关闭资格后确认执行')
+    const body: UnifiedTriggerRequest = { repository_id: repositoryId, force: false, strategy: unified.strategy.value }
+    if (ruleSetId.value)
+      body.rule_set_id = ruleSetId.value
+    if (branch.value)
+      body.branch = branch.value
+    if (targetCommit)
+      body.target_commit = targetCommit
+    const rulePayload = scope.buildRuleScopePayload()
+    if (rulePayload) {
+      if (rulePayload.scan_point_ids.length === 0 && rulePayload.rule_version_ids.length === 0) {
+        Message.warning('「自选」规则范围至少要勾选一个扫描点或一条规则')
+        return null
       }
+      if (rulePayload.scan_point_ids.length)
+        body.scan_point_ids = rulePayload.scan_point_ids
+      if (rulePayload.rule_version_ids.length)
+        body.rule_version_ids = rulePayload.rule_version_ids
     }
-    finally {
-      previewingDelta.value = false
-    }
-  }
-
-  /** 用户要求不复用、按当前输入重新生成计划 */
-  async function regeneratePreview() {
-    await confirmScope(true)
+    return body
   }
 
   /** 统一扫描提交：预览阻断时不发请求（按钮已禁用，这里兜底） */
@@ -285,61 +174,54 @@ export function useNewScan(options: UseNewScanOptions = {}) {
     const repo = repository.value
     if (!repo || !unified.unifiedCanSubmit.value)
       return
-    const result = await unified.submitUnifiedTrigger(repo.repository_id, ruleSetId.value)
+    const body = buildUnifiedBody(repo.repository_id)
+    if (!body)
+      return
+    const result = await unified.submitUnifiedTrigger(body)
     if (result)
-      await acceptCreated(result.run_id, `已启动统一扫描（表单资产 ${result.assets.form} / 微服务资产 ${result.assets.microservice}）`)
+      await acceptCreated(result.run_id, unifiedCreatedMessage(result))
   }
 
-  /** 按冻结计划启动扫描 */
-  async function executePreview() {
-    const preview = deltaPreview.value
-    if (!preview)
+  /** 反编译源码库：整仓全量（没有可预览的冻结计划，直接触发） */
+  async function submitLocalFull() {
+    const repo = repository.value
+    if (!repo)
       return
-    executingDelta.value = true
+    executingFull.value = true
     try {
-      const result = await executeDelta(preview.plan_id)
-      if (!result)
-        return
-      await acceptCreated(result.run_id, '已按冻结计划启动扫描；AI 仅确认 cache miss')
+      const result = await triggerFull({
+        repository_id: repo.repository_id,
+        scan_mode: 'full',
+        rule_set_id: ruleSetId.value || undefined,
+        force: false,
+      })
+      if (result)
+        await acceptCreated(result.run_id, '已启动反编译源码全量扫描')
     }
     finally {
-      executingDelta.value = false
+      executingFull.value = false
     }
   }
 
   return {
-    // 扫描来源（仓库/分支/commit/规则目录/基线）
     ...source,
-    // 扫描范围与资产
-    ...target,
-    // 统一扫描（默认）
     ...unified,
-    isUnified,
-    selectUnified,
-    selectLegacyTarget,
-    submitUnified,
-    // 弹窗与差量向导
+    ...scope,
     visible,
     open,
-    onRepositoryChange,
     repositoryLocked,
-    onScanTargetChange,
     isLocalRepository,
-    isDeltaWizard,
     runCount,
-    scanScope,
-    baseCommitInput,
-    diffGranularity,
-    deltaScanMode,
-    deltaPreview,
-    previewingDelta,
-    executingDelta,
-    step,
-    previewRows,
-    autoCloseAlert,
-    regeneratePreview,
-    executePreview,
-    confirmScope,
+    defaultRuleSetName,
+    ruleSetPlaceholder,
+    executingFull,
+    onRepositoryChange,
+    onBranchChange,
+    refreshBranches,
+    onRuleSetChange,
+    onRuleScopeModeChange,
+    submitUnified,
+    submitLocalFull,
   }
 }
 
@@ -348,7 +230,7 @@ export type NewScanContext = UnwrapNestedRefs<ReturnType<typeof useNewScan>>
 
 export const NEW_SCAN_KEY: InjectionKey<NewScanContext> = Symbol('sechub:new-scan')
 
-/** 步骤组件取新建扫描上下文；必须在 NewScanModal 的 provide 树内调用 */
+/** 子组件取新建扫描上下文；必须在 NewScanModal 的 provide 树内调用 */
 export function useNewScanContext(): NewScanContext {
   const ctx = inject(NEW_SCAN_KEY)
   if (!ctx)

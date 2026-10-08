@@ -2,7 +2,7 @@
 import type { TableData } from '@arco-design/web-vue'
 import type { TableComponents } from '@arco-design/web-vue/es/table/interface'
 import type { RepoScope } from './components/useRepoScopeTree'
-import type { NewScanOpenOptions, ScanTargetType } from './new-scan/types'
+import type { NewScanOpenOptions } from './new-scan/types'
 import type { ColumnFilterState } from '@/hooks'
 import type { CrossRunAggRow } from '@/types/static-scan'
 import { Checkbox, Message, Modal, Tooltip } from '@arco-design/web-vue'
@@ -15,6 +15,7 @@ import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import { applyColumnFilters, emptyFilter, formatTime, isFilterActive, postAction, useFilterPersistence, useGet, useTableAutoHeight } from '@/hooks'
 import RepoScopeTree from './components/RepoScopeTree.vue'
 import RunLifecycleTags from './components/RunLifecycleTags.vue'
+import ScanScopeTag from './components/ScanScopeTag.vue'
 import { pendingSubLabel, pendingTooltip, runStatusLabels } from './labels'
 import AiConfirmModal from './new-scan/AiConfirmModal.vue'
 import BatchAiConfirmModal from './new-scan/BatchAiConfirmModal.vue'
@@ -351,27 +352,10 @@ function onAiConfirmSubmitted() {
   void loadCrossRows()
 }
 
-/** 路由里的扫描范围：只认表单/微服务；后端个别形态写作 micro（见 domain-assets/types.ts 的 assetKind） */
-function normalizeScanTarget(value: unknown): ScanTargetType | undefined {
-  const raw = Array.isArray(value) ? value[0] : value
-  if (raw === 'form' || raw === 'microservice')
-    return raw
-  if (raw === 'micro')
-    return 'microservice'
-  return undefined
-}
-
-/** 资产 id 支持逗号分隔与重复传参两种形态 */
-function parseAssetIds(value: unknown): string[] | undefined {
-  const raw = Array.isArray(value) ? value.join(',') : value
-  if (typeof raw !== 'string' || !raw)
-    return undefined
-  return raw.split(',').map(id => id.trim()).filter(Boolean)
-}
-
 /**
- * 路由预填：资产详情「发起专项扫描」跳来带
- * `new_scan=1&repository_id=..&scan_target=..&asset_ids=..`，据此直接打开新建弹窗并预选。
+ * 路由预填：资产详情「发起专项扫描」/ 看板跳来带 `new_scan=1&repository_id=..`，据此直接打开新建弹窗。
+ * 20261008 起表单/微服务旧轨已从弹窗移除，`scan_target` / `asset_ids` 不再生效：
+ * 统一扫描自动覆盖该仓全部在用资产。
  *
  * 本页被 keep-alive 缓存：首次进入只触发 onMounted、之后从别的页签回来触发 onActivated，
  * 两处都要处理；`handledQueryKey` 兜住首次进入时两个钩子先后触发的重复打开。
@@ -389,8 +373,6 @@ async function applyNewScanQuery() {
   handledQueryKey = key
   const opts: NewScanOpenOptions = {
     repositoryId: typeof route.query.repository_id === 'string' ? route.query.repository_id : undefined,
-    scanTargetType: normalizeScanTarget(route.query.scan_target),
-    assetIds: parseAssetIds(route.query.asset_ids),
   }
   // 左树跟着切到该仓库（高亮 + 列表范围一致），再打开弹窗预填
   if (opts.repositoryId)
@@ -1132,10 +1114,11 @@ function toggleRunChecked(runId: string, checked: boolean) {
                 <span v-else class="text-placeholder">-</span>
               </template>
 
-              <!-- 策略列：全量 / 差量类型 + 比对基线，悬浮里补充领域范围 -->
+              <!-- 策略列：统一扫描带扫描方式标签（全量 / 增量 / 部分）；历史 run 没有 scan_scope，退回旧的策略文案 -->
               <template #crStrategy="{ record }">
                 <RunLifecycleTags :target-type="record.target_type" :confirm-state="record.confirm_state" />
-                <a-tooltip :content="strategyTooltip(record)" mini>
+                <ScanScopeTag :scan-scope="record.scan_scope" :rule-count="record.rule_count" :base-commit="record.base_commit" />
+                <a-tooltip v-if="!record.scan_scope" :content="strategyTooltip(record)" mini>
                   <span>{{ strategyLabel(record) }}</span>
                 </a-tooltip>
               </template>

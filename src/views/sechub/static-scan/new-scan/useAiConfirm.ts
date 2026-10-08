@@ -10,6 +10,7 @@ import { Message } from '@arco-design/web-vue'
 import { onActivated, onDeactivated, onUnmounted, ref } from 'vue'
 import { fetchAgentStatus, triggerAiConfirm } from './service'
 import { useAiConfirmOptions } from './useAiConfirmOptions'
+import { AI_CONFIRM_SCOPE_ALL, useRunScanPoints } from './useRunScanPoints'
 
 export interface UseAiConfirmOptions {
   /** 提交成功（或 Agent 审计收口）后的回调：运行页据此刷新运行列表 */
@@ -21,6 +22,7 @@ export function useAiConfirm(options: UseAiConfirmOptions = {}) {
   const confirming = ref(false)
   const targetRunId = ref('')
   const form = useAiConfirmOptions()
+  const points = useRunScanPoints()
 
   // ── Agent 自主审计进度轮询 ──
   const agentProgress = ref<AgentRunProgress | null>(null)
@@ -100,7 +102,14 @@ export function useAiConfirm(options: UseAiConfirmOptions = {}) {
     targetRunId.value = runId
     // 打开弹窗时加载 agent / 技能列表（失败保留旧列表，不阻断）
     form.ensureLookups()
+    resetScope()
     visible.value = true
+  }
+
+  /** 范围复位成「全部」并按当前批次重载扫描点（打开 / 换批次时） */
+  function resetScope() {
+    form.scope.value = AI_CONFIRM_SCOPE_ALL
+    void points.loadScanPoints(targetRunId.value ? [targetRunId.value] : [])
   }
 
   async function submit() {
@@ -133,6 +142,9 @@ export function useAiConfirm(options: UseAiConfirmOptions = {}) {
     confirming,
     targetRunId,
     ...form,
+    scopeOptions: points.scopeOptions,
+    loadingScanPoints: points.loadingScanPoints,
+    onTargetRunChange: resetScope,
     agentProgress,
     open,
     submit,

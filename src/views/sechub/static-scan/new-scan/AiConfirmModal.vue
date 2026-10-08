@@ -7,6 +7,7 @@
  */
 import type { CrossRunAggRow } from '@/types/static-scan'
 import { computed, reactive } from 'vue'
+import AiConfirmScopeField from './AiConfirmScopeField.vue'
 import { agentProgressText } from './labels'
 import { useAiConfirm } from './useAiConfirm'
 
@@ -33,12 +34,13 @@ defineExpose({ open: ai.open })
   >
     <a-form :model="{}" layout="vertical">
       <a-form-item label="目标批次（扫描运行）">
-        <a-select v-model="ai.targetRunId" placeholder="选择要确认的扫描批次">
+        <a-select v-model="ai.targetRunId" placeholder="选择要确认的扫描批次" @change="ai.onTargetRunChange">
           <a-option v-for="run in runs" :key="run.run_id" :value="run.run_id">
             {{ run.branch || '未知分支' }} | {{ run.commit_sha ? run.commit_sha.slice(0, 8) : '-' }} | {{ run.created_at || '' }} | 疑似{{ run.total }}
           </a-option>
         </a-select>
       </a-form-item>
+      <AiConfirmScopeField v-model="ai.scope" :options="ai.scopeOptions" :loading="ai.loadingScanPoints" />
       <a-form-item label="确认模式">
         <a-radio-group v-model="ai.mode" type="button">
           <a-radio value="batch">
