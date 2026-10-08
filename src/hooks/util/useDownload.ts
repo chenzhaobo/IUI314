@@ -29,6 +29,22 @@ export function downloadText(content: string, filename: string, mime = 'text/mar
   requestAnimationFrame(() => URL.revokeObjectURL(url))
 }
 
+/** 文本体是 `{"code":非200,"msg":...}` 形状的业务错误时返回 msg，否则返回空串 */
+function businessErrorOf(text: string): string {
+  if (!text.trimStart().startsWith('{'))
+    return ''
+  try {
+    const body: unknown = JSON.parse(text)
+    if (body && typeof body === 'object' && 'code' in body && 'msg' in body) {
+      const { code, msg } = body as { code: unknown, msg: unknown }
+      if (typeof code === 'number' && code !== 200)
+        return String(msg || `业务错误 ${code}`)
+    }
+  }
+  catch { /* 不是 JSON，按普通文本文件处理 */ }
+  return ''
+}
+
 /**
  * 带鉴权的二进制文件下载。
  *
@@ -58,6 +74,13 @@ export function useDownload() {
     }
 
     const blob = await response.blob()
+    // 后端 `Res` 的错误体实际是 text/plain 的 JSON 字符串（{"code":500,"msg":...}），
+    // 只按 content-type 判断会把错误信息当文件存下来。文本响应再嗅探一次业务错误码。
+    if (contentType.startsWith('text/plain')) {
+      const reason = businessErrorOf(await blob.text())
+      if (reason)
+        throw new Error(reason)
+    }
     // 空响应体也算失败：存下去就是个 0 字节文件，用户点开一片空白还以为功能坏了
     if (blob.size === 0)
       throw new Error('后端返回了空文件（该问题可能没有可打包的日志与报告）')

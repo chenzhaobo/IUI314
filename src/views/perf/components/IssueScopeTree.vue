@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Message } from '@arco-design/web-vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ApiPerfIssue, ApiPerfPatternLedger } from '@/api/perfApis'
 import { rateColor, useGet } from '@/hooks'
@@ -16,12 +17,18 @@ interface IssueScopeFilter {
 interface Props {
   source: 'issue' | 'pattern'
   filters?: Record<string, unknown>
+  /**
+   * 首次加载时定位的范围（如达标率看板「联查问题」带来的 云/应用/表单）。
+   * 只在挂载后的第一次建树时生效；之后换产品线/模式仍回到「全部」。
+   */
+  initialScope?: IssueScopeFilter | null
 }
 
 type ScopeMode = 'menu' | 'project_group' | 'business_area' | 'product_domain'
 
 const props = withDefaults(defineProps<Props>(), {
   filters: () => ({}),
+  initialScope: null,
 })
 const emit = defineEmits<{
   change: [scope: IssueScopeFilter]
@@ -44,6 +51,9 @@ const mode = ref<ScopeMode>('menu')
 const keyword = ref('')
 const showCode = ref(false)
 const selectedKeys = ref<string[]>([ROOT_KEY])
+/** 树挂载时的默认展开项；外部定位后更新并通过 expandNonce 重挂树使其生效 */
+const expandedKeys = ref<string[]>([ROOT_KEY])
+const expandNonce = ref(0)
 const treeData = ref<any[]>([])
 const loading = ref(false)
 /** 达标率口径月份（后端按「当月，无当月数据回退最新月」决定）；无快照数据时为空 */
@@ -119,7 +129,7 @@ function findNode(nodes: any[], key: string): any {
  * `resetSelection=true`（换模式/产品线）时回到「全部」并通知右表清范围；
  * false（右表筛选变化）时尽量保住当前选中节点，节点被筛没了才回退到「全部」。
  */
-async function reloadTree(resetSelection: boolean) {
+async function reloadTree(resetSelection: boolean, emitReset = true) {
   const keepKey = resetSelection ? ROOT_KEY : (selectedKeys.value[0] || ROOT_KEY)
   treePayload.value = {
     mode: mode.value,
@@ -148,7 +158,9 @@ async function reloadTree(resetSelection: boolean) {
     }
     if (resetSelection) {
       selectedKeys.value = [ROOT_KEY]
-      emit('change', { product_line: productLine.value })
+      expandedKeys.value = [ROOT_KEY]
+      if (emitReset)
+        emit('change', { product_line: productLine.value })
     }
     else if (findNode(treeData.value, keepKey)) {
       selectedKeys.value = [keepKey]
@@ -189,6 +201,63 @@ function handleSelect(keys: (string | number)[]) {
   selectedKeys.value = normalizedKeys
   const node = normalizedKeys.length ? findNode(treeData.value, normalizedKeys[0]) : null
   emit('change', node?.scope || { product_line: productLine.value })
+}
+
+/** 根到目标节点的路径（含目标）；找不到返回空 */
+function findPath(nodes: any[], key: string, trail: any[] = []): any[] {
+  for (const node of nodes) {
+    const path = [...trail, node]
+    if (node.key === key)
+      return path
+    const found = node.children?.length ? findPath(node.children, key, path) : []
+    if (found.length)
+      return found
+  }
+  return []
+}
+
+/**
+ * 按外部带入的范围定位节点：逐级（云 → 应用 → 表单）查找，表单级需要先懒加载所属应用。
+ * 定位到最深一级后展开其祖先并选中；请求的表单在树里不存在（该表单暂无记录）时，
+ * 仍按请求的完整范围过滤右表，左树停在能找到的最深一级。
+ */
+async function locateScope(scope: IssueScopeFilter) {
+  const wanted: string[] = []
+  if (scope.cloud_number)
+    wanted.push(`cloud:${scope.cloud_number}`)
+  if (scope.app_number)
+    wanted.push(`app:${scope.app_number}`)
+  if (scope.form_id)
+    wanted.push(`form:${scope.form_id}`)
+  let hit: any = null
+  let complete = true
+  for (const key of wanted) {
+    let node = findNode(treeData.value, key)
+    if (!node && key.startsWith('form:') && scope.app_number) {
+      const app = findNode(treeData.value, `app:${scope.app_number}`)
+      if (app && !app.children?.length && !app.is_leaf) {
+        await loadChildren(app)
+        node = findNode(treeData.value, key)
+      }
+    }
+    if (!node) {
+      // 菜单模式下云节点可能不在（如应用目录未归云），继续按下一级找
+      if (key.startsWith('cloud:'))
+        continue
+      complete = false
+      break
+    }
+    hit = node
+  }
+  if (hit) {
+    const path = findPath(treeData.value, hit.key)
+    expandedKeys.value = [ROOT_KEY, ...path.slice(0, -1).map((n: any) => n.key)]
+    selectedKeys.value = [hit.key]
+    expandNonce.value += 1
+  }
+  if (!complete)
+    Message.info('左树未找到该范围（暂无记录），列表已按所选范围筛选')
+  emit('change', hit && complete ? hit.scope : { ...scope, product_line: productLine.value })
 }
 
 function handleProductLineChange() {
@@ -243,7 +312,7 @@ const displayTree = computed(() => {
   return filter(treeData.value)
 })
 
-const treeRenderKey = computed(() => `${productLine.value}:${mode.value}`)
+const treeRenderKey = computed(() => `${productLine.value}:${mode.value}:${expandNonce.value}`)
 
 // 右表筛选变化会重载整棵树（后端每次要跑一次月度达标率聚合），加个防抖
 let reloadTimer: ReturnType<typeof setTimeout> | null = null
@@ -257,8 +326,16 @@ watch(
   { deep: true },
 )
 
-onMounted(() => {
-  void reloadTree(true)
+onMounted(async () => {
+  const initial = props.initialScope
+  if (!initial) {
+    void reloadTree(true)
+    return
+  }
+  if (initial.product_line)
+    productLine.value = initial.product_line
+  await reloadTree(true, false)
+  await locateScope(initial)
 })
 
 onUnmounted(() => {
@@ -313,7 +390,7 @@ onUnmounted(() => {
           v-if="displayTree.length"
           :key="treeRenderKey"
           :data="displayTree"
-          :default-expanded-keys="[ROOT_KEY]"
+          :default-expanded-keys="expandedKeys"
           :field-names="{ key: 'key', title: 'title', children: 'children', isLeaf: 'is_leaf' }"
           :load-more="loadChildren"
           :selected-keys="selectedKeys"

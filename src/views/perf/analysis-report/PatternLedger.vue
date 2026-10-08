@@ -146,7 +146,7 @@
       -->
       <div ref="layoutRow" class="scope-layout" :style="{ height: layoutRowH + 'px' }">
         <aside class="scope-panel">
-          <IssueScopeTree :key="scopeTreeKey" :filters="scopeCountFilters" source="pattern" @change="handleScopeChange" />
+          <IssueScopeTree :key="scopeTreeKey" :filters="scopeCountFilters" :initial-scope="routeScope" source="pattern" @change="handleScopeChange" />
         </aside>
         <div class="scope-content">
           <!-- 状态统计 -->
@@ -567,6 +567,7 @@ import ImpactBreakdown from '@/views/perf/components/ImpactBreakdown.vue'
 import ImpactCell from '@/views/perf/components/ImpactCell.vue'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
 import PatternReanalysis from '@/views/perf/components/PatternReanalysis.vue'
+import { useRouteScope } from '@/views/perf/composables/useRouteScope'
 
 defineOptions({ name: 'pattern-ledger' })
 
@@ -599,6 +600,15 @@ const searchForm = reactive({
   sort_by: '',
   sort_order: '',
 })
+
+// 从达标率看板「联查问题」带入的范围：右表先按它过滤，左树挂载后定位到对应节点
+const clearedScope = { project_group_code: '', cloud_number: '', business_area: '', product_domain: '', app_number: '', form_id: '' }
+const { initialScope: routeScope } = useRouteScope('pattern-ledger', (scope) => {
+  Object.assign(searchForm, clearedScope, scope)
+  scopeTreeKey.value += 1
+})
+if (routeScope.value)
+  Object.assign(searchForm, routeScope.value)
 
 // ── 多选与批量操作 ──────────────────────────────────────
 const selectedKeys = ref<string[]>([])
@@ -1222,6 +1232,8 @@ const handleReset = () => {
     app_number: '',
     form_id: '',
   })
+  // 重置后左树回到「全部」，不再定位到看板带入的范围
+  routeScope.value = null
   scopeTreeKey.value += 1
   handleSearch()
 }

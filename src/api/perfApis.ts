@@ -266,6 +266,10 @@ export enum ApiPerfCompliance {
   // 二开表单白名单
   syncStandardForms = '/perf/compliance/sync-standard-forms',
   standardForms = '/perf/compliance/standard-forms',
+  // 查看慢日志（报告任务已下载的原始天梯日志）
+  slowLogs = '/perf/compliance/slow-logs',
+  slowLogDownload = '/perf/compliance/slow-logs/download',
+  slowLogZip = '/perf/compliance/slow-logs/zip',
 }
 
 // ── 同步任务管理 ──────────────────────────────────────

@@ -53,11 +53,17 @@
               <a-col :span="3">
           <!-- 「未分类」节点只能看出有多少量没归类，看不出是哪些应用。
                导出的列格式与模块管理导入模板一致，填好项目组编码就能直接导回去 -->
-          <a-tooltip content="导出未归类应用清单（CSV），列格式对齐模块管理导入模板" mini>
-            <a-button size="small" :loading="unclsExporting" @click="handleExportUnclassified">
-              导出未归类
-            </a-button>
-          </a-tooltip>
+          <a-space :size="8">
+            <a-tooltip content="导出未归类应用清单（CSV），列格式对齐模块管理导入模板" mini>
+              <a-button size="small" :loading="unclsExporting" @click="handleExportUnclassified">
+                导出未归类
+              </a-button>
+            </a-tooltip>
+            <!-- 原在每行操作列，但导出的始终是右侧整张明细（与行无关），挪到工具栏 -->
+            <a-tooltip content="导出右侧当前明细（CSV）" mini>
+              <a-button size="small" @click="handleExport">导出明细</a-button>
+            </a-tooltip>
+          </a-space>
         </a-col>
       </a-row>
       <a-row :gutter="16" style="margin-bottom: 12px" align="center">
@@ -168,12 +174,15 @@
               <a-table-column title="最大耗时(秒)" data-index="max_cost" :width="90" align="right" :sortable="{ sortDirections: ['descend', 'ascend'], sorter: numSorter('max_cost') }">
                 <template #cell="{ record }">{{ (record.max_cost / 1000).toFixed(3) }}</template>
               </a-table-column>
-              <a-table-column title="操作" :width="120">
+              <a-table-column title="操作" :width="90">
                 <template #cell="{ record }">
-                  <a-space>
-                    <a-link @click="handleCreateIssue(record)">提问题</a-link>
-                    <a-link @click="handleExport">导出</a-link>
-                  </a-space>
+                  <a-dropdown v-if="rowActionable(record)" trigger="click" @select="(key: unknown) => handleRowAction(String(key), record)">
+                    <a-link>更多<icon-down /></a-link>
+                    <template #content>
+                      <a-doption value="issues">联查问题</a-doption>
+                      <a-doption v-if="slowLogFormId(record)" value="slow-logs">查看慢日志</a-doption>
+                    </template>
+                  </a-dropdown>
                 </template>
               </a-table-column>
             </template>
@@ -579,8 +588,96 @@ const thresholdTip = (record: any, sec: '1' | '2' | '10') => {
   return `达标 ${pass.toLocaleString()} / ${total.toLocaleString()}（超${sec}秒 ${over.toLocaleString()}）`
 }
 
-const handleCreateIssue = (record: any) => {
-  router.push({ path: '/cloud-perf/issue/issue-list', query: { app_number: record.code, form_name: record.name } })
+// ── 行操作（更多）：联查问题 / 查看慢日志 ──────────────────────────────
+interface DrillRow {
+  code: string
+  name: string
+  level: string
+}
+
+/** 明细行所在的完整范围：选中树节点的祖先链（云/应用/表单） + 行本身 */
+interface RowScope {
+  cloud_number?: string
+  app_number?: string
+  form_id?: string
+  control_name?: string
+}
+
+/** 树里从根到目标节点的路径（含目标），找不到返回空 */
+interface TreeNodeLike {
+  key: string
+  code: string
+  title?: string
+  level: string
+  children?: TreeNodeLike[]
+}
+const findTreePath = (nodes: TreeNodeLike[], key: string, trail: TreeNodeLike[] = []): TreeNodeLike[] => {
+  for (const n of nodes) {
+    const path = [...trail, n]
+    if (n.key === key) return path
+    if (n.children?.length) {
+      const found = findTreePath(n.children, key, path)
+      if (found.length) return found
+    }
+  }
+  return []
+}
+
+const UNATTRIBUTED_CONTROL = '__unattributed__'
+
+const rowScope = (record: DrillRow): RowScope => {
+  const scope: RowScope = {}
+  const assign = (level: string, code: string, name: string) => {
+    if (level === 'cloud') scope.cloud_number = code
+    else if (level === 'app') scope.app_number = code
+    else if (level === 'form') scope.form_id = code
+    // 按钮级 code 是操作名（未归因为占位编码），慢日志按操作名筛
+    else if (level === 'button' && code !== UNATTRIBUTED_CONTROL) scope.control_name = name || code
+  }
+  const key = selectedKeys.value[0]
+  if (key && key !== 'root:all') {
+    for (const n of findTreePath(treeData.value, key)) assign(n.level, n.code, n.title || '')
+  }
+  assign(record.level, record.code, record.name)
+  return scope
+}
+
+const rowActionable = (record: DrillRow) => Boolean(record?.level && record.code)
+const slowLogFormId = (record: DrillRow) => (record.level === 'form' || record.level === 'button' ? rowScope(record).form_id || '' : '')
+
+/** 联查问题：跳问题台账，左树定位到行对应的云/应用/表单 */
+const gotoIssues = (record: DrillRow) => {
+  const scope = rowScope(record)
+  const query: Record<string, string> = { product_line: productLine.value }
+  if (scope.cloud_number) query.cloud_number = scope.cloud_number
+  if (scope.app_number) query.app_number = scope.app_number
+  if (scope.form_id) query.form_id = scope.form_id
+  router.push({ name: 'pattern-ledger', query })
+}
+
+/** 查看慢日志：带上看板当前周期口径（按月/按周），列出报告任务已下载的日志 */
+const gotoSlowLogs = (record: DrillRow) => {
+  const scope = rowScope(record)
+  if (!scope.form_id) return
+  const formRowName = record.level === 'form' ? record.name : (findTreeNode(treeData.value, `form:${scope.form_id}`)?.title || '')
+  const label = periodOptions.value.find((p: { period: string }) => p.period === selectedPeriod.value)?.label || selectedPeriod.value
+  router.push({
+    name: 'compliance-slow-logs',
+    query: {
+      product_line: productLine.value,
+      period_type: periodType.value,
+      period: selectedPeriod.value,
+      period_label: label,
+      form_id: scope.form_id,
+      form_name: formRowName,
+      ...(scope.control_name ? { control_name: scope.control_name } : {}),
+    },
+  })
+}
+
+const handleRowAction = (key: string, record: DrillRow) => {
+  if (key === 'issues') gotoIssues(record)
+  else if (key === 'slow-logs') gotoSlowLogs(record)
 }
 
 // window.open 无法携带 Authorization 头，接口又要求鉴权（Claims），
