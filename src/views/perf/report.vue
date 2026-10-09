@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { formatTime, getAction, useGet, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
 import { ApiPerfReport, ApiPerfScript, ApiPerfIteration, ApiPerfRun } from '@/api/apis'
+import ConcPromoteButton from './conc/ConcPromoteButton.vue'
 import ProfileTab from './report/ProfileTab.vue'
 import ResourceTab from './report/ResourceTab.vue'
 
@@ -277,6 +278,9 @@ async function handleDownloadJmx(record: any) {
       <!-- 聚合报告明细 -->
       <a-tab-pane key="detail" :title="`聚合报告明细${detailScriptName ? ' — ' + detailScriptName : ''}`">
         <div ref="detailWrap">
+          <div style="margin-bottom: 8px">
+            <ConcPromoteButton :run-id="detailRunId" />
+          </div>
         <a-card :bordered="false">
 <a-table
   column-resizable

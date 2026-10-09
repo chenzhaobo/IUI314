@@ -5,8 +5,10 @@ import * as XLSX from 'xlsx'
 import { formatTime, useGet, usePost, usePut, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
 import { ApiPerfBenchmark, ApiPerfIteration, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
 import TxnTrendChart from './components/TxnTrendChart.vue'
+import ConcResultTab from './conc/ConcResultTab.vue'
 
 defineOptions({ name: 'benchmark-report' })
+const activeTab = ref('report')
 
 // ── 产品线选择（数据字典）──────────────────────────
 const productLine = ref('')
@@ -358,6 +360,8 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
 
 <template>
   <div class="page-container">
+    <a-tabs v-model:active-key="activeTab">
+      <a-tab-pane key="report" title="回归基准报告">
     <!-- 搜索栏 + 统计 -->
     <a-card :bordered="false" class="mb-12px">
       <div class="filter-row">
@@ -532,6 +536,11 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
       </a-table>
     </a-card>
     </div>
+      </a-tab-pane>
+      <a-tab-pane key="conc" title="并发基准">
+        <ConcResultTab v-if="activeTab === 'conc'" />
+      </a-tab-pane>
+    </a-tabs>
 
     <!-- 趋势图弹窗 -->
     <TxnTrendChart

@@ -4,8 +4,10 @@ import { Message, type TableColumnData, type TreeNodeData } from '@arco-design/w
 import { formatTime, isRequestFailed, postAction, useGet, usePut, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiPerfBenchmark, ApiPerfMenu, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
 import * as XLSX from 'xlsx'
+import ConcBaselineTab from './conc/ConcBaselineTab.vue'
 
 defineOptions({ name: 'txn-manage' })
+const activeTab = ref('txn')
 
 // ── 产品线选择（数据字典）──────────────────────────
 const productLine = ref('')
@@ -593,6 +595,8 @@ const scriptColumns = [
 
 <template>
   <div class="perf-txn-manage">
+    <a-tabs v-model:active-key="activeTab">
+      <a-tab-pane key="txn" title="事务基线">
     <!-- 顶部筛选栏 -->
     <a-card :bordered="false" class="m-b-8px top-bar">
       <div class="filter-row">
@@ -740,6 +744,11 @@ const scriptColumns = [
         </div>
       </a-card>
     </div>
+      </a-tab-pane>
+      <a-tab-pane key="conc" title="并发基线">
+        <ConcBaselineTab v-if="activeTab === 'conc'" />
+      </a-tab-pane>
+    </a-tabs>
 
     <!-- 编辑弹窗 -->
     <a-modal v-model:visible="editVisible" title="编辑事务信息" :width="560" @ok="handleSaveEdit" :ok-loading="updating">

@@ -4,6 +4,10 @@ import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { deleteAction, formatTime, postAction, putAction, useGet, usePost, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiPerfTask, ApiPerfScript, ApiPerfIteration, ApiPerfDomain, ApiPerfLoadNode } from '@/api/apis'
+import ConcProfileSummary from './conc/ConcProfileSummary.vue'
+import { BENCH_MODE_OPTIONS } from './conc/service'
+import { BENCH_MODE_CONCURRENT } from './conc/types'
+import { useConcMode } from './conc/useConcMode'
 import { PERF_RUN_PATH } from './routes'
 import TaskObserveDrawer from './task/TaskObserveDrawer.vue'
 
@@ -167,6 +171,34 @@ watch(() => [triggerForm.value.script_ids, triggerForm.value.task_type, triggerF
   if (triggerVisible.value) fetchEstimate()
 }, { deep: true })
 
+// ── 并发基准模式（111）：模式单选 + 所选脚本的固化条件摘要 ──────────────
+// 选并发后平台按脚本 profile 下发线程/爬坡/时长（忽略表单里的这四个输入），
+// 缺任一 profile 后端会整单拒绝 —— 摘要与红色提示提前暴露（逻辑见 conc/useConcMode）。
+const {
+  mode: concMode,
+  isConcurrent: concIsConcurrent,
+  scripts: concScripts,
+  loading: concLoading,
+  missing: concMissing,
+  loadProfiles: loadConcProfiles,
+  reset: resetConc,
+} = useConcMode()
+
+function syncConcProfiles() {
+  if (!concIsConcurrent.value)
+    return
+  loadConcProfiles(triggerForm.value.script_ids.map(id => ({
+    id,
+    name: scriptOptions.value.find((o: { label: string, value: string }) => o.value === id)?.label,
+  })))
+}
+
+watch(concMode, (mode) => {
+  if (mode === BENCH_MODE_CONCURRENT)
+    syncConcProfiles()
+})
+watch(() => triggerForm.value.script_ids, () => syncConcProfiles(), { deep: true })
+
 function handleTriggerClick() {
   triggerForm.value = {
     name: '',
@@ -182,6 +214,7 @@ function handleTriggerClick() {
     extra_props: '',
     load_node_id: '',
   }
+  resetConc()
   triggerVisible.value = true
 }
 
@@ -213,12 +246,18 @@ async function handleTriggerSubmit() {
   if (triggerForm.value.script_ids.length === 0 && triggerForm.value.domain) {
     Message.info(`将动态解析领域「${triggerForm.value.domain}」下的脚本`)
   }
+  // 并发基准：缺 profile 会被后端整单拒绝，先在本地拦住并点名脚本
+  if (concIsConcurrent.value && concMissing.value.length > 0) {
+    Message.warning(`并发基准要求每个脚本都有固化 profile，未固化：${concMissing.value.map(m => m.scriptName).join('、')}`)
+    return
+  }
   triggerSubmitting.value = true
   const res = await postAction(ApiPerfTask.trigger, {
     name: triggerForm.value.name,
     iteration_id: triggerForm.value.iteration_id || undefined,
     domain: triggerForm.value.domain || undefined,
     task_type: triggerForm.value.task_type,
+    bench_mode: concMode.value,
     max_concurrency: triggerForm.value.task_type === 'parallel' ? triggerForm.value.max_concurrency : 1,
     script_ids: triggerForm.value.script_ids,
     threads: triggerForm.value.threads,
@@ -434,6 +473,9 @@ function getProgress(record: any): number {
         <a-form-item v-if="triggerForm.task_type === 'parallel'" label="最大并发数">
           <a-input-number v-model="triggerForm.max_concurrency" :min="1" :max="10" />
         </a-form-item>
+        <a-form-item label="基准模式">
+          <a-radio-group v-model="concMode" :options="BENCH_MODE_OPTIONS" />
+        </a-form-item>
         <a-form-item label="执行机">
           <a-select v-model="triggerForm.load_node_id" :options="loadNodeOptions" placeholder="选择执行机" allow-clear />
         </a-form-item>
@@ -447,6 +489,12 @@ function getProgress(record: any): number {
             :virtual-list-props="{ height: 200 }"
           />
         </a-form-item>
+        <ConcProfileSummary
+          v-if="concIsConcurrent"
+          :rows="concScripts"
+          :loading="concLoading"
+          :missing="concMissing.length"
+        />
         <a-alert v-if="estimateResult" type="info" :loading="estimateLoading" style="margin-bottom: 12px">
           <template #title>
             <span>预估执行时间</span>
@@ -461,11 +509,11 @@ function getProgress(record: any): number {
             <span>平均单个：{{ estimateResult.avg_per_script_human }}，最长：{{ estimateResult.max_script_human }}</span>
           </div>
         </a-alert>
-        <a-row :gutter="16">
+        <a-row v-if="!concIsConcurrent" :gutter="16">
           <a-col :span="12"><a-form-item label="线程数"><a-input-number v-model="triggerForm.threads" :min="1" placeholder="覆盖默认值" /></a-form-item></a-col>
           <a-col :span="12"><a-form-item label="Ramp-up(秒)"><a-input-number v-model="triggerForm.rampup" :min="0" placeholder="覆盖默认值" /></a-form-item></a-col>
         </a-row>
-        <a-row :gutter="16">
+        <a-row v-if="!concIsConcurrent" :gutter="16">
           <a-col :span="12"><a-form-item label="循环次数"><a-input-number v-model="triggerForm.loops" :min="1" placeholder="覆盖默认值" /></a-form-item></a-col>
           <a-col :span="12"><a-form-item label="持续时间(秒)"><a-input-number v-model="triggerForm.duration" :min="0" placeholder="0=不限" /></a-form-item></a-col>
         </a-row>

@@ -5,6 +5,10 @@ import { Message } from '@arco-design/web-vue'
 import { deleteAction, emptyFilter, formatTime, isFilterActive, postAction, putAction, toServerFilters, useFilterPersistence, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import { ApiPerfTestPlan, ApiPerfScript, ApiPerfEnv, ApiPerfIteration, ApiSysDictData, ApiPerfLoadNode } from '@/api/apis'
+import ConcProfileSummary from './conc/ConcProfileSummary.vue'
+import { BENCH_MODE_OPTIONS } from './conc/service'
+import { BENCH_MODE_CONCURRENT, BENCH_MODE_SINGLE } from './conc/types'
+import { useConcMode } from './conc/useConcMode'
 
 defineOptions({ name: 'PerfTestPlan' })
 
@@ -137,6 +141,7 @@ const editForm = ref({
   description: '',
   env_id: '',
   task_type: 'sequential',
+  bench_mode: BENCH_MODE_SINGLE,
   max_concurrency: 1,
   default_params_json: {
     threads: undefined as number | undefined,
@@ -168,6 +173,7 @@ function handleAdd() {
     description: '',
     env_id: '',
     task_type: 'sequential',
+    bench_mode: BENCH_MODE_SINGLE,
     max_concurrency: 1,
     default_params_json: { threads: undefined, rampup: undefined, loops: undefined, duration: undefined, extra_props: '', timeout_sec: 600, load_node_id: '' },
     status: '1',
@@ -195,6 +201,7 @@ async function handleEdit(record: any) {
       description: data.value.plan.description || '',
       env_id: data.value.plan.env_id || '',
       task_type: data.value.plan.task_type,
+      bench_mode: data.value.plan.bench_mode === BENCH_MODE_CONCURRENT ? BENCH_MODE_CONCURRENT : BENCH_MODE_SINGLE,
       max_concurrency: data.value.plan.max_concurrency,
       default_params_json: {
         threads: dp.threads,
@@ -282,6 +289,7 @@ async function handleSave() {
     description: editForm.value.description || undefined,
     env_id: editForm.value.env_id || undefined,
     task_type: editForm.value.task_type,
+    bench_mode: editForm.value.bench_mode,
     max_concurrency: editForm.value.max_concurrency,
     default_params_json: editForm.value.default_params_json,
     status: editForm.value.status,
@@ -335,9 +343,21 @@ const previewColumns = [
 ]
 
 // ── 触发弹窗 ──────────────────────────────────
+// 计划触发不接受模式覆盖（PerfTestPlanTriggerReq 无 bench_mode），后端取计划记录里的
+// bench_mode 下发给任务 —— 所以这里只**回显**计划模式：并发时隐藏覆盖参数并展示
+// 各脚本固化 profile 摘要（脚本列表由 preview 动态解析，见 loadPlanProfiles）。
 const triggerVisible = ref(false)
 const triggerSubmitting = ref(false)
 const triggerPlanId = ref('')
+
+const {
+  mode: concMode,
+  isConcurrent: planIsConc,
+  scripts: concScripts,
+  loading: concLoading,
+  missing: concMissing,
+  loadPlanProfiles: loadConcProfiles,
+} = useConcMode()
 const triggerForm = ref({
   plan_id: '',
   iteration_id: '',
@@ -367,8 +387,11 @@ function handleTrigger(record: any) {
     timeout_sec: undefined,
     load_node_id: '',
   }
+  concMode.value = record.bench_mode === BENCH_MODE_CONCURRENT ? BENCH_MODE_CONCURRENT : BENCH_MODE_SINGLE
   triggerVisible.value = true
   fetchPlanEstimate(record.id, record.max_concurrency || 1)
+  if (planIsConc.value)
+    loadConcProfiles(record.id)
 }
 
 // ── 预估执行时间 ──────────────────────────────────
@@ -507,18 +530,32 @@ async function handleTriggerSubmit() {
           <a-form-item label="描述">
             <a-textarea v-model="editForm.description" placeholder="计划描述" :auto-size="{ minRows: 2 }" />
           </a-form-item>
+          <a-row :gutter="16">
+            <a-col :span="8">
+              <a-form-item label="基准模式">
+                <a-radio-group v-model="editForm.bench_mode" :options="BENCH_MODE_OPTIONS" />
+              </a-form-item>
+            </a-col>
+          </a-row>
 
           <a-divider orientation="left">默认执行参数</a-divider>
+          <a-alert
+            v-if="editForm.bench_mode === BENCH_MODE_CONCURRENT"
+            type="info"
+            :show-icon="true"
+            style="margin-bottom: 12px"
+            title="并发模式：执行参数按各脚本固化 profile 下发，本页线程/爬坡/循环/时长默认值在触发时忽略"
+          />
           <a-form-item label="默认执行机">
             <a-select v-model="editForm.default_params_json.load_node_id" :options="loadNodeOptions" placeholder="选择默认执行机" allow-clear />
           </a-form-item>
-          <a-row :gutter="16">
+          <a-row v-if="editForm.bench_mode !== BENCH_MODE_CONCURRENT" :gutter="16">
             <a-col :span="8"><a-form-item label="线程数"><a-input-number v-model="editForm.default_params_json.threads" :min="1" placeholder="默认" /></a-form-item></a-col>
             <a-col :span="8"><a-form-item label="Ramp-up(秒)"><a-input-number v-model="editForm.default_params_json.rampup" :min="0" placeholder="默认" /></a-form-item></a-col>
             <a-col :span="8"><a-form-item label="循环次数"><a-input-number v-model="editForm.default_params_json.loops" :min="1" placeholder="默认" /></a-form-item></a-col>
           </a-row>
           <a-row :gutter="16">
-            <a-col :span="8"><a-form-item label="持续时间(秒)"><a-input-number v-model="editForm.default_params_json.duration" :min="0" placeholder="0=不限" /></a-form-item></a-col>
+            <a-col v-if="editForm.bench_mode !== BENCH_MODE_CONCURRENT" :span="8"><a-form-item label="持续时间(秒)"><a-input-number v-model="editForm.default_params_json.duration" :min="0" placeholder="0=不限" /></a-form-item></a-col>
             <a-col :span="8"><a-form-item label="超时(秒)"><a-input-number v-model="editForm.default_params_json.timeout_sec" :min="0" placeholder="默认600" /></a-form-item></a-col>
             <a-col :span="8"><a-form-item label="额外JMeter属性"><a-input v-model="editForm.default_params_json.extra_props" placeholder="key1=v1" /></a-form-item></a-col>
           </a-row>
@@ -658,11 +695,23 @@ async function handleTriggerSubmit() {
             </a-form-item>
           </a-col>
         </a-row>
+        <a-form-item label="基准模式">
+          <a-tag :color="planIsConc ? 'purple' : 'blue'">
+            {{ planIsConc ? '并发基准' : '单用户基准' }}
+          </a-tag>
+          <span v-if="planIsConc" class="conc-mode-hint">参数取各脚本固化 profile，覆盖参数不生效</span>
+        </a-form-item>
+        <ConcProfileSummary
+          v-if="planIsConc"
+          :rows="concScripts"
+          :loading="concLoading"
+          :missing="concMissing.length"
+        />
         <a-form-item label="执行机">
           <a-select v-model="triggerForm.load_node_id" :options="loadNodeOptions" placeholder="选择执行机" allow-clear />
         </a-form-item>
-        <a-divider orientation="left">覆盖执行参数（留空使用计划默认值）</a-divider>
-        <a-row :gutter="16">
+        <a-divider v-if="!planIsConc" orientation="left">覆盖执行参数（留空使用计划默认值）</a-divider>
+        <a-row v-if="!planIsConc" :gutter="16">
           <a-col :span="6"><a-form-item label="线程数"><a-input-number v-model="triggerForm.threads" :min="1" placeholder="默认" /></a-form-item></a-col>
           <a-col :span="6"><a-form-item label="Ramp-up"><a-input-number v-model="triggerForm.rampup" :min="0" placeholder="默认" /></a-form-item></a-col>
           <a-col :span="6"><a-form-item label="循环"><a-input-number v-model="triggerForm.loops" :min="1" placeholder="默认" /></a-form-item></a-col>
@@ -701,4 +750,5 @@ async function handleTriggerSubmit() {
 .domain-summary { margin-top: 8px; }
 .edit-header { display: flex; align-items: center; gap: 12px; }
 .edit-title { font-size: 16px; font-weight: 500; }
+.conc-mode-hint { margin-left: 8px; color: var(--color-text-3); font-size: 12px; }
 </style>

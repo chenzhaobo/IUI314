@@ -8,6 +8,7 @@ import type { TableData } from '@arco-design/web-vue'
 import type { ProbePlanView, RestoreItemView } from './types'
 import { computed } from 'vue'
 import { formatMetric, formatNumber } from '@/utils/perfFormat'
+import ConcPromoteButton from '../conc/ConcPromoteButton.vue'
 import { PERF_REPORT_PATH } from '../routes'
 import ProbeHwChart from './ProbeHwChart.vue'
 import ProbeStageChart from './ProbeStageChart.vue'
@@ -58,7 +59,7 @@ function restoreRowClass(record: TableData): string {
         :pagination="false"
         row-key="rowKey"
         size="small"
-        :scroll="{ x: 860 }"
+        :scroll="{ x: 990 }"
       >
         <template #columns>
           <a-table-column title="档位" :width="120">
@@ -111,6 +112,17 @@ function restoreRowClass(record: TableData): string {
               >
                 报告
               </router-link>
+              <span v-else>—</span>
+            </template>
+          </a-table-column>
+          <a-table-column title="并发基准" :width="130">
+            <template #cell="{ record }">
+              <!-- 只有「稳定性 + 合格」的档位 run 满足固化前置（rt 稳定、带硬件档位与时长参数） -->
+              <ConcPromoteButton
+                v-if="record.kind === 'stability' && record.ok && record.run_id"
+                :run-id="record.run_id"
+                text
+              />
               <span v-else>—</span>
             </template>
           </a-table-column>
