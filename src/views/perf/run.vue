@@ -6,6 +6,7 @@ import { EventSourcePolyfill, type Event as SseEvent, type MessageEvent as SseMe
 import { formatTime, getAction, postAction, putAction, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiPerfRun, ApiPerfScript, ApiPerfIteration, ApiPerfTask, ApiPerfLoadNode } from '@/api/apis'
 import { useToken } from '@/hooks/app'
+import { PERF_REPORT_PATH, PERF_TASK_PATH } from './routes'
 
 defineOptions({ name: 'run' })
 const router = useRouter()
@@ -54,7 +55,7 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
 
 // ── 触发执行弹窗 ──────────────────────────────────
 const triggerVisible = ref(false)
-const triggerForm = ref({ script_id: '', threads: undefined as number | undefined, rampup: undefined as number | undefined, loops: undefined as number | undefined, duration: undefined as number | undefined, extra_props: '', baseline_run_id: '', iteration_id: '', load_node_id: '' })
+const triggerForm = ref({ script_id: '', threads: undefined as number | undefined, rampup: undefined as number | undefined, loops: undefined as number | undefined, duration: undefined as number | undefined, extra_props: '', iteration_id: '', load_node_id: '' })
 
 // 获取脚本列表供选择
 const { data: scriptData } = useGet<any>(ApiPerfScript.getList, { page_num: 1, page_size: 100 }, { immediate: true })
@@ -94,7 +95,7 @@ const loadNodeOptions = computed(() => [
 ])
 
 function handleTriggerClick() {
-  triggerForm.value = { script_id: '', threads: undefined, rampup: undefined, loops: undefined, duration: undefined, extra_props: '', baseline_run_id: '', iteration_id: currentIterData.value?.id || '', load_node_id: '' }
+  triggerForm.value = { script_id: '', threads: undefined, rampup: undefined, loops: undefined, duration: undefined, extra_props: '', iteration_id: currentIterData.value?.id || '', load_node_id: '' }
   triggerVisible.value = true
 }
 
@@ -109,7 +110,7 @@ async function handleTriggerSubmit() {
 
 // ── 跳转报告页 ──────────────────────────────────
 function handleViewReport(record: any) {
-  router.push({ path: '/perf/report-group/report', query: { run_id: record.id } })
+  router.push({ path: PERF_REPORT_PATH, query: { run_id: record.id } })
 }
 
 // ── 查看日志（静态） ──────────────────────────────────
@@ -223,7 +224,7 @@ async function handleDownloadJmx(record: any) {
 
 // ── 查看历史记录（跳转报告管理列表，按 script_id 过滤） ──────────────────────────────────
 function handleViewHistory(record: any) {
-  router.push({ path: '/perf/report-group/report', query: { script_id: record.script_id } })
+  router.push({ path: PERF_REPORT_PATH, query: { script_id: record.script_id } })
 }
 
 // ── 刷新 ──────────────────────────────────
@@ -306,7 +307,7 @@ async function handleBatchSubmit() {
     <a-card :bordered="false" class="m-b-8px">
       <a-row :gutter="16">
         <a-col v-if="filterTaskId" :span="6">
-          <a-button @click="router.push('/perf/run-group/task')">
+          <a-button @click="router.push(PERF_TASK_PATH)">
             <template #icon><icon-left /></template>
             返回任务列表
           </a-button>
@@ -410,9 +411,6 @@ async function handleBatchSubmit() {
         </a-row>
         <a-form-item label="额外JMeter属性">
           <a-input v-model="triggerForm.extra_props" placeholder="key1=value1,key2=value2" />
-        </a-form-item>
-        <a-form-item label="对比基线RunID">
-          <a-input v-model="triggerForm.baseline_run_id" placeholder="可选，填写基线run_id" />
         </a-form-item>
       </a-form>
     </a-modal>

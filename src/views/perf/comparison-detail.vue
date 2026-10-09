@@ -5,6 +5,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useGet, usePut, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiPerfComparison } from '@/api/apis'
 import TxnTrendChart from './components/TxnTrendChart.vue'
+import { PERF_TASK_PATH } from './routes'
 
 defineOptions({ name: 'comparison-detail' })
 
@@ -144,7 +145,7 @@ async function handleUpdateAnalysis() {
 // ── 重跑脚本 ──────────────────────────────────
 function handleRerun(record: any) {
   if (record.script_id) {
-    router.push({ path: '/perf/run-group/task', query: { script_id: record.script_id } })
+    router.push({ path: PERF_TASK_PATH, query: { script_id: record.script_id } })
   } else {
     Message.warning('未找到关联脚本')
   }

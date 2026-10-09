@@ -4,7 +4,8 @@ import { Message, type TreeNodeData } from '@arco-design/web-vue'
 import { formatTime, useGet, postAction, deleteAction, getAction, useAutoHeight } from '@/hooks'
 import { ApiPerfScript, ApiPerfScriptMenu, ApiPerfMenu, ApiSysDictData, ApiSecProjectGroup } from '@/api/apis'
 
-defineOptions({ name: 'script-bindng' })
+// 组件名必须与路由 name（= sys_menu.path 'script-binding'）逐字一致，keep-alive :include 才能缓存本页
+defineOptions({ name: 'script-binding' })
 
 // ── 产品线选择（数据字典）──────────────────────────
 const productLine = ref('')
@@ -313,7 +314,7 @@ async function handleAddSubmit() {
 </script>
 
 <template>
-  <div class="perf-script-bindng">
+  <div class="perf-script-binding">
     <!-- 顶部筛选栏 -->
     <a-card :bordered="false" class="m-b-8px">
       <a-row :gutter="16" align="center">
@@ -436,7 +437,7 @@ async function handleAddSubmit() {
 </template>
 
 <style scoped>
-.perf-script-bindng { padding: 0; }
+.perf-script-binding { padding: 0; }
 .bind-layout {
   display: flex;
   gap: 8px;

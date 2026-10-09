@@ -6,6 +6,7 @@ import {
 } from 'vue-router'
 
 import { FixedRoutes, InnerLink, Layout, REDIRECT_ROUTE_NAME } from './constant'
+import { PerfStaticRoutes } from './perfStaticRoutes'
 import { useRouterGuard } from '@/hooks'
 import type { AppRouteRecordRaw } from '@/types/base/router'
 
@@ -62,7 +63,7 @@ export const constantRoutes: AppRouteRecordRaw[] = [
 export const router = createRouter({
   // history: createWebHistory(),
   history: createWebHashHistory(import.meta.env.BASE_URL),
-  routes: [...constantRoutes, ...FixedRoutes] as Readonly<RouteRecordRaw[]>,
+  routes: [...constantRoutes, ...FixedRoutes, ...PerfStaticRoutes] as Readonly<RouteRecordRaw[]>,
   scrollBehavior() {
     return { top: 0 }
   },

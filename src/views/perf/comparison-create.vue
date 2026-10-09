@@ -4,6 +4,7 @@ import { Message } from '@arco-design/web-vue'
 import { useRouter } from 'vue-router'
 import { useGet, usePost } from '@/hooks'
 import { ApiPerfComparison, ApiPerfIteration, ApiPerfApp, ApiPerfModule, ApiSecProjectGroup, ApiSysDictData } from '@/api/apis'
+import { PERF_COMPARISON_DETAIL_PATH } from './routes'
 
 defineOptions({ name: 'comparison-create' })
 
@@ -73,7 +74,7 @@ async function handleSubmit() {
     if (data) {
       Message.success(`比对完成：共 ${data.txn_rows?.length || 0} 个事务，劣化 ${data.txn_regression_count}，改善 ${data.txn_improvement_count}`)
       // 跳转到详情页
-      router.push({ path: '/perf/report-group/comparison-report/detail', query: { id: data.comparison_id } })
+      router.push({ path: PERF_COMPARISON_DETAIL_PATH, query: { id: data.comparison_id } })
     } else {
       Message.warning('比对结果为空')
     }

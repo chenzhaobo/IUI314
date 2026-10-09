@@ -7,9 +7,10 @@ import type { TableData } from '@arco-design/web-vue'
  */
 import type { ProbePlanView, RestoreItemView } from './types'
 import { computed } from 'vue'
+import { PERF_REPORT_PATH } from '../routes'
 import ProbeHwChart from './ProbeHwChart.vue'
 import ProbeStageChart from './ProbeStageChart.vue'
-import { limitHits, REPORT_PATH, restoreActionText, stageKindText, stageRows } from './types'
+import { limitHits, restoreActionText, stageKindText, stageRows } from './types'
 
 const props = defineProps<{ plan: ProbePlanView }>()
 
@@ -105,7 +106,7 @@ function restoreRowClass(record: TableData): string {
             <template #cell="{ record }">
               <router-link
                 v-if="record.run_id"
-                :to="{ path: REPORT_PATH, query: { run_id: record.run_id } }"
+                :to="{ path: PERF_REPORT_PATH, query: { run_id: record.run_id } }"
               >
                 报告
               </router-link>

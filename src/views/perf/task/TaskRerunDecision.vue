@@ -7,13 +7,12 @@
 import type { TaskRerunView } from './types'
 import { computed } from 'vue'
 import { withTableDefaults } from '@/hooks'
+import { PERF_REPORT_PATH } from '../routes'
 import { sortDecisions, verdictColor, verdictText } from './types'
 
 defineOptions({ name: 'TaskRerunDecision' })
 
 const props = defineProps<{ view: TaskRerunView | null }>()
-
-const REPORT_PATH = '/perf/report-group/report'
 
 const rows = computed(() => sortDecisions(props.view))
 
@@ -55,12 +54,12 @@ function shortId(id?: string | null): string {
         </a-tag>
       </template>
       <template #origin="{ record }">
-        <router-link :to="{ path: REPORT_PATH, query: { run_id: record.origin_run_id } }">
+        <router-link :to="{ path: PERF_REPORT_PATH, query: { run_id: record.origin_run_id } }">
           {{ shortId(record.origin_run_id) }}
         </router-link>
       </template>
       <template #best="{ record }">
-        <router-link v-if="record.best_run_id" :to="{ path: REPORT_PATH, query: { run_id: record.best_run_id } }">
+        <router-link v-if="record.best_run_id" :to="{ path: PERF_REPORT_PATH, query: { run_id: record.best_run_id } }">
           {{ shortId(record.best_run_id) }}
         </router-link>
         <span v-else>—</span>

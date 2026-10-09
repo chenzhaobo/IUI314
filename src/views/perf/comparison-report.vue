@@ -4,6 +4,7 @@ import { Message } from '@arco-design/web-vue'
 import { useRouter } from 'vue-router'
 import { deleteAction, formatTime, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiPerfComparison, ApiSysDictData, ApiPerfModule } from '@/api/apis'
+import { PERF_COMPARISON_CREATE_PATH, PERF_COMPARISON_DETAIL_PATH } from './routes'
 
 defineOptions({ name: 'comparison-report' })
 
@@ -51,12 +52,12 @@ function handlePageChange(page: number) {
 
 // ── 新增比对 ──────────────────────────────────
 function handleCreate() {
-  router.push({ path: '/perf/report-group/comparison-report/create' })
+  router.push({ path: PERF_COMPARISON_CREATE_PATH })
 }
 
 // ── 查看详情 ──────────────────────────────────
 function handleDetail(id: string) {
-  router.push({ path: '/perf/report-group/comparison-report/detail', query: { id: id?.trim() || '' } })
+  router.push({ path: PERF_COMPARISON_DETAIL_PATH, query: { id: id?.trim() || '' } })
 }
 
 // ── 删除比对记录 ──────────────────────────────

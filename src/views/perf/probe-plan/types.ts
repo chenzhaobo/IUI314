@@ -379,6 +379,3 @@ export function limitHits(limits: HwLimitsView): string[] {
     hits.push('中间件先饱和')
   return hits
 }
-
-/** 报告页路径（stage run 直接链到 run 明细） */
-export const REPORT_PATH = '/perf/report-group/report'

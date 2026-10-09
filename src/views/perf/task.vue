@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { deleteAction, formatTime, postAction, putAction, useGet, usePost, useTableAutoHeight, withTableDefaults } from '@/hooks'
 import { ApiPerfTask, ApiPerfScript, ApiPerfIteration, ApiPerfDomain, ApiPerfLoadNode } from '@/api/apis'
+import { PERF_RUN_PATH } from './routes'
 import TaskObserveDrawer from './task/TaskObserveDrawer.vue'
 
 // 组件名必须与路由 name（= sys_menu.path 'task'）逐字一致，keep-alive :include 才能缓存本页
@@ -263,7 +264,7 @@ async function handleDelete(record: any) {
 
 // ── 查看任务详情（跳转到run列表，按task_id筛选） ──────────────────────────────────
 function handleViewRuns(record: any) {
-  router.push({ path: '/perf/run-group/run', query: { task_id: record.id } })
+  router.push({ path: PERF_RUN_PATH, query: { task_id: record.id } })
 }
 
 // ── 观测抽屉（批次资源曲线 / 复跑结论） ──────────────────────────────────
