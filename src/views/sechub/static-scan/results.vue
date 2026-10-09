@@ -25,7 +25,10 @@ import { useScanPointCategories } from './components/useScanPointCategories'
 import CoverageReportTab from './coverage-report/CoverageReportTab.vue'
 import { aiStatusLabels } from './labels'
 import CandidateConsistencyPanel from './results/CandidateConsistencyPanel.vue'
+import CandidateVerdictHistory from './results/CandidateVerdictHistory.vue'
+import { judgedRounds, latestJudgedRound } from './results/useCandidateVerdictHistory'
 import VerdictConflictTag from './results/VerdictConflictTag.vue'
+import { aiModeLabels } from './results/verdictLabels'
 import 'md-editor-v3/lib/style.css'
 
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
@@ -729,8 +732,8 @@ const manualVerdict = ref<'confirmed' | 'rejected'>('confirmed')
 const manualReason = ref('')
 const manualBusy = ref(false)
 
-/** 弹窗里展示该候选现有的 AI 结论，帮助判断谁对 */
-const manualExistingVerdicts = computed(() => manualRow.value?.verdicts ?? [])
+/** 弹窗里展示该候选现有的各轮 AI 结论（不完整轮次没有候选级结论，不列），帮助判断谁对 */
+const manualExistingVerdicts = computed(() => judgedRounds(manualRow.value?.verdicts))
 
 function openManualModal(row: CandidateDetailRow) {
   manualRow.value = row
@@ -767,26 +770,8 @@ async function submitManualVerdict() {
   }
 }
 
-// ===== 多模型结论对比（展开行）=====
-const verdictColumns = [
-  { key: 'adopted', title: '', slotName: 'vAdopted', width: 60 },
-  { key: 'ai_model', title: '模型', dataIndex: 'ai_model', width: 170, ellipsis: true, tooltip: true },
-  { key: 'ai_mode', title: '模式', slotName: 'vMode', width: 90 },
-  { key: 'verdict', title: '结论', slotName: 'vVerdict', width: 90 },
-  { key: 'risk_level', title: '风险', dataIndex: 'risk_level', width: 70 },
-  { key: 'confidence', title: '置信度', slotName: 'vConfidence', width: 80 },
-  { key: 'rationale', title: '判定依据', dataIndex: 'rationale', ellipsis: true, tooltip: true },
-  { key: 'report', title: '报告', slotName: 'vReport', width: 70 },
-  { key: 'created_at', title: '时间', slotName: 'vCreatedAt', width: 160 },
-]
-
-/** 该候选是否存在「不同结论」——两个模型判得不一样时高亮提示人工裁定 */
-function verdictDisagrees(row: CandidateDetailRow): boolean {
-  const set = new Set((row.verdicts ?? []).map(v => v.verdict))
-  return set.size > 1
-}
-
-/** 查看某次结论对应的报告正文（复用报告弹窗，只替换正文） */
+// ===== 多模型结论对比（展开行，见 ./results/CandidateVerdictHistory.vue）=====
+/** 查看某轮结论对应的报告正文（复用报告弹窗，只替换正文） */
 function viewVerdictReport(row: CandidateDetailRow, v: CandidateVerdictRow) {
   reportRow.value = { ...row, ai_detail_report: v.detail_report ?? null, ai_model: v.ai_model, ai_mode: v.ai_mode, ai_risk_level: v.risk_level }
   reportVisible.value = true
@@ -817,7 +802,7 @@ function verdictLabel(value: string | null | undefined): string {
 function pendingLastVerdict(row: CandidateDetailRow): CandidateVerdictRow | null {
   if (row.ai_status !== 'pending')
     return null
-  return row.verdicts?.[0] ?? null
+  return latestJudgedRound(row.verdicts)
 }
 
 function pendingLastVerdictText(row: CandidateDetailRow): string {
@@ -837,11 +822,6 @@ const riskLabels: Record<string, { label: string, color: string }> = {
   medium: { label: '中', color: 'orange' },
   low: { label: '低', color: 'blue' },
   info: { label: '提示', color: 'gray' },
-}
-const modeLabels: Record<string, { label: string, color: string }> = {
-  batch: { label: '平台编排', color: 'blue' },
-  agent: { label: 'Agent', color: 'purple' },
-  manual: { label: '人工裁定', color: 'orange' },
 }
 
 // ===== 轮次展示辅助函数 =====
@@ -865,7 +845,7 @@ function shortSha(sha: string | null | undefined): string {
  */
 function roundOptionLabel(row: CrossRunAggRow): string {
   const model = roundModelLabel(row)
-  const mode = modeLabels[row.ai_mode ?? '']?.label ?? (row.ai_mode?.trim() ? row.ai_mode : '待确认')
+  const mode = aiModeLabels[row.ai_mode ?? '']?.label ?? (row.ai_mode?.trim() ? row.ai_mode : '待确认')
   const branch = row.branch?.trim() ? row.branch.trim() : '-'
   const sha = shortSha(row.commit_sha)
   const time = formatTime(row.commit_time || row.created_at)
@@ -881,7 +861,7 @@ function roundTooltipContent(row: CrossRunAggRow): string {
   lines.push(`分支：${row.branch?.trim() || '-'}`)
   lines.push(`扫描时间：${formatTime(row.commit_time || row.created_at)}`)
   lines.push(`模型：${roundModelLabel(row)}`)
-  lines.push(`模式：${modeLabels[row.ai_mode ?? '']?.label ?? (row.ai_mode?.trim() ? row.ai_mode : '待确认')}`)
+  lines.push(`模式：${aiModeLabels[row.ai_mode ?? '']?.label ?? (row.ai_mode?.trim() ? row.ai_mode : '待确认')}`)
   lines.push(`候选总数：${row.total}（确认 ${row.confirmed} / 已排除 ${row.rejected} / 待确认 ${row.pending}）`)
   return lines.join('\n')
 }
@@ -1302,7 +1282,7 @@ watch(() => route.query, (newQ, oldQ) => {
               <template #title>
                 候选明细
                 <small class="card-sub">
-                  {{ roundModelLabel(currentRun) }} · {{ modeLabels[currentRun.ai_mode]?.label ?? (currentRun.ai_mode?.trim() ? currentRun.ai_mode : '待确认') }}
+                  {{ roundModelLabel(currentRun) }} · {{ aiModeLabels[currentRun.ai_mode]?.label ?? (currentRun.ai_mode?.trim() ? currentRun.ai_mode : '待确认') }}
                 </small>
                 <!-- 009a：run 级同类结论冲突数（与本页筛选无关；结论行全部保留，由人工对照裁定） -->
                 <a-tooltip v-if="runVerdictConflicts !== null" content="本 run 带「同类结论冲突」标记的候选数：同文件同位置、同问题类别的候选结论对立" mini>
@@ -1483,50 +1463,7 @@ watch(() => route.query, (newQ, oldQ) => {
                     <div class="verdict-panel">
                       <!-- 009a/009b：同类结论冲突 / 同位置其他规则结论 / 并入的证据（结论行全部保留展示） -->
                       <CandidateConsistencyPanel :row="record" @locate="locateCandidate" />
-                      <a-empty v-if="!record.verdicts?.length" description="暂无结论记录（该候选还没经过 AI 确认）" />
-                      <template v-else>
-                        <div class="verdict-hint">
-                          共 {{ record.verdicts.length }} 次结论。换模型重扫会**追加**一条而不是覆盖，
-                          下面按时间倒序列出；标「采信」的那条就是列表页展示的结论。
-                          <span v-if="verdictDisagrees(record)" class="verdict-warn">⚠️ 不同模型结论不一致，建议人工裁定</span>
-                        </div>
-                        <a-table
-                          :data="record.verdicts"
-                          :columns="verdictColumns"
-                          :pagination="false"
-                          row-key="id"
-                          size="mini"
-                        >
-                          <template #vAdopted="{ record: v }">
-                            <a-tag v-if="v.adopted" color="arcoblue" size="small">
-                              采信
-                            </a-tag>
-                            <span v-else class="text-muted">历史</span>
-                          </template>
-                          <template #vVerdict="{ record: v }">
-                            <a-tag :color="aiStatusLabels[v.verdict]?.color ?? 'gray'" size="small">
-                              {{ aiStatusLabels[v.verdict]?.label ?? v.verdict }}
-                            </a-tag>
-                          </template>
-                          <template #vMode="{ record: v }">
-                            {{ modeLabels[v.ai_mode ?? '']?.label ?? (v.ai_mode || '-') }}
-                          </template>
-                          <template #vConfidence="{ record: v }">
-                            {{ v.confidence != null ? Number(v.confidence).toFixed(2) : '-' }}
-                          </template>
-                          <template #vReport="{ record: v }">
-                            <a-button v-if="v.has_report" type="text" size="mini" @click="viewVerdictReport(record, v)">
-                              查看
-                            </a-button>
-                            <a-tooltip v-else content="该次结论没有落盘报告；confirmed / 需人工复核的结论现在会被服务端强制要求报告，缺失即拒绝入库" mini>
-                              <span class="text-muted">无</span>
-                            </a-tooltip>
-                          </template>
-                          <template #vCreatedAt="{ record: v }">
-                            {{ formatTime(v.created_at) }}
-                          </template>
-                        </a-table>
-                      </template>
+                      <CandidateVerdictHistory :verdicts="record.verdicts" @view-report="(v: CandidateVerdictRow) => viewVerdictReport(record, v)" />
                     </div>
                   </template>
                 </a-table>
@@ -1609,7 +1546,7 @@ watch(() => route.query, (newQ, oldQ) => {
               <a-tag :color="v.adopted ? 'red' : 'gray'" size="small">
                 {{ v.adopted ? '采信' : '历史' }}
               </a-tag>
-              {{ v.ai_model || '未记录模型' }} · {{ modeLabels[v.ai_mode ?? '']?.label ?? v.ai_mode ?? '-' }} · {{ verdictLabel(v.verdict) }}
+              {{ v.ai_model || '未记录模型' }} · {{ aiModeLabels[v.ai_mode ?? '']?.label ?? v.ai_mode ?? '-' }} · {{ verdictLabel(v.verdict) }}
               <span v-if="v.rationale" class="text-muted">— {{ v.rationale }}</span>
             </div>
           </div>
@@ -1649,7 +1586,7 @@ watch(() => route.query, (newQ, oldQ) => {
           {{ roundModelLabel(reportRow) }}
         </a-descriptions-item>
         <a-descriptions-item label="模式">
-          {{ modeLabels[reportRow?.ai_mode ?? '']?.label ?? (reportRow?.ai_mode?.trim() ? reportRow.ai_mode : '待确认') }}
+          {{ aiModeLabels[reportRow?.ai_mode ?? '']?.label ?? (reportRow?.ai_mode?.trim() ? reportRow.ai_mode : '待确认') }}
         </a-descriptions-item>
         <a-descriptions-item label="风险">
           {{ reportRow?.ai_risk_level ?? '-' }}
@@ -1702,8 +1639,6 @@ watch(() => route.query, (newQ, oldQ) => {
 .card-sub { margin-left: 12px; color: var(--color-text-3); font-weight: normal; font-size: 12px; }
 .text-muted { color: var(--color-text-4); }
 .verdict-panel { padding: 8px 12px; background: var(--color-fill-1); }
-.verdict-hint { margin-bottom: 8px; color: var(--color-text-3); font-size: 12px; }
-.verdict-warn { margin-left: 8px; color: rgb(var(--warning-6)); font-weight: 600; }
 /* flex-basis 必须是 auto：`flex: 1` 是 `1 1 0%`，basis 0% 会让上面实测的 `height`
    被 flex 布局无视 —— 行高退回内容驱动，左树一展开就把整条高度链顶高、内容区出滚动条。
    basis auto 时行的基准尺寸就是那个实测 height，行高稳定、左树在卡片内部滚。 */

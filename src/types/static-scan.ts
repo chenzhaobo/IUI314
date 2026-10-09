@@ -742,8 +742,9 @@ export interface CandidateDetailRow {
   previous_verdict?: string | null
   previous_ai_model?: string | null
   /**
-   * 历史结论列表（新到旧）。换模型复核会**追加**一条而不是覆盖，
+   * 判定轮次列表（新到旧）。换模型复核会**追加**一轮而不是覆盖，
    * 所以同一条候选下可以并排看到不同模型的判定差异。
+   * 顶层每项是一轮判定（kind 不会是 'group'）；AI-01 权限分组行嵌在该轮的 `groups` 里。
    */
   verdicts?: CandidateVerdictRow[]
   /** 009a：同类结论冲突（同文件同位置同问题类别的候选结论对立时非空；null = 无冲突） */
@@ -777,11 +778,23 @@ export interface EvidenceCandidateRef {
   matched_text?: string | null
 }
 
-/** 单条候选的一次 AI 结论（多模型对比用） */
+/**
+ * 结论行类型：
+ * - aggregate：AI-01 候选聚合结论（本轮采信口径，分组明细在 groups）；
+ * - single：普通单条判定；
+ * - propagated：同问题键传播来的结论；
+ * - group_partial：只有分组行、找不到聚合行的不完整轮次（verdict 也为 'group_partial'）；
+ * - group：权限分组结论，只出现在某轮的 groups 里，不会出现在顶层。
+ */
+export type CandidateVerdictKind = 'aggregate' | 'single' | 'propagated' | 'group_partial' | 'group'
+
+/** 单条候选的一轮 AI 判定（多模型对比用）；groups 内的分组行复用同一形状 */
 export interface CandidateVerdictRow {
+  /** 不完整轮次为合成 id："group_partial:<首条分组行 id>" */
   id: string
   ai_model?: string | null
   ai_mode?: string | null
+  /** confirmed / rejected / review_needed / error / group_partial */
   verdict: string
   risk_level?: string | null
   confidence?: number | null
@@ -790,9 +803,15 @@ export interface CandidateVerdictRow {
   has_report: boolean
   detail_report?: string | null
   dispatch_id?: string | null
-  /** 是否为当前采信的结论（列表页 ai_* 字段来自这一条） */
+  /** 是否为当前采信的结论（列表页 ai_* 字段来自这一条）；分组行与不完整轮次恒为 false */
   adopted: boolean
   created_at: string
+  /** 结论行类型（旧后端不返回，按 single 处理） */
+  kind?: CandidateVerdictKind
+  /** 分组行：本组 key；聚合行：采信的分组 key */
+  group_key?: string | null
+  /** 本轮的权限分组结论（仅 aggregate / group_partial 非空，按 group_key 升序） */
+  groups?: CandidateVerdictRow[]
 }
 
 export interface CandidateDetailPage {
