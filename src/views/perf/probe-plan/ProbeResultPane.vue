@@ -7,6 +7,7 @@ import type { TableData } from '@arco-design/web-vue'
  */
 import type { ProbePlanView, RestoreItemView } from './types'
 import { computed } from 'vue'
+import { formatMetric, formatNumber } from '@/utils/perfFormat'
 import { PERF_REPORT_PATH } from '../routes'
 import ProbeHwChart from './ProbeHwChart.vue'
 import ProbeStageChart from './ProbeStageChart.vue'
@@ -67,7 +68,7 @@ function restoreRowClass(record: TableData): string {
           </a-table-column>
           <a-table-column title="并发" :width="70">
             <template #cell="{ record }">
-              {{ record.threads }}
+              {{ formatNumber(record.threads, 0) }}
             </template>
           </a-table-column>
           <a-table-column title="类型" :width="80">
@@ -77,17 +78,17 @@ function restoreRowClass(record: TableData): string {
           </a-table-column>
           <a-table-column title="TPS" :width="90">
             <template #cell="{ record }">
-              {{ record.tps }}
+              {{ formatMetric(record.tps, 'tps') }}
             </template>
           </a-table-column>
-          <a-table-column title="P95(ms)" :width="90">
+          <a-table-column title="P95" :width="90">
             <template #cell="{ record }">
-              {{ record.p95_ms }}
+              {{ formatMetric(record.p95_ms, 'ms') }}
             </template>
           </a-table-column>
           <a-table-column title="错误" :width="70">
             <template #cell="{ record }">
-              <span :class="{ 'prp-bad': record.errors > 0 }">{{ record.errors }}</span>
+              <span :class="{ 'prp-bad': record.errors > 0 }">{{ formatNumber(record.errors, 0) }}</span>
             </template>
           </a-table-column>
           <a-table-column title="合格" :width="70">
@@ -133,10 +134,10 @@ function restoreRowClass(record: TableData): string {
         <div v-for="block in kneeBlocks" :key="block.label" class="prp-knee">
           <div class="prp-knee-head">
             <b>{{ block.label }}</b>
-            <span>拐点并发 {{ block.knee?.threads ?? '—' }}</span>
-            <span>TPS {{ block.knee?.tps ?? '—' }}</span>
-            <span>P95 {{ block.knee?.p95_ms ?? '—' }} ms</span>
-            <span>单副本 {{ block.knee?.per_replica_tps ?? '—' }} TPS</span>
+            <span>拐点并发 {{ formatNumber(block.knee?.threads, 0) }}</span>
+            <span>TPS {{ formatMetric(block.knee?.tps, 'tps') }}</span>
+            <span>P95 {{ formatMetric(block.knee?.p95_ms, 'ms') }}</span>
+            <span>单副本 {{ formatMetric(block.knee?.per_replica_tps, 'tps') }} TPS</span>
             <a-tag :color="block.knee?.stable ? 'green' : 'orange'" size="small">
               {{ block.knee?.stable ? '稳定' : '未稳定' }}
             </a-tag>

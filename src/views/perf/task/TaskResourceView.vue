@@ -8,6 +8,7 @@ import type { TableData } from '@arco-design/web-vue'
 import type { RunRankRow, SeriesGroup } from './types'
 import TimeSeriesChart from '@/components/charts/TimeSeriesChart.vue'
 import { withTableDefaults } from '@/hooks'
+import { formatMetric } from '@/utils/perfFormat'
 import { EVIDENCE_EVENTS, metricTitle, rowMetrics } from './types'
 
 defineOptions({ name: 'TaskResourceView' })
@@ -31,19 +32,13 @@ const evidenceEvent = defineModel<string>('evidenceEvent', { required: true })
 
 const columns = withTableDefaults([
   { title: '脚本', dataIndex: 'script_name', slotName: 'script', width: 240, fixed: 'left' as const },
-  { title: '净 CPU', slotName: 'net', width: 100 },
-  { title: '峰值 CPU', slotName: 'max', width: 100 },
-  { title: '内存峰值(字节)', slotName: 'mem', width: 130 },
+  { title: '净 CPU', slotName: 'net', width: 110 },
+  { title: '峰值 CPU', slotName: 'max', width: 110 },
+  { title: '内存峰值', slotName: 'mem', width: 120 },
   { title: '限流比例', slotName: 'throttle', width: 100 },
-  { title: '点数', slotName: 'samples', width: 80 },
+  { title: '点数', slotName: 'samples', width: 90 },
   { title: '置信度', slotName: 'confidence', width: 100 },
 ])
-
-function fmt(value: number | null | undefined, digits = 3): string {
-  if (value === null || value === undefined)
-    return '—'
-  return Number(value).toFixed(digits)
-}
 
 // Arco 的 row-click 回调给的是 TableData（Record<string, any>），行数据由 row-key 保证形状
 function handleRowClick(record: TableData) {
@@ -112,19 +107,19 @@ function handleRowClick(record: TableData) {
           <span class="tr-script">{{ record.script_name || record.script_id }}</span>
         </template>
         <template #net="{ record }">
-          {{ fmt(rowMetrics(record).netCpu) }}
+          {{ formatMetric(rowMetrics(record).netCpu, 'core') }}
         </template>
         <template #max="{ record }">
-          {{ fmt(rowMetrics(record).maxCpu) }}
+          {{ formatMetric(rowMetrics(record).maxCpu, 'core') }}
         </template>
         <template #mem="{ record }">
-          {{ fmt(rowMetrics(record).memMax, 0) }}
+          {{ formatMetric(rowMetrics(record).memMax, 'byte') }}
         </template>
         <template #throttle="{ record }">
-          {{ fmt(rowMetrics(record).throttle) }}
+          {{ formatMetric(rowMetrics(record).throttle, 'ratio') }}
         </template>
         <template #samples="{ record }">
-          {{ rowMetrics(record).sampleCount ?? '—' }}
+          {{ formatMetric(rowMetrics(record).sampleCount, 'count') }}
         </template>
         <template #confidence="{ record }">
           <a-tag :color="rowMetrics(record).confidence === 'low' ? 'gray' : 'green'" size="small">

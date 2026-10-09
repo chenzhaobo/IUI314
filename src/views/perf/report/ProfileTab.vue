@@ -8,6 +8,7 @@
  */
 import { computed } from 'vue'
 import { formatTime, withTableDefaults } from '@/hooks'
+import { EMPTY_TEXT, formatMetric, formatNumber } from '@/utils/perfFormat'
 import {
   attributionColor,
   attributionText,
@@ -17,9 +18,6 @@ import {
   flameStatusColor,
   flameStatusText,
   flameTriggerText,
-  fmtBytes,
-  fmtDelta,
-  fmtPct,
 } from './profile/types'
 import { useProfileTab } from './profile/useProfileTab'
 
@@ -57,6 +55,18 @@ const {
 
 /** 不可差分的行注入 disabled，Arco 的勾选框按行禁用（差分前置条件） */
 const tableRows = computed(() => flames.value.map(row => ({ ...row, disabled: !row.diffable })))
+
+/** 占比列：后端给的已是百分数（0~100），只按统一口径取 2 位小数 */
+function fmtPct(value?: number | null): string {
+  return value === null || value === undefined ? EMPTY_TEXT : `${formatNumber(value, 2)}%`
+}
+
+/** 差分列：带符号的百分点（+ 变慢 / − 变快） */
+function fmtDelta(value: number | null | undefined): string {
+  if (value === null || value === undefined)
+    return EMPTY_TEXT
+  return `${value > 0 ? '+' : ''}${formatNumber(value, 2)}`
+}
 
 const columns = withTableDefaults([
   { title: '事件', slotName: 'event', width: 120 },
@@ -160,7 +170,7 @@ const diffColumns = withTableDefaults([
           {{ flameTriggerText(record.trigger) }}
         </template>
         <template #size="{ record }">
-          {{ fmtBytes(record.html_bytes) }}
+          {{ formatMetric(record.html_bytes, 'byte') }}
         </template>
         <template #created="{ record }">
           {{ formatTime(record.created_at) }}

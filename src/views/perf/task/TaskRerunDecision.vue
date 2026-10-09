@@ -7,6 +7,7 @@
 import type { TaskRerunView } from './types'
 import { computed } from 'vue'
 import { withTableDefaults } from '@/hooks'
+import { formatNumber } from '@/utils/perfFormat'
 import { PERF_REPORT_PATH } from '../routes'
 import { sortDecisions, verdictColor, verdictText } from './types'
 
@@ -18,7 +19,7 @@ const rows = computed(() => sortDecisions(props.view))
 
 const columns = withTableDefaults([
   { title: '脚本', dataIndex: 'script_name', slotName: 'script', width: 260, fixed: 'left' as const },
-  { title: '复跑轮数', dataIndex: 'rounds', width: 100 },
+  { title: '复跑轮数', slotName: 'rounds', width: 100 },
   { title: '结论', slotName: 'verdict', width: 120 },
   { title: '原跑', slotName: 'origin', width: 140 },
   { title: '最优 run', slotName: 'best', width: 140 },
@@ -47,6 +48,9 @@ function shortId(id?: string | null): string {
     >
       <template #script="{ record }">
         {{ record.script_name || record.script_id }}
+      </template>
+      <template #rounds="{ record }">
+        {{ formatNumber(record.rounds, 0) }}
       </template>
       <template #verdict="{ record }">
         <a-tag :color="verdictColor(record.verdict)" size="small">

@@ -111,26 +111,6 @@ export function attributionTip(attribution: string): string {
     : '该应用有多个实例，无法唯一归属到 Pod，结论只代表该应用整体'
 }
 
-/** 字节数 → 人类可读大小 */
-export function fmtBytes(bytes?: number | null): string {
-  if (bytes === null || bytes === undefined)
-    return '—'
-  if (bytes < 1024)
-    return `${bytes} B`
-  if (bytes < 1024 * 1024)
-    return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(2)} MB`
-}
-
-export function fmtPct(v: number): string {
-  return `${Number(v).toFixed(2)}%`
-}
-
-/** 差分展示：带符号百分点 */
-export function fmtDelta(v: number): string {
-  return `${v > 0 ? '+' : ''}${Number(v).toFixed(2)}`
-}
-
 /** 采样时刻（ms；无法解析按 0，仅用于差分方向判定） */
 function timeMs(v?: string | null): number {
   if (!v)

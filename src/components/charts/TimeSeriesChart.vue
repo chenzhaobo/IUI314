@@ -26,6 +26,7 @@ import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { computed } from 'vue'
 import VChart from 'vue-echarts'
+import { formatMetric } from '@/utils/perfFormat'
 
 defineOptions({ name: 'TimeSeriesChart' })
 
@@ -58,21 +59,23 @@ use([GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkAr
 
 const PALETTE = ['#165dff', '#00b42a', '#ff7d00', '#f53f3f', '#722ed1', '#0fc6c2', '#86909c', '#d91ad9']
 
-/** 大数值紧凑化：1.2K / 3.4M；CPU 核数这类小数保持原样 */
-function compact(value: number): string {
-  const abs = Math.abs(value)
-  if (abs >= 1e9)
-    return `${(value / 1e9).toFixed(2)}G`
-  if (abs >= 1e6)
-    return `${(value / 1e6).toFixed(2)}M`
-  if (abs >= 1e3)
-    return `${(value / 1e3).toFixed(2)}K`
-  if (abs >= 1)
-    return value.toFixed(2)
-  return value.toFixed(4)
-}
-
 const unit = computed(() => props.series[0]?.unit ?? '')
+
+/** 序列名 → 单位：tooltip 逐条按各自单位格式化（同一张图内一般一致） */
+const unitByName = computed(() => {
+  const map = new Map<string, string>()
+  for (const s of props.series)
+    map.set(s.name, s.unit)
+  return map
+})
+
+/** tooltip 一行：`marker 序列名：格式化值`（值缺失给占位符，不显示 NaN） */
+function tooltipLine(item: { marker?: string, seriesName?: string, value?: unknown }): string {
+  const raw = Array.isArray(item.value) ? item.value[1] : item.value
+  const num = raw === null || raw === undefined ? null : Number(raw)
+  const u = unitByName.value.get(item.seriesName ?? '') ?? ''
+  return `${item.marker ?? ''} ${item.seriesName ?? ''}：${formatMetric(num, u)}`
+}
 
 const option = computed<EChartsOption>(() => {
   const marks = props.markAreas
@@ -121,6 +124,14 @@ const option = computed<EChartsOption>(() => {
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'cross' },
+      formatter: (params: unknown) => {
+        const list = params as Array<{ marker?: string, seriesName?: string, value?: unknown, axisValueLabel?: string }>
+        if (!list.length)
+          return ''
+        return [list[0]?.axisValueLabel ?? '', ...list.map(tooltipLine)]
+          .filter(line => line !== '')
+          .join('<br/>')
+      },
     },
     legend: {
       type: 'scroll',
@@ -140,7 +151,7 @@ const option = computed<EChartsOption>(() => {
       nameTextStyle: { fontSize: 10 },
       axisLabel: {
         fontSize: 10,
-        formatter: (v: number) => (props.yFormatter ? props.yFormatter(v) : compact(v)),
+        formatter: (v: number) => (props.yFormatter ? props.yFormatter(v) : formatMetric(v, unit.value)),
       },
     },
     dataZoom: [

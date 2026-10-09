@@ -22,6 +22,7 @@ import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { computed } from 'vue'
 import VChart from 'vue-echarts'
+import { formatMetric, formatNumber } from '@/utils/perfFormat'
 
 const props = withDefaults(defineProps<{
   rows: Curve2Row[]
@@ -54,9 +55,9 @@ const option = computed<HwChartOption | undefined>(() => {
         const row = props.rows[idx]
         if (!row)
           return ''
-        const lines = [`<b>${row.label}</b>`, `副本总数：${row.replicas_total}`]
+        const lines = [`<b>${row.label}</b>`, `副本总数：${formatNumber(row.replicas_total, 0)}`]
         for (const p of list) {
-          lines.push(`${p.marker} ${p.seriesName}：${p.value ?? '—'}`)
+          lines.push(`${p.marker} ${p.seriesName}：${formatMetric(p.value, 'tps')}`)
         }
         return lines.join('<br/>')
       },
@@ -72,7 +73,7 @@ const option = computed<HwChartOption | undefined>(() => {
       type: 'value',
       name: 'TPS',
       nameTextStyle: { fontSize: 10 },
-      axisLabel: { fontSize: 10 },
+      axisLabel: { fontSize: 10, formatter: (v: number) => formatMetric(v, 'tps') },
     },
     series: [
       {

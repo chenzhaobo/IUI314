@@ -6,6 +6,7 @@
  * `service/src/perf/observe/probe_logic.rs`（`ProbeState` / `StageRecord` / `Knee`）、
  * `service/src/perf/script/probe_conformance.rs`（`ConformanceReport`）。
  */
+import { formatNumber, formatPercent } from '@/utils/perfFormat'
 
 // ── 硬件档位 ────────────────────────────────────────
 
@@ -279,9 +280,9 @@ export function progressText(progress?: HwProgressView | null): string {
   if (queue.length > 0)
     parts.push(`上探队列 ${progress.verify_pos}/${queue.length}`)
   if (progress.a != null && progress.b != null)
-    parts.push(`p95 拟合 a=${progress.a} b=${progress.b}`)
+    parts.push(`p95 拟合 a=${formatNumber(progress.a, 0)} b=${formatNumber(progress.b, 0)}`)
   if (progress.knee != null)
-    parts.push(`拐点并发 ${progress.knee}`)
+    parts.push(`拐点并发 ${formatNumber(progress.knee, 0)}`)
   if (progress.retry_pending)
     parts.push('错误重跑排队中')
   return parts.join(' · ')
@@ -372,7 +373,7 @@ export function restoreActionText(action: string): string {
 export function limitHits(limits: HwLimitsView): string[] {
   const hits: string[] = []
   if (limits.throttled)
-    hits.push(`CPU 限流（峰值 ${limits.throttle_max ?? '?'}）`)
+    hits.push(`CPU 限流（峰值 ${formatPercent(limits.throttle_max)}）`)
   if (limits.oomkilled)
     hits.push('发生 OOMKilled')
   if (limits.middleware_saturated)

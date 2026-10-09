@@ -7,6 +7,7 @@
  */
 import { computed, ref } from 'vue'
 import { formatTime } from '@/hooks'
+import { formatMetric, formatNumber } from '@/utils/perfFormat'
 import DiagnosisPanel from '../components/DiagnosisPanel.vue'
 import { isLowConfidence, limitsText, lowConfidenceTip, replicasText, targetKindText, TXN_RESOURCE_MIN_MS } from './types'
 import { useResourceTab } from './useResourceTab'
@@ -111,27 +112,31 @@ function rowClass(record: { confidence?: string | null }): string {
                 </a-table-column>
                 <a-table-column title="指标" data-index="metric_key" :width="180" />
                 <a-table-column title="单位" data-index="unit" :width="80" />
-                <a-table-column title="均值" :width="100">
+                <a-table-column title="均值" :width="110">
                   <template #cell="{ record }">
-                    {{ record.avg_value ?? '—' }}
+                    {{ formatMetric(record.avg_value, record.unit) }}
                   </template>
                 </a-table-column>
-                <a-table-column title="峰值" :width="100">
+                <a-table-column title="峰值" :width="110">
                   <template #cell="{ record }">
-                    {{ record.max_value ?? '—' }}
+                    {{ formatMetric(record.max_value, record.unit) }}
                   </template>
                 </a-table-column>
-                <a-table-column title="P95" :width="100">
+                <a-table-column title="P95" :width="110">
                   <template #cell="{ record }">
-                    {{ record.p95_value ?? '—' }}
+                    {{ formatMetric(record.p95_value, record.unit) }}
                   </template>
                 </a-table-column>
-                <a-table-column title="净值" :width="100">
+                <a-table-column title="净值" :width="110">
                   <template #cell="{ record }">
-                    {{ record.net_value ?? '—' }}
+                    {{ formatMetric(record.net_value, record.unit) }}
                   </template>
                 </a-table-column>
-                <a-table-column title="点数" data-index="sample_count" :width="80" />
+                <a-table-column title="点数" :width="90">
+                  <template #cell="{ record }">
+                    {{ formatNumber(record.sample_count, 0) }}
+                  </template>
+                </a-table-column>
                 <a-table-column title="置信度" :width="110">
                   <template #cell="{ record }">
                     <a-tooltip :content="isLowConfidence(record) ? lowConfidenceTip(record) : '采样点数充足'">
@@ -171,24 +176,32 @@ function rowClass(record: { confidence?: string | null }): string {
             >
               <template #columns>
                 <a-table-column title="事务" data-index="txn_label" :width="260" />
-                <a-table-column title="开始(相对 ms)" data-index="txn_start_ms" :width="130" />
-                <a-table-column title="耗时(s)" :width="100">
+                <a-table-column title="开始(相对)" :width="130">
                   <template #cell="{ record }">
-                    {{ (record.txn_elapsed_ms / 1000).toFixed(2) }}
+                    {{ formatMetric(record.txn_start_ms, 'ms') }}
+                  </template>
+                </a-table-column>
+                <a-table-column title="耗时" :width="100">
+                  <template #cell="{ record }">
+                    {{ formatMetric(record.txn_elapsed_ms, 'ms') }}
                   </template>
                 </a-table-column>
                 <a-table-column title="部署" data-index="workload" :width="180" />
-                <a-table-column title="净 CPU" :width="100">
+                <a-table-column title="净 CPU" :width="110">
                   <template #cell="{ record }">
-                    {{ record.net_cpu ?? '—' }}
+                    {{ formatMetric(record.net_cpu, 'core') }}
                   </template>
                 </a-table-column>
-                <a-table-column title="峰值 CPU" :width="100">
+                <a-table-column title="峰值 CPU" :width="110">
                   <template #cell="{ record }">
-                    {{ record.max_cpu ?? '—' }}
+                    {{ formatMetric(record.max_cpu, 'core') }}
                   </template>
                 </a-table-column>
-                <a-table-column title="点数" data-index="sample_count" :width="80" />
+                <a-table-column title="点数" :width="90">
+                  <template #cell="{ record }">
+                    {{ formatNumber(record.sample_count, 0) }}
+                  </template>
+                </a-table-column>
                 <a-table-column title="置信度" :width="110">
                   <template #cell="{ record }">
                     <a-tooltip :content="isLowConfidence(record) ? lowConfidenceTip(record) : '采样点数充足'">

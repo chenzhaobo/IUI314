@@ -23,6 +23,7 @@ import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { computed } from 'vue'
 import VChart from 'vue-echarts'
+import { formatMetric } from '@/utils/perfFormat'
 
 const props = withDefaults(defineProps<{
   hw: HwResultView[]
@@ -41,6 +42,14 @@ type StageChartOption = ComposeOption<
 use([GridComponent, TooltipComponent, LegendComponent, LineChart, CanvasRenderer])
 
 const PALETTE = ['#165dff', '#00b42a', '#ff7d00', '#f53f3f', '#722ed1', '#0fc6c2']
+
+/** tooltip 一行：TPS 与 P95 两个口径混在一张图里，按序列名各自选单位 */
+function tooltipLine(item: { marker?: string, seriesName?: string, value?: unknown }): string {
+  const raw = Array.isArray(item.value) ? item.value[1] : item.value
+  const num = raw === null || raw === undefined ? null : Number(raw)
+  const name = item.seriesName ?? ''
+  return `${item.marker ?? ''} ${name}：${formatMetric(num, name.endsWith(' · P95') ? 'ms' : 'tps')}`
+}
 
 const option = computed<StageChartOption | undefined>(() => {
   const tiers = props.hw.filter(h => (h.stages?.length ?? 0) > 0)
@@ -79,7 +88,15 @@ const option = computed<StageChartOption | undefined>(() => {
   }
 
   return {
-    tooltip: { trigger: 'axis' },
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params: unknown) => {
+        const list = params as Array<{ marker?: string, seriesName?: string, value?: unknown, axisValueLabel?: string }>
+        if (!list.length)
+          return ''
+        return [`并发 ${list[0]?.axisValueLabel ?? ''}`, ...list.map(tooltipLine)].join('<br/>')
+      },
+    },
     legend: { type: 'scroll', top: 2, textStyle: { fontSize: 11 } },
     // ECharts 6 弃用 grid.containLabel，改用 outerBounds（见 TxnTrendChart）
     grid: { outerBounds: { left: 8, right: 8, top: 48, bottom: 28 } },
@@ -95,13 +112,13 @@ const option = computed<StageChartOption | undefined>(() => {
         type: 'value',
         name: 'TPS',
         nameTextStyle: { fontSize: 10 },
-        axisLabel: { fontSize: 10 },
+        axisLabel: { fontSize: 10, formatter: (v: number) => formatMetric(v, 'tps') },
       },
       {
         type: 'value',
-        name: 'P95 (ms)',
+        name: 'P95',
         nameTextStyle: { fontSize: 10 },
-        axisLabel: { fontSize: 10 },
+        axisLabel: { fontSize: 10, formatter: (v: number) => formatMetric(v, 'ms') },
         splitLine: { show: false },
       },
     ],
