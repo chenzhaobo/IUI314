@@ -344,6 +344,19 @@ async function cancelRun(record: any) {
   Message.success('已提交取消请求，将在当前网络请求或处理项完成后停止')
   fetchRuns()
 }
+
+// 失败 / 中断的阶段原地重试：打开手动触发弹窗并预填任务、数据日期、阶段。
+// 归因阶段同时把「归因起始日期」填成同一天 —— 留空会按任务的「全部未归因」范围
+// 把所有历史未归因日期一起拉进来，重试就变成了大补跑；两天填同一天则只做这一天
+// 还没完成的维度（已完成的断点续跑自动跳过）。
+function retryRun(record: any) {
+  openTriggerFor(currentTask.value)
+  const date = String(record.run_date || '').slice(0, 10)
+  triggerDate.value = date
+  triggerAttrFrom.value = record.stage === 'defect_attribution' ? date : ''
+  triggerStage.value = record.stage
+  triggerForce.value = false
+}
 let runTimer: ReturnType<typeof setInterval> | null = null
 function stopRunTimer() { if (runTimer) { clearInterval(runTimer); runTimer = null } }
 watch([drawerVisible, runList], ([visible, list]) => {
@@ -1026,6 +1039,13 @@ const layoutOnlyModel = {}
           <a-table-column title="操作" :width="130" fixed="right">
             <template #cell="{ record }">
               <a-space>
+                <!-- 失败 / 中断的行原地重试：预填该任务、该数据日期、该阶段，确认后发起 -->
+                <a-link
+                  v-if="record.status === 'failed' || record.status === 'interrupted'"
+                  @click="retryRun(record)"
+                >
+                  重试
+                </a-link>
                 <!-- 归因是逐维度处理的长任务，阶段行只能看到总体进度；
                      维度明细才能看出卡在哪个表单、复用率多少 -->
                 <a-link v-if="record.stage === 'defect_attribution'" @click="openDimensions(record)">
