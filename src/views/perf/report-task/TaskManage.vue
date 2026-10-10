@@ -1,10 +1,12 @@
 <script setup lang="ts">
+import type { DimensionOptionItem, DimensionSelectOption } from './taskDimension'
 import type { AiAgent, AiListResult } from '@/api/aiApis'
 import { Message } from '@arco-design/web-vue'
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { ApiAiAgent } from '@/api/aiApis'
 import { ApiPerfCompliance, ApiPerfReportTask } from '@/api/perfApis'
 import { formatTime, useGet, usePost, useTableAutoHeight } from '@/hooks'
+import { tagsToTargetDimensions, targetDimensionsToTags, toDimensionSelectOptions } from './taskDimension'
 
 defineOptions({ name: 'ReportTaskManage' })
 
@@ -18,21 +20,6 @@ const filterDimType = ref<string>()
 const queryParams = computed(() => ({ keyword: keyword.value || undefined, dimension_type: filterDimType.value || undefined }))
 const { isFetching: loading, data: rawData, execute: fetchTasks } = useGet<any>(ApiPerfReportTask.list, queryParams, { immediate: true })
 const taskList = computed(() => rawData.value || [])
-
-// ── 维度值选项（按维度类型级联，allow-create 保底手输） ──────────────────────
-const dimValueOptions = ref<any[]>([])
-const dimPayload = ref<any>({})
-const { execute: fetchDimOptions } = useGet<any>(ApiPerfCompliance.dimensionOptions, dimPayload, {
-  immediate: false,
-  onSuccess(data: any) { dimValueOptions.value = data || [] },
-})
-function loadDimValues() {
-  const level = form.dimension_type
-  // 产品领域/业务领域/项目组：不传父级 = 全量列出
-  dimPayload.value = { level, product_domain: '', business_area: '' }
-  fetchDimOptions()
-}
-function onDimTypeChange() { form.dimension_value = undefined; loadDimValues() }
 
 // ── 新增/编辑弹框 ──────────────────────────────
 const modalVisible = ref(false)
@@ -70,10 +57,28 @@ const form = reactive<any>({
   enabled: true,
   attr_scope: 'pending',
   period_scope: 'last_month',
+  // 指定表单（可选），保存时转成 target_dimensions
+  target_forms: [] as string[],
   // 保留 run_time 只为兼容后端的旧字段，前端不再展示 —— 保存时按 cron 反推，
   // 免得旧记录的 run_time 被清空导致回退时无法调度。
   run_time: '02:00',
 })
+
+// ── 维度值选项（按维度类型级联，allow-create 保底手输） ──────────────────────
+const dimValueOptions = ref<DimensionSelectOption[]>([])
+const dimPayload = ref<Record<string, string | boolean>>({})
+const { execute: fetchDimOptions } = useGet<DimensionOptionItem[]>(ApiPerfCompliance.dimensionOptions, dimPayload, {
+  immediate: false,
+  onSuccess(data: unknown) { dimValueOptions.value = toDimensionSelectOptions(data, String(dimPayload.value.level ?? '')) },
+})
+function loadDimValues() {
+  const level = form.dimension_type
+  // 产品领域/业务领域/项目组：不传父级 = 全量列出。
+  // 项目组只列在本产品线下挂了启用应用的 —— 没挂应用的「产品组」选了也下载不到数据
+  dimPayload.value = { level, product_domain: '', business_area: '', product_line: form.product_line || '星瀚', only_with_apps: level === 'project_group' }
+  fetchDimOptions()
+}
+function onDimTypeChange() { form.dimension_value = undefined; loadDimValues() }
 
 // 按类型决定显示哪些区块。
 //
@@ -139,6 +144,7 @@ function openAddModal() {
     enabled: true,
     attr_scope: 'pending',
     period_scope: 'last_month',
+    target_forms: [],
     run_time: '02:00',
   })
   loadDimValues()
@@ -179,6 +185,7 @@ function openEditModal(record: any) {
     enabled: !!record.enabled,
     attr_scope: record.attr_scope || 'pending',
     period_scope: record.period_scope || 'last_month',
+    target_forms: targetDimensionsToTags(record.target_dimensions),
   })
   loadDimValues()
   modalVisible.value = true
@@ -210,6 +217,8 @@ function buildPayload(base: any) {
     agent_code: base.agent_code || undefined,
     model: base.model || undefined,
     enabled: base.enabled,
+    // 后端更新时整列覆盖：不传就会把已配的指定表单清空（启用开关切换也走这里）
+    target_dimensions: Array.isArray(base.target_forms) ? tagsToTargetDimensions(base.target_forms) : (base.target_dimensions ?? null),
   }
 }
 
@@ -228,6 +237,12 @@ function runTimeFromCron(expr?: string): string {
 async function handleSave() {
   if (!form.task_name) { Message.warning('请输入任务名称'); return }
   if (!form.dimension_value) { Message.warning('请选择或输入维度值'); return }
+  // 采集与归因拆成两个任务时，靠**同一个工作目录**衔接（归因按 work_dir 找已下载日期）。
+  // 留空会按任务名各自兜底成不同目录，归因任务就永远找不到采集产物。
+  if (form.task_type !== 'period' && !String(form.work_dir || '').trim()) {
+    Message.warning('请填写工作目录：同一范围的采集任务与归因任务必须填同一个目录，且不要与其他范围的任务共用')
+    return
+  }
   saving.value = true
   try {
     savePayload.value = { id: editId.value || undefined, ...buildPayload(form) }
@@ -748,16 +763,17 @@ const layoutOnlyModel = {}
             </a-col>
             <a-col :span="8">
               <a-form-item label="维度值" required>
-                <a-select v-model="form.dimension_value" allow-create allow-search placeholder="如: 集团财务">
-                  <a-option v-for="v in dimValueOptions" :key="v.value ?? v" :value="v.value ?? v">
-                    {{ v.label ?? v }}
-                  </a-option>
+                <a-select v-model="form.dimension_value" allow-create allow-search :placeholder="form.dimension_type === 'project_group' ? '选择项目组（存编码，如 PM114）' : '如: 集团财务'">
+                  <a-option v-for="v in dimValueOptions" :key="v.value" :value="v.value" :label="v.label" />
                 </a-select>
+                <template v-if="form.dimension_type === 'project_group'" #extra>
+                  <span>按项目组编码匹配应用（只列出挂了应用的项目组）。与产品域任务各自独立：台账按「维度类型 + 值」分开记，范围重叠时同一问题会各记一条。</span>
+                </template>
               </a-form-item>
             </a-col>
             <a-col :span="8">
               <a-form-item label="产品线">
-                <a-input v-model="form.product_line" placeholder="星瀚" />
+                <a-input v-model="form.product_line" placeholder="星瀚" @change="loadDimValues" />
               </a-form-item>
             </a-col>
           </a-row>
@@ -790,6 +806,12 @@ const layoutOnlyModel = {}
               </a-form-item>
             </a-col>
           </a-row>
+          <a-form-item label="指定表单（可选）">
+            <a-input-tag v-model="form.target_forms" allow-clear unique-value placeholder="输入表单标识回车，如 cas_paybill；限定操作写 cas_paybill/submit" />
+            <template #extra>
+              <span>留空 = 按上面的覆盖率规则在维度范围内自动挑。填了就只下载这些表单（不写操作 = 该表单全部操作），统计数字也只算这些表单。</span>
+            </template>
+          </a-form-item>
         </template>
 
         <!-- 归因：只有会归因的类型需要 -->
@@ -875,7 +897,7 @@ const layoutOnlyModel = {}
         <a-form-item label="工作目录">
           <a-input v-model="form.work_dir" placeholder="如 /data/nfs/app/report-work/group-finance" />
           <template #extra>
-            <span>技能目录隔离红线。归因要按日期目录读日志，所有类型都必须配。</span>
+            <span>技能目录隔离红线。归因要按日期目录读日志，所有类型都必须配。<b>同一范围的「采集」与「归因」任务填同一个目录</b>（归因靠它找到已下载的日期）；不同范围用不同目录，例如 /data/nfs/app/report-work/cashier。</span>
           </template>
         </a-form-item>
       </a-form>
