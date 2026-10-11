@@ -823,7 +823,7 @@ const layoutOnlyModel = {}
               :retain-input-value="{ blur: true }"
               allow-clear
               unique-value
-              placeholder="输入表单标识，如 cas_paybill；多个用逗号分隔；限定操作写 cas_paybill/submit"
+              placeholder="输入表单标识，如 cas_paybill；多个用逗号或顿号分隔；限定操作写 cas_paybill/submit"
               @change="commitTargetForms"
               @blur="commitTargetForms"
             />
