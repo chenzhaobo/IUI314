@@ -6,7 +6,7 @@ import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { ApiAiAgent } from '@/api/aiApis'
 import { ApiPerfCompliance, ApiPerfReportTask } from '@/api/perfApis'
 import { formatTime, useGet, usePost, useTableAutoHeight } from '@/hooks'
-import { tagsToTargetDimensions, targetDimensionsToTags, toDimensionSelectOptions } from './taskDimension'
+import { normalizeFormTags, tagsToTargetDimensions, targetDimensionsToTags, toDimensionSelectOptions } from './taskDimension'
 
 defineOptions({ name: 'ReportTaskManage' })
 
@@ -80,6 +80,13 @@ function loadDimValues() {
 }
 function onDimTypeChange() { form.dimension_value = undefined; loadDimValues() }
 
+// 指定表单输入框里还没回车的文本。a-input-tag 失焦会清空它，这里接管后在失焦/保存时并入标签
+const targetFormInput = ref('')
+function commitTargetForms() {
+  form.target_forms = normalizeFormTags(form.target_forms ?? [], targetFormInput.value)
+  targetFormInput.value = ''
+}
+
 // 按类型决定显示哪些区块。
 //
 // 为什么按类型分：一个任务原来要填 23 个字段，其中大半和它实际做的事无关
@@ -147,6 +154,7 @@ function openAddModal() {
     target_forms: [],
     run_time: '02:00',
   })
+  targetFormInput.value = ''
   loadDimValues()
   modalVisible.value = true
 }
@@ -187,6 +195,7 @@ function openEditModal(record: any) {
     period_scope: record.period_scope || 'last_month',
     target_forms: targetDimensionsToTags(record.target_dimensions),
   })
+  targetFormInput.value = ''
   loadDimValues()
   modalVisible.value = true
 }
@@ -243,6 +252,7 @@ async function handleSave() {
     Message.warning('请填写工作目录：同一范围的采集任务与归因任务必须填同一个目录，且不要与其他范围的任务共用')
     return
   }
+  commitTargetForms()
   saving.value = true
   try {
     savePayload.value = { id: editId.value || undefined, ...buildPayload(form) }
@@ -807,7 +817,16 @@ const layoutOnlyModel = {}
             </a-col>
           </a-row>
           <a-form-item label="指定表单（可选）">
-            <a-input-tag v-model="form.target_forms" allow-clear unique-value placeholder="输入表单标识回车，如 cas_paybill；限定操作写 cas_paybill/submit" />
+            <a-input-tag
+              v-model="form.target_forms"
+              v-model:input-value="targetFormInput"
+              :retain-input-value="{ blur: true }"
+              allow-clear
+              unique-value
+              placeholder="输入表单标识，如 cas_paybill；多个用逗号分隔；限定操作写 cas_paybill/submit"
+              @change="commitTargetForms"
+              @blur="commitTargetForms"
+            />
             <template #extra>
               <span>留空 = 按上面的覆盖率规则在维度范围内自动挑。填了就只下载这些表单（不写操作 = 该表单全部操作），统计数字也只算这些表单。</span>
             </template>

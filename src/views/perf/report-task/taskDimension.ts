@@ -81,3 +81,25 @@ export function tagsToTargetDimensions(tags: string[]): TargetDimension[] | null
   }
   return result.length ? result : null
 }
+
+/**
+ * 合并已有标签与输入框里尚未回车的文本，并按逗号/分号/空白拆分、去重（保持顺序）。
+ *
+ * 为什么需要：arco 的 a-input-tag 只在回车时把输入变成标签，失焦时会**直接清空**
+ * 输入框。用户输入表单标识后直接点别处或点「确定」，填的内容就丢了。
+ * 同时支持一次粘贴 `cas_recbill,cas_paybill` 这类列表。
+ */
+export function normalizeFormTags(tags: string[], pending = ''): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const raw of [...tags, pending]) {
+    for (const part of String(raw ?? '').split(/[,，;；\s]+/)) {
+      const tag = part.trim()
+      if (!tag || seen.has(tag))
+        continue
+      seen.add(tag)
+      result.push(tag)
+    }
+  }
+  return result
+}
