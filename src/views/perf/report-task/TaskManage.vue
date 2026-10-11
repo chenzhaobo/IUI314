@@ -295,6 +295,16 @@ const triggerStage = ref<string>()
 // 非空表示只触发这一个任务（行内入口）；为空表示触发全部启用任务（顶部入口）
 const triggerTarget = ref<any>(null)
 
+// 会拉明细的阶段不能选今天及以后：慢请求明细次日才完整，选当天会 0 维度空跑（后端同样拦截）。
+// 只拦预检/下载（含全流程）；周报月报等以日期为锚点的阶段不受限。
+function isTriggerDateDisabled(current?: Date): boolean {
+  if (!current || (triggerStage.value && !['preflight', 'download'].includes(triggerStage.value)))
+    return false
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return current.getTime() >= today.getTime()
+}
+
 function openTriggerFor(record: any) {
   triggerTarget.value = record
   triggerStage.value = undefined
@@ -828,7 +838,7 @@ const layoutOnlyModel = {}
               @blur="commitTargetForms"
             />
             <template #extra>
-              <span>留空 = 按上面的覆盖率规则在维度范围内自动挑。填了就只下载这些表单（不写操作 = 该表单全部操作），统计数字也只算这些表单。</span>
+              <span>留空 = 在维度范围内按覆盖率挑。填了就只在这些表单里挑（不写操作 = 该表单全部操作），<b>仍按上面的「覆盖超量」截断</b>：80% 只取慢请求最多的几个「表单 + 操作」，要每个操作都下载请调到 100%（每个组合最多下「每维度每天上限」条，下载是串行的，组合多会很慢）。</span>
             </template>
           </a-form-item>
         </template>
@@ -935,7 +945,7 @@ const layoutOnlyModel = {}
       </a-alert>
       <a-form layout="vertical" :model="layoutOnlyModel">
         <a-form-item label="数据日期（默认昨天）">
-          <a-date-picker v-model="triggerDate" value-format="YYYY-MM-DD" style="width: 100%" />
+          <a-date-picker v-model="triggerDate" value-format="YYYY-MM-DD" style="width: 100%" :disabled-date="isTriggerDateDisabled" />
           <span v-if="triggerStage === 'weekly' || triggerStage === 'monthly'" class="hint">
             周报/月报以这个日期为锚点，取它所在的整{{ triggerStage === 'weekly' ? '周' : '月' }}。
             与调度生成的区别只是不等区间闭合、不等触发时刻 —— 同区间重复生成会复用既有报告，不会堆重复。
