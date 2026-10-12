@@ -151,7 +151,8 @@ export function rowCheckboxTooltip(row: CrossRunAggRow): string {
 
 /** 统一扫描阻断原因码（unified-preview.blocked_reason）→ 人话；未收录的码原样透出便于排查 */
 const UNIFIED_BLOCK_LABELS: Record<string, string> = {
-  no_in_use_assets: '该仓库没有在用（active + in_scope）的表单/微服务资产，统一扫描不以零资产兜底为整仓扫描',
+  source_not_indexed: '该仓库还没有索引源码，无法判断是否有表单/微服务资产：请先在代码仓库列表对它执行「索引源码」（索引后会自动匹配表单插件、发现微服务），完成后重新打开本弹窗',
+  form_match_pending: '表单资产已导入，但该仓库最新索引还没跑过表单插件匹配：请在「领域资产」执行「全量匹配」或重新索引源码，完成后刷新',
   sync_run_missing: '在用资产缺少可追溯的同步批次，请先重新同步资产',
   multiple_sync_runs: '在用资产分属多个同步批次，请先重新同步使其属于同一批次',
   sync_run_not_succeeded: '在用资产所属同步批次未成功，请先重新同步资产',
@@ -169,4 +170,17 @@ export function unifiedBlockedText(reason: string): string {
   if (domain && suffixLabel)
     return `${UNIFIED_BLOCK_DOMAIN[domain]}：${suffixLabel}`
   return reason
+}
+
+/** 增量基线不可用原因码（unified-preview.baseline_unavailable_reason）→ 人话；未收录的码原样透出 */
+const UNIFIED_BASELINE_REASON_LABELS: Record<string, string> = {
+  no_finalized_full_baseline: '该分支还没有已定稿的全量统一扫描，先跑一次全量扫描作为基线',
+  baseline_commit_missing: '基线扫描没有记录 commit，无法计算改动，请重新跑一次全量扫描',
+  baseline_rule_snapshot_unavailable: '基线扫描的规则快照不可校验，请重新跑一次全量扫描',
+  local_repository_without_git: '反编译源码库没有 Git 历史，不支持增量',
+  baseline_scope_mismatch: '基线与本次范围不一致（一次是无资产的通用扫描、一次有表单/微服务资产），请先跑一次全量扫描',
+}
+
+export function unifiedBaselineReasonText(reason: string): string {
+  return UNIFIED_BASELINE_REASON_LABELS[reason] ?? reason
 }

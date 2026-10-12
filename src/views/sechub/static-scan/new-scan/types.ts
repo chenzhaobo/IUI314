@@ -58,6 +58,8 @@ export interface UnifiedPreview {
   form_sync_run_id?: string | null
   microservice_sync_run_id?: string | null
   blocked_reason?: string | null
+  /** 无表单/微服务资产（已索引、已匹配）：只跑通用规则，不跑领域检测（旧后端不返回该键） */
+  generic_only?: boolean
   /** 无基线时为 null（旧后端不返回该键） */
   baseline?: UnifiedBaseline | null
   /** 没有可用基线的原因；有基线时为 null */

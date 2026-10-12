@@ -3,11 +3,12 @@
  *
  * 契约 D：基线按（仓库, 分支）自动取最近一次已定稿的全量统一 run，没有人工采纳步骤；
  * 没有可用基线时不能选增量（给出 baseline_unavailable_reason）。资产不由用户勾选 ——
- * 后端自动选取该仓全部在用表单/微服务资产；blocked_reason 非空时禁止提交。
+ * 后端自动选取该仓全部在用表单/微服务资产；blocked_reason 非空时禁止提交；
+ * 两域都没有资产（已索引、已匹配，如扩展包）时 generic_only=true，只跑通用规则。
  */
 import type { ScanStrategy, UnifiedBaseline, UnifiedPreview, UnifiedTriggerRequest, UnifiedTriggerResponse } from './types'
 import { computed, ref } from 'vue'
-import { unifiedBlockedText } from './labels'
+import { unifiedBaselineReasonText, unifiedBlockedText } from './labels'
 import { fetchUnifiedPreview, triggerUnified } from './service'
 
 /** 后端没给原因时的兜底说明 */
@@ -32,12 +33,15 @@ export function useUnifiedScan() {
       return '预览未返回，暂不能判断是否有可用基线'
     if (baseline.value)
       return ''
-    return unifiedPreview.value.baseline_unavailable_reason?.trim() || DEFAULT_NO_BASELINE_REASON
+    const reason = unifiedPreview.value.baseline_unavailable_reason?.trim()
+    return reason ? unifiedBaselineReasonText(reason) : DEFAULT_NO_BASELINE_REASON
   })
   const unifiedBlockedReason = computed(() => {
     const reason = unifiedPreview.value?.blocked_reason?.trim()
     return reason ? unifiedBlockedText(reason) : ''
   })
+  /** 无领域资产的仓库（扩展包等）：只跑通用规则 */
+  const unifiedGenericOnly = computed(() => Boolean(unifiedPreview.value?.generic_only) && !unifiedBlockedReason.value)
   /** 可提交 = 预览已返回且未阻断（预览失败时不放行，避免触发端才报错） */
   const unifiedCanSubmit = computed(() => Boolean(unifiedPreview.value) && !unifiedBlockedReason.value && !loadingUnifiedPreview.value)
 
@@ -90,6 +94,7 @@ export function useUnifiedScan() {
     baseline,
     incrementalDisabledReason,
     unifiedBlockedReason,
+    unifiedGenericOnly,
     unifiedCanSubmit,
     loadUnifiedPreview,
     submitUnifiedTrigger,

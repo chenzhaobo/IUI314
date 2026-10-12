@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 统一扫描的自动资产摘要：展示 unified-preview 自动选中的表单/微服务资产数，
- * 阻断原因非空时给出说明（提交按钮由弹窗底部按 unifiedCanSubmit 禁用）。
+ * 阻断原因非空时给出说明（提交按钮由弹窗底部按 unifiedCanSubmit 禁用）；无资产时提示只跑通用规则。
  */
 import { useNewScanContext } from './useNewScan'
 
@@ -19,12 +19,17 @@ const ctx = useNewScanContext()
         <a-tag color="purple" size="small">
           微服务资产 {{ ctx.unifiedPreview.microservice_assets }}
         </a-tag>
-        <span class="unified-meta">全部在用资产 + 全仓文件，一次扫描一个 run</span>
+        <span v-if="ctx.unifiedGenericOnly" class="unified-meta">无领域资产：全仓文件 + 通用规则，一次扫描一个 run</span>
+        <span v-else class="unified-meta">全部在用资产 + 全仓文件，一次扫描一个 run</span>
       </template>
       <span v-else class="unified-meta">未取到自动资产摘要（接口失败时不可提交，可稍后重新打开弹窗）</span>
     </div>
     <a-alert v-if="ctx.unifiedBlockedReason" type="warning" style="margin-top: 8px">
       暂不能统一扫描：{{ ctx.unifiedBlockedReason }}
+    </a-alert>
+    <a-alert v-else-if="ctx.unifiedGenericOnly" type="info" style="margin-top: 8px">
+      该仓库没有表单/微服务资产（如扩展包、公共组件），本次只跑通用规则（代码级安全/性能），不跑表单插件与微服务的领域检测。
+      若它其实应有表单插件，请检查领域资产的匹配结果。
     </a-alert>
   </a-form-item>
 </template>
