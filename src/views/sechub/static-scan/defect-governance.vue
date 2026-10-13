@@ -272,7 +272,6 @@ function metricColumns(domain: 'security' | 'performance'): TableColumnData[] {
     },
     // —— 计划完成（只算处理中；见后端 PlanStats 的口径）——
     // 单元格一律用行内样式：render 出来的 vnode 在 Arco 表格上下文里，scoped 类名挂不上
-    { dataIndex: `${domain}_plan_set`, title: '已标注', width: 76, align: 'center', render: ({ record }) => String(pick(record)?.plan?.set ?? 0) },
     {
       dataIndex: `${domain}_plan_missing`,
       title: '未标注',
@@ -283,7 +282,6 @@ function metricColumns(domain: 'security' | 'performance'): TableColumnData[] {
         return h('span', { style: v > 0 ? { color: 'rgb(var(--orange-6))' } : undefined, title: v > 0 ? '处理中但没标计划完成时间 —— 通报要按这个数催标注（不填就无从判断延期）' : undefined }, String(v))
       },
     },
-    { dataIndex: `${domain}_plan_due_soon`, title: '3天内到期', width: 92, align: 'center', render: ({ record }) => String(pick(record)?.plan?.due_soon ?? 0) },
     {
       dataIndex: `${domain}_plan_overdue`,
       title: '已超期',
@@ -525,7 +523,7 @@ const topOption = computed(() => {
           row-key="row_key"
           size="small"
           column-resizable
-          :scroll="{ x: 2020 }"
+          :scroll="{ x: 1680 }"
         />
       </a-card>
 
