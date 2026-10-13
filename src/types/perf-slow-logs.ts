@@ -22,7 +22,10 @@ export interface SlowLogFile {
   date: string
   bucket: string
   event_name: string
+  /** 下载分组（桶）的按钮名：桶按「表单 + 事件编码」划分，只是桶内第一条请求的按钮 */
   control_name: string
+  /** 这条请求自己的按钮名；null = 旧日志未记录，'' = 未归因操作 */
+  request_control: string | null
   tenant_key: string
   customer_name: string
   trace_id: string
@@ -39,4 +42,10 @@ export interface SlowLogList {
   total: number
   truncated: boolean
   root_count: number
+}
+
+/** 看板统计周期选项（/perf/compliance/period-options） */
+export interface SlowLogPeriodOption {
+  period: string
+  label: string
 }

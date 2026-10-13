@@ -8,7 +8,7 @@
  *
  * 分层遵循 View → Composable → Api：组件只管渲染与交互，取数与轮询在这里。
  */
-import type { AiAgent, AiListResult } from '@/api/aiApis'
+import type { AiAgentOption } from '@/api/aiApis'
 import type { ReanalysisDecisionMeta, ReanalysisRecord, ReanalysisTarget } from '@/types/perf-reanalysis'
 import { Message } from '@arco-design/web-vue'
 import { computed, ref, watch } from 'vue'
@@ -36,7 +36,7 @@ interface ReanalysisSubmitPayload extends ReanalysisQuery {
 }
 
 /** 解析 Agent 的可用模型清单（`supported_models_json`，随 CLI 升级变化，不能硬编码）。 */
-function parseModels(agent?: AiAgent): string[] {
+function parseModels(agent?: AiAgentOption): string[] {
   if (!agent?.supported_models_json)
     return []
   try {
@@ -94,16 +94,18 @@ export function usePatternReanalysis() {
   // 同一套做法：模型选项跟随所选 Agent 的 supported_models_json，换 Agent 清掉失效值。
   const agentCode = ref('')
   const model = ref('')
-  const { data: agentData } = useGet<AiListResult<AiAgent>>(
-    ApiAiAgent.getList,
-    { page_num: 1, page_size: 100 },
+  // 用 options 而不是 getList：getList 受 AI 管理菜单权限控制，扫码登录的业务用户
+  // 打开问题台账就会弹「无权访问该功能（ai/agent/list）」
+  const { data: agentData } = useGet<AiAgentOption[]>(
+    ApiAiAgent.options,
+    undefined,
     {
       immediate: true,
       // 默认替用户选好：优先 kiro-cli（现网既有默认），模型取该 Agent 的默认模型，
       // 默认模型不在清单里就退到清单第一项。不预选的话「不选 = 走后端默认」会
       // 又落回那个失效值上 —— 用户点了提交却拿到一个模型不存在的报错。
       onSuccess(data) {
-        const list = data?.list || []
+        const list = Array.isArray(data) ? data : []
         if (agentCode.value || !list.length)
           return
         const preferred = list.find(item => item.agent_code === 'kiro-cli') || list[0]
@@ -113,7 +115,7 @@ export function usePatternReanalysis() {
       },
     },
   )
-  const agents = computed(() => agentData.value?.list || [])
+  const agents = computed<AiAgentOption[]>(() => (Array.isArray(agentData.value) ? agentData.value : []))
   const modelOptions = computed<string[]>(() => parseModels(agents.value.find(item => item.agent_code === agentCode.value)))
   watch(agentCode, () => {
     if (model.value && !modelOptions.value.includes(model.value))

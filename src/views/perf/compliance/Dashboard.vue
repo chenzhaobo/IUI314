@@ -631,8 +631,8 @@ const rowScope = (record: DrillRow): RowScope => {
     if (level === 'cloud') scope.cloud_number = code
     else if (level === 'app') scope.app_number = code
     else if (level === 'form') scope.form_id = code
-    // 按钮级 code 是操作名（未归因为占位编码），慢日志按操作名筛
-    else if (level === 'button' && code !== UNATTRIBUTED_CONTROL) scope.control_name = name || code
+    // 按钮级 code 是操作名；「未归因操作」用同名文案，慢日志页按它筛出没有按钮名的请求
+    else if (level === 'button') scope.control_name = code === UNATTRIBUTED_CONTROL ? '未归因操作' : (name || code)
   }
   const key = selectedKeys.value[0]
   if (key && key !== 'root:all') {

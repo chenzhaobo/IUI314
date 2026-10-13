@@ -298,6 +298,8 @@ export enum ApiPerfReportTask {
   trigger = '/perf/periodic-report/task/trigger',
   cancel = '/perf/periodic-report/task/cancel',
   runs = '/perf/periodic-report/task/runs',
+  /** 采集范围内每个已提取日期的归因状态（触发弹窗展示「哪些分析过」） */
+  attrDays = '/perf/periodic-report/task/attr-days',
   /** 维度级归因进度（运维视角，走 JWT；remaining==0 才算该日归因完成） */
   dimensionProgress = '/perf/periodic-report/task/dimension-progress',
 }

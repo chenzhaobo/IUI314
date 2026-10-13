@@ -21,9 +21,30 @@ interface Option {
   label: string
 }
 
-/** 操作展示名：中文名优先，没有就用操作编码 */
+/** 看板「未归因操作」行：请求本身没有按钮名。与后端 form_slow_logs::UNATTRIBUTED_LABEL 一致 */
+export const UNATTRIBUTED_LABEL = '未归因操作'
+
+/** 是否记录了这条请求自己的按钮名（旧日志只有分组级的按钮名） */
+export function hasRequestControl(file: SlowLogFile): boolean {
+  return file.request_control !== null && file.request_control !== undefined
+}
+
+/**
+ * 操作筛选键（也是下发给打包接口的 control_name）。
+ *
+ * 下载按「表单 + 事件编码」分组，一个 click 分组里混着刷新/提交/保存等多个按钮，
+ * 分组的按钮名只是第一条请求的。有逐条按钮名时用它；旧日志没有，只能退回分组名。
+ */
+export function operationKey(file: SlowLogFile): string {
+  if (hasRequestControl(file))
+    return file.request_control || UNATTRIBUTED_LABEL
+  return file.control_name || file.event_name || ''
+}
+
+/** 操作展示名：旧日志标出「分组」，避免把分组名误读成这条请求的按钮 */
 export function operationLabel(file: SlowLogFile): string {
-  return file.control_name || file.event_name || '—'
+  const key = operationKey(file)
+  return hasRequestControl(file) ? key : `${key || '—'}（分组）`
 }
 
 /** 文件大小展示 */
@@ -57,12 +78,14 @@ export function useFormSlowLogs() {
 
   const filteredFiles = computed(() => files.value.filter(f =>
     (!filters.date || f.date === filters.date)
-    && (!filters.control || operationLabel(f) === filters.control)
+    && (!filters.control || operationKey(f) === filters.control)
     && (!filters.tenant || f.tenant_key === filters.tenant),
   ))
 
   const dateOptions = computed(() => distinctOptions(files.value, f => ({ value: f.date, label: f.date })))
-  const controlOptions = computed(() => distinctOptions(files.value, f => ({ value: operationLabel(f), label: operationLabel(f) })))
+  const controlOptions = computed(() => distinctOptions(files.value, f => ({ value: operationKey(f), label: operationLabel(f) })))
+  /** 是否全部是记录了逐条按钮名的新日志 */
+  const allHaveRequestControl = computed(() => files.value.every(hasRequestControl))
   const tenantOptions = computed(() => distinctOptions(files.value, f => ({
     value: f.tenant_key,
     label: f.customer_name ? `${f.customer_name}（${f.tenant_key}）` : f.tenant_key,
@@ -91,7 +114,7 @@ export function useFormSlowLogs() {
     const zipQuery: SlowLogQuery = {
       ...query.value,
       date: filters.date,
-      control_name: filters.control === '—' ? '' : filters.control,
+      control_name: filters.control,
       tenant_key: filters.tenant,
     }
     const suffix = filters.date || `${result.value?.period_start ?? ''}~${result.value?.period_end ?? ''}`
@@ -112,6 +135,7 @@ export function useFormSlowLogs() {
     filteredFiles,
     dateOptions,
     controlOptions,
+    allHaveRequestControl,
     tenantOptions,
     load,
     downloadFile,

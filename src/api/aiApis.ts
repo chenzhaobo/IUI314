@@ -5,6 +5,8 @@
 // ── Agent 管理 ──────────────────────────────────────
 export enum ApiAiAgent {
   getList = '/ai/agent/list',
+  /** 选择 Agent/模型用的精简选项；不受 AI 管理菜单权限约束（业务页面用它，别用 getList） */
+  options = '/ai/agent/options',
   getById = '/ai/agent/get_by_id',
   add = '/ai/agent/add',
   edit = '/ai/agent/edit',
@@ -94,6 +96,9 @@ export interface AgentModelSyncResult {
   invoke_template_updated: boolean
   config_updated_at: string
 }
+
+/** `/ai/agent/options` 的返回项：只含选择 Agent 与模型所需字段 */
+export type AiAgentOption = Pick<AiAgent, 'agent_code' | 'agent_name' | 'supported_models_json' | 'default_model'>
 
 export interface AiAgent {
   id: string

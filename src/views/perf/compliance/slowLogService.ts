@@ -4,13 +4,19 @@
  * 下载接口要带鉴权头，不能 window.open，这里只负责拼出相对 API 路径，
  * 由 composable 交给 useDownload 发起。
  */
-import type { SlowLogFile, SlowLogList, SlowLogQuery } from '@/types/perf-slow-logs'
+import type { SlowLogFile, SlowLogList, SlowLogPeriodOption, SlowLogPeriodType, SlowLogQuery } from '@/types/perf-slow-logs'
 import { ApiPerfCompliance } from '@/api/perfApis'
 import { getAction } from '@/hooks'
 
 /** 表单在周期内已下载的慢日志清单；失败返回 null（拦截器已提示） */
 export function fetchSlowLogs(query: SlowLogQuery): Promise<SlowLogList | null> {
   return getAction<SlowLogList>(ApiPerfCompliance.slowLogs, query)
+}
+
+/** 统计周期下拉（与看板同源）；失败返回空数组 */
+export async function fetchPeriodOptions(productLine: string, periodType: SlowLogPeriodType): Promise<SlowLogPeriodOption[]> {
+  const data = await getAction<SlowLogPeriodOption[]>(ApiPerfCompliance.periodOptions, { product_line: productLine, period_type: periodType })
+  return Array.isArray(data) ? data : []
 }
 
 /** 单个日志文件的下载路径（任务 id + 相对路径，服务端校验越界） */

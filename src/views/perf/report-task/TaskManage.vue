@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import type { DimensionOptionItem, DimensionSelectOption } from './taskDimension'
-import type { AiAgent, AiListResult } from '@/api/aiApis'
-import { Message } from '@arco-design/web-vue'
+import type { TaskRunRow } from './taskTrigger'
+import type { AiAgentOption } from '@/api/aiApis'
+import { Message, Modal } from '@arco-design/web-vue'
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { ApiAiAgent } from '@/api/aiApis'
 import { ApiPerfCompliance, ApiPerfReportTask } from '@/api/perfApis'
-import { formatTime, useGet, usePost, useTableAutoHeight } from '@/hooks'
+import { formatTime, postAction, useGet, usePost, useTableAutoHeight } from '@/hooks'
 import { normalizeFormTags, tagsToTargetDimensions, targetDimensionsToTags, toDimensionSelectOptions } from './taskDimension'
+import { attrRangeText, isSkippedResult, retryPlan } from './taskTrigger'
+import TriggerTaskModal from './TriggerTaskModal.vue'
 
 defineOptions({ name: 'ReportTaskManage' })
 
@@ -30,12 +33,9 @@ const editId = ref('')
 //
 // 原先后端写死 kiro-cli + gpt-5.6-terra（defect_analysis.rs / report_attribution.rs），
 // 生产上 kiro 因网络受限调不通时无法切到 qoder，整条日报链路停在归因阶段。
-const { data: agentData } = useGet<AiListResult<AiAgent>>(
-  ApiAiAgent.getList,
-  { page_num: 1, page_size: 100 },
-  { immediate: true },
-)
-const agents = computed(() => agentData.value?.list || [])
+// 用 options：getList 受 AI 管理菜单权限控制，没有该权限的用户会弹「无权访问」
+const { data: agentData } = useGet<AiAgentOption[]>(ApiAiAgent.options, undefined, { immediate: true })
+const agents = computed<AiAgentOption[]>(() => (Array.isArray(agentData.value) ? agentData.value : []))
 
 const form = reactive<any>({
   task_name: '',
@@ -281,76 +281,17 @@ async function handleDelete(record: any) {
   Message.success('删除成功'); fetchTasks()
 }
 
-// ── 手动触发 ──────────────────────────────────
+// ── 手动触发（弹窗见 TriggerTaskModal） ──────────────────────────────
 const triggerVisible = ref(false)
-// 断点续跑默认生效，所以重复触发同一天会静默跳过；这个开关让人能显式重跑，
-// 不必再去库里删运行记录
-const triggerForce = ref(false)
-const triggering = ref(false)
-const triggerDate = ref('')
-// 归因起始日期（可选）：只对归因阶段生效 —— 只做该日期至数据日期之间未归因的日期。
-// 攒了多天未归因时分几次跑，避免单个分析会话被压垮（收尾会批量放弃维度）。
-const triggerAttrFrom = ref('')
-const triggerStage = ref<string>()
 // 非空表示只触发这一个任务（行内入口）；为空表示触发全部启用任务（顶部入口）
 const triggerTarget = ref<any>(null)
-
-// 会拉明细的阶段不能选今天及以后：慢请求明细次日才完整，选当天会 0 维度空跑（后端同样拦截）。
-// 只拦预检/下载（含全流程）；周报月报等以日期为锚点的阶段不受限。
-function isTriggerDateDisabled(current?: Date): boolean {
-  if (!current || (triggerStage.value && !['preflight', 'download'].includes(triggerStage.value)))
-    return false
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  return current.getTime() >= today.getTime()
-}
-
 function openTriggerFor(record: any) {
   triggerTarget.value = record
-  triggerStage.value = undefined
-  triggerAttrFrom.value = ''
   triggerVisible.value = true
 }
 function openTriggerAll() {
   triggerTarget.value = null
-  triggerStage.value = undefined
-  triggerAttrFrom.value = ''
   triggerVisible.value = true
-}
-
-/// 周期报告列的一行摘要（列宽有限，全文走 tooltip）
-const triggerPayload = ref<any>({})
-const { data: triggerResult, error: triggerError, execute: doTrigger } = usePost<any>(ApiPerfReportTask.trigger, triggerPayload, {
-  immediate: false,
-})
-async function handleTrigger() {
-  if (triggerAttrFrom.value && triggerDate.value && triggerAttrFrom.value > triggerDate.value) {
-    Message.warning('归因起始日期不能晚于数据日期')
-    return
-  }
-  triggering.value = true
-  try {
-    triggerPayload.value = {
-      // 指定 task_id 时后端只跑该任务，且不检查 enabled（可显式补跑已停用任务）
-      task_id: triggerTarget.value?.id || undefined,
-      run_date: triggerDate.value || undefined,
-      attr_from: triggerAttrFrom.value || undefined,
-      stage: triggerStage.value || undefined,
-      force: triggerForce.value || undefined,
-    }
-    await doTrigger()
-    if (!triggerError.value) {
-      const text = String(triggerResult.value || '已触发')
-      // 「什么都没跑」用绿色成功提示会误导 —— 用户正是据此以为跑了却没记录。
-      // 这类结果用警告色，并延长停留时间（消息里要交代跳过原因与解决办法）。
-      const skipped = text.startsWith('未执行')
-      if (skipped)
-        Message.warning({ content: text, duration: 8000 })
-      else Message.success({ content: text, duration: 5000 })
-    }
-    triggerVisible.value = false
-  }
-  finally { triggering.value = false }
 }
 
 // ── 运行记录 ──────────────────────────────────
@@ -380,17 +321,27 @@ async function cancelRun(record: any) {
   fetchRuns()
 }
 
-// 失败 / 中断的阶段原地重试：打开手动触发弹窗并预填任务、数据日期、阶段。
-// 归因阶段同时把「归因起始日期」填成同一天 —— 留空会按任务的「全部未归因」范围
-// 把所有历史未归因日期一起拉进来，重试就变成了大补跑；两天填同一天则只做这一天
-// 还没完成的维度（已完成的断点续跑自动跳过）。
-function retryRun(record: any) {
-  openTriggerFor(currentTask.value)
-  const date = String(record.run_date || '').slice(0, 10)
-  triggerDate.value = date
-  triggerAttrFrom.value = record.stage === 'defect_attribution' ? date : ''
-  triggerStage.value = record.stage
-  triggerForce.value = false
+// 失败 / 中断的阶段原地重试：按这一行原来的范围直接重跑，不再让人选日期。
+// 归因行带上原区间起点（见 retryPlan），否则只跑末天、其余日期的维度会被整批作废。
+function retryRun(record: TaskRunRow) {
+  const { payload, description } = retryPlan(record)
+  Modal.confirm({
+    title: '重试该阶段',
+    content: description,
+    okText: '重试',
+    onBeforeOk: async () => {
+      const result = await postAction<string>(ApiPerfReportTask.trigger, payload)
+      if (result === null)
+        return false
+      const text = String(result || '已触发')
+      if (isSkippedResult(text))
+        Message.warning({ content: text, duration: 8000 })
+      else
+        Message.success({ content: text, duration: 5000 })
+      fetchRuns()
+      return true
+    },
+  })
 }
 let runTimer: ReturnType<typeof setInterval> | null = null
 function stopRunTimer() { if (runTimer) { clearInterval(runTimer); runTimer = null } }
@@ -526,10 +477,6 @@ function fmtDuration(seconds?: number) {
     return `${Math.ceil(value / 60)}m`
   return `${Math.floor(value / 3600)}h${Math.ceil((value % 3600) / 60)}m`
 }
-
-// 这些 a-form 只用来做纵向布局，不做校验，但 arco 的 model 是必填 prop。
-// 用一个模块级常量而不是在模板里写 :model="{}"，避免每次渲染都新建对象。
-const layoutOnlyModel = {}
 </script>
 
 <template>
@@ -933,71 +880,7 @@ const layoutOnlyModel = {}
     </a-modal>
 
     <!-- 手动触发弹框 -->
-    <a-modal
-      v-model:visible="triggerVisible"
-      :title="triggerTarget ? `手动触发 — ${triggerTarget.task_name}` : '手动触发（全部启用任务）'"
-      :width="440"
-      :ok-loading="triggering"
-      @ok="handleTrigger"
-    >
-      <a-alert v-if="triggerTarget" type="info" style="margin-bottom: 12px">
-        只跑这一个任务。<b>不受启用开关影响</b> —— 停用只影响定时调度，这里是人工补跑。
-      </a-alert>
-      <a-form layout="vertical" :model="layoutOnlyModel">
-        <a-form-item label="数据日期（默认昨天）">
-          <a-date-picker v-model="triggerDate" value-format="YYYY-MM-DD" style="width: 100%" :disabled-date="isTriggerDateDisabled" />
-          <span v-if="triggerStage === 'weekly' || triggerStage === 'monthly'" class="hint">
-            周报/月报以这个日期为锚点，取它所在的整{{ triggerStage === 'weekly' ? '周' : '月' }}。
-            与调度生成的区别只是不等区间闭合、不等触发时刻 —— 同区间重复生成会复用既有报告，不会堆重复。
-          </span>
-        </a-form-item>
-        <a-form-item
-          v-if="!triggerStage || triggerStage === 'defect_attribution'"
-          label="归因起始日期（可选，只对归因生效）"
-        >
-          <a-date-picker v-model="triggerAttrFrom" value-format="YYYY-MM-DD" allow-clear style="width: 100%" />
-          <span class="hint">
-            只做<b>起始日期 ~ 数据日期</b>之间还没归因的日期（已归因的不重做）。留空 = 按任务配置的归因范围。
-            攒了多天未归因时<b>建议分几次跑</b>：一次太多天，单个分析会话会被压垮，收尾时反而批量放弃。
-          </span>
-        </a-form-item>
-        <a-form-item label="强制重跑">
-          <a-switch v-model="triggerForce" />
-          <span class="hint">
-            默认开启断点续跑：已成功的阶段会被跳过，所以对跑过的日期点触发会
-            <b>什么都不做</b>。改了配置或想用同一天数据复验时打开这个。
-          </span>
-        </a-form-item>
-        <a-form-item label="只跑指定阶段（空=全流程）">
-          <a-select v-model="triggerStage" allow-clear placeholder="全流程：下载→提取→缺陷归因（日报独立节点）">
-            <a-option value="preflight">
-              preflight（预检，不调用 Ops）
-            </a-option>
-            <a-option value="download">
-              download（下载）
-            </a-option>
-            <a-option value="extract">
-              extract（结构化提取）
-            </a-option>
-            <a-option value="defect_attribution">
-              defect_attribution（AI 逐维度归因）
-            </a-option>
-            <a-option value="report">
-              report（日报与台账）
-            </a-option>
-            <a-option value="weekly">
-              weekly（周报，取数据日期所在那一周）
-            </a-option>
-            <a-option value="monthly">
-              monthly（月报，取数据日期所在那一月）
-            </a-option>
-            <a-option value="push">
-              push（推送）
-            </a-option>
-          </a-select>
-        </a-form-item>
-      </a-form>
-    </a-modal>
+    <TriggerTaskModal v-model:visible="triggerVisible" :task="triggerTarget" @triggered="fetchTasks()" />
 
     <!-- 运行记录抽屉 -->
     <!-- 宽度用视口百分比而不是固定 px：运行记录有 10 列（含产物/错误这种长文本），
@@ -1014,6 +897,12 @@ const layoutOnlyModel = {}
       >
         <template #columns>
           <a-table-column title="数据日期" data-index="run_date" :width="100" />
+          <!-- 归因一轮会合并多天：只看数据日期会误以为只分析了一天 -->
+          <a-table-column title="归因区间" :width="200" ellipsis tooltip>
+            <template #cell="{ record }">
+              {{ attrRangeText(record) || '—' }}
+            </template>
+          </a-table-column>
           <a-table-column title="阶段" :width="120">
             <template #cell="{ record }">
               <a-tag size="small">

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import type { TableData } from '@arco-design/web-vue'
-import type { SlowLogPeriodType } from '@/types/perf-slow-logs'
-import { computed, ref, watch } from 'vue'
+import type { SlowLogPeriodOption, SlowLogPeriodType } from '@/types/perf-slow-logs'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTableAutoHeight } from '@/hooks'
+import { fetchPeriodOptions } from '@/views/perf/compliance/slowLogService'
 import { formatSize, operationLabel, useFormSlowLogs } from '@/views/perf/composables/useFormSlowLogs'
 
 defineOptions({ name: 'ComplianceSlowLogs' })
@@ -14,28 +15,62 @@ const router = useRouter()
 const tableWrap = ref<HTMLElement>()
 const { tableHeight } = useTableAutoHeight(tableWrap)
 
-const { loading, zipping, result, filters, filteredFiles, dateOptions, controlOptions, tenantOptions, load, downloadFile, downloadZip } = useFormSlowLogs()
+const { loading, zipping, result, filters, filteredFiles, dateOptions, controlOptions, allHaveRequestControl, tenantOptions, load, downloadFile, downloadZip } = useFormSlowLogs()
 
 function queryText(key: string): string {
   const v = route.query[key]
   return typeof v === 'string' ? v : ''
 }
 
+// ── 查询条件：从看板带过来，也可以在本页直接改，不必回看板重新跳 ──────────────
 const productLine = computed(() => queryText('product_line') || '星瀚')
-const periodType = computed<SlowLogPeriodType>(() => (queryText('period_type') === 'weekly' ? 'weekly' : 'monthly'))
-const period = computed(() => queryText('period'))
-const formId = computed(() => queryText('form_id'))
-const formName = computed(() => queryText('form_name'))
+const form = reactive({ formId: '', periodType: 'monthly' as SlowLogPeriodType, period: '' })
+const periodOptions = ref<SlowLogPeriodOption[]>([])
+/** 预选操作没命中时的说明（旧日志没有逐条按钮名） */
+const controlHint = ref('')
 
-const periodTypeText = computed(() => (periodType.value === 'weekly' ? '按周' : '按月'))
-const periodText = computed(() => {
-  const label = queryText('period_label') || period.value
-  const r = result.value
-  return r ? `${label}（${r.period_start} ~ ${r.period_end}）` : label
-})
+async function loadPeriodOptions(keep: string) {
+  periodOptions.value = await fetchPeriodOptions(productLine.value, form.periodType)
+  form.period = periodOptions.value.some(p => p.period === keep) ? keep : (periodOptions.value[0]?.period ?? '')
+}
+
+async function onPeriodTypeChange() {
+  await loadPeriodOptions('')
+}
+
+/** 查询 = 改 URL：刷新 / 分享链接时条件不丢，route watch 负责重载 */
+function search() {
+  const label = periodOptions.value.find(p => p.period === form.period)?.label ?? form.period
+  const sameForm = form.formId.trim() === queryText('form_id')
+  void router.replace({
+    name: 'compliance-slow-logs',
+    query: {
+      product_line: productLine.value,
+      period_type: form.periodType,
+      period: form.period,
+      period_label: label,
+      form_id: form.formId.trim(),
+      // 换了表单，看板带来的名称与操作就不再适用
+      ...(sameForm && queryText('form_name') ? { form_name: queryText('form_name') } : {}),
+      ...(sameForm && queryText('control_name') ? { control_name: queryText('control_name') } : {}),
+    },
+  })
+}
+
+function resetQuery() {
+  form.formId = ''
+  filters.date = ''
+  filters.control = ''
+  filters.tenant = ''
+}
+
+const formTitle = computed(() => (queryText('form_name') && queryText('form_id') === form.formId.trim() ? queryText('form_name') : ''))
+const periodRangeText = computed(() => (result.value ? `${result.value.period_start} ~ ${result.value.period_end}` : ''))
 
 const tipText = computed(() => {
   const r = result.value
+  if (!queryText('form_id'))
+    return '请输入表单编码（如 cfm_loanbill_b_l）后查询。'
   if (!r || loading.value)
     return ''
   if (r.root_count === 0)
@@ -43,7 +78,7 @@ const tipText = computed(() => {
   if (r.truncated)
     return `命中 ${r.total} 个日志，仅展示前 ${r.files.length} 个，请缩小周期或使用打包下载。`
   if (!r.files.length)
-    return '该表单在本周期内没有报告任务下载的慢日志（报告任务只下载所负责维度、超阈值的慢请求日志，且按每日限量选样）。'
+    return '该表单在本周期内没有报告任务下载的慢日志。采集任务按「覆盖超量」只下载慢请求最多的那部分表单与操作，零星的慢请求可能不在其中。'
   return ''
 })
 
@@ -53,26 +88,36 @@ function costSorter(a: TableData, b: TableData, extra: { direction: 'ascend' | '
   return extra.direction === 'descend' ? bv - av : av - bv
 }
 
-function reload() {
-  if (!formId.value)
+async function reload() {
+  form.formId = queryText('form_id')
+  form.periodType = queryText('period_type') === 'weekly' ? 'weekly' : 'monthly'
+  await loadPeriodOptions(queryText('period'))
+  controlHint.value = ''
+  if (!form.formId || !form.period) {
+    result.value = null
     return
-  void load({ product_line: productLine.value, period_type: periodType.value, period: period.value, form_id: formId.value }).then(() => {
-    // 从看板按钮级行进入时预选对应操作
-    const control = queryText('control_name')
-    if (control && controlOptions.value.some(o => o.value === control))
-      filters.control = control
-  })
+  }
+  await load({ product_line: productLine.value, period_type: form.periodType, period: form.period, form_id: form.formId })
+  // 从看板按钮级行进入时预选对应操作
+  const control = queryText('control_name')
+  if (!control)
+    return
+  if (controlOptions.value.some(o => o.value === control))
+    filters.control = control
+  else if (!allHaveRequestControl.value)
+    controlHint.value = `部分日志是按「表单 + 事件」分组下载的，没有记录每条请求的具体按钮（「${control}」的请求可能归在「刷新」等同事件分组里），已显示该表单全部日志。`
+  else
+    controlHint.value = `本周期没有「${control}」的已下载日志，已显示该表单全部日志。`
 }
 
 function goBack() {
   router.push({ name: 'compliance-dashboard' })
 }
 
-// 页面不缓存，但同一路由换参数（从看板点另一个表单）时组件会复用，需按 query 重载；
-// 离开本页时 route 也会变化，只响应本路由
+// 同一路由换参数时组件复用，需按 query 重载；只响应本路由
 watch(() => route.query, () => {
   if (route.name === 'compliance-slow-logs')
-    reload()
+    void reload()
 }, { immediate: true })
 </script>
 
@@ -87,22 +132,52 @@ watch(() => route.query, () => {
             </template>
             返回看板
           </a-link>
-          <span class="form-title">{{ formName || formId || '未指定表单' }}</span>
-          <a-tag v-if="formName && formId" size="small">
-            {{ formId }}
-          </a-tag>
-          <a-tag color="arcoblue" size="small">
-            {{ periodTypeText }}
-          </a-tag>
-          <span class="period-text">{{ periodText }}</span>
+          <span v-if="formTitle" class="form-title">{{ formTitle }}</span>
+          <span class="period-text">{{ periodRangeText }}</span>
           <a-tag size="small">
             {{ productLine }}
           </a-tag>
         </a-space>
       </div>
 
+      <a-row :gutter="12" align="center" style="margin-bottom: 12px">
+        <a-col :span="6">
+          <a-input v-model="form.formId" placeholder="表单编码，如 cas_paybill" allow-clear @press-enter="search" />
+        </a-col>
+        <a-col :span="5">
+          <a-radio-group v-model="form.periodType" type="button" @change="onPeriodTypeChange">
+            <a-radio value="monthly">
+              按月
+            </a-radio>
+            <a-radio value="weekly">
+              按周
+            </a-radio>
+          </a-radio-group>
+        </a-col>
+        <a-col :span="6">
+          <a-select v-model="form.period" placeholder="统计周期" allow-search>
+            <a-option v-for="p in periodOptions" :key="p.period" :value="p.period">
+              {{ p.label }}
+            </a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="7">
+          <a-space>
+            <a-button type="primary" :disabled="!form.formId.trim() || !form.period" @click="search">
+              查询
+            </a-button>
+            <a-button @click="resetQuery">
+              清空
+            </a-button>
+          </a-space>
+        </a-col>
+      </a-row>
+
       <a-alert v-if="tipText" type="info" style="margin-bottom: 12px">
         {{ tipText }}
+      </a-alert>
+      <a-alert v-if="controlHint" type="warning" closable style="margin-bottom: 12px">
+        {{ controlHint }}
       </a-alert>
 
       <a-row :gutter="12" align="center" style="margin-bottom: 12px">
@@ -153,7 +228,7 @@ watch(() => route.query, () => {
         >
           <template #columns>
             <a-table-column title="日期" data-index="date" :width="110" />
-            <a-table-column title="操作" :width="140" ellipsis tooltip>
+            <a-table-column title="操作" :width="160" ellipsis tooltip>
               <template #cell="{ record }">
                 {{ operationLabel(record) }}
               </template>
@@ -175,7 +250,7 @@ watch(() => route.query, () => {
                 {{ formatSize(record.size) }}
               </template>
             </a-table-column>
-            <a-table-column title="操作" :width="80" fixed="right">
+            <a-table-column title="下载" :width="70" fixed="right">
               <template #cell="{ record }">
                 <a-link @click="downloadFile(record)">
                   下载
