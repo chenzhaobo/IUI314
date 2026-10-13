@@ -16,9 +16,14 @@ export interface DimensionSelectOption {
   label: string
 }
 
-/** perf_report_task.target_dimensions 的元素；event_name 省略 = 该表单全部操作 */
+/**
+ * perf_report_task.target_dimensions 的元素。只给 form_id = 该表单全部按钮；
+ * control_name 是按钮中文名（与看板同一口径，界面填「表单/提交」时写这个）；
+ * event_name 是事件编码（click 等），只为兼容老配置与临时分析页。
+ */
 export interface TargetDimension {
   form_id: string
+  control_name?: string
   event_name?: string
 }
 
@@ -47,7 +52,7 @@ export function toDimensionSelectOptions(list: unknown, dimensionType: string): 
   return options.sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'))
 }
 
-/** target_dimensions → 输入标签。带操作的写成 `form_id/event_name`。 */
+/** target_dimensions → 输入标签。带按钮的写成 `form_id/按钮`（老配置退回事件编码）。 */
 export function targetDimensionsToTags(value: unknown): string[] {
   if (!Array.isArray(value))
     return []
@@ -57,8 +62,8 @@ export function targetDimensionsToTags(value: unknown): string[] {
         return ''
       const item = raw as Partial<TargetDimension>
       const form = String(item.form_id ?? '').trim()
-      const event = String(item.event_name ?? '').trim()
-      return form && event ? `${form}/${event}` : form
+      const op = String(item.control_name ?? item.event_name ?? '').trim()
+      return form && op ? `${form}/${op}` : form
     })
     .filter(tag => tag.length > 0)
 }
@@ -70,14 +75,14 @@ export function tagsToTargetDimensions(tags: string[]): TargetDimension[] | null
   for (const raw of tags) {
     const [formPart, ...rest] = raw.trim().split('/')
     const form_id = (formPart ?? '').trim()
-    const event_name = rest.join('/').trim()
+    const control_name = rest.join('/').trim()
     if (!form_id)
       continue
-    const key = `${form_id}/${event_name}`
+    const key = `${form_id}/${control_name}`
     if (seen.has(key))
       continue
     seen.add(key)
-    result.push(event_name ? { form_id, event_name } : { form_id })
+    result.push(control_name ? { form_id, control_name } : { form_id })
   }
   return result.length ? result : null
 }

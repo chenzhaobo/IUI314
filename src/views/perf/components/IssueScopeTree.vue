@@ -12,6 +12,8 @@ interface IssueScopeFilter {
   product_domain?: string
   app_number?: string
   form_id?: string
+  /** 按钮（仅台账：表单节点下再展开一层，开发据此找「提交」有哪些问题） */
+  control_name?: string
 }
 
 interface Props {
@@ -45,6 +47,8 @@ const ROOT_KEY = 'root:all'
 const isPattern = computed(() => props.source === 'pattern')
 const treeEndpoint = computed(() => (isPattern.value ? ApiPerfPatternLedger.scopeTree : ApiPerfIssue.scopeTree))
 const drillEndpoint = computed(() => (isPattern.value ? ApiPerfPatternLedger.formDrill : ApiPerfIssue.formDrill))
+/** 只有台账有按钮层：问题单只有单个按钮字段，表单已足够定位 */
+const leafLevel = computed(() => (isPattern.value ? 'control' : 'form'))
 
 const productLine = ref('星瀚')
 const mode = ref<ScopeMode>('menu')
@@ -64,6 +68,8 @@ const treePayload = ref<any>({})
 const treeRequest = useGet<any>(treeEndpoint, treePayload, { immediate: false })
 const drillPayload = ref<any>({})
 const drillRequest = useGet<any>(drillEndpoint, drillPayload, { immediate: false })
+const controlPayload = ref<any>({})
+const controlRequest = useGet<any>(ApiPerfPatternLedger.controlDrill, controlPayload, { immediate: false })
 
 function scopeFor(level: string, code: string, parentScope: IssueScopeFilter): IssueScopeFilter {
   const scope = { ...parentScope }
@@ -79,6 +85,8 @@ function scopeFor(level: string, code: string, parentScope: IssueScopeFilter): I
     scope.app_number = code
   if (level === 'form')
     scope.form_id = code
+  if (level === 'control')
+    scope.control_name = code
   return scope
 }
 
@@ -105,7 +113,7 @@ function normalizeNode(item: any, parentScope: IssueScopeFilter): any {
     key: item.key || `${level}:${code}`,
     code,
     title: item.title || item.name || code,
-    is_leaf: level === 'form',
+    is_leaf: level === leafLevel.value,
     children: Array.isArray(item.children) ? item.children.map((child: any) => normalizeNode(child, scope)) : [],
     scope,
     record_count: Number(item.count || 0),
@@ -175,17 +183,25 @@ async function reloadTree(resetSelection: boolean, emitReset = true) {
   }
 }
 
-/** 应用层展开时懒加载表单节点。 */
-async function loadChildren(node: any) {
-  if (node.level !== 'app')
-    return
-  drillPayload.value = {
-    app_number: node.code,
-    product_line: productLine.value,
-    ...props.filters,
+/** 懒加载：应用展开出表单；台账的表单再展开出按钮。 */
+async function fetchChildren(node: any): Promise<any[] | null> {
+  if (node.level === 'app') {
+    drillPayload.value = { app_number: node.code, product_line: productLine.value, ...props.filters }
+    await drillRequest.execute()
+    return Array.isArray(drillRequest.data.value) ? drillRequest.data.value : []
   }
-  await drillRequest.execute()
-  const items = Array.isArray(drillRequest.data.value) ? drillRequest.data.value : []
+  if (node.level === 'form' && isPattern.value) {
+    controlPayload.value = { app_number: node.scope?.app_number, form_id: node.code, product_line: productLine.value, ...props.filters }
+    await controlRequest.execute()
+    return Array.isArray(controlRequest.data.value) ? controlRequest.data.value : []
+  }
+  return null
+}
+
+async function loadChildren(node: any) {
+  const items = await fetchChildren(node)
+  if (!items)
+    return
   node.children = items.map((item: any) => normalizeNode(item, node.scope))
   if (!node.children.length)
     node.is_leaf = true
@@ -229,14 +245,20 @@ async function locateScope(scope: IssueScopeFilter) {
     wanted.push(`app:${scope.app_number}`)
   if (scope.form_id)
     wanted.push(`form:${scope.form_id}`)
+  if (scope.form_id && scope.control_name && isPattern.value)
+    wanted.push(`control:${scope.form_id}:${scope.control_name}`)
   let hit: any = null
   let complete = true
   for (const key of wanted) {
     let node = findNode(treeData.value, key)
-    if (!node && key.startsWith('form:') && scope.app_number) {
-      const app = findNode(treeData.value, `app:${scope.app_number}`)
-      if (app && !app.children?.length && !app.is_leaf) {
-        await loadChildren(app)
+    // 表单 / 按钮在懒加载层：先展开上一级再找
+    const parentKey = key.startsWith('form:') && scope.app_number
+      ? `app:${scope.app_number}`
+      : (key.startsWith('control:') ? `form:${scope.form_id}` : '')
+    if (!node && parentKey) {
+      const parent = findNode(treeData.value, parentKey)
+      if (parent && !parent.children?.length && !parent.is_leaf) {
+        await loadChildren(parent)
         node = findNode(treeData.value, key)
       }
     }
@@ -380,7 +402,7 @@ onUnmounted(() => {
       <small>与右侧筛选一致</small>
     </div>
     <div class="tree-search">
-      <a-input-search v-model="keyword" size="small" placeholder="搜索范围/应用/表单" allow-clear />
+      <a-input-search v-model="keyword" size="small" :placeholder="isPattern ? '搜索范围/应用/表单/按钮' : '搜索范围/应用/表单'" allow-clear />
       <a-switch v-model="showCode" size="small" />
       <span>编码</span>
     </div>

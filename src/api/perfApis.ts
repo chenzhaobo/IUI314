@@ -423,6 +423,8 @@ export enum ApiPerfPatternLedger {
   // 实测 15 秒级且受 500 节点上限约束），台账自身字段分组又快又只出现有数据的节点。
   scopeTree = '/perf/periodic-report/pattern/scope-tree',
   formDrill = '/perf/periodic-report/pattern/form-drill',
+  /** 表单节点展开出的按钮（台账 form_keys 里该表单的按钮聚合） */
+  controlDrill = '/perf/periodic-report/pattern/control-drill',
   export = '/perf/periodic-report/pattern/export',
   logs = '/perf/periodic-report/pattern/logs',
   reportMd = '/perf/periodic-report/pattern/report-md',

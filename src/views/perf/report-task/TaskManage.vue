@@ -780,12 +780,12 @@ function fmtDuration(seconds?: number) {
               :retain-input-value="{ blur: true }"
               allow-clear
               unique-value
-              placeholder="输入表单标识，如 cas_paybill；多个用逗号或顿号分隔；限定操作写 cas_paybill/submit"
+              placeholder="输入表单标识，如 cas_paybill；多个用逗号或顿号分隔；限定按钮写 cas_paybill/提交"
               @change="commitTargetForms"
               @blur="commitTargetForms"
             />
             <template #extra>
-              <span>留空 = 在维度范围内按覆盖率挑。填了就只在这些表单里挑（不写操作 = 该表单全部操作），<b>仍按上面的「覆盖超量」截断</b>：80% 只取慢请求最多的几个「表单 + 操作」，要每个操作都下载请调到 100%（每个组合最多下「每维度每天上限」条，下载是串行的，组合多会很慢）。</span>
+              <span>留空 = 在维度范围内按覆盖率挑。填了就只在这些表单里挑（不写按钮 = 该表单全部按钮；按钮名与达标率看板一致），<b>仍按上面的「覆盖超量」截断</b>：80% 只取慢请求最多的几个「表单 + 操作」，要每个操作都下载请调到 100%（每个组合最多下「每维度每天上限」条，下载是串行的，组合多会很慢）。</span>
             </template>
           </a-form-item>
         </template>

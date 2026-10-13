@@ -545,6 +545,15 @@
         show-word-limit
       />
     </a-modal>
+
+    <!-- 转缺陷：必填计划完成时间（缺陷要有治理计划） -->
+    <CreateIssueModal
+      v-model:visible="createIssueDialog.visible"
+      :title="createIssueDialog.title"
+      :lines="createIssueDialog.lines"
+      :ok-text="createIssueDialog.okText"
+      :submit="submitCreateIssue"
+    />
   </div>
 </template>
 
@@ -561,6 +570,7 @@ import { batchActionHint, canLedgerAction, filterActionable, ledgerStateOf } fro
 import { MdPreview } from 'md-editor-v3'
 // 必须导入样式，否则 MdPreview 渲染出来没有任何格式（表格无边框、标题不分级）
 import 'md-editor-v3/lib/style.css'
+import CreateIssueModal from '@/views/perf/analysis-report/CreateIssueModal.vue'
 import { splitTag } from '@/views/perf/components/analysisFields'
 import AnalysisWeightCell from '@/views/perf/components/AnalysisWeightCell.vue'
 import ImpactBreakdown from '@/views/perf/components/ImpactBreakdown.vue'
@@ -595,6 +605,8 @@ const searchForm = reactive({
   product_domain: '',
   app_number: '',
   form_id: '',
+  // 左树表单下的按钮层（未归因操作为哨兵 __unattributed__）
+  control_name: '',
   // 排序在后端做：影响面与分析权重要按**全量**排序，
   // 表格自带的 sortable 只排当页 20 条，排出的第一名不是真正的第一名。
   sort_by: '',
@@ -602,7 +614,7 @@ const searchForm = reactive({
 })
 
 // 从达标率看板「联查问题」带入的范围：右表先按它过滤，左树挂载后定位到对应节点
-const clearedScope = { project_group_code: '', cloud_number: '', business_area: '', product_domain: '', app_number: '', form_id: '' }
+const clearedScope = { project_group_code: '', cloud_number: '', business_area: '', product_domain: '', app_number: '', form_id: '', control_name: '' }
 const { initialScope: routeScope } = useRouteScope('pattern-ledger', (scope) => {
   Object.assign(searchForm, clearedScope, scope)
   scopeTreeKey.value += 1
@@ -1195,6 +1207,7 @@ const handleScopeChange = (scope: {
   product_domain?: string
   app_number?: string
   form_id?: string
+  control_name?: string
 }) => {
   // 左侧范围树可切换星瀚/星空；应用下拉必须跟着产品线重取，不能一直显示首次加载的数据。
   if (scope.product_line && appQuery.value.product_line !== scope.product_line) {
@@ -1208,6 +1221,7 @@ const handleScopeChange = (scope: {
     product_domain: '',
     app_number: '',
     form_id: '',
+    control_name: '',
     ...scope,
   })
   pageNum.value = 1
@@ -1231,6 +1245,7 @@ const handleReset = () => {
     product_domain: '',
     app_number: '',
     form_id: '',
+    control_name: '',
   })
   // 重置后左树回到「全部」，不再定位到看板带入的范围
   routeScope.value = null
@@ -1338,10 +1353,10 @@ function reportCreateIssueResult(data: any) {
   Message.success(okText || '转缺陷完成')
 }
 
-async function performCreateIssue(ids: string[], confirmEvidenceInsufficient: boolean) {
+async function performCreateIssue(ids: string[], confirmEvidenceInsufficient: boolean, planDate: string) {
   converting.value = true
   try {
-    createIssuePayload.value = { ids, confirm_evidence_insufficient: confirmEvidenceInsufficient }
+    createIssuePayload.value = { ids, confirm_evidence_insufficient: confirmEvidenceInsufficient, plan_date: planDate }
     await doCreateIssue()
     // usePost 不支持 onSuccess，必须在这里判结果
     if (isRequestFailed(createIssueResult.value))
@@ -1356,6 +1371,13 @@ async function performCreateIssue(ids: string[], confirmEvidenceInsufficient: bo
   }
 }
 
+// 转缺陷确认框（含必填的计划完成时间，见 CreateIssueModal）
+const createIssueDialog = reactive({ visible: false, title: '', lines: [] as string[], okText: '', ids: [] as string[], insufficient: false })
+function openCreateIssueDialog(opts: { title: string, lines: string[], okText: string, ids: string[], insufficient: boolean }) {
+  Object.assign(createIssueDialog, opts, { visible: true })
+}
+const submitCreateIssue = (planDate: string) => performCreateIssue(createIssueDialog.ids, createIssueDialog.insufficient, planDate)
+
 /** 行内「转缺陷…」：单条，走同一个批量接口（ids 只有一条）。 */
 function handleCreateIssue(record: any) {
   if (isReportPendingRetry(record)) {
@@ -1367,13 +1389,14 @@ function handleCreateIssue(record: any) {
     return
   }
   const insufficient = isEvidenceInsufficient(record)
-  Modal.confirm({
+  openCreateIssueDialog({
     title: insufficient ? '以待补证问题转缺陷？' : '转缺陷？',
-    content: insufficient
+    lines: [insufficient
       ? '当前缺陷报告明确标记为证据不足。继续后将创建真实问题单，并保留缺失证据与待补证说明。'
-      : '将从完整缺陷报告创建真实问题跟踪，并回填台账关联（台账状态变为「已提单」）。',
+      : '将从完整缺陷报告创建真实问题跟踪，并回填台账关联（台账状态变为「已提单」）。'],
     okText: insufficient ? '确认待补证转缺陷' : '确认转缺陷',
-    onOk: () => performCreateIssue([record.id], insufficient),
+    ids: [record.id],
+    insufficient,
   })
 }
 
@@ -1400,12 +1423,13 @@ function handleCreateIssueBatch() {
     pendingRetry.length > 0 ? `跳过 ${pendingRetry.length} 条：缺陷报告仍待重试` : '',
     skipped > 0 ? `跳过 ${skipped} 条：已提单或状态不支持` : '',
     overflow > 0 ? `另有 ${overflow} 条超出单次上限（${CREATE_ISSUE_BATCH_MAX} 条），本次不提交，请分批操作` : '',
-  ].filter(Boolean).join('\n')
-  Modal.confirm({
+  ].filter(Boolean)
+  openCreateIssueDialog({
     title: `确认转缺陷 ${targets.length} 条？`,
-    content,
+    lines: content,
     okText: '确认转缺陷',
-    onOk: () => performCreateIssue(targets.map((r: any) => r.id), insufficient > 0),
+    ids: targets.map((r: any) => r.id),
+    insufficient: insufficient > 0,
   })
 }
 

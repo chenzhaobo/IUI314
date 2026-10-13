@@ -13,9 +13,11 @@ export interface RouteScope {
   cloud_number?: string
   app_number?: string
   form_id?: string
+  /** 按钮（看板按钮级行带入；未归因操作为哨兵 __unattributed__） */
+  control_name?: string
 }
 
-const SCOPE_KEYS = ['cloud_number', 'app_number', 'form_id'] as const
+const SCOPE_KEYS = ['cloud_number', 'app_number', 'form_id', 'control_name'] as const
 
 export function useRouteScope(routeName: string, onApply: (scope: RouteScope) => void) {
   const route = useRoute()

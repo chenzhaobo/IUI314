@@ -249,6 +249,16 @@
                   </template>
                 </a-table-column>
                 <a-table-column title="处理人" data-index="process_owner" :width="85" ellipsis tooltip />
+                <!-- 治理计划：转缺陷时必填；超期红、3 天内橙（与静态扫描「计划完成」同口径） -->
+                <a-table-column title="计划完成" data-index="plan_date" :width="120">
+                  <template #cell="{ record }">
+                    <template v-if="record.plan_date">
+                      <span>{{ String(record.plan_date).slice(0, 10) }}</span>
+                      <span v-if="!isIssueClosed(record)" :class="`plan-${planDateHint(record.plan_date).level}`" class="plan-hint">{{ planDateHint(record.plan_date).text }}</span>
+                    </template>
+                    <span v-else class="dmp-empty">未排期</span>
+                  </template>
+                </a-table-column>
                 <a-table-column title="DMP 编码" data-index="dmp_defect_code" :width="130" ellipsis>
                   <template #cell="{ record }">
                     <a-typography-text v-if="record.dmp_defect_code" copyable :copy-text="record.dmp_defect_code">
@@ -317,6 +327,9 @@
           <a-descriptions-item label="业务领域">{{ currentRecord?.business_area || '--' }}</a-descriptions-item>
           <a-descriptions-item label="负责人">{{ currentRecord?.assignee }}</a-descriptions-item>
           <a-descriptions-item label="发现日期">{{ formatTime(currentRecord?.found_date, { precision: 'date' }) }}</a-descriptions-item>
+          <a-descriptions-item label="计划完成">
+            {{ currentRecord?.plan_date ? String(currentRecord.plan_date).slice(0, 10) : '未排期' }}
+          </a-descriptions-item>
           <a-descriptions-item label="修复日期">{{ formatTime(currentRecord?.fixed_date, { precision: 'date' }) }}</a-descriptions-item>
           <a-descriptions-item label="来源">{{ sourceText(currentRecord?.source) }}</a-descriptions-item>
           <a-descriptions-item label="出现次数">{{ currentRecord?.recurrence_count || 1 }}</a-descriptions-item>
@@ -572,6 +585,7 @@ import ListPage from '@/components/common/ListPage.vue'
 import { ApiSysUser } from '@/api/sysApis'
 import { ApiSecProjectGroup } from '@/api/sechubApis'
 import { formatTime, useDelete, useDicts, useDownload, useGet, usePost, usePut } from '@/hooks'
+import { planDateHint } from '@/utils/planDate'
 import { splitTag } from '@/views/perf/components/analysisFields'
 import AnalysisWeightCell from '@/views/perf/components/AnalysisWeightCell.vue'
 import ImpactBreakdown from '@/views/perf/components/ImpactBreakdown.vue'
@@ -796,6 +810,10 @@ function slaColor(record: any) {
 }
 function slaHint(record: any) {
   return `${record.sla_level || '未评级'} 档，期限 ${record.sla_due_date}`
+}
+/** 已修复 / 已发版 / 已验证 / 不处理：计划完成时间不再提示剩余与超期 */
+function isIssueClosed(record: any): boolean {
+  return ['fixed', 'released', 'verified', 'wont_fix'].includes(String(record?.process_status || ''))
 }
 
 function openClaim() {
@@ -1153,6 +1171,10 @@ const handleDelete = async (record: any) => {
 </script>
 
 <style scoped>
+.plan-hint { margin-left: 4px; font-size: 12px; }
+.plan-overdue { color: rgb(var(--danger-6)); }
+.plan-soon { color: rgb(var(--warning-6)); }
+.plan-far { color: var(--color-text-3); }
 /* 筛选区：按需宽度 + 放不下自动换行，不再用 24 等分的 span 硬凑 */
 .filter-bar {
   display: flex;

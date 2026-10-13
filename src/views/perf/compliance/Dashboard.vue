@@ -652,6 +652,9 @@ const gotoIssues = (record: DrillRow) => {
   if (scope.cloud_number) query.cloud_number = scope.cloud_number
   if (scope.app_number) query.app_number = scope.app_number
   if (scope.form_id) query.form_id = scope.form_id
+  // 按钮级行：台账左树定位到表单下的按钮；未归因操作在台账侧用哨兵编码
+  if (scope.form_id && scope.control_name)
+    query.control_name = scope.control_name === '未归因操作' ? UNATTRIBUTED_CONTROL : scope.control_name
   router.push({ name: 'pattern-ledger', query })
 }
 
