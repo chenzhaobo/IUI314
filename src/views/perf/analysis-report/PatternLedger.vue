@@ -321,6 +321,11 @@
                             <span style="display: inline-block; width: 100%">下载关联文件</span>
                           </a-tooltip>
                         </a-doption>
+                          <a-doption value="reportMd" :disabled="!hasReportMd(record)">
+                            <a-tooltip :content="hasReportMd(record) ? '只下载缺陷报告 md（不含原始日志）' : '该台账没有关联的缺陷报告 md'">
+                              <span style="display: inline-block; width: 100%">下载报告 md</span>
+                            </a-tooltip>
+                          </a-doption>
                       </template>
                     </a-dropdown>
                   </a-space>
@@ -457,6 +462,10 @@
               >下载关联文件</a-button>
             </span>
           </a-tooltip>
+          <!-- 只要报告时不必打包几十 MB 的原始日志；详情里看到的是截断版，下载拿完整原文 -->
+          <a-button :loading="mdDownloading" :disabled="!mdMeta" @click="downloadCurrentMd()">
+            下载报告 md
+          </a-button>
         </a-space>
       </template>
     </a-drawer>
@@ -577,6 +586,7 @@ import ImpactBreakdown from '@/views/perf/components/ImpactBreakdown.vue'
 import ImpactCell from '@/views/perf/components/ImpactCell.vue'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
 import PatternReanalysis from '@/views/perf/components/PatternReanalysis.vue'
+import { useReportMdDownload } from '@/views/perf/composables/useReportMdDownload'
 import { useRouteScope } from '@/views/perf/composables/useRouteScope'
 
 defineOptions({ name: 'pattern-ledger' })
@@ -635,6 +645,8 @@ const scopeCountFilters = computed(() => ({
 }))
 const drawerVisible = ref(false)
 const currentRecord = ref<any>(null)
+// 单独下载报告 md（完整原文，见 useReportMdDownload）
+const { mdDownloading, downloadReportMd } = useReportMdDownload()
 const detailExporting = ref(false)
 const logsDownloading = ref(false)
 
@@ -719,6 +731,8 @@ const getReportFiles = (record: any): string[] => {
   return ev.filter((x: any) => typeof x === 'string' && x.endsWith('.md'))
 }
 const hasDefectReport = (record: any) => !!getDefectReport(record) || getReportFiles(record).length > 0
+// 单独下载 md 只认落盘的报告文件（旧链路内联在 evidence 里的报告没有 md）
+const hasReportMd = (record: any) => getReportFiles(record).length > 0
 const defectStatusText = (status: string) => ({ complete: '完整', evidence_insufficient: '证据不足', pending_retry: '待重试' }[status] || status || '--')
 // 处置状态。人工能选的只有三个（见操作列的处置项）：
 //   待处置 = 系统产出的初始态，没人下过判断
@@ -1183,6 +1197,9 @@ const handleMoreAction = (key: string, record: any) => {
     case 'logs':
       void handleLogsDownload(record)
       break
+    case 'reportMd':
+      void downloadReportMd({ pattern: record.id }, record.pattern_no)
+      break
     case 'wontFix':
       openTriage(record)
       break
@@ -1273,6 +1290,13 @@ const { execute: fetchPatternMd } = useGet<any>(ApiPerfPatternLedger.reportMd, m
     mdMeta.value = d.found ? d : null
   },
 })
+
+// 详情抽屉「下载报告 md」：带上已知的报告路径，文件名更准确
+function downloadCurrentMd() {
+  const record = currentRecord.value
+  if (record)
+    void downloadReportMd({ pattern: record.id }, record.pattern_no, mdMeta.value?.file)
+}
 
 const handleDetail = (record: any) => {
   currentRecord.value = record

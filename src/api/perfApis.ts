@@ -428,6 +428,8 @@ export enum ApiPerfPatternLedger {
   export = '/perf/periodic-report/pattern/export',
   logs = '/perf/periodic-report/pattern/logs',
   reportMd = '/perf/periodic-report/pattern/report-md',
+  /** 单独下载缺陷报告 md 完整原文（不截断、不含原始日志） */
+  reportMdDownload = '/perf/periodic-report/pattern/report-md/download',
   save = '/perf/periodic-report/pattern/save',
   createIssue = '/perf/periodic-report/pattern/create-issue',
   // 追加分析：人工给方向或质疑，AI 复核后判 update / create / reject

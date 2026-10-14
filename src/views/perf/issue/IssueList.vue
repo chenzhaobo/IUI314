@@ -417,6 +417,10 @@
                 >下载关联文件</a-button>
               </span>
             </a-tooltip>
+            <!-- 只要报告时不必打包原始日志；详情里看到的是截断版，下载拿完整原文 -->
+            <a-button :loading="mdDownloading" :disabled="!mdMeta" @click="downloadCurrentMd()">
+              下载报告 md
+            </a-button>
           </a-space>
         </template>
       </a-drawer>
@@ -593,6 +597,7 @@ import ImpactCell from '@/views/perf/components/ImpactCell.vue'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
 import PatternReanalysis from '@/views/perf/components/PatternReanalysis.vue'
 import { useUserStore } from '@/stores'
+import { useReportMdDownload } from '@/views/perf/composables/useReportMdDownload'
 
 defineOptions({ name: 'issue-list' })
 
@@ -1017,6 +1022,13 @@ const { execute: fetchIssueMd } = useGet<any>(ApiPerfPatternLedger.reportMd, mdP
     mdMeta.value = d.found ? d : null
   },
 })
+
+const { mdDownloading, downloadReportMd } = useReportMdDownload()
+function downloadCurrentMd() {
+  const record = currentRecord.value
+  if (record)
+    void downloadReportMd({ issue: record.issue_no || record.id }, record.issue_no, mdMeta.value?.file)
+}
 
 const loadIssueMd = (record: any) => {
   mdContent.value = ''
