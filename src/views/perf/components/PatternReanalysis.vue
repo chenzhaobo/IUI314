@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { MdPreview } from 'md-editor-v3'
 /**
  * 「再次分析」区块：问题台账详情与问题列表详情共用。
  *
@@ -10,6 +11,8 @@
 import { computed, onUnmounted, watch } from 'vue'
 import { formatTime } from '@/hooks'
 import { CHALLENGE_MAX_LENGTH, decisionMeta, usePatternReanalysis } from '@/views/perf/composables/usePatternReanalysis'
+// 必须导入样式，否则 MdPreview 渲染出来没有任何格式
+import 'md-editor-v3/lib/style.css'
 
 defineOptions({ name: 'PatternReanalysis' })
 
@@ -148,7 +151,8 @@ onUnmounted(reset)
               </div>
               <div v-if="r.decision_reason" class="content-block" style="margin-top: 6px">
                 <strong>复核结论：</strong>
-                <pre style="white-space: pre-wrap; margin: 4px 0; font-family: inherit">{{ r.decision_reason }}</pre>
+                <!-- AI 结论是 markdown（标题、表格、代码块），用 <pre> 只会显示 # 与 | 原文 -->
+                <MdPreview :model-value="r.decision_reason" class="reason-md" />
               </div>
               <a-alert v-if="r.error_message" type="error" style="margin-top: 6px">
                 {{ r.error_message }}
@@ -163,3 +167,14 @@ onUnmounted(reset)
     </template>
   </div>
 </template>
+
+<style scoped>
+/* MdPreview 默认 20px 内边距，嵌在时间线里显得空；背景透明以贴合时间线条目 */
+.reason-md {
+  margin-top: 4px;
+  background: transparent;
+}
+.reason-md :deep(.md-editor-preview-wrapper) {
+  padding: 0;
+}
+</style>
