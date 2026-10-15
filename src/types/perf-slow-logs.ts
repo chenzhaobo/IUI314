@@ -3,7 +3,7 @@
 /** 统计周期口径，与达标率看板一致 */
 export type SlowLogPeriodType = 'monthly' | 'weekly'
 
-/** 列表 / 打包的查询条件（date / control_name / tenant_key 仅打包时作为二次筛选下发） */
+/** 列表 / 打包的查询条件（date / control_name / tenant_key / trace_id 仅打包时作为二次筛选下发） */
 export interface SlowLogQuery {
   product_line: string
   period_type: SlowLogPeriodType
@@ -12,6 +12,8 @@ export interface SlowLogQuery {
   date?: string
   control_name?: string
   tenant_key?: string
+  /** trace id 过滤：项目组从缺陷报告里抄 id 来找日志，支持 `3eab…6028` 缩写形态 */
+  trace_id?: string
 }
 
 /** 单个已下载的天梯日志文件；`task_id + path` 是下载凭据 */

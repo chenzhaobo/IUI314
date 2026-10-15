@@ -62,6 +62,7 @@ function resetQuery() {
   filters.date = ''
   filters.control = ''
   filters.tenant = ''
+  filters.trace = ''
 }
 
 const formTitle = computed(() => (queryText('form_name') && queryText('form_id') === form.formId.trim() ? queryText('form_name') : ''))
@@ -181,28 +182,32 @@ watch(() => route.query, () => {
       </a-alert>
 
       <a-row :gutter="12" align="center" style="margin-bottom: 12px">
-        <a-col :span="5">
+        <a-col :span="4">
           <a-select v-model="filters.date" placeholder="日期" allow-clear allow-search>
             <a-option v-for="o in dateOptions" :key="o.value" :value="o.value">
               {{ o.label }}
             </a-option>
           </a-select>
         </a-col>
-        <a-col :span="5">
+        <a-col :span="4">
           <a-select v-model="filters.control" placeholder="操作" allow-clear allow-search>
             <a-option v-for="o in controlOptions" :key="o.value" :value="o.value">
               {{ o.label }}
             </a-option>
           </a-select>
         </a-col>
-        <a-col :span="6">
+        <a-col :span="5">
           <a-select v-model="filters.tenant" placeholder="客户" allow-clear allow-search>
             <a-option v-for="o in tenantOptions" :key="o.value" :value="o.value">
               {{ o.label }}
             </a-option>
           </a-select>
         </a-col>
-        <a-col :span="8" style="text-align: right">
+        <a-col :span="5">
+          <!-- 项目组从缺陷报告里抄 trace id 来定位日志；报告里的缩写（3eab…6028）也认 -->
+          <a-input v-model="filters.trace" placeholder="trace id（支持缩写）" allow-clear />
+        </a-col>
+        <a-col :span="6" style="text-align: right">
           <a-space>
             <span class="count-text">共 {{ filteredFiles.length }} 个日志</span>
             <a-button size="small" @click="reload">

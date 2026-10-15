@@ -14,6 +14,8 @@ export interface SlowLogFilters {
   date: string
   control: string
   tenant: string
+  /** trace id 过滤（支持报告里的缩写形态，见 traceIdMatches） */
+  trace: string
 }
 
 interface Option {
@@ -56,6 +58,33 @@ export function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`
 }
 
+/** 去掉文件名唯一化追加的 `-<序号>` 后缀（与后端 trace_ids::strip_seq_suffix 同口径） */
+function stripSeqSuffix(value: string): string {
+  return value.replace(/-\d+$/, '')
+}
+
+/**
+ * trace id 匹配：完整 id 精确比对；`3eab…6028` 这类缩写按「前缀命中」比对
+ * （尾段对不上也认 —— 实测报告里的缩写尾段会抄错，P-12167：2028 写成 6028，
+ * 按尾段卡会让项目组怎么搜都搜不到）。与后端 `trace_ids::matches_wanted` 同口径。
+ */
+export function traceIdMatches(wanted: string, actual: string): boolean {
+  const w = stripSeqSuffix(wanted.trim())
+  const a = stripSeqSuffix(actual.trim())
+  if (!w || !a)
+    return false
+  const marker = w.search(/…|\.\./)
+  if (marker < 0)
+    return w.toLowerCase() === a.toLowerCase()
+  const head = w.slice(0, marker).replace(/[.…]+$/, '').toLowerCase()
+  const tail = w.slice(marker).replace(/^[.…]+/, '').toLowerCase()
+  if (!/^[0-9a-f]+$/.test(head) || !a.toLowerCase().startsWith(head))
+    return false
+  if (!tail || !/^[0-9a-f]+$/.test(tail))
+    return true
+  return a.toLowerCase().endsWith(tail) || head.length >= 4
+}
+
 function distinctOptions(files: SlowLogFile[], pick: (f: SlowLogFile) => Option): Option[] {
   const seen = new Map<string, Option>()
   for (const f of files) {
@@ -71,7 +100,7 @@ export function useFormSlowLogs() {
   const zipping = ref(false)
   const result = ref<SlowLogList | null>(null)
   const query = ref<SlowLogQuery | null>(null)
-  const filters = reactive<SlowLogFilters>({ date: '', control: '', tenant: '' })
+  const filters = reactive<SlowLogFilters>({ date: '', control: '', tenant: '', trace: '' })
   const { downloadWithTip } = useDownload()
 
   const files = computed<SlowLogFile[]>(() => result.value?.files ?? [])
@@ -79,7 +108,8 @@ export function useFormSlowLogs() {
   const filteredFiles = computed(() => files.value.filter(f =>
     (!filters.date || f.date === filters.date)
     && (!filters.control || operationKey(f) === filters.control)
-    && (!filters.tenant || f.tenant_key === filters.tenant),
+    && (!filters.tenant || f.tenant_key === filters.tenant)
+    && (!filters.trace.trim() || traceIdMatches(filters.trace, f.trace_id)),
   ))
 
   const dateOptions = computed(() => distinctOptions(files.value, f => ({ value: f.date, label: f.date })))
@@ -93,7 +123,7 @@ export function useFormSlowLogs() {
 
   async function load(next: SlowLogQuery) {
     query.value = next
-    Object.assign(filters, { date: '', control: '', tenant: '' })
+    Object.assign(filters, { date: '', control: '', tenant: '', trace: '' })
     loading.value = true
     try {
       result.value = await fetchSlowLogs(next)
@@ -107,7 +137,7 @@ export function useFormSlowLogs() {
     await downloadWithTip(slowLogFilePath(file), file.file_name, '日志下载失败')
   }
 
-  /** 按当前筛选打包；后端 control_name 同时匹配中文名与操作编码 */
+  /** 按当前筛选打包；后端 control_name 同时匹配中文名与操作编码，trace_id 支持缩写形态 */
   async function downloadZip() {
     if (!query.value)
       return
@@ -116,6 +146,7 @@ export function useFormSlowLogs() {
       date: filters.date,
       control_name: filters.control,
       tenant_key: filters.tenant,
+      trace_id: filters.trace.trim(),
     }
     const suffix = filters.date || `${result.value?.period_start ?? ''}~${result.value?.period_end ?? ''}`
     zipping.value = true
