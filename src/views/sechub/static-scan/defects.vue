@@ -104,6 +104,10 @@ const queryParams = ref({
 // Arco 的 multiple 要求数组，后端接受逗号分隔字符串，这里做转换
 const riskLevels = ref<string[]>([])
 
+// 状态多选：项目组常一次看「待修复 + 修复中 + 验证不通过」（即「处理中」），
+// 单选来回切换太别扭；同样是数组 → 逗号分隔字符串发给后端
+const issueStatuses = ref<string[]>([])
+
 // 扫描结果详情「联查缺陷」跳过来时带 defect_code（编号平台内唯一，筛出来就一条）。
 // 在 useGet 之前灌进去：列表首帧就是过滤后的，不会先闪一下全量再收窄。
 const routeDefectCode = computed(() => (typeof route.query.defect_code === 'string' ? route.query.defect_code.trim() : ''))
@@ -298,11 +302,12 @@ function onDomainSelectChange() {
   void getList()
 }
 
-// 状态下拉变更：仅重载列表
+// 状态下拉变更（多选）：仅重载列表
 function onStatusChange() {
+  queryParams.value.status = issueStatuses.value.join(',')
   queryParams.value.page_num = 1
-  // 显式选状态 = 就看这个状态：撤掉默认的排除（选「已合并/不稳定」才查得到）；清空回默认
-  queryParams.value.exclude_status = queryParams.value.status ? '' : DEFAULT_EXCLUDE_STATUS
+  // 显式选状态 = 就看这些状态：撤掉默认的排除（选「已合并/不稳定」才查得到）；清空回默认
+  queryParams.value.exclude_status = issueStatuses.value.length > 0 ? '' : DEFAULT_EXCLUDE_STATUS
   void getList()
 }
 
@@ -1312,7 +1317,16 @@ function shortSha(sha: string | null | undefined): string {
               性能
             </a-option>
           </a-select>
-          <a-select v-model="queryParams.status" allow-clear placeholder="状态" style="width: 130px" @change="onStatusChange">
+          <!-- 状态多选：项目组常一次看「待修复 + 修复中 + 验证不通过」（即「处理中」） -->
+          <a-select
+            v-model="issueStatuses"
+            multiple
+            allow-clear
+            :max-tag-count="2"
+            placeholder="状态"
+            style="width: 210px"
+            @change="onStatusChange"
+          >
             <!-- 待修复 = open + reopened（后端 __pending_fix__ 哨兵）：状态列两者同名，
                  筛选项也合并成一个，避免出现两个一模一样的选项 -->
             <a-option value="__pending_fix__">
