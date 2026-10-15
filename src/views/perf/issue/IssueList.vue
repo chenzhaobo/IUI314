@@ -746,12 +746,14 @@ const wontFixOptions = computed(() => {
   return Array.isArray(raw) ? raw.map((d: any) => ({ value: d.value, label: d.label })) : []
 })
 
-// 人员下拉：从系统用户表联查，不让人手输名字 ——
-// 手输会出现「张三」「张三 」「zhangsan」三种写法指向同一个人
-const userQuery = ref({ page_num: 1, page_size: 200 })
-const { data: userRes } = useGet<any>(ApiSysUser.getList, userQuery, { immediate: true })
+// 人员下拉：从系统用户选项接口联查（/system/user/options），不让人手输名字 ——
+// 手输会出现「张三」「张三 」「zhangsan」三种写法指向同一个人。
+// **不能用 /system/user/list**：那是用户管理页的接口，受菜单权限控制，
+// 无系统管理权限的业务用户打开本页就会被 403（「无权访问该功能（system/user/list）」）——
+// 这个请求还是页面加载时立即发出的，等于业务用户一进来就弹错误。
+const { data: userRes } = useGet<any>(ApiSysUser.options, {}, { immediate: true })
 const userOptions = computed(() => {
-  const list = userRes.value?.list || userRes.value?.data || []
+  const list = userRes.value
   return (Array.isArray(list) ? list : []).map((u: any) => ({
     value: u.user_nickname || u.user_name,
     label: u.user_nickname ? `${u.user_nickname}（${u.user_name}）` : u.user_name,

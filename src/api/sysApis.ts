@@ -27,6 +27,8 @@ export enum ApiSysI18n {
 export enum ApiSysUser {
   freshToken = '/system/user/fresh_token', // 刷新token
   getList = '/system/user/list',
+  /** 处理人下拉选项（登录名+昵称，仅启用用户）；不受系统管理菜单权限约束，业务用户可用 */
+  options = '/system/user/options',
   getById = '/system/user/get_by_id',
   getProfile = '/system/user/get_profile',
   add = '/system/user/add',

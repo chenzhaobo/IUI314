@@ -380,15 +380,17 @@ const transferLoading = ref(false)
 const transferAssignee = ref('')
 const transferRemark = ref('')
 
-// 处理人下拉：取用户管理（/system/user/list），不从项目组成员取 ——
+// 处理人下拉：取用户选项接口（/system/user/options），不从项目组成员取 ——
 // 项目组成员表常常是空的（缺陷行上也没有项目组字段），下拉会没有数据；
 // 直接选系统用户同时避免手输「张三/张三 /zhangsan」三种写法指向同一个人。
+// **不能用 /system/user/list**：那是用户管理页的接口，受菜单权限控制，
+// 扫描登录用户调它会被 403 拦下（「无权访问该功能（system/user/list）」），
+// 选项接口只返回登录名+昵称、不受菜单权限约束（同 /ai/agent/options 先例）。
 // 值取登录名：负责人要和「谁在操作」对得上（标记已修复只认当前处理人），
 // 昵称会改、也可能重名，只用于展示。
-const transferUserQuery = ref({ page_num: 1, page_size: 200 })
-const { isFetching: transferUsersLoading, data: transferUsersRes, execute: loadTransferUsers } = useGet<any>(ApiSysUser.getList, transferUserQuery, { immediate: false })
+const { isFetching: transferUsersLoading, data: transferUsersRes, execute: loadTransferUsers } = useGet<any>(ApiSysUser.options, {}, { immediate: false })
 const transferUserOptions = computed(() => {
-  const list = transferUsersRes.value?.list
+  const list = transferUsersRes.value
   return (Array.isArray(list) ? list : []).map((u: any) => ({
     value: u.user_name,
     label: u.user_nickname ? `${u.user_nickname}（${u.user_name}）` : u.user_name,
