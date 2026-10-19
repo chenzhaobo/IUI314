@@ -20,6 +20,7 @@ import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { computed, h, ref } from 'vue'
 import VChart from 'vue-echarts'
+import { useRouter } from 'vue-router'
 import { ApiSecPrescan } from '@/api/sechubApis'
 import { formatTime, useDicts, useGet } from '@/hooks'
 
@@ -36,6 +37,41 @@ use([BarChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]
  * vueuse 的 useFetch 不监听 url，筛选项变更后必须显式 reload()。
  */
 const queryParams = ref({ source: '', product_domain: '集团财务', business_area: '' })
+const router = useRouter()
+
+/**
+ * 穿透到缺陷列表：带上看板当前筛选（来源 / 产品领域 / 业务领域），
+ * 再叠加点击点的领域 / 项目组 / 治理状态；列表首帧即按同一口径收窄。
+ */
+function drillDown(extra: Record<string, string>) {
+  const query: Record<string, string> = { ...extra }
+  const filters = queryParams.value
+  if (filters.source)
+    query.source = filters.source
+  if (filters.product_domain)
+    query.product_domain = filters.product_domain
+  if (filters.business_area)
+    query.business_area = filters.business_area
+  void router.push({ path: '/static-scan/governance/defects', query })
+}
+
+/** 处理中 → 缺陷列表（治理状态=处理中，与看板同口径） */
+function drillInProgress(domain: string, projectGroupId?: string) {
+  const query: Record<string, string> = { domain, governance_status: 'in_progress' }
+  if (projectGroupId !== undefined)
+    query.project_group_id = projectGroupId || '__none__'
+  drillDown(query)
+}
+
+/** 已超期 → 缺陷列表（处理中 + 计划完成已超期）；传 riskLevel 可收窄到高危超期 */
+function drillOverdue(domain: string, projectGroupId?: string, riskLevel?: string) {
+  const query: Record<string, string> = { domain, governance_status: 'in_progress', plan_finish: '__overdue__' }
+  if (projectGroupId !== undefined)
+    query.project_group_id = projectGroupId || '__none__'
+  if (riskLevel)
+    query.risk_level = riskLevel
+  drillDown(query)
+}
 
 const { data: rawData, isFetching: loading, execute: reload } = useGet<DefectGovernanceDashboard>(ApiSecPrescan.defectGovernance, queryParams, { immediate: true })
 const dashboard = computed(() => rawData.value ?? null)
@@ -239,10 +275,24 @@ function openReport() {
  *  单元格用列级 render 渲染：这样 12 个指标列不用写 12 个具名插槽 */
 function metricColumns(domain: 'security' | 'performance'): TableColumnData[] {
   const pick = (record: Record<string, unknown>): DefectGovernanceGroupRow | null => (record[domain] as DefectGovernanceGroupRow | null) ?? null
+  // render 出来的 vnode 在 Arco 表格上下文里，scoped 类名挂不上，下钻提示用行内样式
+  const drillStyle = { color: 'rgb(var(--primary-6))', cursor: 'pointer', textDecoration: 'underline' }
   // 指标列没有对应的顶层字段，用 dataIndex 作列标识（Arco 需要唯一列键，且 render 会覆盖取值）
   return [
     { dataIndex: `${domain}_total`, title: '总数', width: 72, align: 'center', render: ({ record }) => String(pick(record)?.total ?? 0) },
-    { dataIndex: `${domain}_in_progress`, title: '处理中', width: 80, align: 'center', render: ({ record }) => String(pick(record)?.in_progress ?? 0) },
+    {
+      dataIndex: `${domain}_in_progress`,
+      title: '处理中',
+      width: 80,
+      align: 'center',
+      render: ({ record }) => {
+        const row = pick(record)
+        const v = row?.in_progress ?? 0
+        if (v <= 0)
+          return '0'
+        return h('span', { style: drillStyle, title: '点击查看处理中的缺陷', onClick: () => drillInProgress(domain, row?.project_group_id ?? '') }, String(v))
+      },
+    },
     { dataIndex: `${domain}_handled`, title: '已处理', width: 80, align: 'center', render: ({ record }) => String(pick(record)?.handled ?? 0) },
     { dataIndex: `${domain}_wont_fix`, title: '不处理', width: 80, align: 'center', render: ({ record }) => String(pick(record)?.wont_fix ?? 0) },
     {
@@ -288,10 +338,17 @@ function metricColumns(domain: 'security' | 'performance'): TableColumnData[] {
       width: 80,
       align: 'center',
       render: ({ record }) => {
-        const plan = pick(record)?.plan
+        const row = pick(record)
+        const plan = row?.plan
         const v = plan?.overdue ?? 0
         const hint = `已超期 ${v} · 其中高危 ${plan?.high_overdue ?? 0} · 3天内到期 ${plan?.due_soon ?? 0} · 计划日>30天 ${plan?.far_future ?? 0}`
-        return h('span', { style: v > 0 ? { color: 'rgb(var(--red-6))', fontWeight: 600 } : undefined, title: hint }, String(v))
+        if (v <= 0)
+          return h('span', { title: hint }, '0')
+        return h('span', {
+          style: { ...drillStyle, color: 'rgb(var(--red-6))', fontWeight: 600 },
+          title: `${hint}；点击查看已超期缺陷`,
+          onClick: () => drillOverdue(domain, row?.project_group_id ?? ''),
+        }, String(v))
       },
     },
   ]
@@ -316,8 +373,21 @@ const priorityBuckets: { key: keyof DefectGovernancePriorityCounts, label: strin
 /** 优先级明细的列：处理中 + 六个档位的数量（同样挂到「安全」「性能」分组表头下） */
 function priorityMetricColumns(domain: 'security' | 'performance'): TableColumnData[] {
   const pick = (record: Record<string, unknown>): DefectGovernanceGroupRow | null => (record[domain] as DefectGovernanceGroupRow | null) ?? null
+  const drillStyle = { color: 'rgb(var(--primary-6))', cursor: 'pointer', textDecoration: 'underline' }
   return [
-    { dataIndex: `${domain}_pri_in_progress`, title: '处理中', width: 80, align: 'center', render: ({ record }) => String(pick(record)?.in_progress ?? 0) },
+    {
+      dataIndex: `${domain}_pri_in_progress`,
+      title: '处理中',
+      width: 80,
+      align: 'center',
+      render: ({ record }) => {
+        const row = pick(record)
+        const v = row?.in_progress ?? 0
+        if (v <= 0)
+          return '0'
+        return h('span', { style: drillStyle, title: '点击查看处理中的缺陷', onClick: () => drillInProgress(domain, row?.project_group_id ?? '') }, String(v))
+      },
+    },
     ...priorityBuckets.map((bucket): TableColumnData => ({
       dataIndex: `${domain}_pri_${bucket.key}`,
       title: bucket.label,
@@ -332,8 +402,15 @@ function priorityMetricColumns(domain: 'security' | 'performance'): TableColumnD
       width: 84,
       align: 'center',
       render: ({ record }) => {
-        const v = pick(record)?.plan?.high_overdue ?? 0
-        return h('span', { style: v > 0 ? { color: 'rgb(var(--red-6))', fontWeight: 600 } : undefined, title: '处理中 · 已超期 · 且风险为严重/高' }, String(v))
+        const row = pick(record)
+        const v = row?.plan?.high_overdue ?? 0
+        if (v <= 0)
+          return h('span', { title: '处理中 · 已超期 · 且风险为严重/高' }, '0')
+        return h('span', {
+          style: { ...drillStyle, color: 'rgb(var(--red-6))', fontWeight: 600 },
+          title: '处理中 · 已超期 · 且风险为严重/高；点击查看高危超期缺陷',
+          onClick: () => drillOverdue(domain, row?.project_group_id ?? '', 'critical,high'),
+        }, String(v))
       },
     },
   ]
@@ -451,7 +528,7 @@ const topOption = computed(() => {
               <a-col :span="4">
                 <a-statistic title="总数" :value="s.total" />
               </a-col>
-              <a-col :span="4">
+              <a-col :span="4" class="drill-cell" title="点击查看处理中的缺陷" @click="drillInProgress(s.domain)">
                 <a-statistic title="处理中" :value="s.in_progress" :value-style="{ color: '#165dff' }" />
               </a-col>
               <a-col :span="4">
@@ -484,10 +561,10 @@ const topOption = computed(() => {
                 <div class="plan-line" :title="planHint(s.plan)">
                   计划完成：标注率
                   <span :class="planRateClass(s.plan)">{{ planRateText(s.plan) }}</span>
-                  · 已超期 <span :class="{ 'metric-alert': (s.plan?.overdue ?? 0) > 0 }">{{ s.plan?.overdue ?? 0 }}</span>
+                  · 已超期 <span class="drill-link" :class="{ 'metric-alert': (s.plan?.overdue ?? 0) > 0 }" title="点击查看已超期缺陷" @click="drillOverdue(s.domain)">{{ s.plan?.overdue ?? 0 }}</span>
                   · 未标注 <span :class="{ 'metric-warn': (s.plan?.missing ?? 0) > 0 }">{{ s.plan?.missing ?? 0 }}</span>
                   · 3天内到期 {{ s.plan?.due_soon ?? 0 }}
-                  · 高危超期 <span :class="{ 'metric-alert': (s.plan?.high_overdue ?? 0) > 0 }">{{ s.plan?.high_overdue ?? 0 }}</span>
+                  · 高危超期 <span class="drill-link" :class="{ 'metric-alert': (s.plan?.high_overdue ?? 0) > 0 }" title="点击查看高危超期缺陷" @click="drillOverdue(s.domain, undefined, 'critical,high')">{{ s.plan?.high_overdue ?? 0 }}</span>
                 </div>
               </a-col>
             </a-row>
@@ -581,4 +658,9 @@ const topOption = computed(() => {
 /* 超期/高危超期用红，未标注/低标注率用橙（橙色是「该去推了」而不是「已出问题」） */
 .metric-alert { color: rgb(var(--red-6)); font-weight: 600; }
 .metric-warn { color: rgb(var(--orange-6)); font-weight: 600; }
+/* 下钻：统计卡片与超期数字可点，悬停给出可点击反馈 */
+.drill-cell { cursor: pointer; border-radius: 4px; transition: background 0.15s; }
+.drill-cell:hover { background: var(--color-fill-2); }
+.drill-link { cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.drill-link:hover { color: rgb(var(--primary-6)); }
 </style>

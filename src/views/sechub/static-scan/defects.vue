@@ -73,6 +73,8 @@ const queryParams = ref({
   repository_id: '',
   domain: '',
   status: '',
+  // 治理状态三桶（与缺陷治理看板同口径）：in_progress / handled / wont_fix
+  governance_status: '',
   rule_version_id: '',
   scan_point_id: '',
   // 不处理原因代码过滤（Arco 表格 filterable 触发后写入此字段，传给后端）
@@ -113,6 +115,14 @@ const issueStatuses = ref<string[]>([])
 const routeDefectCode = computed(() => (typeof route.query.defect_code === 'string' ? route.query.defect_code.trim() : ''))
 if (routeDefectCode.value)
   queryParams.value.defect_code = routeDefectCode.value
+
+// 缺陷治理看板穿透：把看板当前的筛选（治理状态 / 超期 / 领域 / 项目组 / 业务领域 /
+// 产品领域 / 来源）带进来，列表首帧就是一致口径，不会先闪全量再收窄。
+for (const key of ['governance_status', 'plan_finish', 'domain', 'project_group_id', 'business_area', 'product_domain', 'source'] as const) {
+  const value = route.query[key]
+  if (typeof value === 'string' && value.trim())
+    queryParams.value[key] = value.trim()
+}
 
 const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<ScanIssuePage>(ApiSecPrescan.issues, queryParams, { immediate: true })
 const dataList = computed(() => rawListData.value?.list ?? [])
@@ -308,6 +318,20 @@ function onStatusChange() {
   queryParams.value.page_num = 1
   // 显式选状态 = 就看这些状态：撤掉默认的排除（选「已合并/不稳定」才查得到）；清空回默认
   queryParams.value.exclude_status = issueStatuses.value.length > 0 ? '' : DEFAULT_EXCLUDE_STATUS
+  // 治理状态是三桶粗筛，与细分状态互斥：选了细分状态就清掉治理状态，避免交集为空
+  if (issueStatuses.value.length > 0)
+    queryParams.value.governance_status = ''
+  void getList()
+}
+
+/** 治理状态三桶（与治理看板同口径）：选了它就清空细分状态，避免两个筛选打架 */
+function onGovernanceStatusChange() {
+  if (queryParams.value.governance_status) {
+    issueStatuses.value = []
+    queryParams.value.status = ''
+    queryParams.value.exclude_status = DEFAULT_EXCLUDE_STATUS
+  }
+  queryParams.value.page_num = 1
   void getList()
 }
 
@@ -1319,6 +1343,25 @@ function shortSha(sha: string | null | undefined): string {
               性能
             </a-option>
           </a-select>
+          <!-- 治理状态三桶：与缺陷治理看板同口径（处理中含验证不通过/AI 复核中；
+               已处理只算覆盖仍有效的 fixed/verified） -->
+          <a-select
+            v-model="queryParams.governance_status"
+            allow-clear
+            placeholder="治理状态"
+            style="width: 130px"
+            @change="onGovernanceStatusChange"
+          >
+            <a-option value="handled">
+              已处理
+            </a-option>
+            <a-option value="in_progress">
+              处理中
+            </a-option>
+            <a-option value="wont_fix">
+              不处理
+            </a-option>
+          </a-select>
           <!-- 状态多选：项目组常一次看「待修复 + 修复中 + 验证不通过」（即「处理中」） -->
           <a-select
             v-model="issueStatuses"
@@ -1336,6 +1379,10 @@ function shortSha(sha: string | null | undefined): string {
             </a-option>
             <a-option value="fixing">
               修复中
+            </a-option>
+            <!-- AI 复核窗口期的行也会出现在列表里（状态列显示「AI 复核中」），必须可筛 -->
+            <a-option value="verifying">
+              AI 复核中
             </a-option>
             <a-option value="fixed">
               已修复
