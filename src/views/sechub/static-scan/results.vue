@@ -981,6 +981,41 @@ function onResultTabChange(key: string | number) {
   })
 }
 
+/**
+ * 结果区 DOM 是 `v-if="currentRun"` 才挂载的：首屏直接带 run_id 进页面时，
+ * 组件 onMounted 那次测量布局行还不存在（ref 为空，measure 直接返回），
+ * 行高因此退化成内容驱动 —— 左树一长就把整行撑到几千像素，右侧表格的分页条
+ * 被顶出视口，用户只能看到一页 20 条、以为没有分页。
+ * 轮次确定后补测一次，把行高锚回视口。
+ */
+watch(
+  () => currentRun.value?.run_id ?? '',
+  async (runId) => {
+    if (!runId)
+      return
+    await nextTick()
+    requestAnimationFrame(() => {
+      measureLayoutRow()
+      measureCandidateTable()
+    })
+  },
+)
+
+/**
+ * 分页条要等候选数据回来才渲染，而 `scroll.y` 需要扣掉分页条与表头的高度。
+ * 数据到达后再测一次，避免表体多占一个分页条的高度、把翻页按钮压到卡片外。
+ * 分页条高度固定、不随表体变化，不会形成测量自激。
+ */
+watch(
+  () => candidatePage.value?.total ?? 0,
+  async (total) => {
+    if (!total)
+      return
+    await nextTick()
+    requestAnimationFrame(() => measureCandidateTable())
+  },
+)
+
 // ===== 初始化：从路由读取 repository_id / run_id / ai_model / ai_mode / scan_point_id =====
 /**
  * 根据路由参数初始化页面。

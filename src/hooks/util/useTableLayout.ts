@@ -395,6 +395,8 @@ export function useAutoHeight(
     reserve: options?.reserve ?? 16,
     min: options?.min ?? 160,
     disabled: options?.disabled,
+    // 容器已在定高链里时改用自身高度反推（与表格版同口径）；不转发等于静默忽略
+    fillParent: options?.fillParent,
   })
 
   // 给 maxHeight 而不是 height：内容不足时面板按内容收缩，不会撑出一大片空白。
