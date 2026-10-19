@@ -36,6 +36,9 @@ export interface TaskRunRow {
 export interface TriggerPayload {
   task_id?: string
   run_date?: string
+  /** 下载/提取范围补跑：起止日期，后端按日期串行执行 */
+  run_date_from?: string
+  run_date_to?: string
   attr_from?: string
   stage?: string
   force?: boolean
