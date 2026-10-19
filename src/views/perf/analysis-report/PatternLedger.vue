@@ -488,7 +488,10 @@
            与问题列表详情共用同一个组件，两处行为必须一致。 -->
       <PatternReanalysis :pattern-id="currentRecord?.id" :active="drawerVisible" />
       <!-- 谱系与变更：关联台账、结论变更记录、旧版报告；台账页可人工标记重复 -->
-      <PatternLineage :pattern-id="currentRecord?.id" :active="drawerVisible" editable @changed="fetchData()" />
+      <PatternLineage :pattern-id="currentRecord?.id" :active="drawerVisible" editable @changed="fetchData(); flowRefresh += 1" />
+      <!-- 流转记录：台账事件与关联缺陷的流转合成一条时间线（与问题列表的「流转记录」同一组件） -->
+      <a-divider>流转记录</a-divider>
+      <FlowTimeline :pattern-id="currentRecord?.id" :active="drawerVisible" :refresh-key="flowRefresh" />
 
       <a-divider>涉及对象 (involved_object)</a-divider>
       <div class="content-block">{{ currentRecord?.involved_object || '暂无' }}</div>
@@ -663,6 +666,7 @@ import 'md-editor-v3/lib/style.css'
 import CreateIssueModal from '@/views/perf/analysis-report/CreateIssueModal.vue'
 import { splitTag } from '@/views/perf/components/analysisFields'
 import AnalysisWeightCell from '@/views/perf/components/AnalysisWeightCell.vue'
+import FlowTimeline from '@/views/perf/components/FlowTimeline.vue'
 import ImpactBreakdown from '@/views/perf/components/ImpactBreakdown.vue'
 import ImpactCell from '@/views/perf/components/ImpactCell.vue'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
@@ -1514,8 +1518,11 @@ function downloadCurrentMd() {
     void downloadReportMd({ pattern: record.id }, record.pattern_no, mdMeta.value?.file)
 }
 
+// 流转记录的刷新键：同一条台账反复打开、或在详情里标记重复后都要重新拉
+const flowRefresh = ref(0)
 const handleDetail = (record: any) => {
   currentRecord.value = record
+  flowRefresh.value += 1
   drawerVisible.value = true
   // 每次打开先清空，避免看到上一条台账的报告
   mdContent.value = ''

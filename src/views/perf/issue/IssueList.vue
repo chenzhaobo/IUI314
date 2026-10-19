@@ -594,29 +594,10 @@
 
       <!-- 流转记录：追加写，看得出经手链条。
            原来只有 process_prev_status 存上一步，转交反复发生时看不出谁转给了谁。 -->
-      <a-drawer v-model:visible="logsVisible" :width="560" title="流转记录">
-        <a-timeline v-if="logsData.length">
-          <a-timeline-item v-for="(l, i) in logsData" :key="i" :label="formatTime(l.created_at)">
-            <div>
-              <a-tag size="small" :color="processColor(l.to_status)">{{ processLabel(l.to_status) || l.to_status }}</a-tag>
-              <span v-if="l.from_status" style="color: var(--color-text-3)">
-                ← {{ processLabel(l.from_status) || l.from_status }}
-              </span>
-            </div>
-            <div v-if="l.to_owner" style="font-size: 12px; color: var(--color-text-2)">
-              责任人：{{ l.from_owner ? `${l.from_owner} → ` : '' }}{{ l.to_owner }}
-            </div>
-            <div v-if="l.to_project_group" style="font-size: 12px; color: var(--color-text-2)">
-              项目组：{{ l.from_project_group ? `${l.from_project_group} → ` : '' }}{{ l.to_project_group }}
-            </div>
-            <div v-if="l.wontfix_type" style="font-size: 12px; color: var(--color-text-2)">
-              不处理类型：{{ wontFixText(l.wontfix_type) }}
-            </div>
-            <div v-if="l.remark" style="font-size: 12px">{{ l.remark }}</div>
-            <div style="font-size: 12px; color: var(--color-text-3)">操作人：{{ l.operator_name || '—' }}</div>
-          </a-timeline-item>
-        </a-timeline>
-        <a-empty v-else description="暂无流转记录（这条问题还没有人工流转过）" />
+      <!-- 流转记录：缺陷流转（建单 / 认领 / 修复 / 发版 / 生产状态 / 复核 / 打回）与所属台账的事件
+           合成一条时间线，见 views/perf/components/FlowTimeline.vue（台账详情共用） -->
+      <a-drawer v-model:visible="logsVisible" :width="560" title="流转记录" :footer="false">
+        <FlowTimeline :issue="logsIssueKey" :active="logsVisible" :refresh-key="logsRefresh" />
       </a-drawer>
 
       <!-- DMP 编码：留空提交即清除关联 -->
@@ -650,6 +631,7 @@ import { emptyFilter, formatTime, isFilterActive, toServerFilters, useDelete, us
 import { planDateHint } from '@/utils/planDate'
 import { splitTag } from '@/views/perf/components/analysisFields'
 import AnalysisWeightCell from '@/views/perf/components/AnalysisWeightCell.vue'
+import FlowTimeline from '@/views/perf/components/FlowTimeline.vue'
 import ImpactBreakdown from '@/views/perf/components/ImpactBreakdown.vue'
 import ImpactCell from '@/views/perf/components/ImpactCell.vue'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
@@ -927,17 +909,16 @@ function handleBusinessAreaChange() {
     searchForm.project_group_code = ''
 }
 
-// 流转记录
+// 流转记录：取数与渲染都在 FlowTimeline 组件里；这里只管开关与定位
 const logsVisible = ref(false)
-const logsIssueId = ref('')
-const logsQuery = computed(() => ({ issue_id: logsIssueId.value }))
-const { data: logsRes, execute: fetchLogs } = useGet<any>(ApiPerfIssue.processLogs, logsQuery, { immediate: false })
-const logsData = computed(() => (Array.isArray(logsRes.value) ? logsRes.value : []))
+const logsIssueKey = ref('')
+const logsRefresh = ref(0)
 
-async function openLogs(record: any) {
-  logsIssueId.value = record.id
+function openLogs(record: { id: string, issue_no?: string }) {
+  logsIssueKey.value = record.issue_no || record.id
+  // 同一条反复打开也要重新拉：中间可能刚做过流转
+  logsRefresh.value += 1
   logsVisible.value = true
-  await fetchLogs()
 }
 
 // ── SLA 展示 ──────────────────────────────────────
@@ -995,10 +976,6 @@ function onProcessSelect(v: string | number | Record<string, any> | undefined) {
 /** 不处理类型的显示名。库里存的是字典 value（false_positive 这类），
  *  直接显示会让流转记录出现内部标识。字典没加载完时退回原值，
  *  不要显示空 —— 那会让人以为没填类型。 */
-function wontFixText(v?: string | null) {
-  if (!v) return ''
-  return wontFixOptions.value.find(o => o.value === v)?.label || v
-}
 
 function openWontFix() {
   if (!selectedIds.value.length)

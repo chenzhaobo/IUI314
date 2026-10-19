@@ -450,6 +450,8 @@ export enum ApiPerfPatternLedger {
   lineage = '/perf/periodic-report/pattern/lineage',
   /** 人工标记重复（master 为空 = 取消） */
   markDuplicate = '/perf/periodic-report/pattern/mark-duplicate',
+  /** 流转记录：台账事件 + 关联缺陷流转（pattern_id 或 issue 给其一） */
+  flow = '/perf/periodic-report/pattern/flow',
 }
 
 // ── Agent 自主诊断 ──────────────────────────────────────
