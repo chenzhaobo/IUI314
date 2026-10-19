@@ -1535,6 +1535,7 @@ function shortSha(sha: string | null | undefined): string {
                   pageSize: queryParams.page_size,
                   showTotal: true,
                   showPageSize: true,
+                  pageSizeOptions: [10, 20, 50, 100, 200, 1000],
                 }"
                 row-key="id"
                 size="small"
