@@ -61,6 +61,7 @@
             <a-option value="issued">已提单</a-option>
             <a-option value="wont_fix">不处理</a-option>
             <a-option value="observing">观察</a-option>
+            <a-option value="duplicate">重复</a-option>
           </a-select>
         </a-col>
         <a-col :span="3">
@@ -486,6 +487,8 @@
            放在前面等于让人先写意见再看内容。
            与问题列表详情共用同一个组件，两处行为必须一致。 -->
       <PatternReanalysis :pattern-id="currentRecord?.id" :active="drawerVisible" />
+      <!-- 谱系与变更：关联台账、结论变更记录、旧版报告；台账页可人工标记重复 -->
+      <PatternLineage :pattern-id="currentRecord?.id" :active="drawerVisible" editable @changed="fetchData()" />
 
       <a-divider>涉及对象 (involved_object)</a-divider>
       <div class="content-block">{{ currentRecord?.involved_object || '暂无' }}</div>
@@ -663,6 +666,7 @@ import AnalysisWeightCell from '@/views/perf/components/AnalysisWeightCell.vue'
 import ImpactBreakdown from '@/views/perf/components/ImpactBreakdown.vue'
 import ImpactCell from '@/views/perf/components/ImpactCell.vue'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
+import PatternLineage from '@/views/perf/components/PatternLineage.vue'
 import PatternReanalysis from '@/views/perf/components/PatternReanalysis.vue'
 import { useReportMdDownload } from '@/views/perf/composables/useReportMdDownload'
 import { useRouteScope } from '@/views/perf/composables/useRouteScope'
@@ -881,6 +885,7 @@ const statusMap: Record<string, string> = {
   issued: '已提单',
   wont_fix: '不处理',
   observing: '观察',
+  duplicate: '重复',
   // ── 以下为遗留取值，生产一条都没有，保留只为历史数据能正常显示 ──
   scheduled: '已排期',
   fixing: '修复中',
@@ -897,6 +902,7 @@ const statusFilterOptions = [
   { label: '已提单', value: 'issued' },
   { label: '不处理', value: 'wont_fix' },
   { label: '观察', value: 'observing' },
+  { label: '重复', value: 'duplicate' },
 ]
 const isCustomFilterOptions = [
   { label: '二开', value: 'true' },
@@ -908,6 +914,7 @@ const statusColorMap: Record<string, string> = {
   issued: 'blue',
   wont_fix: 'gray',
   observing: 'purple',
+  duplicate: 'gray',
   scheduled: 'purple',
   fixing: 'purple',
   fixed: 'cyan',

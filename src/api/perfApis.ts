@@ -446,6 +446,10 @@ export enum ApiPerfPatternLedger {
   triage = '/perf/periodic-report/pattern/triage',
   // 影响面重算：触发即返回，实算在后台（357 条同步跑必然网关超时）
   recomputeImpact = '/perf/periodic-report/pattern/recompute-impact',
+  /** 台账谱系：关联台账（同族/修复后残留/拆分/重复）与结论变更记录 */
+  lineage = '/perf/periodic-report/pattern/lineage',
+  /** 人工标记重复（master 为空 = 取消） */
+  markDuplicate = '/perf/periodic-report/pattern/mark-duplicate',
 }
 
 // ── Agent 自主诊断 ──────────────────────────────────────

@@ -446,6 +446,11 @@
           :active="drawerVisible"
           :unavailable-reason="reanalysisUnavailableReason(currentRecord)"
         />
+        <PatternLineage
+          v-if="!reanalysisUnavailableReason(currentRecord)"
+          :issue="currentRecord?.issue_no || currentRecord?.id"
+          :active="drawerVisible"
+        />
 
         <a-divider>技术签名</a-divider>
         <pre class="json-content">{{ prettyJson(currentRecord?.tech_signature) }}</pre>
@@ -648,6 +653,7 @@ import AnalysisWeightCell from '@/views/perf/components/AnalysisWeightCell.vue'
 import ImpactBreakdown from '@/views/perf/components/ImpactBreakdown.vue'
 import ImpactCell from '@/views/perf/components/ImpactCell.vue'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
+import PatternLineage from '@/views/perf/components/PatternLineage.vue'
 import PatternReanalysis from '@/views/perf/components/PatternReanalysis.vue'
 import { useUserStore } from '@/stores'
 import { useReportMdDownload } from '@/views/perf/composables/useReportMdDownload'
