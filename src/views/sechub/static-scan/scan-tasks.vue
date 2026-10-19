@@ -42,6 +42,75 @@ const repoOptions = computed(() => {
 })
 
 // ═══════════════════════════════════════════════════════════
+//  扫描范围：按项目组 / 业务领域 / 产品领域（与看板左树同口径）
+// ═══════════════════════════════════════════════════════════
+type ScopeType = 'repository' | 'project_group' | 'business_area' | 'product_domain'
+
+const SCOPE_TYPE_OPTIONS: { value: ScopeType, label: string }[] = [
+  { value: 'repository', label: '按代码仓库' },
+  { value: 'project_group', label: '按项目组' },
+  { value: 'business_area', label: '按业务领域' },
+  { value: 'product_domain', label: '按产品领域' },
+]
+
+/** 启用绑定的仓库行（后端触发时也只解析 scan_enabled='1' 的绑定） */
+const scopedRepoRows = computed(() => (repoListRaw.value ?? []).filter(row => row.scan_enabled))
+
+/** 范围目标下拉：项目组用 id，业务/产品领域用名称；label 带仓库数防呆 */
+function buildScopeTargets(pick: (row: ModuleWithRepository) => string | undefined | null) {
+  const groups = new Map<string, { label: string, repoIds: Set<string> }>()
+  for (const row of scopedRepoRows.value) {
+    const value = (pick(row) ?? '').trim()
+    if (!value)
+      continue
+    const entry = groups.get(value) ?? { label: value, repoIds: new Set<string>() }
+    entry.repoIds.add(row.repository_id)
+    groups.set(value, entry)
+  }
+  return [...groups.entries()]
+    .map(([value, entry]) => ({ value, label: `${entry.label}（${entry.repoIds.size} 个仓库）`, count: entry.repoIds.size }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'))
+}
+
+const projectGroupTargets = computed(() => {
+  const map = new Map<string, { label: string, repoIds: Set<string> }>()
+  for (const row of scopedRepoRows.value) {
+    const id = (row.project_group_id ?? '').trim()
+    if (!id)
+      continue
+    const entry = map.get(id) ?? { label: row.project_group_name || id, repoIds: new Set<string>() }
+    entry.repoIds.add(row.repository_id)
+    map.set(id, entry)
+  }
+  return [...map.entries()]
+    .map(([value, entry]) => ({ value, label: `${entry.label}（${entry.repoIds.size} 个仓库）`, count: entry.repoIds.size }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'))
+})
+const businessAreaTargets = computed(() => buildScopeTargets(row => row.business_area || '未分类'))
+const productDomainTargets = computed(() => buildScopeTargets(row => row.product_domain || '未分类'))
+
+function scopeTypeLabelOf(scopeType: string): string {
+  return SCOPE_TYPE_OPTIONS.find(option => option.value === scopeType)?.label ?? scopeType
+}
+
+/** 列表展示：范围标签 */
+function scopeLabel(record: PrescanTaskRow): string {
+  if (record.scope_type === 'repository')
+    return ''
+  const label = scopeTypeLabelOf(record.scope_type).replace('按', '')
+  const target = record.scope_type === 'project_group'
+    ? projectGroupName(record.scope_target)
+    : (record.scope_target || '未分类')
+  return `${label}：${target}`
+}
+
+function projectGroupName(id?: string | null): string {
+  if (!id)
+    return ''
+  return projectGroupTargets.value.find(option => option.value === id)?.label.replace(/（\d+ 个仓库）$/, '') || id
+}
+
+// ═══════════════════════════════════════════════════════════
 //  AI Agent 列表 → 模型下拉选项
 // ═══════════════════════════════════════════════════════════
 const { data: agentListRaw } = useGet<AiListResult<AiAgent>>(
@@ -137,6 +206,8 @@ function validateCron(expr: string): boolean {
 const form = reactive<{
   id: string
   name: string
+  scope_type: ScopeType
+  scope_value: string
   repository_ids: string[]
   domains: string[]
   scan_mode: string
@@ -151,6 +222,8 @@ const form = reactive<{
 }>({
   id: '',
   name: '',
+  scope_type: 'repository',
+  scope_value: '',
   repository_ids: [],
   domains: [],
   scan_mode: 'auto_delta',
@@ -163,6 +236,28 @@ const form = reactive<{
   ai_agent_code: '',
   status: true,
 })
+
+const currentScopeTargets = computed(() => {
+  switch (form.scope_type) {
+    case 'project_group': return projectGroupTargets.value
+    case 'business_area': return businessAreaTargets.value
+    case 'product_domain': return productDomainTargets.value
+    default: return []
+  }
+})
+
+/** 当前范围在触发时将扫描的仓库数（仅前端预估，后端触发时同样动态解析） */
+const currentScopeRepoCount = computed(() => {
+  if (form.scope_type === 'repository')
+    return form.repository_ids.length
+  return currentScopeTargets.value.find(option => option.value === form.scope_value)?.count ?? 0
+})
+
+const scopeTargetLabel = computed(() => SCOPE_TYPE_OPTIONS.find(option => option.value === form.scope_type)?.label.replace('按', '') ?? '范围目标')
+
+function onScopeTypeChange() {
+  form.scope_value = ''
+}
 
 /**
  * 对找不到名称的仓库 id，显示可读的降级文案，避免直接暴露裸十六进制。
@@ -240,6 +335,8 @@ function onAgentChange() {
 function resetForm() {
   form.id = ''
   form.name = ''
+  form.scope_type = 'repository'
+  form.scope_value = ''
   form.repository_ids = []
   form.domains = []
   form.scan_mode = 'auto_delta'
@@ -264,6 +361,8 @@ function openEditModal(record: PrescanTaskRow) {
   isEdit.value = true
   form.id = record.id
   form.name = record.name
+  form.scope_type = (record.scope_type as ScopeType) || 'repository'
+  form.scope_value = record.scope_target ?? ''
   form.repository_ids = record.repository_ids ? [...record.repository_ids] : []
   // 将逗号分隔的 domains 还原为数组
   form.domains = record.domains ? record.domains.split(',').map(d => d.trim()).filter(Boolean) : []
@@ -285,7 +384,9 @@ function buildPayload(): PrescanTaskSavePayload {
   return {
     ...(isEdit.value ? { id: form.id } : {}),
     name: form.name.trim(),
-    repository_ids: form.repository_ids,
+    scope_type: form.scope_type,
+    scope_value: form.scope_type === 'repository' ? null : (form.scope_value.trim() || null),
+    repository_ids: form.scope_type === 'repository' ? form.repository_ids : [],
     domains: form.domains.length > 0 ? form.domains.join(',') : null,
     scan_mode: form.scan_mode,
     cron_expression: form.cron_expression.trim() || null,
@@ -301,6 +402,7 @@ function buildPayload(): PrescanTaskSavePayload {
 
 const savePayload = ref<PrescanTaskSavePayload>({
   name: '',
+  scope_type: 'repository',
   repository_ids: [],
   scan_mode: 'auto_delta',
   schedule_enabled: '1',
@@ -316,8 +418,16 @@ async function handleSave() {
     Message.warning('请填写任务名称')
     return
   }
-  if (form.repository_ids.length === 0) {
+  if (form.scope_type === 'repository' && form.repository_ids.length === 0) {
     Message.warning('请选择至少一个代码仓库')
+    return
+  }
+  if (form.scope_type !== 'repository' && !form.scope_value.trim()) {
+    Message.warning(`请选择${SCOPE_TYPE_OPTIONS.find(o => o.value === form.scope_type)?.label.replace('按', '') ?? '扫描范围'}`)
+    return
+  }
+  if (form.scope_type !== 'repository' && currentScopeRepoCount.value === 0) {
+    Message.warning('该范围下没有可扫描的仓库')
     return
   }
   if (!validateCron(form.cron_expression)) {
@@ -412,7 +522,10 @@ async function handleScheduleToggle(record: PrescanTaskRow, newVal: boolean) {
   const togglePayload: PrescanTaskSavePayload = {
     id: record.id,
     name: record.name,
-    repository_ids: record.repository_ids,
+    // 带上范围，避免只切调度开关时被后端按「按仓库」语义改写范围
+    scope_type: record.scope_type || 'repository',
+    scope_value: record.scope_type && record.scope_type !== 'repository' ? (record.scope_target ?? null) : null,
+    repository_ids: !record.scope_type || record.scope_type === 'repository' ? record.repository_ids : [],
     scan_mode: record.scan_mode,
     schedule_enabled: newVal ? '1' : '0',
     concurrency: record.concurrency,
@@ -488,7 +601,7 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
 
 const columns = withTableDefaults([
   { title: '任务名称', dataIndex: 'name', width: 160, ellipsis: true, tooltip: true },
-  { title: '代码仓库', dataIndex: 'repository_names', slotName: 'repos', width: 200 },
+  { title: '扫描范围', dataIndex: 'scope_type', slotName: 'scope', width: 240 },
   { title: '领域', dataIndex: 'domains', slotName: 'domains', width: 100 },
   { title: '扫描策略', dataIndex: 'scan_mode', slotName: 'scan_mode', width: 80 },
   { title: 'Cron', dataIndex: 'cron_expression', width: 140, ellipsis: true, tooltip: true },
@@ -541,9 +654,22 @@ const columns = withTableDefaults([
           :scroll="{ minWidth: 1800, y: tableHeight }"
           size="small"
         >
-          <!-- 代码仓库：多 tag + 超出折叠 tooltip -->
-          <template #repos="{ record }">
-            <template v-if="record.repository_names && record.repository_names.length > 0">
+          <!-- 扫描范围：按仓库显示 tag；按项目组/领域显示范围 + 解析仓库数 -->
+          <template #scope="{ record }">
+            <a-tooltip
+              v-if="record.scope_type !== 'repository'"
+              :content="record.repository_names?.join('\n') || '当前范围下没有仓库'"
+            >
+              <a-space wrap size="mini">
+                <a-tag size="small" color="purple">
+                  {{ scopeLabel(record) }}
+                </a-tag>
+                <a-tag size="small" color="gray">
+                  {{ record.repository_names?.length ?? 0 }} 个仓库
+                </a-tag>
+              </a-space>
+            </a-tooltip>
+            <template v-else-if="record.repository_names && record.repository_names.length > 0">
               <a-tooltip
                 v-if="record.repository_names.length > 2"
                 :content="record.repository_names.join('\n')"
@@ -704,8 +830,20 @@ const columns = withTableDefaults([
           <a-input v-model="form.name" placeholder="请输入任务名称" allow-clear />
         </a-form-item>
 
-        <!-- 代码仓库 -->
-        <a-form-item label="代码仓库" required>
+        <!-- 扫描范围：按仓库逐个选 / 按项目组、业务领域、产品领域动态解析 -->
+        <a-form-item label="扫描范围" required>
+          <a-radio-group v-model="form.scope_type" @change="onScopeTypeChange">
+            <a-radio v-for="opt in SCOPE_TYPE_OPTIONS" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </a-radio>
+          </a-radio-group>
+          <template #extra>
+            按项目组 / 领域创建后，每次触发会动态解析该范围内所有启用绑定的仓库；后续新增的绑定自动纳入，无需改任务。
+          </template>
+        </a-form-item>
+
+        <!-- 按仓库：多选 -->
+        <a-form-item v-if="form.scope_type === 'repository'" label="代码仓库" required>
           <a-select
             v-model="form.repository_ids"
             multiple
@@ -727,6 +865,23 @@ const columns = withTableDefaults([
               </div>
             </template>
           </a-select>
+        </a-form-item>
+
+        <!-- 按项目组 / 领域：单选目标，附解析仓库数 -->
+        <a-form-item v-else :label="scopeTargetLabel" required>
+          <a-select
+            v-model="form.scope_value"
+            allow-search
+            placeholder="选择扫描范围目标"
+            style="width: 100%"
+          >
+            <a-option v-for="opt in currentScopeTargets" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </a-option>
+          </a-select>
+          <template #extra>
+            当前范围将扫描 <strong>{{ currentScopeRepoCount }}</strong> 个仓库（仅统计启用绑定的仓库，触发时实时解析）
+          </template>
         </a-form-item>
 
         <!-- 领域 -->

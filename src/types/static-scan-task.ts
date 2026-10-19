@@ -6,6 +6,10 @@
 export interface PrescanTaskRow {
   id: string
   name: string
+  /** 扫描范围类型：repository / project_group / business_area / product_domain */
+  scope_type: string
+  /** 范围目标：项目组 id、业务领域或产品领域名称；按仓库时为空 */
+  scope_target?: string | null
   repository_ids: string[]
   repository_names: string[]
   domains?: string | null
@@ -53,6 +57,10 @@ export interface PrescanTaskRecordRow {
 export interface PrescanTaskSavePayload {
   id?: string
   name: string
+  /** 扫描范围类型：repository / project_group / business_area / product_domain */
+  scope_type: string
+  /** 范围目标：项目组 id、业务领域或产品领域名称；按仓库时为空 */
+  scope_value?: string | null
   repository_ids: string[]
   domains?: string | null
   scan_mode: string
