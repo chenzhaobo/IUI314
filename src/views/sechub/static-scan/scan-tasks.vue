@@ -936,7 +936,7 @@ const columns = withTableDefaults([
                 <ScanModeTip />
               </template>
               <a-select v-model="form.scan_mode" style="width: 100%">
-                <a-option v-for="opt in scanModeOptions" :key="opt.value" :value="opt.value">
+                <a-option v-for="opt in scanModeOptions" :key="opt.value" :value="opt.value" :label="opt.label">
                   {{ opt.label }}
                 </a-option>
               </a-select>
