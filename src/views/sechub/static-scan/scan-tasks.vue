@@ -255,6 +255,28 @@ const currentScopeRepoCount = computed(() => {
 
 const scopeTargetLabel = computed(() => SCOPE_TYPE_OPTIONS.find(option => option.value === form.scope_type)?.label.replace('按', '') ?? '范围目标')
 
+/**
+ * 定时任务只区分三种扫描策略：全量 / 自动增量 / 新增行快检。
+ * 旧任务里保存的代码差量/规则差量/混合差量/重新确认等值，触发时都按自动增量执行
+ * （见后端 prescan_mode），这里保留当前值以防编辑时下拉显示裸值。
+ */
+const CANONICAL_SCAN_MODES = new Set(['auto_delta', 'full_baseline', 'hunk_quick'])
+const scanModeOptions = computed(() => {
+  const options = [
+    { value: 'auto_delta', label: '推荐：自动增量' },
+    { value: 'full_baseline', label: '完整基线' },
+    { value: 'hunk_quick', label: '高级：新增行快速检查（不关闭问题）' },
+  ]
+  const current = form.scan_mode
+  if (!CANONICAL_SCAN_MODES.has(current)) {
+    options.push({
+      value: current,
+      label: current === 'full' ? '全量（旧，等同完整基线）' : `${scanModeLabel(current)}（旧，按自动增量执行）`,
+    })
+  }
+  return options
+})
+
 function onScopeTypeChange() {
   form.scope_value = ''
 }
@@ -914,28 +936,13 @@ const columns = withTableDefaults([
                 <ScanModeTip />
               </template>
               <a-select v-model="form.scan_mode" style="width: 100%">
-                <a-option value="auto_delta">
-                  推荐：自动增量
-                </a-option>
-                <a-option value="code_delta">
-                  仅代码差量
-                </a-option>
-                <a-option value="rule_delta">
-                  仅规则差量
-                </a-option>
-                <a-option value="hybrid_delta">
-                  代码 + 规则混合差量
-                </a-option>
-                <a-option value="full_baseline">
-                  完整基线
-                </a-option>
-                <a-option value="reconfirm">
-                  仅重新 AI 确认
-                </a-option>
-                <a-option value="hunk_quick">
-                  高级：新增行快速检查（不关闭问题）
+                <a-option v-for="opt in scanModeOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
                 </a-option>
               </a-select>
+              <template #extra>
+                定时任务只区分全量 / 自动增量 / 新增行快检；旧任务的差量细分类按自动增量执行。
+              </template>
             </a-form-item>
           </a-col>
           <!-- 并发数 -->
@@ -997,7 +1004,7 @@ const columns = withTableDefaults([
 
         <!-- AI 模式 -->
         <a-form-item label="AI 模式">
-          <a-radio-group v-model="form.ai_mode">
+          <a-radio-group v-model="form.ai_mode" :disabled="!form.auto_confirm">
             <a-radio value="batch">
               平台编排（batch）
             </a-radio>
@@ -1005,6 +1012,9 @@ const columns = withTableDefaults([
               自主审计（agent）
             </a-radio>
           </a-radio-group>
+          <template #extra>
+            仅在「自动 AI 确认」开启时生效；关闭时扫描完成后不会触发任何 AI 确认，模式 / Agent / 模型都不会被使用。
+          </template>
         </a-form-item>
 
         <!-- Agent -->
@@ -1014,6 +1024,7 @@ const columns = withTableDefaults([
             placeholder="留空表示按 AI 模式使用默认 Agent"
             allow-clear
             allow-search
+            :disabled="!form.auto_confirm"
             style="width: 100%"
             @change="onAgentChange"
           >
@@ -1034,6 +1045,7 @@ const columns = withTableDefaults([
             placeholder="留空表示使用 Agent 默认模型"
             allow-clear
             allow-search
+            :disabled="!form.auto_confirm"
             style="width: 100%"
           >
             <a-option v-for="m in modelOptions" :key="m" :value="m">
