@@ -63,7 +63,15 @@
             <a-option value="observing">观察</a-option>
           </a-select>
         </a-col>
-        <a-col :span="6">
+        <a-col :span="3">
+          <!-- 二开口径与表格「二开」列、报告二开占比同一列 is_custom；
+               「非二开」包含历史上未标记（NULL）的行。 -->
+          <a-select v-model="searchForm.is_custom" placeholder="是否二开" allow-clear>
+            <a-option value="true">二开</a-option>
+            <a-option value="false">非二开</a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="3">
           <!-- 搜索区只留查询/重置：业务按钮与筛选不是一个语义，混在一行里
                按钮一多就把整排挤出画面（按钮还在，但窄窗口下点不到）。 -->
           <a-space>
@@ -168,28 +176,29 @@
           <div ref="tableWrap" class="table-fill">
           <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange"
  @page-size-change="handlePageSizeChange" row-key="id" column-resizable :scroll="{ minWidth: 1800, y: tableHeight }"
- v-model:selected-keys="selectedKeys" :row-selection="rowSelection" @sorter-change="handleSorterChange">
+ v-model:selected-keys="selectedKeys" :row-selection="rowSelection" @sorter-change="handleSorterChange"
+ @filter-change="onEnumFilterChange">
             <template #columns>
-              <a-table-column title="编号" data-index="pattern_no" :width="100" ellipsis tooltip />
-              <a-table-column title="标题" data-index="title" :width="250" ellipsis tooltip />
+              <a-table-column title="编号" data-index="pattern_no" :width="100" ellipsis tooltip :filterable="filterableOf('pattern_no')" />
+              <a-table-column title="标题" data-index="title" :width="250" ellipsis tooltip :filterable="filterableOf('title')" />
               <!-- 影响面放在标题后面：排期时先看它。
                    分数本身说明不了什么，所以悬停给出六项输入和它们怎么合成 ——
                    看到「78 分」没用，看到「4331 人次 / 3 个客户 / 平均 1.7 秒」才能判断。 -->
               <!-- 影响面/分析权重用共用单元格（ImpactCell / AnalysisWeightCell）：
                    问题列表也要显示同样两个分数，口径只能有一份。 -->
-              <a-table-column title="影响面" :width="110" :sortable="{ sortDirections: ['descend', 'ascend'] }" data-index="impact_score">
+              <a-table-column title="影响面" :width="110" :sortable="{ sortDirections: ['descend', 'ascend'] }" data-index="impact_score" :filterable="filterableOf('impact_score')">
                 <template #cell="{ record }">
                   <ImpactCell :record="record" />
                 </template>
               </a-table-column>
               <!-- 分析层权重与系统层分开显示：口径不同（全量统计 vs 那轮抽样），
                    两者不一致本身是信息 —— 系统层低而这里高说明低频但高度集中。 -->
-              <a-table-column title="分析权重" :width="96" data-index="analysis_weight" :sortable="{ sortDirections: ['descend', 'ascend'] }">
+              <a-table-column title="分析权重" :width="96" data-index="analysis_weight" :sortable="{ sortDirections: ['descend', 'ascend'] }" :filterable="filterableOf('analysis_weight')">
                 <template #cell="{ record }">
                   <AnalysisWeightCell :record="record" />
                 </template>
               </a-table-column>
-              <a-table-column title="归因标签" data-index="attribution_tag" :width="150">
+              <a-table-column title="归因标签" data-index="attribution_tag" :width="150" :filterable="filterableOf('attribution_tag')">
                 <template #cell="{ record }">
                   <template v-if="record.attribution_tag">
                     <a-tag v-for="(tag, idx) in splitTag(record.attribution_tag)" :key="idx" :color="idx === 0 ? 'arcoblue' : 'cyan'" size="small" style="margin-right: 4px">{{ tag }}</a-tag>
@@ -197,7 +206,7 @@
                   <span v-else>--</span>
                 </template>
               </a-table-column>
-              <a-table-column title="维度" :width="150">
+              <a-table-column title="维度" data-index="dimension_value" :width="150" :filterable="filterableOf('dimension_value')">
                 <template #cell="{ record }">
                   <span>{{ dimensionTypeText(record.dimension_type) }} / {{ record.dimension_value }}</span>
                 </template>
@@ -207,7 +216,7 @@
                    现在按 form_id 从达标率快照反查填上。查不到显示 --，
                    空值本身是「映射数据缺这个表单」的信号，不要当成 bug。 -->
               <!-- 显示名称、编码放 tooltip：列宽有限，而名称才是人认得的 -->
-              <a-table-column title="项目组" data-index="project_group_code" :width="120">
+              <a-table-column title="项目组" data-index="project_group_code" :width="120" :filterable="filterableOf('project_group_code')">
                 <template #cell="{ record }">
                   <a-tag v-if="record.project_group_code" color="arcoblue" size="small" :title="record.project_group_code">
                     {{ record.project_group_name || record.project_group_code }}
@@ -215,28 +224,18 @@
                   <span v-else class="muted">--</span>
                 </template>
               </a-table-column>
-              <a-table-column title="业务领域" data-index="business_area" :width="90">
+              <a-table-column title="业务领域" data-index="business_area" :width="100" :filterable="filterableOf('business_area')">
                 <template #cell="{ record }">
                   {{ record.business_area || '--' }}
                 </template>
               </a-table-column>
-              <a-table-column title="应用" data-index="app_number" :width="80">
+              <a-table-column title="应用" data-index="app_number" :width="90" :filterable="filterableOf('app_number')">
                 <template #cell="{ record }">
                   {{ record.app_number || '--' }}
                 </template>
               </a-table-column>
-              <a-table-column title="产品线" data-index="product_line" :width="80" ellipsis tooltip />
-              <!-- 归属三字段。库里一直有值（生产 357 条的项目组 100% 有值），
-                   只是页面没展示 —— 而这三个字段决定问题分给哪个团队。
-                   项目组显示名称而不是 PM0xx 编码：光看编码认不出是哪个组。 -->
-              <a-table-column title="项目组" :width="130" ellipsis tooltip>
-                <template #cell="{ record }">
-                  {{ record.project_group_name || record.project_group_code || '—' }}
-                </template>
-              </a-table-column>
-              <a-table-column title="应用" data-index="app_number" :width="90" ellipsis tooltip />
-              <a-table-column title="业务领域" data-index="business_area" :width="100" ellipsis tooltip />
-              <a-table-column title="修改人" :width="110" ellipsis tooltip>
+              <a-table-column title="产品线" data-index="product_line" :width="80" ellipsis tooltip :filterable="filterableOf('product_line')" />
+              <a-table-column title="修改人" data-index="last_modified_by" :width="110" ellipsis tooltip :filterable="filterableOf('last_modified_by')">
                 <template #cell="{ record }">
                   <a-tooltip v-if="record.last_modified_by" :content="`修改时间 ${formatTime(record.last_modified_at)}`">
                     <span>{{ record.last_modified_by }}</span>
@@ -244,8 +243,8 @@
                   <span v-else style="color: var(--color-text-4)">—</span>
                 </template>
               </a-table-column>
-              <a-table-column title="首次出现" data-index="first_found_week" :width="100" ellipsis tooltip />
-              <a-table-column title="最近出现" data-index="last_found_week" :width="100" ellipsis tooltip />
+              <a-table-column title="首次出现" data-index="first_found_week" :width="100" ellipsis tooltip :filterable="filterableOf('first_found_week')" />
+              <a-table-column title="最近出现" data-index="last_found_week" :width="100" ellipsis tooltip :filterable="filterableOf('last_found_week')" />
               <a-table-column title="周趋势" :width="160">
                 <template #cell="{ record }">
                   <span v-if="record.weekly_stats" class="weekly-bar">
@@ -254,12 +253,12 @@
                   <span v-else>--</span>
                 </template>
               </a-table-column>
-              <a-table-column title="状态" data-index="status" :width="90">
+              <a-table-column title="状态" data-index="status" :width="90" :filterable="enumFilterable(statusFilterOptions, searchForm.status)">
                 <template #cell="{ record }">
                   <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
                 </template>
               </a-table-column>
-              <a-table-column title="二开" data-index="is_custom" :width="60">
+              <a-table-column title="二开" data-index="is_custom" :width="60" :filterable="enumFilterable(isCustomFilterOptions, searchForm.is_custom)">
                 <template #cell="{ record }">
                   <a-tag v-if="record.is_custom" color="orange" size="small">是</a-tag>
                   <span v-else>--</span>
@@ -269,7 +268,7 @@
                    处置动作维护），两列并排显示等于让人自己核对是否一致。
                    换成处置留痕 —— 这两列回答的是「这条有没有人看过、谁看的」，
                    而在此之前那个问题在界面上根本无从回答（生产 61 条全部无人处置）。 -->
-              <a-table-column title="处置人" data-index="triaged_by" :width="90">
+              <a-table-column title="处置人" data-index="triaged_by" :width="90" :filterable="filterableOf('triaged_by')">
                 <template #cell="{ record }">
                   <a-tag v-if="record.triaged_by" size="small">{{ record.triaged_by }}</a-tag>
                   <a-tooltip v-else content="还没有人对这条下过判断">
@@ -277,17 +276,17 @@
                   </a-tooltip>
                 </template>
               </a-table-column>
-              <a-table-column title="处置时间" :width="150" ellipsis tooltip>
+              <a-table-column title="处置时间" data-index="triaged_at" :width="150" ellipsis tooltip :filterable="filterableOf('triaged_at')">
                 <template #cell="{ record }">{{ record.triaged_at ? formatTime(record.triaged_at) : '--' }}</template>
               </a-table-column>
               <!-- 时间列放最后：排查「这条台账是什么时候建的、最近一次命中是什么时候」
                    靠周趋势看不出来，而回填/合并过的台账更需要看 updated_at。 -->
               <!-- 时间统一走 formatTime 转本地时区。直接绑字段会把后端的
                    UTC 字符串原样显示（差 8 小时），看起来像数据错了。 -->
-              <a-table-column title="创建时间" :width="150" ellipsis tooltip data-index="created_at" :sortable="{ sortDirections: ['descend', 'ascend'] }">
+              <a-table-column title="创建时间" :width="150" ellipsis tooltip data-index="created_at" :sortable="{ sortDirections: ['descend', 'ascend'] }" :filterable="filterableOf('created_at')">
                 <template #cell="{ record }">{{ formatTime(record.created_at) }}</template>
               </a-table-column>
-              <a-table-column title="更新时间" :width="150" ellipsis tooltip data-index="updated_at" :sortable="{ sortDirections: ['descend', 'ascend'] }">
+              <a-table-column title="更新时间" :width="150" ellipsis tooltip data-index="updated_at" :sortable="{ sortDirections: ['descend', 'ascend'] }" :filterable="filterableOf('updated_at')">
                 <template #cell="{ record }">{{ formatTime(record.updated_at) }}</template>
               </a-table-column>
               <a-table-column title="操作" :width="150" fixed="right">
@@ -331,6 +330,59 @@
                   </a-space>
                 </template>
               </a-table-column>
+            </template>
+            <!-- 表头自由文本/数字/日期过滤（服务端）：固定候选值的枚举列用 Arco 原生
+                 filterable，其余列走这个面板。两种入口都落到同一套查询参数。 -->
+            <template #filter-pattern_no>
+              <ColumnFilterPanel v-model="columnFilters.pattern_no" @change="onColumnFilterChange" />
+            </template>
+            <template #filter-title>
+              <ColumnFilterPanel v-model="columnFilters.title" @change="onColumnFilterChange" />
+            </template>
+            <template #filter-impact_score>
+              <ColumnFilterPanel v-model="columnFilters.impact_score" @change="onColumnFilterChange" />
+            </template>
+            <template #filter-analysis_weight>
+              <ColumnFilterPanel v-model="columnFilters.analysis_weight" @change="onColumnFilterChange" />
+            </template>
+            <template #filter-attribution_tag>
+              <ColumnFilterPanel v-model="columnFilters.attribution_tag" @change="onColumnFilterChange" />
+            </template>
+            <template #filter-dimension_value>
+              <ColumnFilterPanel v-model="columnFilters.dimension_value" @change="onColumnFilterChange" />
+            </template>
+            <template #filter-project_group_code>
+              <ColumnFilterPanel v-model="columnFilters.project_group_code" @change="onColumnFilterChange" />
+            </template>
+            <template #filter-business_area>
+              <ColumnFilterPanel v-model="columnFilters.business_area" @change="onColumnFilterChange" />
+            </template>
+            <template #filter-app_number>
+              <ColumnFilterPanel v-model="columnFilters.app_number" @change="onColumnFilterChange" />
+            </template>
+            <template #filter-product_line>
+              <ColumnFilterPanel v-model="columnFilters.product_line" @change="onColumnFilterChange" />
+            </template>
+            <template #filter-last_modified_by>
+              <ColumnFilterPanel v-model="columnFilters.last_modified_by" @change="onColumnFilterChange" />
+            </template>
+            <template #filter-first_found_week>
+              <ColumnFilterPanel v-model="columnFilters.first_found_week" @change="onColumnFilterChange" />
+            </template>
+            <template #filter-last_found_week>
+              <ColumnFilterPanel v-model="columnFilters.last_found_week" @change="onColumnFilterChange" />
+            </template>
+            <template #filter-triaged_by>
+              <ColumnFilterPanel v-model="columnFilters.triaged_by" @change="onColumnFilterChange" />
+            </template>
+            <template #filter-triaged_at>
+              <ColumnFilterPanel v-model="columnFilters.triaged_at" @change="onColumnFilterChange" />
+            </template>
+            <template #filter-created_at>
+              <ColumnFilterPanel v-model="columnFilters.created_at" @change="onColumnFilterChange" />
+            </template>
+            <template #filter-updated_at>
+              <ColumnFilterPanel v-model="columnFilters.updated_at" @change="onColumnFilterChange" />
             </template>
           </a-table>
           </div>
@@ -574,7 +626,9 @@ import { Message, Modal } from '@arco-design/web-vue'
 import { useDebounceFn } from '@vueuse/core'
 import { ApiPerfApp, ApiPerfIssue, ApiPerfPatternLedger } from '@/api/perfApis'
 import { ApiSecProjectGroup } from '@/api/sechubApis'
-import { formatTime, isRequestFailed, useAutoHeight, useDicts, useDownload, useGet, usePost, useTableAutoHeight } from '@/hooks'
+import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
+import type { ColumnFilterState } from '@/hooks'
+import { emptyFilter, formatTime, isFilterActive, isRequestFailed, toServerFilters, useAutoHeight, useDicts, useDownload, useGet, usePost, useTableAutoHeight } from '@/hooks'
 import { batchActionHint, canLedgerAction, filterActionable, ledgerStateOf } from '@/views/perf/analysis-report/ledgerActions'
 import { MdPreview } from 'md-editor-v3'
 // 必须导入样式，否则 MdPreview 渲染出来没有任何格式（表格无边框、标题不分级）
@@ -617,11 +671,68 @@ const searchForm = reactive({
   form_id: '',
   // 左树表单下的按钮层（未归因操作为哨兵 __unattributed__）
   control_name: '',
+  // 是否二开：true=二开 / false=非二开（含历史未标记的 NULL）
+  is_custom: '',
   // 排序在后端做：影响面与分析权重要按**全量**排序，
   // 表格自带的 sortable 只排当页 20 条，排出的第一名不是真正的第一名。
   sort_by: '',
   sort_order: '',
 })
+
+// 表头列过滤：服务端分页下必须交后端，前端筛只会筛当前页（用户搜第 3 页的记录会搜不到）。
+const columnFilters = reactive<Record<string, ColumnFilterState>>({
+  pattern_no: emptyFilter('text'),
+  title: emptyFilter('text'),
+  impact_score: emptyFilter('number'),
+  analysis_weight: emptyFilter('number'),
+  attribution_tag: emptyFilter('text'),
+  dimension_value: emptyFilter('text'),
+  project_group_code: emptyFilter('text'),
+  business_area: emptyFilter('text'),
+  app_number: emptyFilter('text'),
+  product_line: emptyFilter('text'),
+  last_modified_by: emptyFilter('text'),
+  first_found_week: emptyFilter('text'),
+  last_found_week: emptyFilter('text'),
+  triaged_by: emptyFilter('text'),
+  triaged_at: emptyFilter('date'),
+  created_at: emptyFilter('date'),
+  updated_at: emptyFilter('date'),
+})
+const activeColumnFilters = computed(() => toServerFilters(columnFilters))
+function filterableOf(key: string) {
+  return {
+    slotName: `filter-${key}`,
+    filteredValue: isFilterActive(columnFilters[key]) ? ['1'] : [],
+    filter: () => true,
+    hideButton: true,
+  }
+}
+function enumFilterable(options: Array<{ label: string, value: string }>, value: string) {
+  return {
+    filters: options.map(option => ({ text: option.label, value: option.value })),
+    filteredValue: value ? [value] : [],
+    filter: () => true,
+    multiple: false,
+  }
+}
+function onColumnFilterChange() {
+  pageNum.value = 1
+  fetchData()
+}
+function onEnumFilterChange(dataIndex: string, filteredValues: string[]) {
+  const value = filteredValues?.[0] ?? ''
+  if (dataIndex === 'status')
+    searchForm.status = value
+  else if (dataIndex === 'is_custom')
+    searchForm.is_custom = value
+  pageNum.value = 1
+  fetchData()
+}
+function resetColumnFilters() {
+  for (const key of Object.keys(columnFilters))
+    columnFilters[key] = emptyFilter(columnFilters[key].kind)
+}
 
 // 从达标率看板「联查问题」带入的范围：右表先按它过滤，左树挂载后定位到对应节点
 const clearedScope = { project_group_code: '', cloud_number: '', business_area: '', product_domain: '', app_number: '', form_id: '', control_name: '' }
@@ -642,6 +753,8 @@ const scopeCountFilters = computed(() => ({
   dimension_value: searchForm.dimension_value,
   attribution_tag: searchForm.attribution_tag,
   status: searchForm.status,
+  is_custom: searchForm.is_custom,
+  filters: activeColumnFilters.value,
 }))
 const drawerVisible = ref(false)
 const currentRecord = ref<any>(null)
@@ -754,6 +867,17 @@ const statusMap: Record<string, string> = {
   exempted: '已豁免',
 }
 const statusText = (s: string | undefined) => (s ? statusMap[s] || s : '--')
+/** 表头枚举筛选的可选值（与搜索区同源；遗留状态不进筛选项） */
+const statusFilterOptions = [
+  { label: '待处置', value: 'new' },
+  { label: '已提单', value: 'issued' },
+  { label: '不处理', value: 'wont_fix' },
+  { label: '观察', value: 'observing' },
+]
+const isCustomFilterOptions = [
+  { label: '二开', value: 'true' },
+  { label: '非二开', value: 'false' },
+]
 const statusColorMap: Record<string, string> = {
   // 待处置用 orange 不是 gray：它是"欠一个判断"，不是终态
   new: 'orange',
@@ -793,7 +917,12 @@ const barHeight = (cnt: number): number => Math.min(Math.max(cnt * 4, 2), 28)
 const traceIdList = (raw: string): string[] => raw.split(/[,;\s]+/).filter(Boolean)
 
 // ── 数据请求 ──────────────────────────────────────
-const queryParams = computed(() => ({ ...searchForm, page_num: pageNum.value, page_size: pageSize.value }))
+const queryParams = computed(() => ({
+  ...searchForm,
+  filters: activeColumnFilters.value,
+  page_num: pageNum.value,
+  page_size: pageSize.value,
+}))
 const { isFetching: loading, data: rawData, execute: fetchData } = useGet<any>(ApiPerfPatternLedger.list, queryParams, { immediate: true })
 const tableData = computed(() => rawData.value?.list || [])
 
@@ -1127,6 +1256,8 @@ const handleDiscardSelected = () => {
 const handleExport = async () => {
   const params = new URLSearchParams()
   Object.entries(searchForm).forEach(([key, value]) => { if (value) params.set(key, String(value)) })
+  if (activeColumnFilters.value)
+    params.set('filters', activeColumnFilters.value)
   await downloadWithTip(`${ApiPerfPatternLedger.export}?${params.toString()}`, '问题台账.xlsx', '问题台账导出失败')
 }
 
@@ -1263,7 +1394,9 @@ const handleReset = () => {
     app_number: '',
     form_id: '',
     control_name: '',
+    is_custom: '',
   })
+  resetColumnFilters()
   // 重置后左树回到「全部」，不再定位到看板带入的范围
   routeScope.value = null
   scopeTreeKey.value += 1

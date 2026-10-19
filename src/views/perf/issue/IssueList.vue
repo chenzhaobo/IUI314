@@ -187,17 +187,25 @@
               @sorter-change="handleSorterChange"
               @page-change="handlePageChange"
               @page-size-change="handlePageSizeChange"
+              @filter-change="onEnumFilterChange"
             >
               <template #columns>
-                <a-table-column title="编号" data-index="issue_no" :width="130" />
-                <a-table-column title="标题" data-index="title" :width="250" ellipsis />
-                <a-table-column title="严重度" data-index="severity" :width="80">
+                <a-table-column title="编号" data-index="issue_no" :width="130" :filterable="filterableOf('issue_no')" />
+                <a-table-column title="标题" data-index="title" :width="250" ellipsis :filterable="filterableOf('title')" />
+                <a-table-column title="严重度" data-index="severity" :width="80" :filterable="enumFilterable(severityFilterOptions, searchForm.severity)">
                   <template #cell="{ record }">
                     <a-tag :color="severityColor(record.severity)">{{ severityText(record.severity) }}</a-tag>
                   </template>
                 </a-table-column>
-                <a-table-column title="类型" data-index="issue_type" :width="100">
+                <a-table-column title="类型" data-index="issue_type" :width="100" :filterable="enumFilterable(issueTypeFilterOptions, searchForm.issue_type)">
                   <template #cell="{ record }">{{ issueTypeText(record.issue_type) }}</template>
+                </a-table-column>
+                <a-table-column title="分类" data-index="category" :width="90" :filterable="enumFilterable(categoryFilterOptions, searchForm.category)">
+                  <template #cell="{ record }">
+                    <a-tag v-if="record.category === 'custom'" color="orange" size="small">二开</a-tag>
+                    <span v-else-if="record.category === 'standard'" class="dmp-empty">标品</span>
+                    <span v-else class="dmp-empty">{{ record.category || '--' }}</span>
+                  </template>
                 </a-table-column>
                 <!-- 影响面 / 分析权重 / 归因标签：与问题台账同一套（共用单元格与渲染口径）。
                      这三项是归因算在台账上的结果，问题表本身没有 —— 后端按 issue_id
@@ -213,7 +221,7 @@
                     <AnalysisWeightCell :record="record" />
                   </template>
                 </a-table-column>
-                <a-table-column title="归因标签" data-index="attribution_tag" :width="150">
+                <a-table-column title="归因标签" data-index="attribution_tag" :width="150" :filterable="filterableOf('attribution_tag')">
                   <template #cell="{ record }">
                     <template v-if="record.attribution_tag">
                       <a-tag v-for="(tag, idx) in splitTag(record.attribution_tag)" :key="idx" :color="idx === 0 ? 'arcoblue' : 'cyan'" size="small" style="margin-right: 4px">
@@ -223,24 +231,26 @@
                     <span v-else>--</span>
                   </template>
                 </a-table-column>
-                <a-table-column title="应用" data-index="app_number" :width="80" />
-                <a-table-column title="项目组" :width="150" ellipsis tooltip>
+                <a-table-column title="应用" data-index="app_number" :width="80" :filterable="filterableOf('app_number')" />
+                <a-table-column title="项目组" data-index="project_group_code" :width="150" ellipsis tooltip :filterable="filterableOf('project_group_code')">
                   <template #cell="{ record }">
                     {{ record.project_group_name || record.project_group_code || '--' }}
                   </template>
                 </a-table-column>
+                <!-- 业务领域来自关联台账（perf_issue 无此列），服务端通用列过滤覆盖不到，
+                     暂不提供列头过滤；左树可按业务领域筛选。 -->
                 <a-table-column title="业务领域" data-index="business_area" :width="100" ellipsis tooltip>
                   <template #cell="{ record }">{{ record.business_area || '--' }}</template>
                 </a-table-column>
-                <a-table-column title="表单" data-index="form_name" :width="150" ellipsis />
-                <a-table-column title="客户" data-index="customer_name" :width="120" ellipsis />
-                <a-table-column title="状态" data-index="status" :width="90">
+                <a-table-column title="表单" data-index="form_name" :width="150" ellipsis :filterable="filterableOf('form_name')" />
+                <a-table-column title="客户" data-index="customer_name" :width="120" ellipsis :filterable="filterableOf('customer_name')" />
+                <a-table-column title="状态" data-index="status" :width="90" :filterable="enumFilterable(statusFilterOptions, searchForm.status)">
                   <template #cell="{ record }">
                     <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
                   </template>
                 </a-table-column>
                 <!-- 内部处理进度：与上面的「状态」不是一回事，那个是生产复现状态 -->
-                <a-table-column title="处理进度" data-index="process_status" :width="90">
+                <a-table-column title="处理进度" data-index="process_status" :width="90" :filterable="enumFilterable(processFilterOptions, searchForm.process_status)">
                   <template #cell="{ record }">
                     <a-tooltip v-if="record.process_status" :content="`处理人：${record.process_owner || '-'}${record.process_prev_status ? ` ← ${processLabel(record.process_prev_status)}` : ''}`" mini>
                       <a-tag :color="processColor(record.process_status)" size="small">{{ processLabel(record.process_status) }}</a-tag>
@@ -248,9 +258,9 @@
                     <span v-else class="dmp-empty">未转交</span>
                   </template>
                 </a-table-column>
-                <a-table-column title="处理人" data-index="process_owner" :width="85" ellipsis tooltip />
+                <a-table-column title="处理人" data-index="process_owner" :width="85" ellipsis tooltip :filterable="filterableOf('process_owner')" />
                 <!-- 治理计划：转缺陷时必填；超期红、3 天内橙（与静态扫描「计划完成」同口径） -->
-                <a-table-column title="计划完成" data-index="plan_date" :width="120">
+                <a-table-column title="计划完成" data-index="plan_date" :width="120" :filterable="filterableOf('plan_date')">
                   <template #cell="{ record }">
                     <template v-if="record.plan_date">
                       <span>{{ String(record.plan_date).slice(0, 10) }}</span>
@@ -259,7 +269,7 @@
                     <span v-else class="dmp-empty">未排期</span>
                   </template>
                 </a-table-column>
-                <a-table-column title="DMP 编码" data-index="dmp_defect_code" :width="130" ellipsis>
+                <a-table-column title="DMP 编码" data-index="dmp_defect_code" :width="130" ellipsis :filterable="filterableOf('dmp_defect_code')">
                   <template #cell="{ record }">
                     <a-typography-text v-if="record.dmp_defect_code" copyable :copy-text="record.dmp_defect_code">
                       {{ record.dmp_defect_code }}
@@ -267,7 +277,7 @@
                     <span v-else class="dmp-empty">未关联</span>
                   </template>
                 </a-table-column>
-                <a-table-column title="来源" data-index="source" :width="80">
+                <a-table-column title="来源" data-index="source" :width="80" :filterable="enumFilterable(sourceFilterOptions, searchForm.source)">
                   <template #cell="{ record }">
                     <a-tag :color="sourceColor(record.source)" size="small">{{ sourceText(record.source) }}</a-tag>
                   </template>
@@ -275,13 +285,13 @@
                 <!-- 时间统一走 formatTime 转本地时区。直接绑字段会把后端的
                      UTC 字符串原样显示（差 8 小时），看起来像数据错了。
                      found_date 是纯日期，用 date 精度避免补出个 00:00:00。 -->
-                <a-table-column title="发现日期" :width="100">
+                <a-table-column title="发现日期" data-index="found_date" :width="100" :filterable="filterableOf('found_date')">
                   <template #cell="{ record }">{{ formatTime(record.found_date, { precision: 'date' }) }}</template>
                 </a-table-column>
-                <a-table-column title="创建时间" :width="150" ellipsis tooltip data-index="created_at" :sortable="{ sortDirections: ['descend', 'ascend'] }">
+                <a-table-column title="创建时间" :width="150" ellipsis tooltip data-index="created_at" :sortable="{ sortDirections: ['descend', 'ascend'] }" :filterable="filterableOf('created_at')">
                   <template #cell="{ record }">{{ formatTime(record.created_at) }}</template>
                 </a-table-column>
-                <a-table-column title="更新时间" :width="150" ellipsis tooltip data-index="updated_at" :sortable="{ sortDirections: ['descend', 'ascend'] }">
+                <a-table-column title="更新时间" :width="150" ellipsis tooltip data-index="updated_at" :sortable="{ sortDirections: ['descend', 'ascend'] }" :filterable="filterableOf('updated_at')">
                   <template #cell="{ record }">{{ formatTime(record.updated_at) }}</template>
                 </a-table-column>
                 <a-table-column title="操作" :width="180" fixed="right">
@@ -298,6 +308,47 @@
                     </a-space>
                   </template>
                 </a-table-column>
+              </template>
+              <!-- 表头自由文本/日期过滤（服务端）：枚举列用 Arco 原生 filterable，
+                   其余列走这个面板。两种入口都落到同一套查询参数。 -->
+              <template #filter-issue_no>
+                <ColumnFilterPanel v-model="columnFilters.issue_no" @change="onColumnFilterChange" />
+              </template>
+              <template #filter-title>
+                <ColumnFilterPanel v-model="columnFilters.title" @change="onColumnFilterChange" />
+              </template>
+              <template #filter-attribution_tag>
+                <ColumnFilterPanel v-model="columnFilters.attribution_tag" @change="onColumnFilterChange" />
+              </template>
+              <template #filter-app_number>
+                <ColumnFilterPanel v-model="columnFilters.app_number" @change="onColumnFilterChange" />
+              </template>
+              <template #filter-project_group_code>
+                <ColumnFilterPanel v-model="columnFilters.project_group_code" @change="onColumnFilterChange" />
+              </template>
+              <template #filter-form_name>
+                <ColumnFilterPanel v-model="columnFilters.form_name" @change="onColumnFilterChange" />
+              </template>
+              <template #filter-customer_name>
+                <ColumnFilterPanel v-model="columnFilters.customer_name" @change="onColumnFilterChange" />
+              </template>
+              <template #filter-process_owner>
+                <ColumnFilterPanel v-model="columnFilters.process_owner" @change="onColumnFilterChange" />
+              </template>
+              <template #filter-dmp_defect_code>
+                <ColumnFilterPanel v-model="columnFilters.dmp_defect_code" @change="onColumnFilterChange" />
+              </template>
+              <template #filter-plan_date>
+                <ColumnFilterPanel v-model="columnFilters.plan_date" @change="onColumnFilterChange" />
+              </template>
+              <template #filter-found_date>
+                <ColumnFilterPanel v-model="columnFilters.found_date" @change="onColumnFilterChange" />
+              </template>
+              <template #filter-created_at>
+                <ColumnFilterPanel v-model="columnFilters.created_at" @change="onColumnFilterChange" />
+              </template>
+              <template #filter-updated_at>
+                <ColumnFilterPanel v-model="columnFilters.updated_at" @change="onColumnFilterChange" />
               </template>
             </a-table>
         </template>
@@ -586,9 +637,11 @@ import { MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import { ApiPerfIssue, ApiPerfPatternLedger } from '@/api/perfApis'
 import ListPage from '@/components/common/ListPage.vue'
+import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import { ApiSysUser } from '@/api/sysApis'
 import { ApiSecProjectGroup } from '@/api/sechubApis'
-import { formatTime, useDelete, useDicts, useDownload, useGet, usePost, usePut } from '@/hooks'
+import type { ColumnFilterState } from '@/hooks'
+import { emptyFilter, formatTime, isFilterActive, toServerFilters, useDelete, useDicts, useDownload, useGet, usePost, usePut } from '@/hooks'
 import { planDateHint } from '@/utils/planDate'
 import { splitTag } from '@/views/perf/components/analysisFields'
 import AnalysisWeightCell from '@/views/perf/components/AnalysisWeightCell.vue'
@@ -613,6 +666,7 @@ const searchForm = reactive({
   keyword: initialKeyword,
   status: '',
   severity: '',
+  issue_type: '',
   category: '',
   source: '',
   product_line: '',
@@ -631,6 +685,65 @@ const searchForm = reactive({
   sort_by: '',
   sort_order: '',
 })
+
+// 表头列过滤：服务端分页下必须交后端，前端筛只会筛当前页。
+// 只覆盖 perf_issue 的真实列；影响面/分析权重来自关联台账，仅支持排序不支持列过滤。
+const columnFilters = reactive<Record<string, ColumnFilterState>>({
+  issue_no: emptyFilter('text'),
+  title: emptyFilter('text'),
+  attribution_tag: emptyFilter('text'),
+  app_number: emptyFilter('text'),
+  project_group_code: emptyFilter('text'),
+  form_name: emptyFilter('text'),
+  customer_name: emptyFilter('text'),
+  process_owner: emptyFilter('text'),
+  dmp_defect_code: emptyFilter('text'),
+  plan_date: emptyFilter('date'),
+  found_date: emptyFilter('date'),
+  created_at: emptyFilter('date'),
+  updated_at: emptyFilter('date'),
+})
+const activeColumnFilters = computed(() => toServerFilters(columnFilters))
+function filterableOf(key: string) {
+  return {
+    slotName: `filter-${key}`,
+    filteredValue: isFilterActive(columnFilters[key]) ? ['1'] : [],
+    filter: () => true,
+    hideButton: true,
+  }
+}
+function enumFilterable(options: Array<{ label: string, value: string }>, value: string | undefined) {
+  return {
+    filters: options.map(option => ({ text: option.label, value: option.value })),
+    filteredValue: value ? [value] : [],
+    filter: () => true,
+    multiple: false,
+  }
+}
+function onColumnFilterChange() {
+  pageNum.value = 1
+  void fetchData()
+}
+/** Arco 枚举列筛选：写回对应的搜索参数，与搜索区共用同一套后端过滤。 */
+function onEnumFilterChange(dataIndex: string, filteredValues: string[]) {
+  const value = filteredValues?.[0] ?? ''
+  switch (dataIndex) {
+    case 'severity': searchForm.severity = value; break
+    case 'issue_type': searchForm.issue_type = value; break
+    case 'category': searchForm.category = value; break
+    case 'status': searchForm.status = value; break
+    case 'process_status': searchForm.process_status = value; break
+    case 'source': searchForm.source = value; break
+    default: return
+  }
+  pageNum.value = 1
+  void fetchData()
+}
+function resetColumnFilters() {
+  for (const key of Object.keys(columnFilters))
+    columnFilters[key] = emptyFilter(columnFilters[key].kind)
+}
+
 const scopeCountFilters = computed(() => ({
   keyword: searchForm.keyword,
   status: searchForm.status,
@@ -639,6 +752,7 @@ const scopeCountFilters = computed(() => ({
   severity: searchForm.severity,
   category: searchForm.category,
   source: searchForm.source,
+  filters: activeColumnFilters.value,
 }))
 
 const drawerVisible = ref(false)
@@ -679,6 +793,22 @@ const sourceColor = (s: string) => ({
   trace_ai: 'purple',
 }[s] || 'gray')
 
+// 表头枚举筛选选项：与搜索区下拉同源，避免两处各维护一套取值。
+const statusFilterOptions = Object.entries(statusMap).map(([value, label]) => ({ value, label }))
+const severityFilterOptions = Object.entries(severityMap).map(([value, label]) => ({ value, label }))
+const issueTypeFilterOptions = Object.entries(issueTypeMap).map(([value, label]) => ({ value, label }))
+const categoryFilterOptions = [
+  { label: '标品', value: 'standard' },
+  { label: '二开', value: 'custom' },
+]
+const sourceFilterOptions = [
+  { label: '手动创建', value: 'manual' },
+  { label: '归因建单', value: 'periodic_defect' },
+  { label: '自动推荐', value: 'auto_recommend' },
+  { label: 'Agent 诊断', value: 'diagnosis' },
+  { label: 'AI 分析', value: 'trace_ai' },
+]
+
 const getNextStatuses = (current: string) => {
   // 与后端 is_valid_transition 保持一致（service/src/perf/plan/issue.rs）
   const transitions: Record<string, string[]> = {
@@ -706,6 +836,12 @@ const PROCESS_FLOW = [
   // wont_fix 是状态而不是独立开关：正交设计会产生「已修复且不处理」这种矛盾组合
   { value: 'wont_fix', label: '不处理', color: 'gray' },
 ] as const
+
+// 表头「处理进度」筛选：包含「未转交」哨兵（对应后端 __none__）。
+const processFilterOptions = [
+  ...PROCESS_FLOW.map(s => ({ value: s.value, label: s.label })),
+  { value: '__none__', label: '未转交' },
+]
 
 // 「处理」下拉里能选的动作 —— **不含 claimed**。
 //
@@ -975,7 +1111,12 @@ function toggleDmpUnlinked() {
   handleSearch()
 }
 
-const queryParams = computed(() => ({ ...searchForm, page_num: pageNum.value, page_size: pageSize.value }))
+const queryParams = computed(() => ({
+  ...searchForm,
+  filters: activeColumnFilters.value,
+  page_num: pageNum.value,
+  page_size: pageSize.value,
+}))
 const { isFetching: loading, data: rawData, execute: fetchData } = useGet<any>(ApiPerfIssue.getList, queryParams, { immediate: true })
 const tableData = computed(() => rawData.value?.list || [])
 const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0, showTotal: true, showPageSize: true }))
@@ -1093,6 +1234,8 @@ const handleBundleDownload = async () => {
 const handleExport = async () => {
   const params = new URLSearchParams()
   Object.entries(searchForm).forEach(([key, value]) => { if (value) params.set(key, String(value)) })
+  if (activeColumnFilters.value)
+    params.set('filters', activeColumnFilters.value)
   await downloadWithTip(`${ApiPerfIssue.export}?${params.toString()}`, '问题跟踪.xlsx', '问题跟踪导出失败')
 }
 
@@ -1120,14 +1263,19 @@ const handleScopeChange = (scope: {
 const handleSearch = () => { pageNum.value = 1; fetchData() }
 const handleReset = () => {
   Object.assign(searchForm, {
-    keyword: '', status: '', severity: '', category: '', source: '', product_line: '',
+    keyword: '', status: '', severity: '', issue_type: '', category: '', source: '', product_line: '',
     project_group_code: '',
     cloud_number: '',
     business_area: '',
     product_domain: '',
     app_number: '',
     form_id: '',
+    dmp_defect_code: '',
+    process_status: '',
+    sort_by: '',
+    sort_order: '',
   })
+  resetColumnFilters()
   scopeTreeKey.value += 1
   handleSearch()
 }
