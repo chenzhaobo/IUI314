@@ -106,6 +106,18 @@
             </a-button>
           </span>
         </a-tooltip>
+        <!-- 二开标记是分类元数据，不受状态机限制：已提单的台账也允许纠正分类 -->
+        <a-dropdown :disabled="selectedKeys.length === 0" @select="(key: any) => handleCustomMarkBatch(String(key))">
+          <a-button :loading="customMarking" :disabled="selectedKeys.length === 0">
+            二开标记{{ countSuffix(selectedKeys.length) }}
+            <template #icon><icon-down /></template>
+          </a-button>
+          <template #content>
+            <a-doption value="true">标记二开</a-doption>
+            <a-doption value="false">取消标记</a-doption>
+            <a-doption value="auto">恢复自动判定</a-doption>
+          </template>
+        </a-dropdown>
         <!-- 「不处理」与「废弃」分开放，措辞也刻意不同：
              不处理 = 这个问题判断不修（仍进报告与统计）；
              废弃   = 这条分析不该存在（从指纹匹配里移除）。 -->
@@ -258,10 +270,13 @@
                   <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
                 </template>
               </a-table-column>
-              <a-table-column title="二开" data-index="is_custom" :width="60" :filterable="enumFilterable(isCustomFilterOptions, searchForm.is_custom)">
+              <a-table-column title="二开" data-index="is_custom" :width="96" :filterable="enumFilterable(isCustomFilterOptions, searchForm.is_custom)">
                 <template #cell="{ record }">
                   <a-tag v-if="record.is_custom" color="orange" size="small">是</a-tag>
-                  <span v-else>--</span>
+                  <span v-else class="muted">否</span>
+                  <a-tooltip v-if="record.is_custom_manual != null" content="人工标记，后续自动归因不会覆盖">
+                    <a-tag size="small" style="margin-left: 4px">人工</a-tag>
+                  </a-tooltip>
                 </template>
               </a-table-column>
               <!-- 「豁免」列去掉了：它和状态里的「不处理」是同一件事（is_exempted 由
@@ -310,6 +325,10 @@
                           </a-tooltip>
                         </a-doption>
                         <a-doption v-if="canLedgerAction('link', record)" value="linkIssue">关联已有问题</a-doption>
+                        <!-- 人工纠正二开分类：自动判定可能误判，人工值优先于后续归因 -->
+                        <a-doption v-if="!record.is_custom" value="markCustom">标记二开</a-doption>
+                        <a-doption v-else value="unmarkCustom">取消二开标记</a-doption>
+                        <a-doption v-if="record.is_custom_manual != null" value="autoCustom">恢复自动判定</a-doption>
                         <!-- 处置：看完之后"不修"或"再观察"要有落点，否则「没人看过」与
                              「看过并决定不处理」在数据上完全一样。 -->
                         <a-doption v-if="canLedgerAction('wontFix', record)" value="wontFix">标记不处理…</a-doption>
@@ -436,7 +455,12 @@
         <a-descriptions-item label="产品线">{{ currentRecord?.product_line || '--' }}</a-descriptions-item>
         <a-descriptions-item label="首次出现">{{ currentRecord?.first_found_week || '--' }}</a-descriptions-item>
         <a-descriptions-item label="最近出现">{{ currentRecord?.last_found_week || '--' }}</a-descriptions-item>
-        <a-descriptions-item label="是否二开">{{ currentRecord?.is_custom ? '是' : '否' }}</a-descriptions-item>
+        <a-descriptions-item label="是否二开">
+          {{ currentRecord?.is_custom ? '是' : '否' }}
+          <span style="color: #86909c; font-size: 12px">
+            {{ currentRecord?.is_custom_manual != null ? '（人工标记）' : '（自动判定）' }}
+          </span>
+        </a-descriptions-item>
         <a-descriptions-item label="是否豁免">{{ currentRecord?.is_exempted ? '是' : '否' }}</a-descriptions-item>
         <a-descriptions-item v-if="currentRecord?.exempt_reason" label="豁免原因" :span="2">{{ currentRecord.exempt_reason }}</a-descriptions-item>
         <a-descriptions-item v-if="currentRecord?.issue_id" label="关联问题单" :span="2">
@@ -1253,6 +1277,49 @@ const handleDiscardSelected = () => {
   })
 }
 
+// ── 人工二开标记 ──────────────────────────────────
+// 人工值写在 is_custom_manual，归因合并优先采用；「恢复自动判定」传 null。
+const customMarking = ref(false)
+const customMarkPayload = ref<{ ids: string[], is_custom: boolean | null }>({ ids: [], is_custom: null })
+const { data: customMarkRes, execute: doCustomMark } = usePost<any>(
+  ApiPerfPatternLedger.setCustom,
+  customMarkPayload,
+  { immediate: false },
+)
+
+async function applyCustomMark(ids: string[], isCustom: boolean | null, doneText: string, clearSelection = true) {
+  if (!ids.length)
+    return
+  customMarkPayload.value = { ids, is_custom: isCustom }
+  customMarking.value = true
+  try {
+    await doCustomMark()
+    if (isRequestFailed(customMarkRes.value))
+      return
+    Message.success(`${doneText} ${customMarkRes.value?.updated ?? ids.length} 条`)
+    if (clearSelection)
+      selectedKeys.value = []
+    await fetchData()
+  }
+  finally {
+    customMarking.value = false
+  }
+}
+
+function handleCustomMarkBatch(key: string) {
+  const ids = selectedKeys.value.map(String)
+  if (!ids.length) {
+    Message.warning('请先勾选台账')
+    return
+  }
+  if (key === 'auto')
+    void applyCustomMark(ids, null, '已恢复自动判定')
+  else if (key === 'true')
+    void applyCustomMark(ids, true, '已标记二开')
+  else
+    void applyCustomMark(ids, false, '已取消二开标记')
+}
+
 const handleExport = async () => {
   const params = new URLSearchParams()
   Object.entries(searchForm).forEach(([key, value]) => { if (value) params.set(key, String(value)) })
@@ -1324,6 +1391,15 @@ const handleMoreAction = (key: string, record: any) => {
       break
     case 'linkIssue':
       openLinkIssue(record)
+      break
+    case 'markCustom':
+      void applyCustomMark([record.id], true, '已标记二开', false)
+      break
+    case 'unmarkCustom':
+      void applyCustomMark([record.id], false, '已取消二开标记', false)
+      break
+    case 'autoCustom':
+      void applyCustomMark([record.id], null, '已恢复自动判定', false)
       break
     case 'logs':
       void handleLogsDownload(record)

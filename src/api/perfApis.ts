@@ -431,6 +431,8 @@ export enum ApiPerfPatternLedger {
   /** 单独下载缺陷报告 md 完整原文（不截断、不含原始日志） */
   reportMdDownload = '/perf/periodic-report/pattern/report-md/download',
   save = '/perf/periodic-report/pattern/save',
+  /** 批量人工标记二开：is_custom=true/false，null=恢复自动判定 */
+  setCustom = '/perf/periodic-report/pattern/set-custom',
   createIssue = '/perf/periodic-report/pattern/create-issue',
   // 追加分析：人工给方向或质疑，AI 复核后判 update / create / reject
   reanalysis = '/perf/periodic-report/pattern/reanalysis',
