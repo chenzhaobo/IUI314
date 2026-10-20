@@ -473,7 +473,7 @@ const formatCondition = (r: any) => {
   if (r.product_domain) parts.push(`产品域:${r.product_domain}`)
   if (r.business_area) parts.push(`业务域:${r.business_area}`)
   if (r.project_group_code) parts.push(`项目组:${r.project_group_code}`)
-  if (r.app_numbers) { try { const apps = JSON.parse(r.app_numbers); if (apps.length) parts.push(apps.join(',')) } catch {} }
+  if (r.app_numbers) { try { const apps = JSON.parse(r.app_numbers); if (apps.length) parts.push(apps.length > 5 ? `应用:${apps.length}个` : apps.join(',')) } catch {} }
   return parts.join(' | ')
 }
 const countFields = (f: string) => { try { return JSON.parse(f).length } catch { return 6 } }
@@ -485,7 +485,7 @@ const formatSchedule = (r: any) => {
   if (r.schedule_type === 'weekly') { const dayMap: Record<string, string> = { MON: '一', TUE: '二', WED: '三', THU: '四', FRI: '五', SAT: '六', SUN: '日' }; return `每周${dayMap[parts[5]] || ''} ${time}` }
   return `每月${parts[2]}日 ${time}`
 }
-const formatApps = (s: string) => { try { const a = JSON.parse(s); return a.length ? a.join(',') : '全部' } catch { return s } }
+const formatApps = (s: string) => { try { const a = JSON.parse(s); return a.length ? (a.length > 5 ? `${a.length}个应用` : a.join(',')) : '全部' } catch { return s } }
 const recordStatusText = (s: string) => ({ pending: '等待中', running: '运行中', success: '成功', failed: '失败', superset_timeout: '超时', cancelled: '已取消' }[s] || s)
 const recordStatusColor = (s: string) => ({ pending: 'gray', running: 'blue', success: 'green', failed: 'red', superset_timeout: 'orangered', cancelled: 'orange' }[s] || 'gray')
 
