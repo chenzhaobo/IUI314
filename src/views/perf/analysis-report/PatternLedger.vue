@@ -335,6 +335,7 @@
                         <a-doption v-if="canLedgerAction('wontFix', record)" value="wontFix">标记不处理…</a-doption>
                         <a-doption v-if="canLedgerAction('observe', record)" value="observing">标记观察</a-doption>
                         <a-doption v-if="canLedgerAction('restore', record)" value="restore">撤回待处置</a-doption>
+                        <a-doption value="flow">流转记录</a-doption>
                         <a-doption value="logs" :disabled="!hasBundle(record)">
                           <a-tooltip :content="bundleTip(record)">
                             <span style="display: inline-block; width: 100%">下载关联文件</span>
@@ -550,6 +551,10 @@
           </a-button>
         </a-space>
       </template>
+    </a-drawer>
+    <!-- 行内「更多 → 流转记录」：与详情底部同一个时间线组件，不用打开整个详情 -->
+    <a-drawer v-model:visible="flowVisible" :width="560" :title="`流转记录 · ${flowRecordNo}`" :footer="false">
+      <FlowTimeline :pattern-id="flowRecordId" :active="flowVisible" :refresh-key="flowRefresh" />
     </a-drawer>
 
     <a-modal v-model:visible="linkIssueVisible" title="关联已有问题跟踪" :width="560" @ok="handleLinkIssue">
@@ -1391,6 +1396,19 @@ const createIssueTip = (record: any): string => {
   return '从完整缺陷报告创建真实问题跟踪'
 }
 
+// 流转记录的刷新键：同一条台账反复打开、或在详情里标记重复后都要重新拉
+const flowRefresh = ref(0)
+// 行内「更多 → 流转记录」抽屉
+const flowVisible = ref(false)
+const flowRecordId = ref('')
+const flowRecordNo = ref('')
+function openFlow(record: { id: string, pattern_no?: string }) {
+  flowRecordId.value = record.id
+  flowRecordNo.value = record.pattern_no || ''
+  flowRefresh.value += 1
+  flowVisible.value = true
+}
+
 // 操作列只保留 详情/更多，动作全部收进下拉。
 const handleMoreAction = (key: string, record: any) => {
   switch (key) {
@@ -1411,6 +1429,9 @@ const handleMoreAction = (key: string, record: any) => {
       break
     case 'autoCustom':
       void applyCustomMark([record.id], null, '已恢复自动判定', false)
+      break
+    case 'flow':
+      openFlow(record)
       break
     case 'logs':
       void handleLogsDownload(record)
@@ -1518,8 +1539,6 @@ function downloadCurrentMd() {
     void downloadReportMd({ pattern: record.id }, record.pattern_no, mdMeta.value?.file)
 }
 
-// 流转记录的刷新键：同一条台账反复打开、或在详情里标记重复后都要重新拉
-const flowRefresh = ref(0)
 const handleDetail = (record: any) => {
   currentRecord.value = record
   flowRefresh.value += 1
