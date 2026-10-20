@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import type { ColumnFilterState } from '@/hooks'
 import type {
   BranchesControlResponse,
   ModuleSummary,
@@ -12,7 +13,6 @@ import type {
   SourceSnapshotRequest,
   WorkerJobReceipt,
 } from '@/types/static-scan'
-import type { ColumnFilterState } from '@/hooks'
 import { Message } from '@arco-design/web-vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import * as XLSX from 'xlsx'
@@ -40,6 +40,7 @@ interface ModuleForm {
   code: string
   status: string
   module_code: string
+  product_line: string
   scrum_team: string
   project_group_id?: string
   product_group: string
@@ -83,6 +84,7 @@ function emptyModuleForm(): ModuleForm {
     code: '',
     status: '可用',
     module_code: '',
+    product_line: '星瀚',
     scrum_team: '',
     project_group_id: undefined,
     product_group: '',
@@ -104,6 +106,7 @@ function toModuleForm(record: ModuleSummary): ModuleForm {
     code: record.code,
     status: record.status,
     module_code: record.module_code,
+    product_line: record.product_line || '星瀚',
     scrum_team: record.scrum_team ?? '',
     project_group_id: record.project_group_id || undefined,
     product_group: record.product_group ?? '',
@@ -131,23 +134,33 @@ async function loadProjectGroups() {
   projectGroupMap.value = new Map(list.map(pg => [pg.id, pg.name]))
 }
 
-async function loadCloudOptions() {
-  const { execute, data } = useGet<string[]>(ApiPerfModule.cloudOptions, {}, { immediate: false })
+async function loadCloudOptions(productLine: string) {
+  const { execute, data } = useGet<string[]>(
+    ApiPerfModule.cloudOptions,
+    { product_line: productLine || undefined },
+    { immediate: false },
+  )
   await execute()
   cloudOptions.value = listOf<string>(data.value)
 }
 
 onMounted(() => {
   void loadProjectGroups()
-  void loadCloudOptions()
+  void loadCloudOptions('')
 })
 
 // ── 列表查询 ──────────────────────────────────────
+const productLineOptions = [
+  { label: '星瀚', value: '星瀚' },
+  { label: '星空', value: '星空' },
+]
+
 const queryParams = ref({
   page_num: 1,
   page_size: 20,
   keyword: '',
   status: '',
+  product_line: '',
   project_group_id: '',
   parent_cloud: '',
   filters: undefined as string | undefined,
@@ -188,6 +201,13 @@ function handleSearch() {
   void getList()
 }
 
+// 产品线变化：所属云选项跟着变，已选的云可能已不在新选项里，一并清掉
+function handleProductLineChange() {
+  queryParams.value.parent_cloud = ''
+  handleSearch()
+  void loadCloudOptions(queryParams.value.product_line)
+}
+
 function handlePageChange(page: number) {
   queryParams.value.page_num = page
   void getList()
@@ -221,6 +241,7 @@ const statusTagColor: Readonly<Record<string, string>> = { 可用: 'green', 禁�
 const columns = computed(() => withTableDefaults([
   { title: '名称', dataIndex: 'name', width: 180, filterable: filterableOf('name') },
   { title: '编码', dataIndex: 'code', width: 130, filterable: filterableOf('code') },
+  { title: '产品线', dataIndex: 'product_line', width: 80 },
   { title: '状态', dataIndex: 'status', width: 80, slotName: 'status' },
   { title: '模块简码', dataIndex: 'module_code', width: 120, filterable: filterableOf('module_code') },
   { title: '关联项目组', dataIndex: 'scrum_team', width: 140, ellipsis: true, tooltip: true, slotName: 'scrum_team' },
@@ -254,7 +275,8 @@ const submitting = ref(false)
 
 function handleAdd() {
   isEdit.value = false
-  form.value = emptyModuleForm()
+  // 默认跟随当前筛选的产品线，避免在星空筛选下新增出星瀚模块
+  form.value = { ...emptyModuleForm(), product_line: queryParams.value.product_line || '星瀚' }
   modalVisible.value = true
 }
 
@@ -322,7 +344,7 @@ async function handleSyncCloud() {
       return
     Message.success(`同步完成：共 ${result.total ?? 0} 条，更新 ${result.updated ?? 0} 条，跳过 ${result.skipped ?? 0} 条，未匹配 ${result.unmatched ?? 0} 条`)
     void getList()
-    void loadCloudOptions()
+    void loadCloudOptions(queryParams.value.product_line)
   }
   finally {
     syncingCloud.value = false
@@ -359,6 +381,7 @@ async function handleFileChange(event: Event) {
       编码: 'code',
       状态: 'status',
       模块简码: 'module_code',
+      产品线: 'product_line',
       关联Scrum团队: 'scrum_team',
       产品领域: 'product_group',
       负责人: 'owner',
@@ -390,6 +413,9 @@ async function handleFileChange(event: Event) {
         module.name = module.module_code
       if (!module.code)
         module.code = module.module_code
+      // Excel 未写产品线时跟随页面当前筛选，避免星空导入默认落成星瀚
+      if (!module.product_line)
+        module.product_line = queryParams.value.product_line || '星瀚'
       modules.push(module)
     }
 
@@ -713,6 +739,15 @@ watch(selectedRelationId, () => void loadBranches())
         </a-col>
       </a-row>
       <a-row :gutter="16" class="m-t-8px">
+        <a-col :span="4">
+          <a-select
+            v-model="queryParams.product_line"
+            :options="productLineOptions"
+            placeholder="产品线"
+            allow-clear
+            @change="handleProductLineChange"
+          />
+        </a-col>
         <a-col :span="6">
           <a-button :loading="syncingCloud" @click="handleSyncCloud">
             <template #icon>
@@ -725,44 +760,44 @@ watch(selectedRelationId, () => void loadBranches())
 
     <a-card :bordered="false">
       <div ref="tableWrap">
-      <a-table
-        column-resizable
-        :loading="isLoading"
-        :data="dataList"
-        :columns="columns"
-        :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true, showPageSize: true }"
-        row-key="id"
-        :scroll="{ y: tableHeight }"
-        @page-change="handlePageChange"
-        @page-size-change="handlePageSizeChange"
-      >
-        <template v-for="key in FILTERABLE_COLUMNS" #[`filter-${key}`] :key="key">
-          <ColumnFilterPanel v-model="columnFilters[key]" @change="onColumnFilterChange" />
-        </template>
-        <template #status="{ record }">
-          <a-tag :color="statusTagColor[record.status] || 'gray'">
-            {{ record.status }}
-          </a-tag>
-        </template>
-        <template #scrum_team="{ record }">
-          {{ projectGroupMap.get(record.project_group_id) || record.scrum_team || '-' }}
-        </template>
-        <template #operations="{ record }">
-          <a-space>
-            <a-button type="text" size="small" @click="openDetail(record)">
-              详情
-            </a-button>
-            <a-button type="text" size="small" @click="handleEdit(record)">
-              编辑
-            </a-button>
-            <a-popconfirm content="确认删除？删除后不可恢复" @ok="handleDelete(record)">
-              <a-button type="text" size="small" status="danger">
-                删除
+        <a-table
+          column-resizable
+          :loading="isLoading"
+          :data="dataList"
+          :columns="columns"
+          :pagination="{ total, current: queryParams.page_num, pageSize: queryParams.page_size, showTotal: true, showPageSize: true }"
+          row-key="id"
+          :scroll="{ y: tableHeight }"
+          @page-change="handlePageChange"
+          @page-size-change="handlePageSizeChange"
+        >
+          <template v-for="key in FILTERABLE_COLUMNS" #[`filter-${key}`] :key="key">
+            <ColumnFilterPanel v-model="columnFilters[key]" @change="onColumnFilterChange" />
+          </template>
+          <template #status="{ record }">
+            <a-tag :color="statusTagColor[record.status] || 'gray'">
+              {{ record.status }}
+            </a-tag>
+          </template>
+          <template #scrum_team="{ record }">
+            {{ projectGroupMap.get(record.project_group_id) || record.scrum_team || '-' }}
+          </template>
+          <template #operations="{ record }">
+            <a-space>
+              <a-button type="text" size="small" @click="openDetail(record)">
+                详情
               </a-button>
-            </a-popconfirm>
-          </a-space>
-        </template>
-      </a-table>
+              <a-button type="text" size="small" @click="handleEdit(record)">
+                编辑
+              </a-button>
+              <a-popconfirm content="确认删除？删除后不可恢复" @ok="handleDelete(record)">
+                <a-button type="text" size="small" status="danger">
+                  删除
+                </a-button>
+              </a-popconfirm>
+            </a-space>
+          </template>
+        </a-table>
       </div>
     </a-card>
 
@@ -781,12 +816,21 @@ watch(selectedRelationId, () => void loadBranches())
           </a-col>
         </a-row>
         <a-row :gutter="16">
-          <a-col :span="12">
+          <a-col :span="8">
             <a-form-item label="模块简码" required>
               <a-input v-model="form.module_code" placeholder="请输入模块简码" />
             </a-form-item>
           </a-col>
-          <a-col :span="12">
+          <a-col :span="8">
+            <a-form-item label="产品线">
+              <a-select v-model="form.product_line">
+                <a-option v-for="option in productLineOptions" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </a-option>
+              </a-select>
+            </a-form-item>
+          </a-col>
+          <a-col :span="8">
             <a-form-item label="状态">
               <a-select v-model="form.status" :options="statusOptions.filter(option => option.value)" />
             </a-form-item>

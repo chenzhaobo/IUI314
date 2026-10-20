@@ -67,6 +67,8 @@ export interface ModuleSummary {
   material_short_code?: string
   material_type?: string
   parent_cloud?: string
+  /** 产品线（星瀚/星空）；存量后端未升级时可能为空 */
+  product_line?: string
 }
 
 export interface RepositoryBindingView {
