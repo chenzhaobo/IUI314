@@ -160,6 +160,8 @@
             </template>
           </a-dropdown>
           <a-button :disabled="!selectedIds.length" @click="openDmp">DMP 编码</a-button>
+          <!-- 撤销转缺陷：误转的单作废、台账退回；已修复 / 已发版的不能撤（后端逐条判定） -->
+          <a-button status="danger" :disabled="!selectedIds.length" @click="openRevoke">撤销转缺陷</a-button>
           <span v-if="selectedIds.length" class="sel-hint">已选 {{ selectedIds.length }} 条</span>
           <!-- 把导出/新增推到右端：它们是全局动作，与左侧的选中行操作分组 -->
           <div class="toolbar-spacer" />
@@ -567,8 +569,8 @@
               <a-option v-for="g in groupOptions" :key="g.value" :value="g.value">{{ g.label }}</a-option>
             </a-select>
           </a-form-item>
-          <a-form-item label="说明">
-            <a-input v-model="claimRemark" placeholder="为什么转交（会记入流转记录）" allow-clear />
+          <a-form-item label="说明" :required="claimRemarkRequired">
+            <a-input v-model="claimRemark" :placeholder="claimRemarkRequired ? '必填：把别人处理中的单转给他人 / 退回已发版的单，要写明原因' : '为什么转交（会记入流转记录）'" allow-clear />
           </a-form-item>
         </a-form>
       </a-modal>
@@ -596,6 +598,19 @@
            原来只有 process_prev_status 存上一步，转交反复发生时看不出谁转给了谁。 -->
       <!-- 流转记录：缺陷流转（建单 / 认领 / 修复 / 发版 / 生产状态 / 复核 / 打回）与所属台账的事件
            合成一条时间线，见 views/perf/components/FlowTimeline.vue（台账详情共用） -->
+      <!-- 处理流转 / 撤销转缺陷的说明框（规则见 processRules.ts，与后端一致） -->
+      <ReasonModal
+        v-model:visible="reasonDialog.visible"
+        :title="reasonDialog.title"
+        :hint="reasonDialog.hint"
+        :label="reasonDialog.label"
+        :placeholder="reasonDialog.placeholder"
+        :ok-text="reasonDialog.okText"
+        :danger="reasonDialog.danger"
+        :required="reasonDialog.required"
+        :submit="reasonDialog.submit"
+      />
+
       <a-drawer v-model:visible="logsVisible" :width="560" title="流转记录" :footer="false">
         <FlowTimeline :issue="logsIssueKey" :active="logsVisible" :refresh-key="logsRefresh" />
       </a-drawer>
@@ -627,11 +642,14 @@ import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import { ApiSysUser } from '@/api/sysApis'
 import { ApiSecProjectGroup } from '@/api/sechubApis'
 import type { ColumnFilterState } from '@/hooks'
-import { emptyFilter, formatTime, isFilterActive, toServerFilters, useDelete, useDicts, useDownload, useGet, usePost, usePut } from '@/hooks'
+import { emptyFilter, formatTime, isFilterActive, isRequestFailed, toServerFilters, useDelete, useDicts, useDownload, useGet, usePost, usePut } from '@/hooks'
 import { planDateHint } from '@/utils/planDate'
 import { splitTag } from '@/views/perf/components/analysisFields'
 import AnalysisWeightCell from '@/views/perf/components/AnalysisWeightCell.vue'
 import FlowTimeline from '@/views/perf/components/FlowTimeline.vue'
+import ReasonModal from '@/views/perf/components/ReasonModal.vue'
+import type { ProcessRow } from '@/views/perf/issue/processRules'
+import { anyRemarkRequired, remarkPrompt } from '@/views/perf/issue/processRules'
 import ImpactBreakdown from '@/views/perf/components/ImpactBreakdown.vue'
 import ImpactCell from '@/views/perf/components/ImpactCell.vue'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
@@ -970,7 +988,79 @@ function onProcessSelect(v: string | number | Record<string, any> | undefined) {
     openWontFix()
     return
   }
-  transition(target)
+  // 结论性推进（已修复 / 已发版 / 已验证）与退回都要写说明；其余也给个备注机会
+  const required = anyRemarkRequired(selectedRows(), target)
+  const prompt = remarkPrompt(target)
+  openReasonDialog({
+    title: `标记为「${processLabel(target)}」（${selectedIds.value.length} 条）`,
+    hint: required ? '' : '可选：补一句说明，会记入流转记录。',
+    label: prompt.label,
+    placeholder: prompt.placeholder,
+    okText: '确认',
+    required,
+    submit: (remark: string) => transition(target, undefined, { remark: remark || undefined }),
+  })
+}
+
+/** 当前勾选的行（处理规则要看每行的处理进度与处理人）。 */
+function selectedRows(): ProcessRow[] {
+  const rows = tableData.value as Array<ProcessRow & { id: string }>
+  return rows.filter(r => selectedIds.value.includes(r.id))
+}
+
+const claimRemarkRequired = computed(() => anyRemarkRequired(selectedRows(), 'claimed', claimOwner.value))
+
+// ── 需要写说明的动作共用一个弹窗 ──
+const reasonDialog = reactive({
+  visible: false,
+  title: '',
+  hint: '',
+  label: '原因',
+  placeholder: '',
+  okText: '确认',
+  danger: false,
+  required: true,
+  submit: async (_reason: string): Promise<boolean> => false,
+})
+function openReasonDialog(opts: { title: string, hint: string, label?: string, placeholder: string, okText: string, danger?: boolean, required?: boolean, submit: (reason: string) => Promise<boolean> }) {
+  Object.assign(reasonDialog, { label: '原因', danger: false, required: true, ...opts, visible: true })
+}
+
+// ── 撤销转缺陷 ──
+// 误转的单作废、台账退回转缺陷前的状态。与「不处理」不同：不处理 = 这个问题不修（进统计），
+// 撤销 = 这张单不该存在。已修复 / 已发版 / 已验证 / 不处理的、手工建的单后端会逐条拒绝并说明。
+const revokePayload = ref<{ ids: string[], reason: string }>({ ids: [], reason: '' })
+const { data: revokeRes, execute: doRevoke } = usePost<{ revoked: number, message: string, results: Array<{ ok: boolean, issue_no?: string, id: string, error?: string }> }>(
+  ApiPerfIssue.revoke,
+  revokePayload,
+  { immediate: false },
+)
+function openRevoke() {
+  if (!selectedIds.value.length)
+    return
+  const ids = [...selectedIds.value]
+  openReasonDialog({
+    title: `撤销转缺陷（${ids.length} 条）`,
+    hint: '撤销后问题单作废（不再出现在问题列表），对应台账退回转缺陷前的状态，可重新处置或再转。\n只有由台账转出、尚未修复 / 发版的单可以撤销。问题本身不修请用「标记不处理」。',
+    placeholder: '例：转错了，这是 P-12045 的重复；或应由基础平台组处理、台账归属有误。',
+    okText: '确认撤销',
+    danger: true,
+    submit: async (reason: string) => {
+      revokePayload.value = { ids, reason }
+      await doRevoke()
+      if (isRequestFailed(revokeRes.value))
+        return false
+      const res = revokeRes.value
+      const failed = (res?.results || []).filter(r => !r.ok)
+      if (failed.length)
+        Message.warning(`${res?.message || ''}：${failed.map(r => `${r.issue_no || r.id}（${r.error || '失败'}）`).join('；')}`)
+      else
+        Message.success(res?.message || '已撤销')
+      selectedIds.value = []
+      await fetchData()
+      return true
+    },
+  })
 }
 
 /** 不处理类型的显示名。库里存的是字典 value（false_positive 这类），
@@ -996,11 +1086,12 @@ async function submitWontFix() {
   }
   claimLoading.value = true
   try {
-    await transition('wont_fix', undefined, {
+    const ok = await transition('wont_fix', undefined, {
       wontfix_type: wontFixType.value,
       remark: wontFixReason.value.trim(),
     })
-    wontFixVisible.value = false
+    if (ok)
+      wontFixVisible.value = false
   }
   finally {
     claimLoading.value = false
@@ -1012,10 +1103,15 @@ async function submitClaim() {
     Message.warning('请填写处理人')
     return
   }
+  if (claimRemarkRequired.value && !claimRemark.value.trim()) {
+    Message.warning('把别人处理中的缺陷转给他人（或退回已发版的缺陷）时必须写明原因')
+    return
+  }
   claimLoading.value = true
   try {
-    await transition('claimed', claimOwner.value.trim())
-    claimVisible.value = false
+    const ok = await transition('claimed', claimOwner.value.trim())
+    if (ok)
+      claimVisible.value = false
   }
   finally {
     claimLoading.value = false
@@ -1025,9 +1121,9 @@ async function submitClaim() {
 const transitionLoading = ref(false)
 
 /** 内部状态流转。不校验先后顺序 —— 实际会有「直接标已修复」「退回修复中」。 */
-async function transition(target: string, owner?: string, extra?: Record<string, unknown>) {
+async function transition(target: string, owner?: string, extra?: Record<string, unknown>): Promise<boolean> {
   if (!selectedIds.value.length)
-    return
+    return false
   transitionLoading.value = true
   try {
     const { data, execute } = usePost<{ updated: number, message: string }>(
@@ -1045,9 +1141,13 @@ async function transition(target: string, owner?: string, extra?: Record<string,
       { immediate: false },
     )
     await execute()
+    // 后端会拒绝缺说明的流转：失败时拦截器已提示，这里不能再报「已更新」
+    if (isRequestFailed(data.value))
+      return false
     Message.success(data.value?.message || '已更新')
     selectedIds.value = []
     await fetchData()
+    return true
   }
   finally {
     transitionLoading.value = false

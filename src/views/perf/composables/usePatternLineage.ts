@@ -30,6 +30,7 @@ interface ReportMdResult {
 interface DuplicatePayload {
   pattern: string
   master?: string
+  reason?: string
 }
 
 export interface TagMeta {
@@ -161,11 +162,11 @@ export function usePatternLineage() {
   const marking = ref(false)
   const { data: markRes, execute: doMark } = usePost<unknown>(ApiPerfPatternLedger.markDuplicate, duplicatePayload, { immediate: false })
 
-  /** master 为空表示取消重复。成功返回 true（调用方据此刷新列表）。 */
-  async function markDuplicate(pattern: string, master?: string): Promise<boolean> {
+  /** master 为空表示取消重复（取消时 reason 必填）。成功返回 true（调用方据此刷新列表）。 */
+  async function markDuplicate(pattern: string, master?: string, reason?: string): Promise<boolean> {
     if (!pattern.trim())
       return false
-    duplicatePayload.value = { pattern: pattern.trim(), master: master?.trim() || undefined }
+    duplicatePayload.value = { pattern: pattern.trim(), master: master?.trim() || undefined, reason: reason?.trim() || undefined }
     marking.value = true
     try {
       await doMark()

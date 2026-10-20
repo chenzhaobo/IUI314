@@ -35,10 +35,12 @@ const emit = defineEmits<{ changed: [] }>()
 const { lineage, loading, load, reset, versionVisible, versionLoading, versionFile, versionMarkdown, versionReason, viewVersion, marking, markDuplicate } = usePatternLineage()
 
 const masterNo = ref('')
+const dupReason = ref('')
 
 const trigger = computed(() => ({ patternId: props.patternId, issue: props.issue, active: props.active }))
 watch(trigger, (next) => {
   masterNo.value = ''
+  dupReason.value = ''
   if (!next.active) {
     reset()
     return
@@ -55,8 +57,9 @@ const hasContent = computed(() => {
 
 async function onMark(master?: string) {
   const key = props.patternId || lineage.value?.pattern_no || ''
-  if (await markDuplicate(key, master)) {
+  if (await markDuplicate(key, master, dupReason.value)) {
     masterNo.value = ''
+    dupReason.value = ''
     emit('changed')
   }
 }
@@ -116,12 +119,14 @@ async function onMark(master?: string) {
 
         <div v-if="editable" class="lineage-row" style="margin-top: 10px">
           <template v-if="isDuplicate">
-            <a-button size="small" :loading="marking" @click="onMark()">
+            <a-input v-model="dupReason" size="small" style="width: 320px" placeholder="取消原因（必填）：为什么和主台账不是同一个问题" allow-clear />
+            <a-button size="small" :loading="marking" :disabled="!dupReason.trim()" @click="onMark()">
               取消重复标记
             </a-button>
           </template>
           <template v-else>
             <a-input v-model="masterNo" size="small" style="width: 220px" placeholder="主台账编号，如 P-12045" allow-clear />
+            <a-input v-model="dupReason" size="small" style="width: 220px" placeholder="说明（可选）" allow-clear />
             <a-button size="small" :loading="marking" :disabled="!masterNo.trim()" @click="onMark(masterNo)">
               标记为该台账的重复
             </a-button>

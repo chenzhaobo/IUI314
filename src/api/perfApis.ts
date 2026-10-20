@@ -328,6 +328,8 @@ export enum ApiPerfIssue {
   processTransition = '/perf/issue/process-transition',
   // 流转记录：替代原来只显示当前状态，能看出经手链条
   processLogs = '/perf/issue/process-logs',
+  /** 撤销转缺陷：问题单作废、台账退回转缺陷前的状态（原因必填） */
+  revoke = '/perf/issue/revoke',
   delete = '/perf/issue/delete',
   stats = '/perf/issue/stats',
   export = '/perf/issue/export',

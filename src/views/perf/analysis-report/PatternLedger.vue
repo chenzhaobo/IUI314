@@ -124,7 +124,7 @@
              废弃   = 这条分析不该存在（从指纹匹配里移除）。 -->
         <a-tooltip :content="batchHint('wontFix')" :disabled="toolbarCount('wontFix') > 0">
           <span class="toolbar-btn">
-            <a-button type="outline" status="warning" :loading="triaging" :disabled="toolbarCount('wontFix') === 0" @click="openTriageBatch">
+            <a-button type="outline" status="warning" :loading="triaging" :disabled="toolbarCount('wontFix') === 0" @click="openTriageBatch('wont_fix')">
               不处理{{ countSuffix(toolbarCount('wontFix')) }}
             </a-button>
           </span>
@@ -614,6 +614,10 @@
             <a-option v-for="a in areaOptions" :key="a" :value="a">{{ a }}</a-option>
           </a-select>
         </a-form-item>
+        <!-- 归属决定问题分给哪个团队，改了要能追到为什么（进流转记录） -->
+        <a-form-item label="修改原因" required>
+          <a-input v-model="editForm.reason" placeholder="例：公共服务被归到调用方，实际归属基础平台组" allow-clear :max-length="200" />
+        </a-form-item>
       </a-form>
     </a-modal>
 
@@ -622,25 +626,34 @@
          只能重新调研一遍，正是这套治理想省掉的成本。 -->
     <a-modal
       v-model:visible="triageVisible"
-      :title="`标记不处理（${triageIds.length} 条）`"
+      :title="`${triageMeta.title}（${triageIds.length} 条）`"
       :width="560"
       :ok-loading="triaging"
-      ok-text="确认不处理"
-      @ok="submitWontFix"
+      :ok-text="triageMeta.okText"
+      @ok="submitTriageWithReason"
     >
       <a-alert type="normal" style="margin-bottom: 12px">
-        「不处理」表示<strong>这条分析是对的，但这个问题判断不修</strong>；台账仍进报告与统计。
-        如果是<strong>分析本身质量差</strong>（结论错、证据不成立），请用「废弃」——
-        那会把它从后续指纹匹配里移除。
+        {{ triageMeta.hint }}
       </a-alert>
       <a-textarea
         v-model="triageReason"
         :auto-size="{ minRows: 3, maxRows: 6 }"
-        placeholder="例：已确认耗时来自客户单据量（单次 12 万成员），当前版本无优化空间，已与业务确认可接受。"
+        :placeholder="triageMeta.placeholder"
         :max-length="200"
         show-word-limit
       />
     </a-modal>
+
+    <!-- 废弃 / 人工标记二开：同样要写依据（见 ReasonModal） -->
+    <ReasonModal
+      v-model:visible="reasonDialog.visible"
+      :title="reasonDialog.title"
+      :hint="reasonDialog.hint"
+      :placeholder="reasonDialog.placeholder"
+      :ok-text="reasonDialog.okText"
+      :danger="reasonDialog.danger"
+      :submit="reasonDialog.submit"
+    />
 
     <!-- 转缺陷：必填计划完成时间（缺陷要有治理计划） -->
     <CreateIssueModal
@@ -648,6 +661,8 @@
       :title="createIssueDialog.title"
       :lines="createIssueDialog.lines"
       :ok-text="createIssueDialog.okText"
+      :group-options="groupOptions"
+      :default-group="createIssueDialog.defaultGroup"
       :submit="submitCreateIssue"
     />
   </div>
@@ -657,7 +672,7 @@
 import type { LedgerAction } from '@/views/perf/analysis-report/ledgerActions'
 import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Message, Modal } from '@arco-design/web-vue'
+import { Message } from '@arco-design/web-vue'
 import { useDebounceFn } from '@vueuse/core'
 import { ApiPerfApp, ApiPerfIssue, ApiPerfPatternLedger } from '@/api/perfApis'
 import { ApiSecProjectGroup } from '@/api/sechubApis'
@@ -668,10 +683,12 @@ import { batchActionHint, canLedgerAction, filterActionable, ledgerStateOf } fro
 import { MdPreview } from 'md-editor-v3'
 // 必须导入样式，否则 MdPreview 渲染出来没有任何格式（表格无边框、标题不分级）
 import 'md-editor-v3/lib/style.css'
+import type { CreateIssueChoice } from '@/views/perf/analysis-report/CreateIssueModal.vue'
 import CreateIssueModal from '@/views/perf/analysis-report/CreateIssueModal.vue'
 import { splitTag } from '@/views/perf/components/analysisFields'
 import AnalysisWeightCell from '@/views/perf/components/AnalysisWeightCell.vue'
 import FlowTimeline from '@/views/perf/components/FlowTimeline.vue'
+import ReasonModal from '@/views/perf/components/ReasonModal.vue'
 import ImpactBreakdown from '@/views/perf/components/ImpactBreakdown.vue'
 import ImpactCell from '@/views/perf/components/ImpactCell.vue'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
@@ -1097,7 +1114,7 @@ const appOptions = computed(() => {
 
 // ── 批量修改归属 ──────────────────────────────────────
 const editVisible = ref(false)
-const editForm = reactive({ project_group_code: '', app_number: '', business_area: '' })
+const editForm = reactive({ project_group_code: '', app_number: '', business_area: '', reason: '' })
 /** 本次会跳过几条（勾选集合里已提单的行）—— 提交后一并报给用户 */
 const editSkipped = ref(0)
 
@@ -1109,6 +1126,7 @@ const onEditGroupChange = (code: unknown) => {
 }
 
 const openEditAttribution = () => {
+  editForm.reason = ''
   const rows = actionableRows('edit')
   // 单选时用当前值预填，批量时留空（避免把不同的值统一覆盖成第一条的值）
   if (rows.length === 1) {
@@ -1132,6 +1150,7 @@ const editPayload = computed(() => {
   if (editForm.project_group_code.trim()) body.project_group_code = editForm.project_group_code.trim()
   if (editForm.app_number.trim()) body.app_number = editForm.app_number.trim()
   if (editForm.business_area.trim()) body.business_area = editForm.business_area.trim()
+  body.reason = editForm.reason.trim()
   return body
 })
 const { data: editRes, execute: doEdit } = usePost<any>(
@@ -1143,6 +1162,10 @@ const { data: editRes, execute: doEdit } = usePost<any>(
 const handleEditSubmit = async () => {
   if (!editForm.project_group_code.trim() && !editForm.app_number.trim() && !editForm.business_area.trim()) {
     Message.warning('请至少填写一个要修改的字段')
+    return
+  }
+  if (!editForm.reason.trim()) {
+    Message.warning('请写明修改原因 —— 归属决定问题分给哪个团队，改了要能追到为什么')
     return
   }
   await doEdit()
@@ -1178,21 +1201,51 @@ const triageIds = ref<string[]>([])
 /** 本次会跳过几条（勾选集合里不可操作的行）—— 提交后一并报给用户 */
 const triageSkipped = ref(0)
 
-/** 打开「不处理」弹窗 —— 只有它需要填原因，观察与撤回直接提交。 */
-function openTriage(record: any) {
+/** 三种处置都要写原因：不处理写为什么不修，观察写观察什么，撤回写为什么推翻原判断。 */
+type TriageTarget = 'wont_fix' | 'observing' | 'new'
+const triageStatus = ref<TriageTarget>('wont_fix')
+const TRIAGE_META: Record<TriageTarget, { title: string, okText: string, hint: string, placeholder: string, action: LedgerAction }> = {
+  wont_fix: {
+    title: '标记不处理',
+    okText: '确认不处理',
+    hint: '「不处理」表示这条分析是对的，但这个问题判断不修；台账仍进报告与统计。如果是分析本身质量差（结论错、证据不成立），请用「废弃」—— 那会把它从后续指纹匹配里移除。',
+    placeholder: '例：已确认耗时来自客户单据量（单次 12 万成员），当前版本无优化空间，已与业务确认可接受。',
+    action: 'wontFix',
+  },
+  observing: {
+    title: '标记观察',
+    okText: '确认观察',
+    hint: '「观察」表示看过了、等下一轮数据再决定。写清楚观察什么、看到什么结果再转缺陷或不处理 —— 否则下一轮没人知道该看什么。',
+    placeholder: '例：客户本周有月结批量，下周一看月结后是否仍超 3 秒，仍超则转缺陷。',
+    action: 'observe',
+  },
+  new: {
+    title: '撤回待处置',
+    okText: '确认撤回',
+    hint: '撤回会清掉原处置人与处置结论，台账回到待处置队列。推翻别人的判断要留下依据。',
+    placeholder: '例：原判「客户数据量」不成立，同表单其他客户也慢，需要重新评估。',
+    action: 'restore',
+  },
+}
+const triageMeta = computed(() => TRIAGE_META[triageStatus.value])
+
+function openTriage(record: any, status: TriageTarget = 'wont_fix') {
+  triageStatus.value = status
   triageIds.value = [record.id]
   triageSkipped.value = 0
   triageReason.value = ''
   triageVisible.value = true
 }
 
-/** 批量「不处理」：只把**可操作的行**带进弹窗，其余在提交结果里报跳过。 */
-function openTriageBatch() {
-  const rows = actionableRows('wontFix')
+/** 批量处置：只把**可操作的行**带进弹窗，其余在提交结果里报跳过。 */
+function openTriageBatch(status: TriageTarget = 'wont_fix') {
+  const action = TRIAGE_META[status].action
+  const rows = actionableRows(action)
   if (!rows.length) {
-    Message.warning(batchHint('wontFix'))
+    Message.warning(batchHint(action))
     return
   }
+  triageStatus.value = status
   triageIds.value = rows.map((r: any) => r.id)
   triageSkipped.value = selectedRows.value.length - rows.length
   triageReason.value = ''
@@ -1219,38 +1272,42 @@ async function submitTriage(ids: string[], status: string, reason?: string, skip
   }
 }
 
-async function submitWontFix() {
+async function submitTriageWithReason() {
   const reason = triageReason.value.trim()
   if (!reason) {
-    Message.warning('请写明不处理的原因 —— 否则下一轮判出同一问题时没人知道当初为什么放过它')
+    Message.warning(`请写明${triageMeta.value.title}的原因`)
     return
   }
-  await submitTriage(triageIds.value, 'wont_fix', reason, triageSkipped.value)
+  await submitTriage(triageIds.value, triageStatus.value, reason, triageSkipped.value)
 }
 
-/** 批量观察：不需要原因，直接提交（与行内「标记观察」同一个动作）。 */
+/** 批量观察：同样要写观察什么（与行内「标记观察」同一个弹窗）。 */
 function handleObserveSelected() {
-  const rows = actionableRows('observe')
-  if (!rows.length) {
-    Message.warning(batchHint('observe'))
-    return
-  }
-  void submitTriage(rows.map((r: any) => r.id), 'observing', undefined, selectedRows.value.length - rows.length)
+  openTriageBatch('observing')
 }
 
-/** 批量撤回待处置：回到待处置队列，处置人与原因一并清掉（见后端 triage）。 */
+/** 批量撤回待处置：回到待处置队列，处置人一并清掉；撤回原因进流转记录。 */
 function handleRestoreSelected() {
-  const rows = actionableRows('restore')
-  if (!rows.length) {
-    Message.warning(batchHint('restore'))
-    return
-  }
-  void submitTriage(rows.map((r: any) => r.id), 'new', undefined, selectedRows.value.length - rows.length)
+  openTriageBatch('new')
+}
+
+// ── 需要写依据的其它动作（废弃 / 人工标记二开）共用一个原因弹窗 ──
+const reasonDialog = reactive({
+  visible: false,
+  title: '',
+  hint: '',
+  placeholder: '',
+  okText: '确认',
+  danger: false,
+  submit: async (_reason: string): Promise<boolean> => false,
+})
+function openReasonDialog(opts: { title: string, hint: string, placeholder: string, okText: string, danger?: boolean, submit: (reason: string) => Promise<boolean> }) {
+  Object.assign(reasonDialog, { danger: false, ...opts, visible: true })
 }
 
 // ── 批量废弃 ──────────────────────────────────────
 const discarding = ref(false)
-const discardPayload = ref<{ ids: string[] }>({ ids: [] })
+const discardPayload = ref<{ ids: string[], reason?: string }>({ ids: [] })
 const { data: discardRes, execute: doDiscard } = usePost<any>(
   ApiPerfPatternLedger.discard,
   discardPayload,
@@ -1265,28 +1322,30 @@ const handleDiscardSelected = () => {
   }
   const ids = rows.map((r: any) => r.id)
   const skipped = selectedRows.value.length - rows.length
-  Modal.warning({
-    title: `确认废弃 ${ids.length} 条问题台账？`,
-    content: [
-      '废弃后这些台账将从列表、统计、报告和影响面计算中排除，后续归因也不会再匹配它们；同一根因再次出现时会重新创建台账。',
-      '已生成的问题单不会随台账删除。',
-      '页面不提供恢复入口，请确认选中的确是低质量历史台账。',
+  openReasonDialog({
+    title: `废弃 ${ids.length} 条问题台账`,
+    hint: [
+      '废弃 = 这条分析结论不该存在（结论错、证据不成立）。废弃后将从列表、统计、报告和影响面计算中排除，后续归因也不会再匹配；同一根因再次出现时会重新创建台账。',
+      '已生成的问题单不会随台账删除；页面不提供恢复入口。',
+      '如果分析是对的、只是不修，请用「标记不处理」。',
       skippedNote(skipped).replace('，', ''),
     ].filter(Boolean).join('\n'),
+    placeholder: '例：归因把框架通用方法当成根因，实际慢点在客户插件，结论不成立。',
     okText: '确认废弃',
-    cancelText: '取消',
-    okButtonProps: { status: 'danger' },
-    onOk: async () => {
+    danger: true,
+    submit: async (reason: string) => {
       discarding.value = true
       try {
-        discardPayload.value = { ids }
+        discardPayload.value = { ids, reason }
         await doDiscard()
-        if (isRequestFailed(discardRes.value)) return false
+        if (isRequestFailed(discardRes.value))
+          return false
         Message.success(`${discardRes.value?.message || `已废弃 ${discardRes.value?.discarded ?? ids.length} 条台账`}${skippedNote(skipped)}`)
         selectedKeys.value = []
         await fetchData()
         return true
-      } finally {
+      }
+      finally {
         discarding.value = false
       }
     },
@@ -1296,30 +1355,46 @@ const handleDiscardSelected = () => {
 // ── 人工二开标记 ──────────────────────────────────
 // 人工值写在 is_custom_manual，归因合并优先采用；「恢复自动判定」传 null。
 const customMarking = ref(false)
-const customMarkPayload = ref<{ ids: string[], is_custom: boolean | null }>({ ids: [], is_custom: null })
+const customMarkPayload = ref<{ ids: string[], is_custom: boolean | null, reason?: string }>({ ids: [], is_custom: null })
 const { data: customMarkRes, execute: doCustomMark } = usePost<any>(
   ApiPerfPatternLedger.setCustom,
   customMarkPayload,
   { immediate: false },
 )
 
-async function applyCustomMark(ids: string[], isCustom: boolean | null, doneText: string, clearSelection = true) {
-  if (!ids.length)
-    return
-  customMarkPayload.value = { ids, is_custom: isCustom }
+async function submitCustomMark(ids: string[], isCustom: boolean | null, doneText: string, clearSelection: boolean, reason?: string): Promise<boolean> {
+  customMarkPayload.value = { ids, is_custom: isCustom, reason }
   customMarking.value = true
   try {
     await doCustomMark()
     if (isRequestFailed(customMarkRes.value))
-      return
+      return false
     Message.success(`${doneText} ${customMarkRes.value?.updated ?? ids.length} 条`)
     if (clearSelection)
       selectedKeys.value = []
     await fetchData()
+    return true
   }
   finally {
     customMarking.value = false
   }
+}
+
+/** 人工标记 / 取消二开是推翻自动判定，要写依据；恢复自动判定直接提交。 */
+function applyCustomMark(ids: string[], isCustom: boolean | null, doneText: string, clearSelection = true) {
+  if (!ids.length)
+    return
+  if (isCustom === null) {
+    void submitCustomMark(ids, null, doneText, clearSelection)
+    return
+  }
+  openReasonDialog({
+    title: `${isCustom ? '标记二开' : '取消二开标记'}（${ids.length} 条）`,
+    hint: '人工标记会覆盖自动判定（标准表单目录 + AI 判断），之后的归因也以人工值为准。写清依据，方便别人复核。',
+    placeholder: isCustom ? '例：慢点在客户插件 kd.cus.xxx.ExportPlugin，标品代码不慢。' : '例：慢点在标品 kd.bos.xxx，客户插件只是调用方。',
+    okText: '确认',
+    submit: (reason: string) => submitCustomMark(ids, isCustom, doneText, clearSelection, reason),
+  })
 }
 
 function handleCustomMarkBatch(key: string) {
@@ -1443,10 +1518,10 @@ const handleMoreAction = (key: string, record: any) => {
       openTriage(record)
       break
     case 'observing':
-      void submitTriage([record.id], 'observing')
+      openTriage(record, 'observing')
       break
     case 'restore':
-      void submitTriage([record.id], 'new')
+      openTriage(record, 'new')
       break
     default:
       break
@@ -1619,10 +1694,16 @@ function reportCreateIssueResult(data: any) {
   Message.success(okText || '转缺陷完成')
 }
 
-async function performCreateIssue(ids: string[], confirmEvidenceInsufficient: boolean, planDate: string) {
+async function performCreateIssue(ids: string[], confirmEvidenceInsufficient: boolean, choice: CreateIssueChoice) {
   converting.value = true
   try {
-    createIssuePayload.value = { ids, confirm_evidence_insufficient: confirmEvidenceInsufficient, plan_date: planDate }
+    createIssuePayload.value = {
+      ids,
+      confirm_evidence_insufficient: confirmEvidenceInsufficient,
+      plan_date: choice.planDate,
+      project_group_code: choice.projectGroupCode || undefined,
+      process_owner: choice.processOwner || undefined,
+    }
     await doCreateIssue()
     // usePost 不支持 onSuccess，必须在这里判结果
     if (isRequestFailed(createIssueResult.value))
@@ -1638,11 +1719,17 @@ async function performCreateIssue(ids: string[], confirmEvidenceInsufficient: bo
 }
 
 // 转缺陷确认框（含必填的计划完成时间，见 CreateIssueModal）
-const createIssueDialog = reactive({ visible: false, title: '', lines: [] as string[], okText: '', ids: [] as string[], insufficient: false })
-function openCreateIssueDialog(opts: { title: string, lines: string[], okText: string, ids: string[], insufficient: boolean }) {
-  Object.assign(createIssueDialog, opts, { visible: true })
+const createIssueDialog = reactive({ visible: false, title: '', lines: [] as string[], okText: '', ids: [] as string[], insufficient: false, defaultGroup: '' })
+/** 默认项目组：所选台账都属同一个项目组就带出它，各不相同则留空（各自沿用）。 */
+function commonGroup(rows: any[]): string {
+  const groups = new Set(rows.map((r: any) => String(r.project_group_code || '')))
+  return groups.size === 1 ? [...groups][0] : ''
 }
-const submitCreateIssue = (planDate: string) => performCreateIssue(createIssueDialog.ids, createIssueDialog.insufficient, planDate)
+function openCreateIssueDialog(opts: { title: string, lines: string[], okText: string, ids: string[], insufficient: boolean, rows: any[] }) {
+  const { rows, ...rest } = opts
+  Object.assign(createIssueDialog, rest, { defaultGroup: commonGroup(rows), visible: true })
+}
+const submitCreateIssue = (choice: CreateIssueChoice) => performCreateIssue(createIssueDialog.ids, createIssueDialog.insufficient, choice)
 
 /** 行内「转缺陷…」：单条，走同一个批量接口（ids 只有一条）。 */
 function handleCreateIssue(record: any) {
@@ -1663,6 +1750,7 @@ function handleCreateIssue(record: any) {
     okText: insufficient ? '确认待补证转缺陷' : '确认转缺陷',
     ids: [record.id],
     insufficient,
+    rows: [record],
   })
 }
 
@@ -1696,6 +1784,7 @@ function handleCreateIssueBatch() {
     okText: '确认转缺陷',
     ids: targets.map((r: any) => r.id),
     insufficient: insufficient > 0,
+    rows: targets,
   })
 }
 
