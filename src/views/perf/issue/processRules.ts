@@ -48,3 +48,17 @@ export function remarkPrompt(target: string): { label: string, placeholder: stri
       return { label: '说明', placeholder: '会记入流转记录' }
   }
 }
+
+/** 处理进度的显示标签与颜色（与问题列表「处理进度」列同口径）；空值 = 还没转交。 */
+const PROCESS_DISPLAY: Record<string, { label: string, color: string }> = {
+  claimed: { label: '已认领', color: 'blue' },
+  fixing: { label: '修复中', color: 'orange' },
+  fixed: { label: '已修复', color: 'cyan' },
+  released: { label: '已发版', color: 'green' },
+  verified: { label: '已验证', color: 'green' },
+  wont_fix: { label: '不处理', color: 'gray' },
+}
+
+export function processDisplay(status?: string | null): { label: string, color: string } {
+  return PROCESS_DISPLAY[String(status || '')] ?? { label: '未转交', color: 'red' }
+}

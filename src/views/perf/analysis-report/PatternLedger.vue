@@ -188,7 +188,7 @@
           <!-- 表格 -->
           <div ref="tableWrap" class="table-fill">
           <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange"
- @page-size-change="handlePageSizeChange" row-key="id" column-resizable :scroll="{ minWidth: 1800, y: tableHeight }"
+ @page-size-change="handlePageSizeChange" row-key="id" column-resizable :scroll="{ minWidth: 1970, y: tableHeight }"
  v-model:selected-keys="selectedKeys" :row-selection="rowSelection" @sorter-change="handleSorterChange"
  @filter-change="onEnumFilterChange">
             <template #columns>
@@ -269,6 +269,12 @@
               <a-table-column title="状态" data-index="status" :width="90" :filterable="enumFilterable(statusFilterOptions, searchForm.status)">
                 <template #cell="{ record }">
                   <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
+                </template>
+              </a-table-column>
+              <!-- 缺陷进度：台账是结论、缺陷是承诺，不合并；这里只带出关联缺陷的处理人 / 计划日期 / 逾期 -->
+              <a-table-column title="缺陷进度" :width="170">
+                <template #cell="{ record }">
+                  <IssueProgressCell :progress="record.issue_progress" @open="gotoIssue" />
                 </template>
               </a-table-column>
               <a-table-column title="二开" data-index="is_custom" :width="96" :filterable="enumFilterable(isCustomFilterOptions, searchForm.is_custom)">
@@ -691,6 +697,7 @@ import FlowTimeline from '@/views/perf/components/FlowTimeline.vue'
 import ReasonModal from '@/views/perf/components/ReasonModal.vue'
 import ImpactBreakdown from '@/views/perf/components/ImpactBreakdown.vue'
 import ImpactCell from '@/views/perf/components/ImpactCell.vue'
+import IssueProgressCell from '@/views/perf/components/IssueProgressCell.vue'
 import IssueScopeTree from '@/views/perf/components/IssueScopeTree.vue'
 import PatternLineage from '@/views/perf/components/PatternLineage.vue'
 import PatternReanalysis from '@/views/perf/components/PatternReanalysis.vue'

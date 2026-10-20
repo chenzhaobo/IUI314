@@ -456,6 +456,18 @@ export enum ApiPerfPatternLedger {
   flow = '/perf/periodic-report/pattern/flow',
 }
 
+// ── 达标治理（项目组治理看板 / 方案初稿 / 周报推送） ──────────────
+export enum ApiPerfGovernance {
+  board = '/perf/governance/board',
+  plan = '/perf/governance/plan',
+  /** 方案初稿 markdown 下载 */
+  planDownload = '/perf/governance/plan/download',
+  /** 周报预览（不发送） */
+  pushPreview = '/perf/governance/push-preview',
+  /** 立即推给指定的一个项目组 */
+  pushSend = '/perf/governance/push-send',
+}
+
 // ── Agent 自主诊断 ──────────────────────────────────────
 export enum ApiPerfDiagnosisAgent {
   tasks = '/perf/diagnosis-agent/task',
