@@ -478,6 +478,40 @@ async function handleSave() {
 //  删除
 // ═══════════════════════════════════════════════════════════
 const deletingId = ref('')
+const selectedKeys = ref<string[]>([])
+const rowSelection = { type: 'checkbox' as const, showCheckedAll: true }
+const batchDeleting = ref(false)
+
+/** 列表当前是全量加载（无分页），selectedKeys 直接就是勾选的任务 id。 */
+function handleBatchDelete() {
+  const ids = selectedKeys.value.map(String)
+  if (!ids.length) {
+    Message.warning('请先勾选要删除的任务')
+    return
+  }
+  Modal.warning({
+    title: `确认删除 ${ids.length} 个定时扫描任务`,
+    content: `将删除选中的 ${ids.length} 个任务及其执行记录。\n\n`
+      + '不会影响扫描运行那边的数据（预扫描运行、候选列表与报告均保留）。此操作不可恢复。',
+    hideCancel: false,
+    okText: '批量删除',
+    okButtonProps: { status: 'danger' },
+    onOk: async () => {
+      batchDeleting.value = true
+      try {
+        const res = await postAction<string>(ApiSecPrescan.taskBatchDelete, { ids })
+        if (!res)
+          return
+        Message.success(String(res))
+        selectedKeys.value = []
+        await loadList()
+      }
+      finally {
+        batchDeleting.value = false
+      }
+    },
+  })
+}
 
 function handleDelete(record: PrescanTaskRow) {
   Modal.warning({
@@ -496,6 +530,7 @@ function handleDelete(record: PrescanTaskRow) {
         // 后端 delete_task 软删，返回被删除的任务 id 字符串
         const msg = String(res)
         Message.success(msg.includes(record.id) ? `任务「${record.name}」已删除` : msg)
+        selectedKeys.value = selectedKeys.value.filter(id => id !== record.id)
         await loadList()
       }
       finally {
@@ -657,6 +692,17 @@ const columns = withTableDefaults([
           </template>
           刷新
         </a-button>
+        <a-button
+          status="danger"
+          :disabled="selectedKeys.length === 0"
+          :loading="batchDeleting"
+          @click="handleBatchDelete"
+        >
+          <template #icon>
+            <icon-delete />
+          </template>
+          批量删除{{ selectedKeys.length ? ` (${selectedKeys.length})` : '' }}
+        </a-button>
         <a-typography-text type="secondary">
           共 {{ rows.length }} 条
         </a-typography-text>
@@ -673,6 +719,8 @@ const columns = withTableDefaults([
           :loading="listLoading"
           :pagination="false"
           row-key="id"
+          v-model:selected-keys="selectedKeys"
+          :row-selection="rowSelection"
           :scroll="{ minWidth: 1800, y: tableHeight }"
           size="small"
         >

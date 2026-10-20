@@ -322,6 +322,8 @@ export enum ApiSecPrescan {
   taskAdd = '/sechub/prescan/task-add',
   taskEdit = '/sechub/prescan/task-edit',
   taskDelete = '/sechub/prescan/task-delete',
+  /** 批量删除定时扫描任务（软删任务 + 硬删执行记录，不动扫描运行数据） */
+  taskBatchDelete = '/sechub/prescan/task-batch-delete',
   taskTrigger = '/sechub/prescan/task-trigger',
   taskRecords = '/sechub/prescan/task-records',
   runDelete = '/sechub/prescan/run-delete',
