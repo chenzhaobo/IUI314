@@ -345,6 +345,31 @@ const columns = computed(() => withTableDefaults([
 // ===== 过滤条件 =====
 const keyword = ref('')
 const statusFilter = ref('')
+const productDomainFilter = ref('')
+const businessAreaFilter = ref('')
+
+// 产品领域 / 业务领域选项：来自当前仓库绑定数据；业务领域随产品领域级联收窄
+const productDomainOptions = computed(() => {
+  const seen = new Set<string>()
+  for (const r of rows.value) {
+    const v = (r.product_domain ?? '').trim()
+    if (v)
+      seen.add(v)
+  }
+  return [...seen].sort((a, b) => a.localeCompare(b, 'zh-CN'))
+})
+
+const businessAreaOptions = computed(() => {
+  const seen = new Set<string>()
+  for (const r of rows.value) {
+    if (productDomainFilter.value && (r.product_domain ?? '').trim() !== productDomainFilter.value)
+      continue
+    const v = (r.business_area ?? '').trim()
+    if (v)
+      seen.add(v)
+  }
+  return [...seen].sort((a, b) => a.localeCompare(b, 'zh-CN'))
+})
 
 /**
  * 顶部关键字：一次覆盖「模块名称/简码 + 仓库名称/编码 + Git URL」。
@@ -353,8 +378,12 @@ const statusFilter = ref('')
  * 搜 `ssc` 之类的简码搜不到东西。列头筛选是精确定位某一列，
  * 顶部关键字是"不确定在哪一列"时的粗筛，两者互补。
  */
-const filteredRows = computed(() => {
+const queryFilteredRows = computed(() => {
   let list = rows.value
+  if (productDomainFilter.value)
+    list = list.filter(r => (r.product_domain ?? '').trim() === productDomainFilter.value)
+  if (businessAreaFilter.value)
+    list = list.filter(r => (r.business_area ?? '').trim() === businessAreaFilter.value)
   if (statusFilter.value)
     list = list.filter(r => r.status === statusFilter.value)
 
@@ -367,7 +396,49 @@ const filteredRows = computed(() => {
       || hit(r.git_url),
     )
   }
-  // 列头筛选叠加在上面的粗筛之上（取交集）
+  return list
+})
+
+// ===== 左树：项目组 =====
+// 树只吃「顶部查询条件」过滤后的数据；点击节点再叠加到右表。
+// 这样改产品领域/业务领域/关键字时，左树的组和计数会一起收敛。
+const ROOT_KEY = '__all__'
+const selectedProjectGroup = ref('')
+const projectGroupTreeSelected = computed(() => [selectedProjectGroup.value || ROOT_KEY])
+
+const projectGroupTreeData = computed(() => {
+  const counts = new Map<string, number>()
+  for (const r of queryFilteredRows.value) {
+    const name = (r.project_group_name ?? '').trim() || '未分类'
+    counts.set(name, (counts.get(name) ?? 0) + 1)
+  }
+  const children = [...counts.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0], 'zh-CN'))
+    .map(([name, count]) => ({ key: name, title: `${name} (${count})` }))
+  // 平铺一层（全部 + 各项目组）：项目组本身就是叶子，不再嵌一层 children。
+  // 这样也避免了异步数据到达后 Arco 仍把根节点当叶子、不渲染子节点的问题。
+  return [{ key: ROOT_KEY, title: `全部 (${queryFilteredRows.value.length})` }, ...children]
+})
+
+function onProjectGroupSelect(keys: (string | number)[]) {
+  const key = keys.length ? String(keys[0]) : ROOT_KEY
+  selectedProjectGroup.value = key === ROOT_KEY ? '' : key
+  pageNum.value = 1
+}
+
+// 查询条件变化后，原选中的项目组可能已无数据：回到“全部”，避免右表空、左树无高亮
+watch(projectGroupTreeData, (nodes) => {
+  if (!selectedProjectGroup.value)
+    return
+  if (!nodes.some(node => node.key === selectedProjectGroup.value))
+    selectedProjectGroup.value = ''
+})
+
+const filteredRows = computed(() => {
+  let list = queryFilteredRows.value
+  if (selectedProjectGroup.value)
+    list = list.filter(r => ((r.project_group_name ?? '').trim() || '未分类') === selectedProjectGroup.value)
+  // 列头筛选叠加在上面的粗筛 + 左树范围之上（取交集）
   return applyColumnFilters(list, columnFilters.value)
 })
 
@@ -396,8 +467,14 @@ function onPageSizeChange(size: number) {
   pageNum.value = 1
 }
 
-// 关键字/状态变化都要回到第一页，否则同上会看到空表格
-watch([keyword, statusFilter], () => {
+// 产品领域切换后，已选的业务领域可能已不在新选项里：清掉避免筛出空表
+watch(productDomainFilter, () => {
+  if (businessAreaFilter.value && !businessAreaOptions.value.includes(businessAreaFilter.value))
+    businessAreaFilter.value = ''
+})
+
+// 关键字/状态/领域变化都要回到第一页，否则同上会看到空表格
+watch([keyword, statusFilter, productDomainFilter, businessAreaFilter], () => {
   pageNum.value = 1
 })
 
@@ -406,6 +483,9 @@ watch([keyword, statusFilter], () => {
 useFilterPersistence('sechub-repositories', {
   keyword,
   statusFilter,
+  productDomainFilter,
+  businessAreaFilter,
+  selectedProjectGroup,
   pageSize,
   columnFilters,
 })
@@ -707,107 +787,144 @@ async function syncRepo(record: ModuleWithRepository) {
             禁用
           </a-option>
         </a-select>
+        <a-select
+          v-model="productDomainFilter"
+          placeholder="产品领域"
+          allow-clear
+          allow-search
+          style="width: 160px"
+        >
+          <a-option v-for="v in productDomainOptions" :key="v" :value="v">
+            {{ v }}
+          </a-option>
+        </a-select>
+        <a-select
+          v-model="businessAreaFilter"
+          placeholder="业务领域"
+          allow-clear
+          allow-search
+          style="width: 140px"
+        >
+          <a-option v-for="v in businessAreaOptions" :key="v" :value="v">
+            {{ v }}
+          </a-option>
+        </a-select>
         <a-typography-text type="secondary">
           共 {{ filteredRows.length }} 条
         </a-typography-text>
       </a-space>
     </a-card>
 
-    <div ref="tableWrap">
-      <a-card :bordered="false">
-        <a-table
-          v-model:selectedKeys="selectedKeys"
-          :data="pagedRows"
-          :columns="columns"
-          :loading="loading"
-          :row-selection="rowSelection"
-          :pagination="{
-            current: pageNum,
-            pageSize,
-            total: filteredRows.length,
-            showTotal: true,
-            showPageSize: true,
-            pageSizeOptions: PAGE_SIZE_OPTIONS,
-          }"
-          column-resizable
-          row-key="relation_id"
-          :scroll="{ minWidth: 1400, y: tableHeight }"
-          @page-change="(p: number) => (pageNum = p)"
-          @page-size-change="onPageSizeChange"
-        >
-          <!-- 列头筛选面板：Arco 自带的 filters 是枚举多选，这里要过滤自由文本，
-               所以用共享的运算符面板（包含/不包含/等于/不等于） -->
-          <template v-for="key in FILTERABLE_COLUMNS" #[`filter-${key}`] :key="key">
-            <ColumnFilterPanel v-model="columnFilters[key]" @change="onColumnFilterChange" />
-          </template>
-
-          <template #scanEnabled="{ record }">
-            <a-tag :color="record.scan_enabled ? 'green' : 'gray'" size="small">
-              {{ record.scan_enabled ? '启用' : '禁用' }}
-            </a-tag>
-          </template>
-
-          <template #status="{ record }">
-            <a-tag :color="statusInfo(record.status).color" size="small">
-              {{ statusInfo(record.status).label }}
-            </a-tag>
-          </template>
-
-          <template #operations="{ record }">
-            <a-space>
-              <a-button type="text" size="small" @click="openDetail(record)">
-                详情
-              </a-button>
-              <a-button type="text" size="small" @click="openEditDialog(record)">
-                编辑
-              </a-button>
-              <a-button
-                type="text"
-                size="small"
-                :loading="validatingId === record.relation_id"
-                @click="validateRepo(record)"
-              >
-                验证
-              </a-button>
-              <a-button
-                type="text"
-                size="small"
-                :loading="snapshottingId === record.relation_id"
-                @click="triggerSnapshot(record)"
-              >
-                快照
-              </a-button>
-              <!-- 索引源码：把该仓库默认分支源码解析为符号（重新匹配的前置），首次会克隆可能较慢 -->
-              <a-button
-                type="text"
-                size="small"
-                :loading="indexingId === record.relation_id"
-                @click="indexSource(record)"
-              >
-                索引源码
-              </a-button>
-              <!-- 发现微服务：从源码 ServiceFactory 注册事实反推微服务资产 + 扫描范围 -->
-              <a-button
-                type="text"
-                size="small"
-                :loading="discoveringId === record.relation_id"
-                @click="discoverMicroservice(record)"
-              >
-                发现微服务
-              </a-button>
-              <!-- 克隆/拉取：调 sync 接口，单行 loading，成功展示动作/分支数/head_sha/耗时 -->
-              <a-button
-                type="text"
-                size="small"
-                :loading="syncingId === record.relation_id"
-                @click="syncRepo(record)"
-              >
-                克隆/拉取
-              </a-button>
-            </a-space>
-          </template>
-        </a-table>
+    <div class="repo-layout">
+      <a-card :bordered="false" class="repo-tree-card">
+        <template #title>
+          项目组
+        </template>
+        <a-spin :loading="loading" style="width: 100%">
+          <a-tree
+            :data="projectGroupTreeData"
+            :selected-keys="projectGroupTreeSelected"
+            block-node
+            @select="onProjectGroupSelect"
+          />
+        </a-spin>
       </a-card>
+      <div ref="tableWrap" class="repo-table-wrap">
+        <a-card :bordered="false">
+          <a-table
+            v-model:selected-keys="selectedKeys"
+            :data="pagedRows"
+            :columns="columns"
+            :loading="loading"
+            :row-selection="rowSelection"
+            :pagination="{
+              current: pageNum,
+              pageSize,
+              total: filteredRows.length,
+              showTotal: true,
+              showPageSize: true,
+              pageSizeOptions: PAGE_SIZE_OPTIONS,
+            }"
+            column-resizable
+            row-key="relation_id"
+            :scroll="{ minWidth: 1400, y: tableHeight }"
+            @page-change="(p: number) => (pageNum = p)"
+            @page-size-change="onPageSizeChange"
+          >
+            <!-- 列头筛选面板：Arco 自带的 filters 是枚举多选，这里要过滤自由文本，
+               所以用共享的运算符面板（包含/不包含/等于/不等于） -->
+            <template v-for="key in FILTERABLE_COLUMNS" #[`filter-${key}`] :key="key">
+              <ColumnFilterPanel v-model="columnFilters[key]" @change="onColumnFilterChange" />
+            </template>
+
+            <template #scanEnabled="{ record }">
+              <a-tag :color="record.scan_enabled ? 'green' : 'gray'" size="small">
+                {{ record.scan_enabled ? '启用' : '禁用' }}
+              </a-tag>
+            </template>
+
+            <template #status="{ record }">
+              <a-tag :color="statusInfo(record.status).color" size="small">
+                {{ statusInfo(record.status).label }}
+              </a-tag>
+            </template>
+
+            <template #operations="{ record }">
+              <a-space>
+                <a-button type="text" size="small" @click="openDetail(record)">
+                  详情
+                </a-button>
+                <a-button type="text" size="small" @click="openEditDialog(record)">
+                  编辑
+                </a-button>
+                <a-button
+                  type="text"
+                  size="small"
+                  :loading="validatingId === record.relation_id"
+                  @click="validateRepo(record)"
+                >
+                  验证
+                </a-button>
+                <a-button
+                  type="text"
+                  size="small"
+                  :loading="snapshottingId === record.relation_id"
+                  @click="triggerSnapshot(record)"
+                >
+                  快照
+                </a-button>
+                <!-- 索引源码：把该仓库默认分支源码解析为符号（重新匹配的前置），首次会克隆可能较慢 -->
+                <a-button
+                  type="text"
+                  size="small"
+                  :loading="indexingId === record.relation_id"
+                  @click="indexSource(record)"
+                >
+                  索引源码
+                </a-button>
+                <!-- 发现微服务：从源码 ServiceFactory 注册事实反推微服务资产 + 扫描范围 -->
+                <a-button
+                  type="text"
+                  size="small"
+                  :loading="discoveringId === record.relation_id"
+                  @click="discoverMicroservice(record)"
+                >
+                  发现微服务
+                </a-button>
+                <!-- 克隆/拉取：调 sync 接口，单行 loading，成功展示动作/分支数/head_sha/耗时 -->
+                <a-button
+                  type="text"
+                  size="small"
+                  :loading="syncingId === record.relation_id"
+                  @click="syncRepo(record)"
+                >
+                  克隆/拉取
+                </a-button>
+              </a-space>
+            </template>
+          </a-table>
+        </a-card>
+      </div>
     </div>
 
     <!-- 新增代码仓库弹窗 -->
@@ -952,5 +1069,30 @@ async function syncRepo(record: ModuleWithRepository) {
 <style scoped>
 .static-scan-repositories {
   padding: 16px;
+}
+
+/* 左树 + 右表：左右等高，树在卡片内部滚动 */
+.repo-layout {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.repo-tree-card {
+  width: 260px;
+  flex: 0 0 260px;
+  display: flex;
+  flex-direction: column;
+}
+
+.repo-tree-card :deep(.arco-card-body) {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.repo-table-wrap {
+  flex: 1;
+  min-width: 0;
 }
 </style>
