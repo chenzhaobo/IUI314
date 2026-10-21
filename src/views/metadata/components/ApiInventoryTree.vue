@@ -36,7 +36,11 @@ const props = withDefaults(defineProps<{
   /** 已同步的测试环境；缺省由后端挑「已有数据的环境」 */
   envId?: string
   productLine?: string
-}>(), { depth: 'app', source: '', envId: '', productLine: '' })
+  /** 产品领域筛选（与右表同口径） */
+  productDomain?: string
+  /** 业务领域筛选（与右表同口径） */
+  businessArea?: string
+}>(), { depth: 'app', source: '', envId: '', productLine: '', productDomain: '', businessArea: '' })
 
 const emit = defineEmits<{
   (e: 'select', scope: TreeScope): void
@@ -52,6 +56,13 @@ const groups = ref<any[]>([])
 const unclassified = ref<any[]>([])
 const totalApis = ref(0)
 const selectedKeys = ref<string[]>(['all'])
+// 根节点默认展开：否则页面只看到「全部接口（N）」，会误以为左树没有数据。
+// 只展开根，维度分组仍由用户按需展开，避免一屏灌入上百个应用。
+const expandedKeys = ref<(string | number)[]>(['all'])
+
+function handleExpand(keys: (string | number)[]) {
+  expandedKeys.value = keys
+}
 
 /** 应用节点下的 API 叶子；字段名以后端为准，多写几个兜底避免树空白 */
 function apiLeavesOf(app: any): any[] {
@@ -148,6 +159,8 @@ async function fetchTree() {
       dimension: props.dimension,
       env_id: props.envId || undefined,
       product_line: props.productLine || undefined,
+      product_domain: props.productDomain || undefined,
+      business_area: props.businessArea || undefined,
       depth: props.depth,
       source: props.source || undefined,
     })
@@ -156,6 +169,7 @@ async function fetchTree() {
       totalApis.value = res.total || 0
       groups.value = res.groups || []
       unclassified.value = res.unclassified || []
+      expandedKeys.value = ['all']
     }
   }
   finally {
@@ -171,7 +185,7 @@ async function fetchTree() {
 defineExpose({ reload: fetchTree, envName, totalApis })
 
 watch(
-  () => [props.dimension, props.envId, props.productLine, props.depth, props.source],
+  () => [props.dimension, props.envId, props.productLine, props.productDomain, props.businessArea, props.depth, props.source],
   () => {
     selectedKeys.value = ['all']
     void fetchTree()
@@ -186,8 +200,10 @@ watch(
       <a-tree
         :data="treeData"
         :selected-keys="selectedKeys"
+        :expanded-keys="expandedKeys"
         block-node
         @select="handleSelect"
+        @expand="handleExpand"
       />
       <a-empty v-if="!loading && !groups.length && !unclassified.length" description="暂无数据" />
     </a-spin>

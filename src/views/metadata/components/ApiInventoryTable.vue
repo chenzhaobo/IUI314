@@ -5,6 +5,7 @@
  * 概览模式（mode=overview）在清单列之后追加 4 列：用例数 / 成功数 / 执行时间 / 状态，
  * 回答「这个接口测过没有、最近一轮结果如何」；清单模式只多一个「背景需求」入口。
  */
+import type { TableRowSelection } from '@arco-design/web-vue'
 import { formatTime } from '@/hooks'
 
 withDefaults(defineProps<{
@@ -13,14 +14,21 @@ withDefaults(defineProps<{
   pagination: Record<string, any>
   mode?: 'inventory' | 'overview'
   tableHeight?: number
-}>(), { loading: false, mode: 'inventory', tableHeight: undefined })
+  selectedKeys?: (string | number)[]
+}>(), { loading: false, mode: 'inventory', tableHeight: undefined, selectedKeys: () => [] })
 
 const emit = defineEmits<{
   /** 事件名用 camelCase（模板里仍可写 @page-change，编译后即 onPageChange） */
   (e: 'pageChange', page: number): void
   (e: 'pageSizeChange', size: number): void
   (e: 'context', record: any): void
+  (e: 'selectionChange', keys: (string | number)[]): void
 }>()
+
+const rowSelection: TableRowSelection = {
+  type: 'checkbox',
+  showCheckedAll: true,
+}
 
 /** 概览模式的「测试状态」列（后端字段 test_status）：pass=全部用例执行成功 / fail / none=无用例 */
 const STATUS_META: Record<string, { label: string, color: string }> = {
@@ -40,8 +48,11 @@ function statusMeta(s?: string | null) {
     :pagination="pagination"
     :scroll="{ x: mode === 'overview' ? 2124 : 1808, y: tableHeight }"
     row-key="id"
+    :row-selection="rowSelection"
+    :selected-keys="selectedKeys"
     @page-change="emit('pageChange', $event)"
     @page-size-change="emit('pageSizeChange', $event)"
+    @selection-change="emit('selectionChange', $event)"
   >
     <template #columns>
       <a-table-column title="编号" :width="180" ellipsis tooltip>

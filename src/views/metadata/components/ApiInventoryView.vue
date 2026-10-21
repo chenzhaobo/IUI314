@@ -13,13 +13,13 @@ import { Message } from '@arco-design/web-vue'
  *   · 同步语义：存在则更新、不存在则新增、源侧删除则标记删除；每次同步留一条同步记录；
  *   · 应用归属（应用/云）随同步解析；项目组/业务领域/产品领域**动态关联**，只在左树过滤时使用。
  */
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ApiSysDictData } from '@/api/apis'
 import { ApiMetadataInventory } from '@/api/metadataApis'
 import { ApiSecScan, ApiSecTestEnv } from '@/api/sechubApis'
 import ListPage from '@/components/common/ListPage.vue'
-import { postAction, useGet } from '@/hooks'
+import { getAction, postAction, useGet } from '@/hooks'
 import ApiContextDrawer from './ApiContextDrawer.vue'
 import ApiInventorySyncModals from './ApiInventorySyncModals.vue'
 import ApiInventoryTable from './ApiInventoryTable.vue'
@@ -42,6 +42,31 @@ const { data: productLineDict } = useGet<any>(ApiSysDictData.getByType, { dict_t
 const productLineOptions = computed(() => (Array.isArray(productLineDict.value) ? productLineDict.value : [])
   .map((d: any) => ({ label: d.dict_label, value: d.dict_value })))
 
+// 产品领域 / 业务领域筛选：与右表 query 和左树 tree 共用同一组取值，
+// 保证「筛选条件一变，树和表同时收敛」。
+const productDomain = ref('')
+const businessArea = ref('')
+/** 已同步/选中的测试环境：同步后固定用它取数（缺省由后端挑「已有数据的环境」） */
+const activeEnvId = ref('')
+const productDomainOptions = ref<{ label: string, value: string }[]>([])
+const businessAreaOptions = ref<{ label: string, value: string }[]>([])
+
+async function loadDimensionOptions() {
+  const common = {
+    env_id: activeEnvId.value || undefined,
+    product_line: productLine.value || undefined,
+  }
+  const [pd, ba] = await Promise.all([
+    getAction<any>(ApiMetadataInventory.tree, { ...common, dimension: 'product_domain' }),
+    getAction<any>(ApiMetadataInventory.tree, { ...common, dimension: 'business_area' }),
+  ])
+  const toOptions = (res: any) => (Array.isArray(res?.groups) ? res.groups : [])
+    .map((g: any) => ({ label: g.name || g.code, value: g.code }))
+    .filter((o: any) => o.value)
+  productDomainOptions.value = toOptions(pd)
+  businessAreaOptions.value = toOptions(ba)
+}
+
 const VERSION_OPTIONS = [
   { value: 'v1', label: 'v1（旧版）' },
   { value: 'v2', label: 'v2' },
@@ -62,8 +87,6 @@ const pageNum = ref(1)
 const pageSize = ref(20)
 /** 当前左树维度（树结构随它变化，表格过滤也按它取字段） */
 const dimension = ref('app')
-/** 已同步/选中的测试环境：同步后固定用它取数（缺省由后端挑「已有数据的环境」） */
-const activeEnvId = ref('')
 /** 左树选中节点（规范化描述，见 ApiInventoryTree 的 TreeScope） */
 const scope = ref<any>({ kind: 'all', code: '', appNumber: '' })
 const treeRef = ref<InstanceType<typeof ApiInventoryTree>>()
@@ -100,6 +123,9 @@ const queryParams = computed(() => ({
   ...scopeParams.value,
   env_id: activeEnvId.value || undefined,
   product_line: productLine.value || undefined,
+  // 显式筛选优先；未选时保留左树节点带来的同名字段
+  ...(productDomain.value ? { product_domain: productDomain.value } : {}),
+  ...(businessArea.value ? { business_area: businessArea.value } : {}),
   page_num: pageNum.value,
   page_size: pageSize.value,
   version: filters.version,
@@ -122,19 +148,33 @@ const pagination = computed(() => ({
   showPageSize: true,
 }))
 
+// 表格行选择：API资产页支持勾选接口后只测选中的接口。
+const selectedRowKeys = ref<(string | number)[]>([])
+const selectedRows = computed(() => rows.value.filter((r: any) => selectedRowKeys.value.includes(r.id)))
+const selectedApiPaths = computed(() => selectedRows.value.map((r: any) => String(r.call_path || '').trim()).filter(Boolean))
+
+function handleSelectionChange(keys: (string | number)[]) {
+  selectedRowKeys.value = keys
+}
+
 function handleSearch() {
   pageNum.value = 1
+  selectedRowKeys.value = []
   fetchList()
 }
 
 function handleReset() {
   filters.keyword = ''
   filters.version = ''
+  productDomain.value = ''
+  businessArea.value = ''
+  selectedRowKeys.value = []
   handleSearch()
 }
 
 function handlePageChange(page: number) {
   pageNum.value = page
+  selectedRowKeys.value = []
   fetchList()
 }
 
@@ -142,12 +182,14 @@ function handlePageChange(page: number) {
 function handlePageSizeChange(size: number) {
   pageSize.value = size
   pageNum.value = 1
+  selectedRowKeys.value = []
   fetchList()
 }
 
 // ── 左树（维度切换 / 选中过滤）─────────────────────
 function handleTreeSelect(s: any) {
   scope.value = s
+  selectedRowKeys.value = []
   handleSearch()
 }
 
@@ -181,6 +223,8 @@ const agentLoading = ref(false)
 const agentMode = ref<'run' | 'regression'>('run')
 const agentEnvId = ref('')
 const agentMaxApis = ref(10)
+/** 勾选行触发时只派发这些 api_path；空=按左树范围派发 */
+const agentSelectedPaths = ref<string[]>([])
 
 // 安全测试环境列表（sec_test_env.id 作为后端 sec_env_id）；打开弹窗时才拉取
 const envRes = ref<any>(null)
@@ -194,6 +238,8 @@ const { execute: fetchEnvs } = useGet<any>(
 
 // 当前范围文案（取自左树选中的维度与节点）
 const agentScopeText = computed(() => {
+  if (agentSelectedPaths.value.length)
+    return `已选 ${agentSelectedPaths.value.length} 个 API`
   const dimLabel = DIMENSION_OPTIONS.find(d => d.value === dimension.value)?.label || dimension.value
   const s = scope.value
   if (s.kind === 'all')
@@ -214,10 +260,11 @@ function agentScopeParams(): { dimension: string, code: string } {
   return { dimension: dimension.value, code: s.code }
 }
 
-function openAgent(mode: 'run' | 'regression') {
+function openAgent(mode: 'run' | 'regression', apiPaths: string[] = []) {
   agentMode.value = mode
   agentEnvId.value = ''
-  agentMaxApis.value = 10
+  agentSelectedPaths.value = [...apiPaths]
+  agentMaxApis.value = apiPaths.length || 10
   void fetchEnvs()
   agentModalVisible.value = true
 }
@@ -235,7 +282,8 @@ async function handleAgentSubmit() {
         sec_env_id: agentEnvId.value,
         dimension: dim,
         code,
-        max_apis: agentMaxApis.value,
+        max_apis: agentSelectedPaths.value.length || agentMaxApis.value,
+        ...(agentSelectedPaths.value.length ? { api_paths: agentSelectedPaths.value } : {}),
       })
       if (res === null)
         return
@@ -264,6 +312,12 @@ async function handleAgentSubmit() {
 // 初始加载：树的 watch（immediate）拉到树后会 emit select('all')，
 // 由 handleTreeSelect 触发列表查询 —— 保证列表与树用同一个 scope，不重复发请求。
 // 注意：产品线/维度变化同理（树重新拉取 → emit → 刷新表），页面不再单独监听。
+onMounted(() => {
+  void loadDimensionOptions()
+})
+watch([productLine, activeEnvId], () => {
+  void loadDimensionOptions()
+})
 </script>
 
 <template>
@@ -286,6 +340,8 @@ async function handleAgentSubmit() {
           :dimension="dimension"
           :env-id="activeEnvId"
           :product-line="productLine"
+          :product-domain="productDomain"
+          :business-area="businessArea"
           @select="handleTreeSelect"
         />
       </template>
@@ -307,6 +363,20 @@ async function handleAgentSubmit() {
               @press-enter="handleSearch"
               @clear="handleSearch"
             />
+          </div>
+          <div class="f-mid">
+            <a-select v-model="productDomain" placeholder="产品领域" allow-clear @change="handleSearch">
+              <a-option v-for="o in productDomainOptions" :key="o.value" :value="o.value">
+                {{ o.label }}
+              </a-option>
+            </a-select>
+          </div>
+          <div class="f-mid">
+            <a-select v-model="businessArea" placeholder="业务领域" allow-clear @change="handleSearch">
+              <a-option v-for="o in businessAreaOptions" :key="o.value" :value="o.value">
+                {{ o.label }}
+              </a-option>
+            </a-select>
           </div>
           <div class="f-mid">
             <a-select v-model="filters.version" placeholder="版本" allow-clear @change="handleSearch">
@@ -332,7 +402,16 @@ async function handleAgentSubmit() {
           </span>
           <a-space>
             <template v-if="isOverview">
-              <a-button type="primary" size="small" status="success" @click="openAgent('run')">
+              <a-button
+                v-if="selectedApiPaths.length"
+                type="primary"
+                size="small"
+                status="success"
+                @click="openAgent('run', selectedApiPaths)"
+              >
+                对选中 {{ selectedApiPaths.length }} 个 API 一键测试
+              </a-button>
+              <a-button v-else type="primary" size="small" status="success" @click="openAgent('run')">
                 一键 Agent 测试
               </a-button>
               <a-button size="small" @click="openAgent('regression')">
@@ -356,8 +435,10 @@ async function handleAgentSubmit() {
           :pagination="pagination"
           :mode="mode"
           :table-height="tableHeight"
+          :selected-keys="selectedRowKeys"
           @page-change="handlePageChange"
           @page-size-change="handlePageSizeChange"
+          @selection-change="handleSelectionChange"
           @context="openContext"
         />
       </template>
@@ -400,9 +481,18 @@ async function handleAgentSubmit() {
           <a-tag color="arcoblue">
             {{ agentScopeText }}
           </a-tag>
+          <div v-if="agentSelectedPaths.length" class="selected-api-list">
+            <div v-for="p in agentSelectedPaths.slice(0, 5)" :key="p">
+              {{ p }}
+            </div>
+            <div v-if="agentSelectedPaths.length > 5">
+              …等 {{ agentSelectedPaths.length }} 个
+            </div>
+          </div>
         </a-form-item>
         <a-form-item v-if="agentMode === 'run'" label="单轮配额（最多处理多少个待测 API）">
-          <a-input-number v-model="agentMaxApis" :min="1" :max="50" :step="1" style="width: 160px" />
+          <a-input-number v-model="agentMaxApis" :min="1" :max="50" :step="1" style="width: 160px" :disabled="agentSelectedPaths.length > 0" />
+          <span v-if="agentSelectedPaths.length" class="agent-tip">已按选中 API 数量固定</span>
         </a-form-item>
       </a-form>
       <div class="agent-tip">
@@ -483,5 +573,13 @@ async function handleAgentSubmit() {
   width: 100%;
   color: var(--color-text-3);
   font-size: 12px;
+}
+
+.selected-api-list {
+  margin-top: 6px;
+  color: var(--color-text-3);
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-all;
 }
 </style>
