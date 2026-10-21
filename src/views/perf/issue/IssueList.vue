@@ -675,7 +675,7 @@ const searchForm = reactive({
   issue_type: '',
   category: '',
   source: '',
-  product_line: '',
+  product_line: '星瀚',
   project_group_code: '',
   cloud_number: '',
   business_area: '',

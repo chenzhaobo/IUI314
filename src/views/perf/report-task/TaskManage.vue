@@ -740,7 +740,14 @@ function fmtDuration(seconds?: number) {
             </a-col>
             <a-col :span="8">
               <a-form-item label="产品线">
-                <a-input v-model="form.product_line" placeholder="星瀚" @change="loadDimValues" />
+                <a-select v-model="form.product_line" @change="loadDimValues">
+                  <a-option value="星瀚">
+                    星瀚
+                  </a-option>
+                  <a-option value="星空">
+                    星空
+                  </a-option>
+                </a-select>
               </a-form-item>
             </a-col>
           </a-row>

@@ -111,7 +111,7 @@ const columns = withTableDefaults([
 ])
 
 const filters = computed(() => [
-  { label: '产品线', field: 'product_line', type: 'select' as const, options: productLineOptions, placeholder: '选择产品线' },
+  { label: '产品线', field: 'product_line', type: 'select' as const, options: productLineOptions, placeholder: '选择产品线', default: '星瀚' },
   { label: '产品领域', field: 'product_group_name', type: 'select' as const, options: domainOptions.value, placeholder: '选择产品领域' },
   { label: '业务领域', field: 'business_area', type: 'select' as const, options: areaOptions.value, placeholder: '选择业务领域' },
 ])

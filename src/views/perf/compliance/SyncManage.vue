@@ -69,7 +69,7 @@
         <a-row :gutter="16">
           <a-col :span="12">
             <a-form-item label="产品线">
-              <a-select v-model="form.product_line">
+              <a-select v-model="form.product_line" @change="onProductLineChange">
                 <a-option value="星瀚">星瀚</a-option>
                 <a-option value="星空">星空</a-option>
               </a-select>
@@ -278,18 +278,29 @@ const { execute: fetchDimOptions } = useGet<any>(ApiPerfCompliance.dimensionOpti
   },
 })
 
-const loadDomains = () => { dimPayload.value = { level: 'product_domain' }; fetchDimOptions() }
+const loadDomains = () => {
+  dimPayload.value = { level: 'product_domain', product_line: form.product_line || '星瀚' }
+  fetchDimOptions()
+}
+// 产品线切换：范围选项和已选值都失效，整体按新线重载
+const onProductLineChange = () => {
+  form.product_domain = undefined
+  form.business_area = undefined
+  form.project_group_code = undefined
+  form.app_numbers = []
+  loadDomains()
+}
 const onProductDomainChange = () => {
   form.business_area = undefined; form.project_group_code = undefined; form.app_numbers = []
-  dimPayload.value = { level: 'business_area', product_domain: form.product_domain || '' }; fetchDimOptions()
+  dimPayload.value = { level: 'business_area', product_line: form.product_line || '星瀚', product_domain: form.product_domain || '' }; fetchDimOptions()
 }
 const onBusinessAreaChange = () => {
   form.project_group_code = undefined; form.app_numbers = []
-  dimPayload.value = { level: 'project_group', product_domain: form.product_domain || '', business_area: form.business_area || '' }; fetchDimOptions()
+  dimPayload.value = { level: 'project_group', product_line: form.product_line || '星瀚', product_domain: form.product_domain || '', business_area: form.business_area || '' }; fetchDimOptions()
 }
 const onPgChange = () => {
   form.app_numbers = []
-  dimPayload.value = { level: 'app', project_group_code: form.project_group_code || '' }; fetchDimOptions()
+  dimPayload.value = { level: 'app', product_line: form.product_line || '星瀚', project_group_code: form.project_group_code || '' }; fetchDimOptions()
 }
 
 // ── 新增/编辑弹框 ──────────────────────────────

@@ -178,6 +178,10 @@ const onProductLineChange = () => {
   treeData.value = []
   selectedKeys.value = []
   selectedNode.value = null
+  productDomain.value = ''
+  businessArea.value = ''
+  projectGroupCode.value = ''
+  reloadDimensionOptions()
   periodOptionsPayload.value = { period_type: periodType.value, product_line: productLine.value }
   fetchPeriodOptions()
 }
@@ -251,21 +255,31 @@ const projectGroupCode = ref('')
 const productDomainOptions = ref<any[]>([])
 const businessAreaOptions = ref<any[]>([])
 const projectGroupOptions = ref<any[]>([])
-const productDomainPayload = ref<any>({ level: 'product_domain' })
-useGet<any>(ApiPerfCompliance.dimensionOptions, productDomainPayload, {
+const productDomainPayload = ref<any>({ level: 'product_domain', product_line: productLine.value })
+const { execute: fetchProductDomains } = useGet<any>(ApiPerfCompliance.dimensionOptions, productDomainPayload, {
   immediate: true,
   onSuccess(d: any) { productDomainOptions.value = Array.isArray(d) ? d : [] },
 })
-const businessAreaPayload = ref<any>({ level: 'business_area' })
+const businessAreaPayload = ref<any>({ level: 'business_area', product_line: productLine.value })
 const { execute: fetchBusinessAreas } = useGet<any>(ApiPerfCompliance.dimensionOptions, businessAreaPayload, {
   immediate: true,
   onSuccess(d: any) { businessAreaOptions.value = Array.isArray(d) ? d : [] },
 })
-const projectGroupPayload = ref<any>({ level: 'project_group' })
+const projectGroupPayload = ref<any>({ level: 'project_group', product_line: productLine.value })
 const { execute: fetchProjectGroups } = useGet<any>(ApiPerfCompliance.dimensionOptions, projectGroupPayload, {
   immediate: true,
   onSuccess(d: any) { projectGroupOptions.value = Array.isArray(d) ? d : [] },
 })
+
+// 产品线变化：三个维度选项整体按新线重载
+function reloadDimensionOptions() {
+  productDomainPayload.value = { level: 'product_domain', product_line: productLine.value }
+  fetchProductDomains()
+  businessAreaPayload.value = { level: 'business_area', product_line: productLine.value }
+  fetchBusinessAreas()
+  projectGroupPayload.value = { level: 'project_group', product_line: productLine.value }
+  fetchProjectGroups()
+}
 
 // 维度过滤请求参数（空值不带）
 const dimFilterParams = () => {
@@ -292,16 +306,16 @@ const onDimFilterChange = () => {
 const onProductDomainFilterChange = () => {
   businessArea.value = ''
   projectGroupCode.value = ''
-  businessAreaPayload.value = { level: 'business_area', ...(productDomain.value ? { product_domain: productDomain.value } : {}) }
+  businessAreaPayload.value = { level: 'business_area', product_line: productLine.value, ...(productDomain.value ? { product_domain: productDomain.value } : {}) }
   fetchBusinessAreas()
-  projectGroupPayload.value = { level: 'project_group', ...(productDomain.value ? { product_domain: productDomain.value } : {}) }
+  projectGroupPayload.value = { level: 'project_group', product_line: productLine.value, ...(productDomain.value ? { product_domain: productDomain.value } : {}) }
   fetchProjectGroups()
   onDimFilterChange()
 }
 // 级联：业务领域变化 → 清空项目组并收窄其选项
 const onBusinessAreaFilterChange = () => {
   projectGroupCode.value = ''
-  projectGroupPayload.value = { level: 'project_group', ...(productDomain.value ? { product_domain: productDomain.value } : {}), ...(businessArea.value ? { business_area: businessArea.value } : {}) }
+  projectGroupPayload.value = { level: 'project_group', product_line: productLine.value, ...(productDomain.value ? { product_domain: productDomain.value } : {}), ...(businessArea.value ? { business_area: businessArea.value } : {}) }
   fetchProjectGroups()
   onDimFilterChange()
 }

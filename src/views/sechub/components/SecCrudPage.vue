@@ -65,6 +65,8 @@ export interface SecFilter {
   type?: 'select'
   options?: { label: string, value: string }[]
   placeholder?: string
+  /** 初始值；不填为全部/空。产品线这类需要默认值的筛选用它 */
+  default?: string
 }
 
 // ── 查询 ──────────────────────────────────────────
@@ -77,7 +79,7 @@ const queryParams = ref<Record<string, any>>({
 // 初始化过滤字段默认值
 if (props.filters) {
   props.filters.forEach((f) => {
-    queryParams.value[f.field] = ''
+    queryParams.value[f.field] = f.default ?? ''
   })
 }
 
@@ -195,7 +197,7 @@ function handleReset() {
   queryParams.value.keyword = ''
   if (props.filters) {
     props.filters.forEach((f) => {
-      queryParams.value[f.field] = ''
+      queryParams.value[f.field] = f.default ?? ''
     })
   }
   queryParams.value.page_num = 1

@@ -149,8 +149,8 @@ async function loadCloudOptions(productLine: string) {
 }
 
 onMounted(() => {
-  void loadProjectGroups('')
-  void loadCloudOptions('')
+  void loadProjectGroups(queryParams.value.product_line)
+  void loadCloudOptions(queryParams.value.product_line)
 })
 
 // ── 列表查询 ──────────────────────────────────────
@@ -164,7 +164,7 @@ const queryParams = ref({
   page_size: 20,
   keyword: '',
   status: '',
-  product_line: '',
+  product_line: '星瀚',
   project_group_id: '',
   parent_cloud: '',
   filters: undefined as string | undefined,

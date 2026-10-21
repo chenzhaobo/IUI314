@@ -10,7 +10,7 @@ defineOptions({ name: 'txn-manage' })
 const activeTab = ref('txn')
 
 // ── 产品线选择（数据字典）──────────────────────────
-const productLine = ref('')
+const productLine = ref('星瀚')
 const { data: dictRaw } = useGet<any>(ApiSysDictData.getByType, { dict_type: 'perf_product_line' }, { immediate: true })
 const productLineOptions = computed(() => (Array.isArray(dictRaw.value) ? dictRaw.value : []).map((d: any) => ({ label: d.dict_label, value: d.dict_value })))
 

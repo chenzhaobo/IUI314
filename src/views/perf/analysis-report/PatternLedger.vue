@@ -716,7 +716,7 @@ const pageSize = ref(20)
 const scopeTreeKey = ref(0)
 const searchForm = reactive({
   keyword: '',
-  product_line: '',
+  product_line: '星瀚',
   dimension_type: '',
   dimension_value: '',
   attribution_tag: '',
