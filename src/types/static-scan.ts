@@ -1187,6 +1187,10 @@ export interface CrossRunAggRow {
   pending: number
   /** 兜底对账收敛来的「待人工复核」，与 pending/error 同属"没有有效 AI 结论"，可重跑 */
   review_needed: number
+  /** 白名单第二层豁免，不需要 AI 判定（不计入确认进度） */
+  waived: number
+  /** 证据型规则候选，已并入同行权威候选，不派发 AI（不计入确认进度） */
+  evidence: number
   risk_high: number
   risk_medium: number
   risk_low: number

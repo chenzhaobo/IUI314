@@ -551,11 +551,21 @@ function modelLabel(row: CrossRunAggRow): { text: string, pending: boolean } {
 }
 
 /**
- * 确认进度标签：直接用行自身字段（后端已按 run 汇总，不再需要跨行聚合）。
- * 只有 pending/error/review_needed 全为 0 时才算 100%。
+ * 需要 AI 确认的候选数：排除证据型（evidence）与白名单豁免（waived）。
+ *
+ * 这两类候选在预扫描阶段就已定稿、不会派发 AI；用全量候选当分母会让进度在
+ * AI 还没开始时先跳到 1-6%（例如 145 条 evidence / 10804 条 = 1.34%）。
+ */
+function aiEligibleTotal(row: CrossRunAggRow): number {
+  return Math.max(0, (row.total ?? 0) - (row.evidence ?? 0) - (row.waived ?? 0))
+}
+
+/**
+ * 确认进度标签：只看需要 AI 判定的候选。
+ * pending / error / review_needed 全为 0 时才算 100%；无需确认时返回 '-'。
  */
 function progressLabel(row: CrossRunAggRow): string {
-  const total = row.total ?? 0
+  const total = aiEligibleTotal(row)
   if (total === 0)
     return '-'
   const pending = row.pending ?? 0
@@ -565,9 +575,24 @@ function progressLabel(row: CrossRunAggRow): string {
   return `${Math.round((done / total) * 100)}%`
 }
 
-/** 确认进度是否已全部完成（pending/error/review_needed 全为 0） */
+/** 确认进度是否已全部完成（有待确认候选且 pending/error/review_needed 全为 0） */
 function progressDone(row: CrossRunAggRow): boolean {
-  return (row.pending ?? 0) === 0 && (row.error ?? 0) === 0 && (row.review_needed ?? 0) === 0
+  return aiEligibleTotal(row) > 0 && (row.pending ?? 0) === 0 && (row.error ?? 0) === 0 && (row.review_needed ?? 0) === 0
+}
+
+/** 进度列悬浮说明：把排除项讲清楚，避免「预扫描刚出结果就有百分比」的误解。 */
+function progressTip(row: CrossRunAggRow): string {
+  const total = row.total ?? 0
+  const evidence = row.evidence ?? 0
+  const waived = row.waived ?? 0
+  const eligible = aiEligibleTotal(row)
+  const parts = [`需 AI 判定 ${eligible} 条 / 全部 ${total} 条`]
+  if (evidence > 0)
+    parts.push(`证据型 ${evidence} 条已并入权威候选，不派发 AI`)
+  if (waived > 0)
+    parts.push(`白名单豁免 ${waived} 条`)
+  parts.push(`待确认 ${row.pending ?? 0} · 失败 ${row.error ?? 0} · 待复核 ${row.review_needed ?? 0}`)
+  return parts.join('；')
 }
 
 /** 确认状态列的 tag 颜色：error 优先红色，review_needed 橙色，pending 蓝色，全完成绿色 */
@@ -1092,9 +1117,11 @@ function toggleRunChecked(runId: string, checked: boolean) {
                 <span v-else class="text-placeholder">-</span>
               </template>
 
-              <!-- 确认进度列 -->
+              <!-- 确认进度列：分母排除证据型/白名单豁免候选，预扫描刚出结果时应为 0% -->
               <template #crProgress="{ record }">
-                <span :class="{ 'progress-done': progressDone(record) }">{{ progressLabel(record) }}</span>
+                <a-tooltip :content="progressTip(record)">
+                  <span :class="{ 'progress-done': progressDone(record) }">{{ progressLabel(record) }}</span>
+                </a-tooltip>
               </template>
 
               <!-- 模式列：ai_mode 可能是逗号拼接的多值（如 "batch,agent"），拆分后逐个映射中文，用顿号连接 -->
