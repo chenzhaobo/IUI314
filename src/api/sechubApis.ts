@@ -409,6 +409,8 @@ export enum ApiSecScan {
   apiAgentRuns = '/sechub/scan/api-agent/runs',
   apiAgentRunDetail = '/sechub/scan/api-agent/runs/{run_id}',
   apiAgentRetry = '/sechub/scan/api-agent/runs/{run_id}/retry',
+  apiAgentFeedback = '/sechub/scan/api-agent/feedback',
+  apiAgentFeedbackStatus = '/sechub/scan/api-agent/feedback/{id}/status',
   apiAgentConfig = '/sechub/scan/api-agent/config',
   // 用例人工评审（POST { review_status, review_comment }）
   caseReview = '/sechub/scan/cases/{id}/review',

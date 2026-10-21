@@ -8,6 +8,7 @@
  */
 import { Message } from '@arco-design/web-vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ApiSecTestEnv } from '@/api/apis'
 import { ApiSecScan, resolveStaticScanApi } from '@/api/sechubApis'
 import { formatTime, getAction, postAction } from '@/hooks'
@@ -16,6 +17,7 @@ import ApiInventoryTree from '@/views/metadata/components/ApiInventoryTree.vue'
 // eslint-disable-next-line vue/component-definition-name-casing
 defineOptions({ name: 'api-agent-tasks' })
 
+const router = useRouter()
 const DIMENSION_OPTIONS = [
   { value: 'product_domain', label: '按产品领域' },
   { value: 'project_group', label: '按项目组' },
@@ -328,6 +330,9 @@ onUnmounted(() => {
     <a-card title="Agent 任务" :bordered="false" style="margin-top: 12px">
       <template #extra>
         <a-space>
+          <a-button @click="router.push('/sechub/api-test/api-agent-feedback')">
+            Agent反馈
+          </a-button>
           <a-input v-model="keyword" placeholder="范围/状态" allow-clear style="width: 180px" @press-enter="loadRuns" />
           <a-button @click="loadRuns">
             刷新
