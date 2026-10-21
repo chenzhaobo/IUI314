@@ -146,6 +146,21 @@ const agentOptions = computed(() => (agentListRaw.value?.list ?? []).map(a => ({
 // ═══════════════════════════════════════════════════════════
 
 /** 格式化时间，解析失败回退原值 */
+const ASSET_TYPE_LABELS: Record<string, string> = {
+  form: '表单',
+  microservice: '微服务',
+  openapi: 'OpenAPI',
+}
+
+/** 资产类型逗号串 → 展示标签 */
+function assetTypeLabels(value: string | null | undefined): string[] {
+  return (value ?? '')
+    .split(',')
+    .map(type => type.trim())
+    .filter(Boolean)
+    .map(type => ASSET_TYPE_LABELS[type] ?? type)
+}
+
 /** 扫描策略标签 */
 function scanModeLabel(mode: string): string {
   const labels: Record<string, string> = {
@@ -215,7 +230,7 @@ const form = reactive<{
   schedule_enabled: boolean
   concurrency: number
   auto_confirm: boolean
-  asset_scan_enabled: boolean
+  asset_scan_types: string[]
   ai_mode: string
   ai_model: string
   ai_agent_code: string
@@ -232,7 +247,7 @@ const form = reactive<{
   schedule_enabled: true,
   concurrency: 2,
   auto_confirm: true,
-  asset_scan_enabled: true,
+  asset_scan_types: ['form', 'microservice'],
   ai_mode: 'batch',
   ai_model: '',
   ai_agent_code: '',
@@ -370,7 +385,7 @@ function resetForm() {
   form.schedule_enabled = true
   form.concurrency = 2
   form.auto_confirm = true
-  form.asset_scan_enabled = true
+  form.asset_scan_types = ['form', 'microservice']
   form.ai_mode = 'batch'
   form.ai_model = ''
   form.ai_agent_code = ''
@@ -398,7 +413,9 @@ function openEditModal(record: PrescanTaskRow) {
   form.schedule_enabled = record.schedule_enabled === '1'
   form.concurrency = record.concurrency ?? 2
   form.auto_confirm = record.auto_confirm === '1'
-  form.asset_scan_enabled = record.asset_scan_enabled !== '0'
+  form.asset_scan_types = record.asset_scan_types
+    ? record.asset_scan_types.split(',').map(type => type.trim()).filter(Boolean)
+    : ['form', 'microservice']
   form.ai_mode = record.ai_mode || 'batch'
   form.ai_model = record.ai_model ?? ''
   form.ai_agent_code = record.ai_agent_code ?? ''
@@ -421,7 +438,7 @@ function buildPayload(): PrescanTaskSavePayload {
     schedule_enabled: form.schedule_enabled ? '1' : '0',
     concurrency: form.concurrency,
     auto_confirm: form.auto_confirm ? '1' : '0',
-    asset_scan_enabled: form.asset_scan_enabled ? '1' : '0',
+    asset_scan_types: form.asset_scan_types.join(','),
     ai_mode: form.ai_mode,
     ai_model: form.ai_model.trim() || null,
     ai_agent_code: form.ai_agent_code.trim() || null,
@@ -437,7 +454,7 @@ const savePayload = ref<PrescanTaskSavePayload>({
   schedule_enabled: '1',
   concurrency: 2,
   auto_confirm: '1',
-  asset_scan_enabled: '1',
+  asset_scan_types: 'form,microservice',
   ai_mode: 'batch',
   status: '1',
 })
@@ -464,7 +481,7 @@ async function handleSave() {
     Message.warning('cron 表达式格式不正确，须为 6 段（含秒），例如：0 0 2 * * *')
     return
   }
-  if (form.asset_scan_enabled && !ASSET_SCAN_MODES.has(form.scan_mode)) {
+  if (form.asset_scan_types.length > 0 && !ASSET_SCAN_MODES.has(form.scan_mode)) {
     Message.warning('资产扫描只支持完整基线 / 自动增量，请修改扫描策略或关闭资产扫描')
     return
   }
@@ -599,7 +616,7 @@ async function handleScheduleToggle(record: PrescanTaskRow, newVal: boolean) {
     schedule_enabled: newVal ? '1' : '0',
     concurrency: record.concurrency,
     auto_confirm: record.auto_confirm,
-    asset_scan_enabled: record.asset_scan_enabled,
+    asset_scan_types: record.asset_scan_types,
     ai_mode: record.ai_mode,
     status: record.status,
   }
@@ -674,7 +691,7 @@ const columns = withTableDefaults([
   { title: '扫描范围', dataIndex: 'scope_type', slotName: 'scope', width: 240 },
   { title: '领域', dataIndex: 'domains', slotName: 'domains', width: 100 },
   { title: '扫描策略', dataIndex: 'scan_mode', slotName: 'scan_mode', width: 110 },
-  { title: '资产扫描', dataIndex: 'asset_scan_enabled', slotName: 'asset_scan', width: 90 },
+  { title: '资产扫描', dataIndex: 'asset_scan_types', slotName: 'asset_scan', width: 120 },
   { title: 'Cron', dataIndex: 'cron_expression', width: 140, ellipsis: true, tooltip: true },
   { title: '下次执行', dataIndex: 'next_run_at', slotName: 'next_run_at', width: 160 },
   { title: '上次执行', dataIndex: 'last_scheduled_at', slotName: 'last_scheduled_at', width: 160 },
@@ -813,13 +830,19 @@ const columns = withTableDefaults([
 
           <!-- 资产扫描 -->
           <template #asset_scan="{ record }">
-            <a-tooltip
-              :content="record.asset_scan_enabled === '0'
-                ? '仅按仓库通用规则扫描，不自动选表单/微服务资产'
-                : '统一扫描：自动选该仓库全部在用表单/微服务资产，并跑领域证据检测'"
-            >
-              <a-tag :color="record.asset_scan_enabled === '0' ? 'gray' : 'cyan'" size="small">
-                {{ record.asset_scan_enabled === '0' ? '关闭' : '开启' }}
+            <a-space v-if="assetTypeLabels(record.asset_scan_types).length" wrap size="mini">
+              <a-tag
+                v-for="label in assetTypeLabels(record.asset_scan_types)"
+                :key="label"
+                color="cyan"
+                size="small"
+              >
+                {{ label }}
+              </a-tag>
+            </a-space>
+            <a-tooltip v-else content="仅按仓库通用规则扫描，不自动同步/选资产">
+              <a-tag color="gray" size="small">
+                关闭
               </a-tag>
             </a-tooltip>
           </template>
@@ -1004,10 +1027,20 @@ const columns = withTableDefaults([
 
         <!-- 资产扫描 -->
         <a-form-item label="资产扫描">
-          <a-switch v-model="form.asset_scan_enabled" />
+          <a-checkbox-group v-model="form.asset_scan_types">
+            <a-checkbox value="form">
+              表单资产
+            </a-checkbox>
+            <a-checkbox value="microservice">
+              微服务资产
+            </a-checkbox>
+            <a-checkbox value="openapi" disabled>
+              OpenAPI（规划中）
+            </a-checkbox>
+          </a-checkbox-group>
           <template #extra>
-            默认开启：每次触发按统一扫描自动选取该仓库全部在用表单/微服务资产，并额外跑领域证据检测（使用完整规则集）。
-            关闭后只按仓库通用规则扫描（候选数通常更少），此时「领域」筛选才生效。
+            默认勾选表单 + 微服务。触发前会自动索引该仓库源码并刷新表单匹配 / 微服务发现，任一步失败则该仓库预扫描失败。
+            全部不勾选 = 关闭资产扫描，只按仓库通用规则扫描（候选数通常更少），此时「领域」筛选才生效。
           </template>
         </a-form-item>
 
