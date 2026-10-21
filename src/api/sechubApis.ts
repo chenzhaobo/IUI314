@@ -397,6 +397,14 @@ export enum ApiSecScan {
   envAccountDelete = '/sechub/scan/env-accounts/{id}/delete',
   // 迭代阶段看板（按 iteration_phase 聚合运行记录，见 sec_dashboard.rs）
   iterationDashboard = '/sechub/scan/dashboard/iterations',
+  // API 级测试聚合状态（分页列表；按 (env_id, api_path, http_method) 汇总用例结果）
+  apiStatus = '/sechub/scan/api-status',
+  // 「一键 Agent 测试」第 1 步：按维度拿范围内待测 API（dimension/code/only_untested/limit）
+  apiUntested = '/sechub/scan/api-untested',
+  // 「一键 Agent 测试」触发：POST { sec_env_id, dimension, code, model?, max_apis? }
+  apiAgentRun = '/sechub/scan/api-agent/run',
+  // 正式回归：POST { sec_env_id, dimension, code } 复跑 approved+enabled 用例
+  apiAgentRegression = '/sechub/scan/api-agent/regression',
 }
 
 // ── 表单测试分组（表单概览 / 表单测试结果 / 测试类型维护）──

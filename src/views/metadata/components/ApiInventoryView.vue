@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { Message } from '@arco-design/web-vue'
+
 /**
  * API 清单 / API 概览（同一张表两个菜单）
  *
@@ -12,11 +14,11 @@
  *   · 应用归属（应用/云）随同步解析；项目组/业务领域/产品领域**动态关联**，只在左树过滤时使用。
  */
 import { computed, reactive, ref } from 'vue'
-
 import { ApiSysDictData } from '@/api/apis'
 import { ApiMetadataInventory } from '@/api/metadataApis'
+import { ApiSecScan, ApiSecTestEnv } from '@/api/sechubApis'
 import ListPage from '@/components/common/ListPage.vue'
-import { useGet } from '@/hooks'
+import { postAction, useGet } from '@/hooks'
 import ApiContextDrawer from './ApiContextDrawer.vue'
 import ApiInventorySyncModals from './ApiInventorySyncModals.vue'
 import ApiInventoryTable from './ApiInventoryTable.vue'
@@ -170,6 +172,91 @@ function handleContextSaved() {
   fetchList()
 }
 
+// ── 一键 Agent 测试（P1-7）────────────────────────
+// 选安全测试环境 + 当前左树范围 → 拉起 Agent 自动生成用例/评审/试跑；或对该范围做正式回归。
+const agentModalVisible = ref(false)
+const agentLoading = ref(false)
+const agentMode = ref<'run' | 'regression'>('run')
+const agentEnvId = ref('')
+const agentMaxApis = ref(10)
+
+// 安全测试环境列表（sec_test_env.id 作为后端 sec_env_id）；打开弹窗时才拉取
+const envRes = ref<any>(null)
+const envOptions = computed(() => (Array.isArray(envRes.value?.list) ? envRes.value.list : [])
+  .map((e: any) => ({ value: e.id, label: e.env_name ? `${e.env_name}（${e.env_type || e.id}）` : e.id })))
+const { execute: fetchEnvs } = useGet<any>(
+  ApiSecTestEnv.getList,
+  { page_num: 1, page_size: 200 },
+  { immediate: false, onSuccess: (d: any) => { envRes.value = d } },
+)
+
+// 当前范围文案（取自左树选中的维度与节点）
+const agentScopeText = computed(() => {
+  const dimLabel = DIMENSION_OPTIONS.find(d => d.value === dimension.value)?.label || dimension.value
+  const s = scope.value
+  if (s.kind === 'all')
+    return `${dimLabel} · 全部`
+  if (s.kind === 'app' || s.kind === 'api')
+    return `应用 ${s.appNumber || s.code}`
+  return `${dimLabel} · ${s.label || s.code}`
+})
+
+// 把左树 scope 翻译成后端 {dimension, code}（与 scopeParams 同源，但给 Agent 用维度+取值）
+function agentScopeParams(): { dimension: string, code: string } {
+  const s = scope.value
+  if (s.kind === 'all')
+    return { dimension: 'all', code: '' }
+  if (s.kind === 'app' || s.kind === 'api')
+    return { dimension: 'app', code: s.appNumber || s.code }
+  // group：维度取值（未分类哨兵也原样传，后端 scope_matches 识别）
+  return { dimension: dimension.value, code: s.code }
+}
+
+function openAgent(mode: 'run' | 'regression') {
+  agentMode.value = mode
+  agentEnvId.value = ''
+  agentMaxApis.value = 10
+  void fetchEnvs()
+  agentModalVisible.value = true
+}
+
+async function handleAgentSubmit() {
+  if (!agentEnvId.value) {
+    Message.warning('请选择安全测试环境')
+    return
+  }
+  const { dimension: dim, code } = agentScopeParams()
+  agentLoading.value = true
+  try {
+    if (agentMode.value === 'run') {
+      const res = await postAction<any>(ApiSecScan.apiAgentRun, {
+        sec_env_id: agentEnvId.value,
+        dimension: dim,
+        code,
+        max_apis: agentMaxApis.value,
+      })
+      if (res === null)
+        return
+      Message.success(res?.message || '已派发给 Agent')
+    }
+    else {
+      const res = await postAction<any>(ApiSecScan.apiAgentRegression, {
+        sec_env_id: agentEnvId.value,
+        dimension: dim,
+        code,
+      })
+      if (res === null)
+        return
+      Message.success(res?.message || '回归已启动')
+    }
+    agentModalVisible.value = false
+    fetchList()
+  }
+  finally {
+    agentLoading.value = false
+  }
+}
+
 // 初始加载：树的 watch（immediate）拉到树后会 emit select('all')，
 // 由 handleTreeSelect 触发列表查询 —— 保证列表与树用同一个 scope，不重复发请求。
 // 注意：产品线/维度变化同理（树重新拉取 → emit → 刷新表），页面不再单独监听。
@@ -240,6 +327,14 @@ function handleContextSaved() {
             <template v-if="isOverview">｜ 用例数/成功数/执行时间为最近一轮执行口径</template>
           </span>
           <a-space>
+            <template v-if="isOverview">
+              <a-button type="primary" size="small" status="success" @click="openAgent('run')">
+                一键 Agent 测试
+              </a-button>
+              <a-button size="small" @click="openAgent('regression')">
+                回归复跑
+              </a-button>
+            </template>
             <a-button size="small" @click="syncModalsRef?.openRecords()">
               同步记录
             </a-button>
@@ -279,6 +374,42 @@ function handleContextSaved() {
       :api-label="contextRecord?.number || contextRecord?.name || ''"
       @saved="handleContextSaved"
     />
+
+    <!-- 一键 Agent 测试 / 回归（P1-7）：选安全测试环境 + 确认当前范围 -->
+    <a-modal
+      v-model:visible="agentModalVisible"
+      :title="agentMode === 'run' ? '一键 Agent 测试' : '回归复跑'"
+      :ok-loading="agentLoading"
+      :ok-text="agentMode === 'run' ? '派发给 Agent' : '开始回归'"
+      cancel-text="取消"
+      @ok="handleAgentSubmit"
+    >
+      <a-form :model="{}" layout="vertical">
+        <a-form-item label="安全测试环境" required>
+          <a-select v-model="agentEnvId" placeholder="选择安全测试环境（sec_test_env）" allow-clear>
+            <a-option v-for="e in envOptions" :key="e.value" :value="e.value">
+              {{ e.label }}
+            </a-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="测试范围">
+          <a-tag color="arcoblue">
+            {{ agentScopeText }}
+          </a-tag>
+        </a-form-item>
+        <a-form-item v-if="agentMode === 'run'" label="单轮配额（最多处理多少个待测 API）">
+          <a-input-number v-model="agentMaxApis" :min="1" :max="50" :step="1" style="width: 160px" />
+        </a-form-item>
+      </a-form>
+      <div class="agent-tip">
+        <template v-if="agentMode === 'run'">
+          拉起 Agent 自动：反编译读源码/读 meta → 生成用例回写平台 → 自评审 → 写脚本 → 试跑 → 回写状态。真实执行需连所选环境内网。
+        </template>
+        <template v-else>
+          对该范围已评审通过（approved）且启用的用例复跑一遍，保证迭代发布未回退。
+        </template>
+      </div>
+    </a-modal>
   </div>
 </template>
 
@@ -310,6 +441,13 @@ function handleContextSaved() {
 }
 .f-mid {
   width: 150px;
+}
+
+.agent-tip {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text-3);
 }
 
 .filter-bar > div :deep(.arco-select),
