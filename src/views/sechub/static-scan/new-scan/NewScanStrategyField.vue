@@ -22,7 +22,7 @@ const ruleChanges = computed(() => ctx.unifiedPreview?.rule_changes_since_baseli
   <a-form-item label="扫描方式">
     <div class="strategy-wrap">
       <a-radio-group v-model="ctx.strategy" type="button">
-        <a-tooltip content="扫全部在用资产与全仓文件；完成并定稿后成为后续增量的基线" mini>
+        <a-tooltip content="扫所选资产（若勾选）与全仓文件；完成并定稿后成为后续增量的基线" mini>
           <a-radio value="full">
             全量扫描
           </a-radio>

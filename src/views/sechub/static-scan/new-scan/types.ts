@@ -26,6 +26,10 @@ export interface UnifiedTriggerRequest {
   scan_point_ids?: string[]
   /** 单独选中的规则版本（所在扫描点未整选时） */
   rule_version_ids?: string[]
+  /** 是否扫描资产：false=只跑通用规则（不要求资产索引/匹配） */
+  asset_scan?: boolean
+  /** 所选资产类型：form / microservice；asset_scan=false 时为空 */
+  asset_types?: string[]
 }
 
 /** 统一扫描触发响应 */

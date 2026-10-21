@@ -16,6 +16,8 @@ const DEFAULT_NO_BASELINE_REASON = '该分支还没有已定稿的全量统一�
 
 export function useUnifiedScan() {
   const strategy = ref<ScanStrategy>('full')
+  /** 资产类型：默认表单 + 微服务；全部取消 = 只跑通用规则 */
+  const assetTypes = ref<string[]>(['form', 'microservice'])
   const unifiedPreview = ref<UnifiedPreview | null>(null)
   const loadingUnifiedPreview = ref(false)
   const triggeringUnified = ref(false)
@@ -55,7 +57,7 @@ export function useUnifiedScan() {
     }
     loadingUnifiedPreview.value = true
     try {
-      const res = await fetchUnifiedPreview(repositoryId, branch)
+      const res = await fetchUnifiedPreview(repositoryId, branch, assetTypes.value)
       if (seq !== previewSeq)
         return
       unifiedPreview.value = res
@@ -81,6 +83,7 @@ export function useUnifiedScan() {
 
   function resetUnified() {
     strategy.value = 'full'
+    assetTypes.value = ['form', 'microservice']
     unifiedPreview.value = null
     previewSeq += 1
     loadingUnifiedPreview.value = false
@@ -88,6 +91,7 @@ export function useUnifiedScan() {
 
   return {
     strategy,
+    assetTypes,
     unifiedPreview,
     loadingUnifiedPreview,
     triggeringUnified,

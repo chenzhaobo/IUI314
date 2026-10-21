@@ -65,8 +65,16 @@ export function triggerFull(body: FullTriggerRequest): Promise<PrescanTriggerRes
 }
 
 /** 统一扫描预览：自动资产数、阻断原因、增量基线与目标 commit（只读，不冻结） */
-export function fetchUnifiedPreview(repositoryId: string, branch: string): Promise<UnifiedPreview | null> {
-  return getAction<UnifiedPreview>(ApiSecPrescan.unifiedPreview, branch ? { repository_id: repositoryId, branch } : { repository_id: repositoryId })
+export function fetchUnifiedPreview(repositoryId: string, branch: string, assetTypes: string[]): Promise<UnifiedPreview | null> {
+  const params: Record<string, unknown> = {
+    repository_id: repositoryId,
+    asset_scan: assetTypes.length > 0,
+  }
+  if (branch)
+    params.branch = branch
+  if (assetTypes.length)
+    params.asset_types = assetTypes.join(',')
+  return getAction<UnifiedPreview>(ApiSecPrescan.unifiedPreview, params)
 }
 
 /** 统一扫描触发：一个仓库一次触发（后端自动选资产、冻结规则/技能/多范围 manifest） */

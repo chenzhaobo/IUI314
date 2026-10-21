@@ -116,6 +116,13 @@ export function useNewScan(options: UseNewScanOptions = {}) {
     ])
   }
 
+  /** 资产类型勾选变化：重新预览（资产数/阻断原因/基线都可能变化） */
+  async function reloadUnifiedPreview() {
+    if (!repository.value || isLocalRepository.value)
+      return
+    await unified.loadUnifiedPreview(repository.value.repository_id, branch.value)
+  }
+
   /** 显式刷新分支（git fetch）；当前分支消失被切到默认分支时联动重载 */
   async function refreshBranches() {
     if (await source.refreshBranches())
@@ -148,7 +155,14 @@ export function useNewScan(options: UseNewScanOptions = {}) {
       Message.warning('目标 Commit SHA 须为 7~40 位十六进制字符')
       return null
     }
-    const body: UnifiedTriggerRequest = { repository_id: repositoryId, force: false, strategy: unified.strategy.value }
+    const assetTypes = unified.assetTypes.value
+    const body: UnifiedTriggerRequest = {
+      repository_id: repositoryId,
+      force: false,
+      strategy: unified.strategy.value,
+      asset_scan: assetTypes.length > 0,
+      asset_types: assetTypes,
+    }
     if (ruleSetId.value)
       body.rule_set_id = ruleSetId.value
     if (branch.value)
@@ -217,6 +231,7 @@ export function useNewScan(options: UseNewScanOptions = {}) {
     executingFull,
     onRepositoryChange,
     onBranchChange,
+    reloadUnifiedPreview,
     refreshBranches,
     onRuleSetChange,
     onRuleScopeModeChange,

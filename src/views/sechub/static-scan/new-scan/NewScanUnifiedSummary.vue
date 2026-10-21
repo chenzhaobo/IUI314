@@ -9,23 +9,47 @@ const ctx = useNewScanContext()
 </script>
 
 <template>
+  <a-form-item label="扫描资产">
+    <a-checkbox-group v-model="ctx.assetTypes" @change="ctx.reloadUnifiedPreview">
+      <a-checkbox value="form">
+        表单资产
+      </a-checkbox>
+      <a-checkbox value="microservice">
+        微服务资产
+      </a-checkbox>
+    </a-checkbox-group>
+    <template #extra>
+      默认勾选表单 + 微服务；全部取消则只跑通用规则，不要求资产索引/匹配。
+    </template>
+  </a-form-item>
   <a-form-item label="自动选取的资产">
     <div class="unified-summary">
       <a-spin v-if="ctx.loadingUnifiedPreview" :size="14" />
       <template v-else-if="ctx.unifiedPreview">
-        <a-tag color="arcoblue" size="small">
-          表单资产 {{ ctx.unifiedPreview.form_assets }}
-        </a-tag>
-        <a-tag color="purple" size="small">
-          微服务资产 {{ ctx.unifiedPreview.microservice_assets }}
-        </a-tag>
-        <span v-if="ctx.unifiedGenericOnly" class="unified-meta">无领域资产：全仓文件 + 通用规则，一次扫描一个 run</span>
-        <span v-else class="unified-meta">全部在用资产 + 全仓文件，一次扫描一个 run</span>
+        <template v-if="ctx.assetTypes.length === 0">
+          <a-tag color="gray" size="small">
+            未选择资产
+          </a-tag>
+          <span class="unified-meta">只跑全仓通用规则，一次扫描一个 run</span>
+        </template>
+        <template v-else>
+          <a-tag color="arcoblue" size="small">
+            表单资产 {{ ctx.unifiedPreview.form_assets }}
+          </a-tag>
+          <a-tag color="purple" size="small">
+            微服务资产 {{ ctx.unifiedPreview.microservice_assets }}
+          </a-tag>
+          <span v-if="ctx.unifiedGenericOnly" class="unified-meta">无领域资产：全仓文件 + 通用规则，一次扫描一个 run</span>
+          <span v-else class="unified-meta">全部在用资产 + 全仓文件，一次扫描一个 run</span>
+        </template>
       </template>
       <span v-else class="unified-meta">未取到自动资产摘要（接口失败时不可提交，可稍后重新打开弹窗）</span>
     </div>
     <a-alert v-if="ctx.unifiedBlockedReason" type="warning" style="margin-top: 8px">
       暂不能统一扫描：{{ ctx.unifiedBlockedReason }}
+    </a-alert>
+    <a-alert v-else-if="ctx.assetTypes.length === 0" type="info" style="margin-top: 8px">
+      未勾选资产：本次只跑全仓通用规则，不跑表单插件与微服务的领域检测。
     </a-alert>
     <a-alert v-else-if="ctx.unifiedGenericOnly" type="info" style="margin-top: 8px">
       该仓库没有表单/微服务资产（如扩展包、公共组件），本次只跑通用规则（代码级安全/性能），不跑表单插件与微服务的领域检测。
