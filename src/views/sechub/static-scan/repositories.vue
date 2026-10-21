@@ -87,7 +87,7 @@ async function loadModuleOptions(keyword = '') {
   try {
     const { data, execute } = useGet<any>(
       ApiPerfModule.getList,
-      { page_num: 1, page_size: MODULE_PAGE_SIZE, keyword },
+      { page_num: 1, page_size: MODULE_PAGE_SIZE, keyword, product_line: '星瀚' },
       { immediate: false },
     )
     await execute()

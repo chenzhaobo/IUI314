@@ -94,7 +94,7 @@ async function loadModules() {
   while (loaded.size < total) {
     const page = await getAction<PageResult<ModuleSummary> | ModuleSummary[]>(
       ApiPerfModule.getList,
-      { page_num: pageNum, page_size: modulePageSize, status: '可用' },
+      { page_num: pageNum, page_size: modulePageSize, status: '可用', product_line: '星瀚' },
     )
     if (!page)
       return
