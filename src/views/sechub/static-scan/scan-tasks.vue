@@ -215,6 +215,7 @@ const form = reactive<{
   schedule_enabled: boolean
   concurrency: number
   auto_confirm: boolean
+  asset_scan_enabled: boolean
   ai_mode: string
   ai_model: string
   ai_agent_code: string
@@ -226,11 +227,12 @@ const form = reactive<{
   scope_value: '',
   repository_ids: [],
   domains: [],
-  scan_mode: 'auto_delta',
+  scan_mode: 'full_baseline',
   cron_expression: '',
   schedule_enabled: true,
   concurrency: 2,
   auto_confirm: true,
+  asset_scan_enabled: true,
   ai_mode: 'batch',
   ai_model: '',
   ai_agent_code: '',
@@ -261,10 +263,12 @@ const scopeTargetLabel = computed(() => SCOPE_TYPE_OPTIONS.find(option => option
  * （见后端 prescan_mode），这里保留当前值以防编辑时下拉显示裸值。
  */
 const CANONICAL_SCAN_MODES = new Set(['auto_delta', 'full_baseline', 'hunk_quick'])
+/** 资产扫描（统一扫描）可用的策略：完整基线与自动增量（含旧差量值） */
+const ASSET_SCAN_MODES = new Set(['full_baseline', 'auto_delta', 'full', 'diff', 'code_delta', 'rule_delta', 'hybrid_delta'])
 const scanModeOptions = computed(() => {
   const options = [
-    { value: 'auto_delta', label: '推荐：自动增量' },
-    { value: 'full_baseline', label: '完整基线' },
+    { value: 'full_baseline', label: '完整基线（默认，全量）' },
+    { value: 'auto_delta', label: '自动增量（需已有全量基线）' },
     { value: 'hunk_quick', label: '高级：新增行快速检查（不关闭问题）' },
   ]
   const current = form.scan_mode
@@ -361,11 +365,12 @@ function resetForm() {
   form.scope_value = ''
   form.repository_ids = []
   form.domains = []
-  form.scan_mode = 'auto_delta'
+  form.scan_mode = 'full_baseline'
   form.cron_expression = ''
   form.schedule_enabled = true
   form.concurrency = 2
   form.auto_confirm = true
+  form.asset_scan_enabled = true
   form.ai_mode = 'batch'
   form.ai_model = ''
   form.ai_agent_code = ''
@@ -388,11 +393,12 @@ function openEditModal(record: PrescanTaskRow) {
   form.repository_ids = record.repository_ids ? [...record.repository_ids] : []
   // 将逗号分隔的 domains 还原为数组
   form.domains = record.domains ? record.domains.split(',').map(d => d.trim()).filter(Boolean) : []
-  form.scan_mode = record.scan_mode || 'auto_delta'
+  form.scan_mode = record.scan_mode || 'full_baseline'
   form.cron_expression = record.cron_expression ?? ''
   form.schedule_enabled = record.schedule_enabled === '1'
   form.concurrency = record.concurrency ?? 2
   form.auto_confirm = record.auto_confirm === '1'
+  form.asset_scan_enabled = record.asset_scan_enabled !== '0'
   form.ai_mode = record.ai_mode || 'batch'
   form.ai_model = record.ai_model ?? ''
   form.ai_agent_code = record.ai_agent_code ?? ''
@@ -415,6 +421,7 @@ function buildPayload(): PrescanTaskSavePayload {
     schedule_enabled: form.schedule_enabled ? '1' : '0',
     concurrency: form.concurrency,
     auto_confirm: form.auto_confirm ? '1' : '0',
+    asset_scan_enabled: form.asset_scan_enabled ? '1' : '0',
     ai_mode: form.ai_mode,
     ai_model: form.ai_model.trim() || null,
     ai_agent_code: form.ai_agent_code.trim() || null,
@@ -426,10 +433,11 @@ const savePayload = ref<PrescanTaskSavePayload>({
   name: '',
   scope_type: 'repository',
   repository_ids: [],
-  scan_mode: 'auto_delta',
+  scan_mode: 'full_baseline',
   schedule_enabled: '1',
   concurrency: 2,
   auto_confirm: '1',
+  asset_scan_enabled: '1',
   ai_mode: 'batch',
   status: '1',
 })
@@ -454,6 +462,10 @@ async function handleSave() {
   }
   if (!validateCron(form.cron_expression)) {
     Message.warning('cron 表达式格式不正确，须为 6 段（含秒），例如：0 0 2 * * *')
+    return
+  }
+  if (form.asset_scan_enabled && !ASSET_SCAN_MODES.has(form.scan_mode)) {
+    Message.warning('资产扫描只支持完整基线 / 自动增量，请修改扫描策略或关闭资产扫描')
     return
   }
   modalLoading.value = true
@@ -587,6 +599,7 @@ async function handleScheduleToggle(record: PrescanTaskRow, newVal: boolean) {
     schedule_enabled: newVal ? '1' : '0',
     concurrency: record.concurrency,
     auto_confirm: record.auto_confirm,
+    asset_scan_enabled: record.asset_scan_enabled,
     ai_mode: record.ai_mode,
     status: record.status,
   }
@@ -660,7 +673,8 @@ const columns = withTableDefaults([
   { title: '任务名称', dataIndex: 'name', width: 160, ellipsis: true, tooltip: true },
   { title: '扫描范围', dataIndex: 'scope_type', slotName: 'scope', width: 240 },
   { title: '领域', dataIndex: 'domains', slotName: 'domains', width: 100 },
-  { title: '扫描策略', dataIndex: 'scan_mode', slotName: 'scan_mode', width: 80 },
+  { title: '扫描策略', dataIndex: 'scan_mode', slotName: 'scan_mode', width: 110 },
+  { title: '资产扫描', dataIndex: 'asset_scan_enabled', slotName: 'asset_scan', width: 90 },
   { title: 'Cron', dataIndex: 'cron_expression', width: 140, ellipsis: true, tooltip: true },
   { title: '下次执行', dataIndex: 'next_run_at', slotName: 'next_run_at', width: 160 },
   { title: '上次执行', dataIndex: 'last_scheduled_at', slotName: 'last_scheduled_at', width: 160 },
@@ -790,11 +804,24 @@ const columns = withTableDefaults([
           <!-- 扫描策略 -->
           <template #scan_mode="{ record }">
             <a-tag
-              :color="record.scan_mode === 'diff' ? 'orange' : 'blue'"
+              :color="record.scan_mode === 'diff' || record.scan_mode === 'auto_delta' ? 'orange' : 'blue'"
               size="small"
             >
               {{ scanModeLabel(record.scan_mode) }}
             </a-tag>
+          </template>
+
+          <!-- 资产扫描 -->
+          <template #asset_scan="{ record }">
+            <a-tooltip
+              :content="record.asset_scan_enabled === '0'
+                ? '仅按仓库通用规则扫描，不自动选表单/微服务资产'
+                : '统一扫描：自动选该仓库全部在用表单/微服务资产，并跑领域证据检测'"
+            >
+              <a-tag :color="record.asset_scan_enabled === '0' ? 'gray' : 'cyan'" size="small">
+                {{ record.asset_scan_enabled === '0' ? '关闭' : '开启' }}
+              </a-tag>
+            </a-tooltip>
           </template>
 
           <!-- 下次执行 -->
@@ -972,6 +999,15 @@ const columns = withTableDefaults([
           </a-select>
           <template #extra>
             不选表示扫描全部领域
+          </template>
+        </a-form-item>
+
+        <!-- 资产扫描 -->
+        <a-form-item label="资产扫描">
+          <a-switch v-model="form.asset_scan_enabled" />
+          <template #extra>
+            默认开启：每次触发按统一扫描自动选取该仓库全部在用表单/微服务资产，并额外跑领域证据检测（使用完整规则集）。
+            关闭后只按仓库通用规则扫描（候选数通常更少），此时「领域」筛选才生效。
           </template>
         </a-form-item>
 

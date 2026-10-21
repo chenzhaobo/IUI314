@@ -21,6 +21,8 @@ export interface PrescanTaskRow {
   concurrency: number
   /** 自动 AI 确认：'0' 关闭 | '1' 开启 */
   auto_confirm: string
+  /** 资产扫描：'1' 统一扫描（自动选全部表单/微服务资产）| '0' 仓库级通用扫描 */
+  asset_scan_enabled: string
   /** AI 模式：batch（平台编排）| agent（自主审计） */
   ai_mode: string
   ai_model?: string | null
@@ -68,6 +70,8 @@ export interface PrescanTaskSavePayload {
   schedule_enabled: string
   concurrency: number
   auto_confirm: string
+  /** 资产扫描：'1' 统一扫描（默认）| '0' 仓库级通用扫描 */
+  asset_scan_enabled: string
   ai_mode: string
   ai_model?: string | null
   ai_agent_code?: string | null
