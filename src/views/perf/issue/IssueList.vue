@@ -904,7 +904,7 @@ const userOptions = computed(() => {
 
 // 项目组下拉取自基础配置的项目组表（314 个），不从当前页数据归集 ——
 // 归集只能拿到当页出现过的两三个组，要转交给别的组就选不到
-const { data: allGroupsRes } = useGet<any>(ApiSecProjectGroup.getAll, {}, { immediate: true })
+const { data: allGroupsRes } = useGet<any>(ApiSecProjectGroup.getAll, computed(() => ({ product_line: searchForm.product_line || undefined })), { immediate: true })
 const groupOptions = computed(() => {
   const list = allGroupsRes.value
   if (!Array.isArray(list)) return []

@@ -92,9 +92,15 @@ async function saveMembersAfterProjectSubmit(formData: Record<string, any>, isEd
   return Boolean(res)
 }
 
+const productLineOptions = [
+  { label: '星瀚', value: '星瀚' },
+  { label: '星空', value: '星空' },
+]
+
 const columns = withTableDefaults([
   { title: '名称', dataIndex: 'name', width: 160 },
   { title: '代码', dataIndex: 'code', width: 120 },
+  { title: '产品线', dataIndex: 'product_line', width: 80 },
   { title: '产品领域', dataIndex: 'product_group_name', width: 120 },
   { title: 'Scrum团队', dataIndex: 'scrum_team_name', width: 120 },
   { title: '云名称', dataIndex: 'cloud_name', width: 100 },
@@ -105,6 +111,7 @@ const columns = withTableDefaults([
 ])
 
 const filters = computed(() => [
+  { label: '产品线', field: 'product_line', type: 'select' as const, options: productLineOptions, placeholder: '选择产品线' },
   { label: '产品领域', field: 'product_group_name', type: 'select' as const, options: domainOptions.value, placeholder: '选择产品领域' },
   { label: '业务领域', field: 'business_area', type: 'select' as const, options: areaOptions.value, placeholder: '选择业务领域' },
 ])
@@ -112,6 +119,7 @@ const filters = computed(() => [
 const fields = computed(() => [
   { label: '名称', field: 'name', required: true },
   { label: '代码', field: 'code', required: true },
+  { label: '产品线', field: 'product_line', type: 'select' as const, options: productLineOptions },
   { label: '产品领域', field: 'product_group_name', type: 'select' as const, options: domainOptions.value },
   { label: 'Scrum团队', field: 'scrum_team_name' },
   { label: '云名称', field: 'cloud_name' },
@@ -131,8 +139,8 @@ const importResultVisible = ref(false)
 const crudKey = ref(0)
 const importFile = ref<File | null>(null)
 
-const TEMPLATE_HEADERS = ['编码', '名称', '产品领域', 'Scrum团队', '云名称', '业务领域', '云之家群ID', '联系邮箱', '排序', '状态', '备注']
-const TEMPLATE_KEYS = ['code', 'name', 'product_group_name', 'scrum_team_name', 'cloud_name', 'business_area', 'yzj_group_id', 'contact_emails', 'order_num', 'status', 'remark']
+const TEMPLATE_HEADERS = ['编码', '名称', '产品线', '产品领域', 'Scrum团队', '云名称', '业务领域', '云之家群ID', '联系邮箱', '排序', '状态', '备注']
+const TEMPLATE_KEYS = ['code', 'name', 'product_line', 'product_group_name', 'scrum_team_name', 'cloud_name', 'business_area', 'yzj_group_id', 'contact_emails', 'order_num', 'status', 'remark']
 
 function handleDownloadTemplate() {
   const header = TEMPLATE_HEADERS.join(',')

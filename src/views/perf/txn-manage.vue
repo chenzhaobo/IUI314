@@ -35,7 +35,7 @@ const bizAreaOptions = computed(() => {
 })
 
 // ── 项目组选项（从 sec_project_group 获取，按领域过滤）──────────────────────────
-const { data: pgRawData } = useGet<any>(ApiSecProjectGroup.getAll, {}, { immediate: true })
+const { data: pgRawData } = useGet<any>(ApiSecProjectGroup.getAll, computed(() => ({ product_line: productLine.value || undefined })), { immediate: true })
 const projectGroupOptions = computed(() => {
   const all = Array.isArray(pgRawData.value) ? pgRawData.value : []
   const dc = domainCode.value

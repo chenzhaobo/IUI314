@@ -39,7 +39,7 @@ const { data: domainDictRaw } = useGet<any>(ApiSysDictData.getByType, { dict_typ
 const domainOptions = computed(() => (Array.isArray(domainDictRaw.value) ? domainDictRaw.value : []).map((d: any) => ({ label: d.dict_label, value: d.dict_value })))
 
 // ── 项目组选项（从 sec_project_group 获取，按领域过滤）──────────────────────────
-const { data: pgRawData, execute: fetchPgList } = useGet<any>(ApiSecProjectGroup.getAll, {}, { immediate: true })
+const { data: pgRawData, execute: fetchPgList } = useGet<any>(ApiSecProjectGroup.getAll, computed(() => ({ product_line: productLine.value || undefined })), { immediate: true })
 const projectGroupOptions = computed(() => {
   const all = Array.isArray(pgRawData.value) ? pgRawData.value : []
   const dc = menuQuery.value.domain_code

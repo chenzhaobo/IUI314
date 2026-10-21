@@ -126,8 +126,12 @@ const projectGroupOptions = ref<Array<{ label: string, value: string }>>([])
 const projectGroupMap = ref(new Map<string, string>())
 const cloudOptions = ref<string[]>([])
 
-async function loadProjectGroups() {
-  const { execute, data } = useGet<ProjectGroup[]>(ApiSecProjectGroup.getAll, {}, { immediate: false })
+async function loadProjectGroups(productLine: string) {
+  const { execute, data } = useGet<ProjectGroup[]>(
+    ApiSecProjectGroup.getAll,
+    { product_line: productLine || undefined },
+    { immediate: false },
+  )
   await execute()
   const list = listOf<ProjectGroup>(data.value)
   projectGroupOptions.value = list.map(pg => ({ label: pg.name, value: pg.id }))
@@ -145,7 +149,7 @@ async function loadCloudOptions(productLine: string) {
 }
 
 onMounted(() => {
-  void loadProjectGroups()
+  void loadProjectGroups('')
   void loadCloudOptions('')
 })
 
@@ -206,6 +210,7 @@ function handleProductLineChange() {
   queryParams.value.parent_cloud = ''
   handleSearch()
   void loadCloudOptions(queryParams.value.product_line)
+  void loadProjectGroups(queryParams.value.product_line)
 }
 
 function handlePageChange(page: number) {

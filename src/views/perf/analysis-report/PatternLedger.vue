@@ -1087,7 +1087,7 @@ const tagOptions = computed(() => {
 // 原来按当前页 20 条归集，结果下拉里只有 2 个项目组 —— 库里有 314 个。
 // 归集的做法对「筛选已有数据」勉强够用，对「修改归属」是错的：
 // 要把问题改到一个当前页没出现过的项目组就选不到。
-const { data: allGroupsRes } = useGet<any>(ApiSecProjectGroup.getAll, {}, { immediate: true })
+const { data: allGroupsRes } = useGet<any>(ApiSecProjectGroup.getAll, computed(() => ({ product_line: searchForm.product_line || undefined })), { immediate: true })
 const groupOptions = computed(() => {
   const list = allGroupsRes.value
   if (!Array.isArray(list)) return []
