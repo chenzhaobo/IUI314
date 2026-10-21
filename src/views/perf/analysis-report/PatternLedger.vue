@@ -8,9 +8,9 @@
         </a-col>
         <a-col :span="3">
           <a-select v-model="searchForm.product_line" placeholder="产品线" allow-clear>
-            <a-option value="星瀚">星瀚</a-option>
-            <a-option value="苍穹">苍穹</a-option>
-            <a-option value="s-HR">s-HR</a-option>
+            <a-option v-for="o in productLineOptions" :key="o.value" :value="o.value">
+              {{ o.label }}
+            </a-option>
           </a-select>
         </a-col>
         <a-col :span="3">
@@ -247,7 +247,7 @@
                   {{ record.app_number || '--' }}
                 </template>
               </a-table-column>
-              <a-table-column title="产品线" data-index="product_line" :width="80" ellipsis tooltip :filterable="filterableOf('product_line')" />
+              <a-table-column title="产品线" data-index="product_line" :width="80" ellipsis tooltip :filterable="enumFilterable(productLineOptions, searchForm.product_line)" />
               <a-table-column title="修改人" data-index="last_modified_by" :width="110" ellipsis tooltip :filterable="filterableOf('last_modified_by')">
                 <template #cell="{ record }">
                   <a-tooltip v-if="record.last_modified_by" :content="`修改时间 ${formatTime(record.last_modified_at)}`">
@@ -386,9 +386,6 @@
             </template>
             <template #filter-app_number>
               <ColumnFilterPanel v-model="columnFilters.app_number" @change="onColumnFilterChange" />
-            </template>
-            <template #filter-product_line>
-              <ColumnFilterPanel v-model="columnFilters.product_line" @change="onColumnFilterChange" />
             </template>
             <template #filter-last_modified_by>
               <ColumnFilterPanel v-model="columnFilters.last_modified_by" @change="onColumnFilterChange" />
@@ -787,6 +784,8 @@ function onEnumFilterChange(dataIndex: string, filteredValues: string[]) {
     searchForm.status = value
   else if (dataIndex === 'is_custom')
     searchForm.is_custom = value
+  else if (dataIndex === 'product_line')
+    searchForm.product_line = value
   pageNum.value = 1
   fetchData()
 }
@@ -1080,6 +1079,16 @@ const tagOptions = computed(() => {
   const raw: unknown = dicts.value.perf_attr_tag
   if (!Array.isArray(raw)) return []
   return raw.map((d: any) => ({ value: d.value ?? d.dict_value, label: d.label ?? d.dict_label }))
+})
+
+// 产品线也走数据字典 perf_product_line（星瀚/星空），不要写死历史值
+const productLineDict = useDicts('perf_product_line')
+const productLineOptions = computed(() => {
+  const raw: unknown = productLineDict.value.perf_product_line
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((d: any) => ({ value: d.value ?? d.dict_value, label: d.label ?? d.dict_label }))
+    .filter((o: { value?: string, label?: string }) => Boolean(o.value && o.label))
 })
 
 // 项目组、应用、业务领域都从**基础数据表**取，不从当前列表数据归集。
