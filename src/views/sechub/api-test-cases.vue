@@ -56,7 +56,7 @@ const scopeHint = computed(() => {
 })
 
 // ── 右表筛选 / 分页 ───────────────────────────────
-const searchForm = reactive({ keyword: '', test_type: '', assertion: '' })
+const searchForm = reactive({ keyword: '', test_type: '', assertion: '', review_status: '' })
 const pageNum = ref(1)
 const pageSize = ref(20)
 
@@ -98,6 +98,7 @@ const queryParams = computed(() => ({
     ...scopeFilters.value,
     ...(searchForm.test_type ? [{ field: 'test_type', op: 'eq', value: searchForm.test_type }] : []),
     ...(searchForm.assertion ? [{ field: 'assertion', op: 'eq', value: searchForm.assertion }] : []),
+    ...(searchForm.review_status ? [{ field: 'review_status', op: 'eq', value: searchForm.review_status }] : []),
   ]),
 }))
 
@@ -125,6 +126,7 @@ function handleReset() {
   searchForm.keyword = ''
   searchForm.test_type = ''
   searchForm.assertion = ''
+  searchForm.review_status = ''
   handleSearch()
 }
 
@@ -166,6 +168,28 @@ function openEdit(record: any) {
     scriptVisible.value = true
   else
     editorVisible.value = true
+}
+
+/** 人工评审：通过/驳回。只有 approved 用例参与正式聚合与回归。 */
+function handleReview(record: any, status: 'approved' | 'rejected') {
+  Modal.confirm({
+    title: status === 'approved' ? '评审通过' : '驳回用例',
+    content: status === 'approved'
+      ? `确认通过「${record.title || record.case_code || record.api_path}」？通过后会参与试跑/回归与 API 状态聚合。`
+      : `确认驳回「${record.title || record.case_code || record.api_path}」？驳回后需修改并重新评审。`,
+    okText: status === 'approved' ? '通过' : '驳回',
+    cancelText: '取消',
+    onOk: async () => {
+      const res = await postAction<string>(
+        resolveStaticScanApi(ApiSecScan.caseReview, { id: record.id }),
+        { review_status: status, review_comment: status === 'approved' ? '人工评审通过' : '人工驳回' },
+      )
+      if (res === null)
+        return
+      Message.success(status === 'approved' ? '已通过' : '已驳回')
+      await fetchList()
+    },
+  })
 }
 
 function handleDelete(record: any) {
@@ -314,6 +338,22 @@ function runBatch() {
               </a-option>
             </a-select>
           </div>
+          <div class="f-mid">
+            <a-select v-model="searchForm.review_status" placeholder="评审状态" allow-clear @change="handleSearch">
+              <a-option value="draft">
+                待评审
+              </a-option>
+              <a-option value="self_reviewing">
+                评审中
+              </a-option>
+              <a-option value="approved">
+                已通过
+              </a-option>
+              <a-option value="rejected">
+                已驳回
+              </a-option>
+            </a-select>
+          </div>
           <a-button type="primary" @click="handleSearch">
             查询
           </a-button>
@@ -366,6 +406,7 @@ function runBatch() {
           @run="runOne"
           @edit="openEdit"
           @delete="handleDelete"
+          @review="handleReview"
         />
       </template>
     </ListPage>

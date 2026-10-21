@@ -1,10 +1,12 @@
 <script lang="ts" setup>
-import { computed } from 'vue'
-import SecCrudPage from './components/SecCrudPage.vue'
+import { computed, ref } from 'vue'
 import { ApiSecReleaseWindow, ApiSecTestEnv } from '@/api/apis'
 import { useGet } from '@/hooks'
+import SecCrudPage from './components/SecCrudPage.vue'
+import TestEnvAccountsDrawer from './components/TestEnvAccountsDrawer.vue'
+import TestEnvCredentialDrawer from './components/TestEnvCredentialDrawer.vue'
 
-defineOptions({ name: 'test-env' })
+defineOptions({ name: 'TestEnv' })
 
 // 字段以 sec_test_env 实际列为准：env_url（不是 base_url）、release_window_id（必填）、
 // env_account；旧页面的 api_prefix / db_conn_str / credential_code / status 在表里不存在。
@@ -28,6 +30,20 @@ const releaseWindowOptions = computed(() =>
   })),
 )
 
+const accountsVisible = ref(false)
+const credentialVisible = ref(false)
+const activeEnv = ref<any>(null)
+
+function openAccounts(record: any) {
+  activeEnv.value = record
+  accountsVisible.value = true
+}
+
+function openCredential(record: any) {
+  activeEnv.value = record
+  credentialVisible.value = true
+}
+
 const fields = computed(() => [
   { label: '发布窗口', field: 'release_window_id', type: 'select' as const, required: true, options: releaseWindowOptions.value },
   { label: '环境类型', field: 'env_type', type: 'select' as const, required: true, options: [
@@ -47,15 +63,29 @@ const fields = computed(() => [
 </script>
 
 <template>
-  <SecCrudPage
-    title="测试环境"
-    :api-list="ApiSecTestEnv.getList"
-    :api-add="ApiSecTestEnv.add"
-    :api-edit="ApiSecTestEnv.edit"
-    :api-delete="ApiSecTestEnv.delete"
-    :columns="columns"
-    :fields="fields"
-    id-field="id"
-    name-field="env_name"
-  />
+  <div>
+    <SecCrudPage
+      title="测试环境"
+      :api-list="ApiSecTestEnv.getList"
+      :api-add="ApiSecTestEnv.add"
+      :api-edit="ApiSecTestEnv.edit"
+      :api-delete="ApiSecTestEnv.delete"
+      :columns="columns"
+      :fields="fields"
+      id-field="id"
+      name-field="env_name"
+    >
+      <template #row-actions="{ record }">
+        <a-button type="text" size="small" @click="openAccounts(record)">
+          账号
+        </a-button>
+        <a-button type="text" size="small" @click="openCredential(record)">
+          凭据
+        </a-button>
+      </template>
+    </SecCrudPage>
+
+    <TestEnvAccountsDrawer v-model:visible="accountsVisible" :env="activeEnv" />
+    <TestEnvCredentialDrawer v-model:visible="credentialVisible" :env="activeEnv" />
+  </div>
 </template>

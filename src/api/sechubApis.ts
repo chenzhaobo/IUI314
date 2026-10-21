@@ -405,6 +405,16 @@ export enum ApiSecScan {
   apiAgentRun = '/sechub/scan/api-agent/run',
   // 正式回归：POST { sec_env_id, dimension, code } 复跑 approved+enabled 用例
   apiAgentRegression = '/sechub/scan/api-agent/regression',
+  // Agent 任务列表 / 详情 / 重试 / 每日配置
+  apiAgentRuns = '/sechub/scan/api-agent/runs',
+  apiAgentRunDetail = '/sechub/scan/api-agent/runs/{run_id}',
+  apiAgentRetry = '/sechub/scan/api-agent/runs/{run_id}/retry',
+  apiAgentConfig = '/sechub/scan/api-agent/config',
+  // 用例人工评审（POST { review_status, review_comment }）
+  caseReview = '/sechub/scan/cases/{id}/review',
+  // 环境应用凭据（GET ?env_id= / POST 保存 / POST test 连接自检）
+  envCredential = '/sechub/scan/env-credentials',
+  envCredentialTest = '/sechub/scan/env-credentials/test',
 }
 
 // ── 表单测试分组（表单概览 / 表单测试结果 / 测试类型维护）──

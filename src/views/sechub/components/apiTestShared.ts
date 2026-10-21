@@ -96,6 +96,26 @@ export const ASSERTION_LABELS: Record<string, string> = Object.fromEntries(
   ASSERTION_OPTIONS.map(o => [o.value, o.label]),
 )
 
+/** 用例评审状态（sec_sec_case.review_status，迁移 095） */
+export const REVIEW_STATUS_LABELS: Record<string, string> = {
+  draft: '待评审',
+  self_reviewing: '评审中',
+  approved: '已通过',
+  rejected: '已驳回',
+}
+export const REVIEW_STATUS_COLORS: Record<string, string> = {
+  draft: 'gray',
+  self_reviewing: 'blue',
+  approved: 'green',
+  rejected: 'red',
+}
+export function reviewStatusLabel(v?: string | null) {
+  return REVIEW_STATUS_LABELS[v || ''] || v || '待评审'
+}
+export function reviewStatusColor(v?: string | null) {
+  return REVIEW_STATUS_COLORS[v || ''] || 'gray'
+}
+
 /** 期望判定（sec_sec_case.expected_verdict）：与结果表的 verdict 同一取值域 */
 export const VERDICT_OPTIONS = ['PASS', 'FAIL', 'REVIEW', 'BLOCKED', 'ERROR']
 

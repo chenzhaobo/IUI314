@@ -14,6 +14,7 @@ import { Message } from '@arco-design/web-vue'
  *   · 应用归属（应用/云）随同步解析；项目组/业务领域/产品领域**动态关联**，只在左树过滤时使用。
  */
 import { computed, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ApiSysDictData } from '@/api/apis'
 import { ApiMetadataInventory } from '@/api/metadataApis'
 import { ApiSecScan, ApiSecTestEnv } from '@/api/sechubApis'
@@ -30,6 +31,7 @@ const props = withDefaults(defineProps<{
 }>(), { mode: 'inventory' })
 
 const isOverview = computed(() => props.mode === 'overview')
+const router = useRouter()
 
 /** 「未分类」哨兵：与后端 `UNCLASSIFIED_FILTER` 一致（左树未分类组的 group code） */
 const UNCLASSIFIED_FILTER = '__unclassified__'
@@ -238,6 +240,8 @@ async function handleAgentSubmit() {
       if (res === null)
         return
       Message.success(res?.message || '已派发给 Agent')
+      if (res?.run_id)
+        void router.push('/sechub/api-test/api-agent-tasks')
     }
     else {
       const res = await postAction<any>(ApiSecScan.apiAgentRegression, {

@@ -11,6 +11,8 @@ import {
   ASSERTION_LABELS,
   caseIdText,
   EXEC_MODE_LABELS,
+  REVIEW_STATUS_LABELS,
+  reviewStatusColor,
   TEST_ROLE_LABELS,
   TEST_TYPE_LABELS,
 } from './apiTestShared'
@@ -32,6 +34,7 @@ const emit = defineEmits<{
   (e: 'delete', record: any): void
   (e: 'selectionChange', keys: (string | number)[]): void
   (e: 'run', record: any): void
+  (e: 'review', record: any, status: 'approved' | 'rejected'): void
 }>()
 
 const rowSelection: TableRowSelection = {
@@ -55,7 +58,7 @@ function runnable(record: any): boolean {
     :pagination="pagination"
     :row-selection="rowSelection"
     :selected-keys="props.selectedKeys || []"
-    :scroll="{ minWidth: 1400, y: tableHeight }"
+    :scroll="{ minWidth: 1600, y: tableHeight }"
     row-key="id"
     @page-change="emit('pageChange', $event)"
     @page-size-change="emit('pageSizeChange', $event)"
@@ -93,6 +96,13 @@ function runnable(record: any): boolean {
           {{ record.exec_mode ? EXEC_MODE_LABELS[record.exec_mode] || record.exec_mode : '--' }}
         </template>
       </a-table-column>
+      <a-table-column title="评审" :width="90">
+        <template #cell="{ record }">
+          <a-tag :color="reviewStatusColor(record.review_status)" size="small">
+            {{ REVIEW_STATUS_LABELS[record.review_status] || record.review_status || '待评审' }}
+          </a-tag>
+        </template>
+      </a-table-column>
       <a-table-column title="启用" :width="80">
         <template #cell="{ record }">
           <a-tag :color="record.enabled === 'Y' ? 'green' : 'gray'" size="small">
@@ -100,7 +110,7 @@ function runnable(record: any): boolean {
           </a-tag>
         </template>
       </a-table-column>
-      <a-table-column title="操作" :width="150" fixed="right">
+      <a-table-column title="操作" :width="260" fixed="right">
         <template #cell="{ record }">
           <a-space>
             <a-tooltip v-if="!runnable(record)" content="仅平台编排（配了断言）与已配脚本的 Python 用例可试跑">
@@ -110,6 +120,12 @@ function runnable(record: any): boolean {
             </a-tooltip>
             <a-link v-else @click="emit('run', record)">
               执行
+            </a-link>
+            <a-link v-if="record.review_status !== 'approved'" @click="emit('review', record, 'approved')">
+              通过
+            </a-link>
+            <a-link v-else status="warning" @click="emit('review', record, 'rejected')">
+              驳回
             </a-link>
             <a-link @click="emit('edit', record)">
               编辑
