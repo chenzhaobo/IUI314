@@ -225,6 +225,8 @@ const agentEnvId = ref('')
 const agentMaxApis = ref(10)
 /** 勾选行触发时只派发这些 api_path；空=按左树范围派发 */
 const agentSelectedPaths = ref<string[]>([])
+/** 可选需求文档/说明：有文档时 Agent 以文档为主、源码为辅 */
+const agentRequirementText = ref('')
 
 // 安全测试环境列表（sec_test_env.id 作为后端 sec_env_id）；打开弹窗时才拉取
 const envRes = ref<any>(null)
@@ -265,6 +267,7 @@ function openAgent(mode: 'run' | 'regression', apiPaths: string[] = []) {
   agentEnvId.value = ''
   agentSelectedPaths.value = [...apiPaths]
   agentMaxApis.value = apiPaths.length || 10
+  agentRequirementText.value = ''
   void fetchEnvs()
   agentModalVisible.value = true
 }
@@ -284,6 +287,7 @@ async function handleAgentSubmit() {
         code,
         max_apis: agentSelectedPaths.value.length || agentMaxApis.value,
         ...(agentSelectedPaths.value.length ? { api_paths: agentSelectedPaths.value } : {}),
+        ...(agentRequirementText.value.trim() ? { requirement_text: agentRequirementText.value.trim() } : {}),
       })
       if (res === null)
         return
@@ -493,6 +497,13 @@ watch([productLine, activeEnvId], () => {
         <a-form-item v-if="agentMode === 'run'" label="单轮配额（最多处理多少个待测 API）">
           <a-input-number v-model="agentMaxApis" :min="1" :max="50" :step="1" style="width: 160px" :disabled="agentSelectedPaths.length > 0" />
           <span v-if="agentSelectedPaths.length" class="agent-tip">已按选中 API 数量固定</span>
+        </a-form-item>
+        <a-form-item v-if="agentMode === 'run'" label="需求文档 / 说明（可选）">
+          <a-textarea
+            v-model="agentRequirementText"
+            placeholder="粘贴需求文档/接口说明。留空则 Agent 自主从源码和 meta 调研；填写后以文档为主、源码核对。Agent 会把梳理结果回写到 API 资产背景需求。"
+            :auto-size="{ minRows: 3, maxRows: 10 }"
+          />
         </a-form-item>
       </a-form>
       <div class="agent-tip">

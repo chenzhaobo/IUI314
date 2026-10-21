@@ -31,6 +31,7 @@ const envs = ref<any[]>([])
 const activeEnvId = ref('')
 const model = ref('')
 const maxApis = ref(10)
+const requirementText = ref('')
 const previewing = ref(false)
 const preview = ref<any>(null)
 const running = ref(false)
@@ -107,6 +108,7 @@ async function startAgent() {
       code,
       model: model.value || undefined,
       max_apis: maxApis.value,
+      requirement_text: requirementText.value.trim() || undefined,
     })
     if (res === null)
       return
@@ -153,8 +155,17 @@ const STATUS_META: Record<string, { label: string, color: string }> = {
   failed: { label: '失败', color: 'red' },
   timeout: { label: '超时', color: 'orangered' },
 }
+const REVIEWER_STATUS_META: Record<string, { label: string, color: string }> = {
+  none: { label: '未评审', color: 'gray' },
+  running: { label: '评审中', color: 'blue' },
+  completed: { label: '已评审', color: 'green' },
+  failed: { label: '评审失败', color: 'red' },
+}
 function statusMeta(s?: string) {
   return STATUS_META[s || ''] || { label: s || '--', color: 'gray' }
+}
+function reviewerMeta(s?: string) {
+  return REVIEWER_STATUS_META[s || ''] || { label: s || '--', color: 'gray' }
 }
 
 // ── 详情 ───────────────────────────────────────────────
@@ -183,6 +194,14 @@ async function retry(record: any) {
   if (res === null)
     return
   Message.success('已重新派发')
+  await loadRuns()
+}
+
+async function reviewRun(record: any) {
+  const res = await postAction<any>(resolveStaticScanApi(ApiSecScan.apiAgentReview, { run_id: record.run_id }))
+  if (res === null)
+    return
+  Message.success(res.message || '独立评审已启动')
   await loadRuns()
 }
 
@@ -283,6 +302,15 @@ onUnmounted(() => {
                   <a-input-number v-model="maxApis" :min="1" :max="50" style="width: 100%" />
                 </a-form-item>
               </a-col>
+              <a-col :span="24">
+                <a-form-item label="需求文档 / 说明（可选）">
+                  <a-textarea
+                    v-model="requirementText"
+                    placeholder="粘贴需求文档/接口说明。留空则 Agent 自主从源码和 meta 调研；填写后以文档为主、源码核对。梳理结果会回写到 API 资产背景需求。"
+                    :auto-size="{ minRows: 2, maxRows: 8 }"
+                  />
+                </a-form-item>
+              </a-col>
             </a-row>
             <a-space>
               <a-tag color="arcoblue">
@@ -380,6 +408,13 @@ onUnmounted(() => {
               {{ record.trial_pass }} / {{ record.trial_fail }}
             </template>
           </a-table-column>
+          <a-table-column title="独立评审" :width="100">
+            <template #cell="{ record }">
+              <a-tag :color="reviewerMeta(record.reviewer_status).color">
+                {{ reviewerMeta(record.reviewer_status).label }}
+              </a-tag>
+            </template>
+          </a-table-column>
           <a-table-column title="失败原因" :width="220" ellipsis tooltip>
             <template #cell="{ record }">
               {{ record.failed_reason || '--' }}
@@ -393,6 +428,9 @@ onUnmounted(() => {
                 </a-link>
                 <a-link v-if="record.status === 'failed' || record.status === 'timeout'" @click="retry(record)">
                   重试
+                </a-link>
+                <a-link v-if="record.case_cnt > 0 && record.reviewer_status !== 'running'" @click="reviewRun(record)">
+                  独立评审
                 </a-link>
                 <a-link @click="regression(record)">
                   回归
@@ -422,7 +460,13 @@ onUnmounted(() => {
             <a-descriptions-item label="用例 / approved">
               {{ detail.dispatch?.case_cnt }} / {{ detail.dispatch?.approved_cnt }}
             </a-descriptions-item>
-            <a-descriptions-item label="失败原因" :span="3">
+            <a-descriptions-item label="独立评审">
+              <a-tag :color="reviewerMeta(detail.dispatch?.reviewer_status).color">
+                {{ reviewerMeta(detail.dispatch?.reviewer_status).label }}
+              </a-tag>
+              <span v-if="detail.dispatch?.reviewer_agent" class="reviewer-agent">{{ detail.dispatch.reviewer_agent }}</span>
+            </a-descriptions-item>
+            <a-descriptions-item label="失败原因" :span="2">
               {{ detail.dispatch?.failed_reason || '--' }}
             </a-descriptions-item>
           </a-descriptions>
@@ -484,4 +528,5 @@ onUnmounted(() => {
 .dimension-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--color-text-2); }
 .tree-wrap { height: 330px; overflow: auto; }
 .cfg-hint { margin-top: 8px; color: var(--color-text-3); font-size: 12px; }
+.reviewer-agent { margin-left: 8px; color: var(--color-text-3); font-size: 12px; }
 </style>

@@ -42,6 +42,16 @@ const rowSelection: TableRowSelection = {
   showCheckedAll: true,
 }
 
+function reviewIssues(record: any): any[] {
+  return Array.isArray(record.review_issues_json) ? record.review_issues_json : []
+}
+function reviewIssueText(record: any): string {
+  const issues = reviewIssues(record)
+  if (!issues.length)
+    return '无独立评审问题'
+  return issues.map((i: any) => `[${i.severity || '-'}] ${i.issue || i.detail || ''}${i.suggestion ? ` → ${i.suggestion}` : ''}`).join('\n')
+}
+
 /** 可试跑：平台编排（配了断言）或 Python 脚本（与后端 case_trial::classify 同规则） */
 function runnable(record: any): boolean {
   if (record.case_type === 'script')
@@ -58,7 +68,7 @@ function runnable(record: any): boolean {
     :pagination="pagination"
     :row-selection="rowSelection"
     :selected-keys="props.selectedKeys || []"
-    :scroll="{ minWidth: 1600, y: tableHeight }"
+    :scroll="{ minWidth: 1750, y: tableHeight }"
     row-key="id"
     @page-change="emit('pageChange', $event)"
     @page-size-change="emit('pageSizeChange', $event)"
@@ -96,11 +106,24 @@ function runnable(record: any): boolean {
           {{ record.exec_mode ? EXEC_MODE_LABELS[record.exec_mode] || record.exec_mode : '--' }}
         </template>
       </a-table-column>
-      <a-table-column title="评审" :width="90">
+      <a-table-column title="评审" :width="110">
         <template #cell="{ record }">
           <a-tag :color="reviewStatusColor(record.review_status)" size="small">
             {{ REVIEW_STATUS_LABELS[record.review_status] || record.review_status || '待评审' }}
           </a-tag>
+          <a-tag v-if="record.review_round > 0" color="arcoblue" size="small" style="margin-left: 4px">
+            R{{ record.review_round }}
+          </a-tag>
+        </template>
+      </a-table-column>
+      <a-table-column title="评审问题" :width="120">
+        <template #cell="{ record }">
+          <a-tooltip v-if="reviewIssues(record).length" :content="reviewIssueText(record)" mini>
+            <a-tag color="orange" size="small">
+              {{ reviewIssues(record).length }} 个问题
+            </a-tag>
+          </a-tooltip>
+          <span v-else class="no-issue">--</span>
         </template>
       </a-table-column>
       <a-table-column title="启用" :width="80">
@@ -142,3 +165,7 @@ function runnable(record: any): boolean {
     </template>
   </a-table>
 </template>
+
+<style scoped>
+.no-issue { color: var(--color-text-3); font-size: 12px; }
+</style>

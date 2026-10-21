@@ -34,12 +34,31 @@ const form = reactive({
   form_relations: '',
   remark: '',
 })
+const requiredFieldsText = ref('[]')
+const sourceType = ref('')
+const confidence = ref<number | null>(null)
+const reviewStatus = ref('')
 
 function reset() {
   form.biz_summary = ''
   form.related_forms = ''
   form.form_relations = ''
   form.remark = ''
+  requiredFieldsText.value = '[]'
+  sourceType.value = ''
+  confidence.value = null
+  reviewStatus.value = ''
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+  manual: '人工录入',
+  ai_source: 'AI 源码调研',
+  ai_doc: 'AI 需求文档梳理',
+}
+const REVIEW_LABELS: Record<string, string> = {
+  draft: 'AI 草稿（待人工确认）',
+  approved: '已确认',
+  rejected: '已驳回',
 }
 
 async function load() {
@@ -56,6 +75,10 @@ async function load() {
     form.related_forms = res.related_forms || ''
     form.form_relations = res.form_relations || ''
     form.remark = res.remark || ''
+    requiredFieldsText.value = JSON.stringify(res.required_fields || [], null, 2)
+    sourceType.value = res.source_type || 'manual'
+    confidence.value = res.confidence ?? null
+    reviewStatus.value = res.review_status || 'approved'
   }
   finally {
     loading.value = false
@@ -67,9 +90,24 @@ async function handleSave() {
     Message.warning('缺少接口标识（调用路径），无法保存')
     return
   }
+  let requiredFields: unknown[] = []
+  try {
+    const parsed = JSON.parse(requiredFieldsText.value || '[]')
+    requiredFields = Array.isArray(parsed) ? parsed : []
+  }
+  catch {
+    Message.warning('强制字段必须是合法 JSON 数组')
+    return
+  }
   saving.value = true
   try {
-    const res = await postAction(ApiMetadataInventory.context, { api_key: props.apiKey, ...form })
+    const res = await postAction(ApiMetadataInventory.context, {
+      api_key: props.apiKey,
+      ...form,
+      // 人工保存视为确认；保留 AI 来源/证据，只把评审状态改为 approved
+      review_status: 'approved',
+      required_fields: requiredFields,
+    })
     if (res === null)
       return
     Message.success('已保存，AI 复核该接口结果时会用到')
@@ -104,6 +142,16 @@ watch(visible, (v) => {
         <a-descriptions-item label="调用路径">
           {{ apiKey || '--' }}
         </a-descriptions-item>
+        <a-descriptions-item v-if="sourceType" label="需求来源">
+          {{ SOURCE_LABELS[sourceType] || sourceType }}
+          <a-tag v-if="sourceType !== 'manual'" color="arcoblue" size="small" style="margin-left: 6px">
+            AI 生成
+          </a-tag>
+          <span v-if="confidence !== null" class="confidence">置信度 {{ confidence }}</span>
+        </a-descriptions-item>
+        <a-descriptions-item v-if="reviewStatus" label="确认状态">
+          {{ REVIEW_LABELS[reviewStatus] || reviewStatus }}
+        </a-descriptions-item>
       </a-descriptions>
       <a-form :model="form" layout="vertical">
         <a-form-item label="业务说明">
@@ -127,6 +175,16 @@ watch(visible, (v) => {
             :auto-size="{ minRows: 3, maxRows: 8 }"
           />
         </a-form-item>
+        <a-form-item label="接口强制字段（JSON 数组）">
+          <a-textarea
+            v-model="requiredFieldsText"
+            placeholder="[{&quot;name&quot;:&quot;billId&quot;,&quot;type&quot;:&quot;string&quot;,&quot;source&quot;:&quot;DTO@NotNull&quot;}]"
+            :auto-size="{ minRows: 3, maxRows: 10 }"
+          />
+          <template #extra>
+            从源码 DTO/OpenAPI/文档梳理出的强制字段；AI 生成用例的请求体必须覆盖，否则质量门禁会驳回。
+          </template>
+        </a-form-item>
         <a-form-item label="其他备注">
           <a-textarea
             v-model="form.remark"
@@ -138,3 +196,7 @@ watch(visible, (v) => {
     </a-spin>
   </a-drawer>
 </template>
+
+<style scoped>
+.confidence { margin-left: 8px; color: var(--color-text-3); font-size: 12px; }
+</style>
