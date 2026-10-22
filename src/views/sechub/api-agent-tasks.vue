@@ -381,7 +381,17 @@ onUnmounted(() => {
               {{ formatTime(record.created_at) }}
             </template>
           </a-table-column>
-          <a-table-column title="范围" :width="220" ellipsis tooltip>
+          <a-table-column title="任务编码" :width="190" ellipsis tooltip>
+            <template #cell="{ record }">
+              {{ record.task_code || '--' }}
+            </template>
+          </a-table-column>
+          <a-table-column title="任务名称" :width="240" ellipsis tooltip>
+            <template #cell="{ record }">
+              {{ record.task_name || '--' }}
+            </template>
+          </a-table-column>
+          <a-table-column title="范围" :width="200" ellipsis tooltip>
             <template #cell="{ record }">
               {{ record.dimension }} / {{ record.code || 'all' }}
             </template>
@@ -449,6 +459,12 @@ onUnmounted(() => {
       <a-spin :loading="detailLoading" style="display: block">
         <template v-if="detail">
           <a-descriptions :column="3" bordered size="small">
+            <a-descriptions-item label="任务编码">
+              {{ detail.dispatch?.task_code || '--' }}
+            </a-descriptions-item>
+            <a-descriptions-item label="任务名称" :span="2">
+              {{ detail.dispatch?.task_name || '--' }}
+            </a-descriptions-item>
             <a-descriptions-item label="状态">
               <a-tag :color="statusMeta(detail.dispatch?.status).color">
                 {{ statusMeta(detail.dispatch?.status).label }}
