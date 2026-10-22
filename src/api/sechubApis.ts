@@ -327,6 +327,8 @@ export enum ApiSecPrescan {
   taskTrigger = '/sechub/prescan/task-trigger',
   taskRecords = '/sechub/prescan/task-records',
   runDelete = '/sechub/prescan/run-delete',
+  /** 批量删除扫描运行（逐条清理候选/报告/产物，上限 200） */
+  runBatchDelete = '/sechub/prescan/run-batch-delete',
   /** W-C 覆盖自证报告（run 维度只读；该 run 尚无报告时后端给 404） */
   coverageReport = '/sechub/prescan/{run_id}/coverage-report',
   /** 规则效果（规则版本 × 扫描点 × 仓库 × 模型，只读，服务端分页排序） */

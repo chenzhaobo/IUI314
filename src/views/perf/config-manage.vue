@@ -8,19 +8,23 @@ defineOptions({ name: 'config-manage' })
 
 // ── 配置项校验 ──────────────────────────────────
 const PATH_CONFIG_KEYS = ['jmeter_work_dir', 'jmeter_script_dir', 'jmeter_home_dir', 'report_base_dir']
-const AI_CONFIRM_BATCH_SIZE_KEY = 'static_scan_ai_confirm_batch_size'
-const AI_CONFIRM_BATCH_SIZE_MIN = 1
-const AI_CONFIRM_BATCH_SIZE_MAX = 1000
-// AI 确认单批超时（秒）：与批大小是两个独立配置，批量调大时通常需要同步调大超时。
-//
-// 上限从 1800 提到 5400，与后端 AI_CONFIRM_TIMEOUT_MAX 保持一致。1800 卡住了内网的
-// 实际需要：一次调用要让 AI 自己循环把整个工作单元做完，慢机器上正常就超过 30 分钟。
-// 5400 与 agent 自主审计的 scan_agent_exec_timeout_secs 默认值一致，且必须小于
-// scan_agent_token_ttl_secs（默认 7200）—— 超时长于令牌有效期会让 AI 跑到一半时
-// 回调全部失败，比直接超时更难查。
-const AI_CONFIRM_TIMEOUT_KEY = 'static_scan_ai_confirm_timeout_secs'
-const AI_CONFIRM_TIMEOUT_MIN = 60
-const AI_CONFIRM_TIMEOUT_MAX = 5400
+
+/**
+ * 静态扫描 AI 确认的数值型配置：范围与输入提示。
+ *
+ * 批大小/超时之外，单元候选数、成本、知识字符、无进展阈值和确认并发也在这里统一校验。
+ * 范围必须与后端 clamp 常量保持一致，避免前端放过去、后端静默回落。
+ */
+const AI_TUNING_NUMERIC_CONFIGS: Record<string, { min: number, max: number, placeholder: string, unit?: string }> = {
+  static_scan_ai_confirm_batch_size: { min: 1, max: 1000, placeholder: '如 30' },
+  static_scan_ai_confirm_timeout_secs: { min: 60, max: 5400, placeholder: '如 1200', unit: '秒' },
+  static_scan_unit_max_candidates: { min: 1, max: 1000, placeholder: '如 30' },
+  static_scan_unit_max_cost: { min: 1, max: 4000, placeholder: '如 30' },
+  static_scan_unit_max_knowledge_chars: { min: 1000, max: 200000, placeholder: '如 60000' },
+  static_scan_unit_idle_timeout_secs: { min: 0, max: 5400, placeholder: '如 900', unit: '秒' },
+  static_scan_ai_confirm_concurrency: { min: 1, max: 20, placeholder: '如 3' },
+}
+
 const WINDOWS_DRIVE_RE = /^[a-zA-Z]:[/\\]/
 
 /** 检测是否为 Windows 盘符路径 */
@@ -33,31 +37,23 @@ function isPathConfig(c: any): boolean {
   return PATH_CONFIG_KEYS.includes(c.config_key)
 }
 
-/** 是否为静态扫描 AI 确认的单批候选条数配置 */
-function isAiConfirmBatchSizeConfig(c: any): boolean {
-  return c.config_key === AI_CONFIRM_BATCH_SIZE_KEY
+function numericRange(c: any): { min: number, max: number, placeholder: string, unit?: string } | undefined {
+  return AI_TUNING_NUMERIC_CONFIGS[c.config_key]
 }
 
-function isValidAiConfirmBatchSize(value: unknown): boolean {
-  const size = Number(value)
-  return Number.isInteger(size) && size >= AI_CONFIRM_BATCH_SIZE_MIN && size <= AI_CONFIRM_BATCH_SIZE_MAX
+function isAiTuningNumericConfig(c: any): boolean {
+  return Boolean(numericRange(c))
 }
 
-function handleAiConfirmBatchSizeChange(c: any, value: number | string | undefined) {
-  c.config_value = value === undefined ? '' : String(value)
+function isValidAiTuningNumeric(c: any): boolean {
+  const range = numericRange(c)
+  if (!range)
+    return true
+  const value = Number(c.config_value)
+  return Number.isInteger(value) && value >= range.min && value <= range.max
 }
 
-/** 是否为静态扫描 AI 确认的单批超时配置 */
-function isAiConfirmTimeoutConfig(c: any): boolean {
-  return c.config_key === AI_CONFIRM_TIMEOUT_KEY
-}
-
-function isValidAiConfirmTimeout(value: unknown): boolean {
-  const secs = Number(value)
-  return Number.isInteger(secs) && secs >= AI_CONFIRM_TIMEOUT_MIN && secs <= AI_CONFIRM_TIMEOUT_MAX
-}
-
-function handleAiConfirmTimeoutChange(c: any, value: number | string | undefined) {
+function handleAiTuningNumericChange(c: any, value: number | string | undefined) {
   c.config_value = value === undefined ? '' : String(value)
 }
 
@@ -67,10 +63,7 @@ function getConfigValidateStatus(c: any): 'error' | undefined {
   if (isPathConfig(c) && val && isWindowsDrivePath(val)) {
     return 'error'
   }
-  if (isAiConfirmBatchSizeConfig(c) && !isValidAiConfirmBatchSize(val)) {
-    return 'error'
-  }
-  if (isAiConfirmTimeoutConfig(c) && !isValidAiConfirmTimeout(val)) {
+  if (isAiTuningNumericConfig(c) && !isValidAiTuningNumeric(c)) {
     return 'error'
   }
   return undefined
@@ -82,11 +75,10 @@ function getConfigValidateHelp(c: any): string {
   if (isPathConfig(c) && val && isWindowsDrivePath(val)) {
     return 'Windows 盘符路径不适用于 Linux 容器环境，请改为相对路径（如 data/_jmeter）'
   }
-  if (isAiConfirmBatchSizeConfig(c) && !isValidAiConfirmBatchSize(val)) {
-    return `请输入 ${AI_CONFIRM_BATCH_SIZE_MIN} 到 ${AI_CONFIRM_BATCH_SIZE_MAX} 之间的整数`
-  }
-  if (isAiConfirmTimeoutConfig(c) && !isValidAiConfirmTimeout(val)) {
-    return `请输入 ${AI_CONFIRM_TIMEOUT_MIN} 到 ${AI_CONFIRM_TIMEOUT_MAX} 之间的整数（秒）`
+  const range = numericRange(c)
+  if (range && !isValidAiTuningNumeric(c)) {
+    const unit = range.unit ? `（${range.unit}）` : ''
+    return `请输入 ${range.min} 到 ${range.max} 之间的整数${unit}`
   }
   return ''
 }
@@ -211,13 +203,6 @@ function getGroupLabel(key: string) {
                     :model-value="c.config_value === 'true'"
                     @change="(val: boolean | string | number) => handleBoolChange(c, val)"
                   />
-                  <a-input-number
-                    v-else-if="isAiConfirmBatchSizeConfig(c)"
-                    :model-value="Number(c.config_value)"
-                    :precision="0"
-                    placeholder="如 200"
-                    @change="(val: number | string | undefined) => handleAiConfirmBatchSizeChange(c, val)"
-                  />
                   <!--
                     刻意**不绑** :min / :max：a-input-number 绑了上限会在输入时
                     静默把超出的值夹到上限 —— 用户输 3600、控件当场变 1800、保存下去
@@ -225,11 +210,11 @@ function getGroupLabel(key: string) {
                     越界交给下方 validate-status / help 显式报错，用户能看见被拒。
                   -->
                   <a-input-number
-                    v-else-if="isAiConfirmTimeoutConfig(c)"
+                    v-else-if="isAiTuningNumericConfig(c)"
                     :model-value="Number(c.config_value)"
                     :precision="0"
-                    placeholder="如 600"
-                    @change="(val: number | string | undefined) => handleAiConfirmTimeoutChange(c, val)"
+                    :placeholder="numericRange(c)?.placeholder"
+                    @change="(val: number | string | undefined) => handleAiTuningNumericChange(c, val)"
                   />
                   <a-input
                     v-else

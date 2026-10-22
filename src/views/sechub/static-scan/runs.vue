@@ -837,6 +837,71 @@ async function doDeleteRun(row: CrossRunAggRow, force = false): Promise<void> {
   }
 }
 
+/** 后端 run-batch-delete 响应 */
+interface BatchDeleteRunsResult {
+  requested: number
+  deleted: number
+  deleted_candidates: number
+  deleted_reports: number
+  output_dirs_removed: number
+  retained_issues: number
+  failed: { run_id: string, error: string }[]
+  summary: string
+}
+
+const batchDeleting = ref(false)
+
+/** 选中行里可删除的运行；进行中的行不参与（勾选列也已置灰） */
+const batchDeleteTargets = computed(() =>
+  filteredCrossRows.value.filter(row => selectedRunKeys.value.includes(row.run_id)),
+)
+
+function confirmBatchDeleteRuns(): void {
+  const targets = batchDeleteTargets.value
+  if (targets.length === 0) {
+    Message.warning('请先勾选要删除的运行')
+    return
+  }
+  const running = targets.filter(isRunningStatus)
+  if (running.length > 0) {
+    Message.warning(`选中的运行中有 ${running.length} 个仍在扫描中，不能批量删除；请等结束或使用行内强制删除`)
+    return
+  }
+  Modal.warning({
+    title: '确认批量删除扫描运行？',
+    content: `即将删除选中的 ${targets.length} 个运行。\n\n`
+      + '将同时删除这些运行的候选、汇总报告与磁盘产物，且不可恢复。\n'
+      + '已提的问题（sec_scan_issue）不会被删除，会继续保留。',
+    okText: '批量删除',
+    cancelText: '取消',
+    okButtonProps: { status: 'danger' },
+    onOk: () => {
+      void doBatchDeleteRuns(targets.map(row => row.run_id))
+    },
+  })
+}
+
+async function doBatchDeleteRuns(runIds: string[]): Promise<void> {
+  batchDeleting.value = true
+  try {
+    const resp = await postAction<BatchDeleteRunsResult>(ApiSecPrescan.runBatchDelete, { run_ids: runIds, force: false })
+    if (resp) {
+      if (resp.failed.length > 0) {
+        const first = resp.failed[0]
+        Message.warning(`${resp.summary}；首个失败：${first.run_id} ${first.error}`)
+      }
+      else {
+        Message.success(resp.summary)
+      }
+      selectedRunKeys.value = []
+      await loadCrossRows()
+    }
+  }
+  finally {
+    batchDeleting.value = false
+  }
+}
+
 // ===== 标签映射 =====
 const modeLabels: Record<string, { label: string, color: string }> = {
   batch: { label: '平台编排', color: 'blue' },
@@ -1038,6 +1103,14 @@ function toggleRunChecked(runId: string, checked: boolean) {
                 @click="bulkRetry"
               >
                 批量重扫未完成{{ bulkRetryTargets.length ? `(${bulkRetryTargets.length})` : '' }}
+              </a-button>
+              <a-button
+                status="danger"
+                :loading="batchDeleting"
+                :disabled="batchDeleteTargets.length === 0"
+                @click="confirmBatchDeleteRuns"
+              >
+                批量删除{{ batchDeleteTargets.length ? `(${batchDeleteTargets.length})` : '' }}
               </a-button>
             </a-space>
           </template>

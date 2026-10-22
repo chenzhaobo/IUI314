@@ -124,20 +124,18 @@ export function batchAiConfirmBlockedReason(row: CrossRunAggRow): string {
 /**
  * 行勾选框是否可用（'' = 可勾选）。
  *
- * 勾选列同时服务「批量 AI 确认」与「批量重扫未完成」两个动作，只要对其中一个
- * 有效就允许勾选；两个都用不上的行（未成功 / 确认中 / 已确认过且没有待确认、
- * 错误候选）置灰。未成功但仍有错误候选这类极端残留交给行内「更多」里的动作处理。
+ * 勾选列同时服务「批量 AI 确认」「批量重扫未完成」和「批量删除运行」：
+ * 只要该行可被其中任一动作处理就允许勾选。扫描仍在进行 / 有在途确认任务的行
+ * 不允许勾选；终态行（成功、失败、跳过、planned）都可勾选，具体动作在按钮侧
+ * 再按各自条件过滤。
  */
 export function rowCheckboxBlockedReason(row: CrossRunAggRow): string {
-  const stage = aiConfirmBlockedReason(row.run_id, row.status)
-  if (stage)
-    return stage
+  if (row.status === 'running' || row.status === 'preparing')
+    return '扫描进行中，不能勾选'
   const inFlight = inFlightCount(row)
   if (inFlight > 0)
     return `有 ${inFlight} 个确认任务在途，请等待完成后再操作`
-  if ((row.pending ?? 0) > 0 || (row.error ?? 0) > 0)
-    return ''
-  return confirmTriggered(row) ? '已确认过，且没有待确认/错误候选，无可用操作' : '没有待确认候选，无可用操作'
+  return ''
 }
 
 /** 勾选框 tooltip：不可勾选 → 原因；可勾选但不参与批量 AI 确认 → 说明差异；其余为空 */
@@ -146,7 +144,7 @@ export function rowCheckboxTooltip(row: CrossRunAggRow): string {
   if (blocked)
     return blocked
   const confirmBlocked = batchAiConfirmBlockedReason(row)
-  return confirmBlocked ? `可勾选用于「批量重扫未完成」；不参与批量 AI 确认：${confirmBlocked}` : ''
+  return confirmBlocked ? `可勾选用于「批量重扫未完成」或「批量删除」；不参与批量 AI 确认：${confirmBlocked}` : ''
 }
 
 /** 统一扫描阻断原因码（unified-preview.blocked_reason）→ 人话；未收录的码原样透出便于排查 */
