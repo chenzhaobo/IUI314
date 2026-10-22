@@ -168,6 +168,19 @@ const REPAIR_STATUS_META: Record<string, { label: string, color: string }> = {
   failed: { label: '修复失败', color: 'red' },
   skipped: { label: '跳过', color: 'gray' },
 }
+const RESULT_REVIEW_META: Record<string, { label: string, color: string }> = {
+  none: { label: '未复核', color: 'gray' },
+  running: { label: '结果复核中', color: 'blue' },
+  completed: { label: '已复核', color: 'green' },
+  failed: { label: '复核失败', color: 'red' },
+}
+const RESULT_VERDICT_META: Record<string, { label: string, color: string }> = {
+  true_positive: { label: '真实漏洞', color: 'red' },
+  false_positive: { label: '误报', color: 'orange' },
+  test_defect: { label: '用例缺陷', color: 'orange' },
+  env_blocked: { label: '环境阻塞', color: 'gray' },
+  needs_deeper_audit: { label: '需深挖', color: 'blue' },
+}
 function statusMeta(s?: string) {
   return STATUS_META[s || ''] || { label: s || '--', color: 'gray' }
 }
@@ -176,6 +189,12 @@ function reviewerMeta(s?: string) {
 }
 function repairMeta(s?: string) {
   return REPAIR_STATUS_META[s || ''] || { label: s || '--', color: 'gray' }
+}
+function resultReviewMeta(s?: string) {
+  return RESULT_REVIEW_META[s || ''] || { label: s || '--', color: 'gray' }
+}
+function resultVerdictMeta(s?: string) {
+  return RESULT_VERDICT_META[s || ''] || { label: s || '待复核', color: 'gray' }
 }
 
 // ── 详情 ───────────────────────────────────────────────
@@ -220,6 +239,14 @@ async function repairRun(record: any) {
   if (res === null)
     return
   Message.success(res.message || `修复轮已启动（第 ${res.round || '?'} 轮）`)
+  await loadRuns()
+}
+
+async function resultReviewRun(record: any) {
+  const res = await postAction<any>(resolveStaticScanApi(ApiSecScan.apiAgentResultReview, { run_id: record.run_id }))
+  if (res === null)
+    return
+  Message.success(res.message || `结果复核已启动（${res.results || 0} 条结果）`)
   await loadRuns()
 }
 
@@ -461,12 +488,19 @@ onUnmounted(() => {
               </a-tag>
             </template>
           </a-table-column>
+          <a-table-column title="结果复核" :width="110">
+            <template #cell="{ record }">
+              <a-tag :color="resultReviewMeta(record.result_review_status).color">
+                {{ resultReviewMeta(record.result_review_status).label }}
+              </a-tag>
+            </template>
+          </a-table-column>
           <a-table-column title="失败原因" :width="220" ellipsis tooltip>
             <template #cell="{ record }">
               {{ record.failed_reason || '--' }}
             </template>
           </a-table-column>
-          <a-table-column title="操作" :width="220" fixed="right">
+          <a-table-column title="操作" :width="300" fixed="right">
             <template #cell="{ record }">
               <a-space>
                 <a-link @click="openDetail(record.run_id)">
@@ -483,6 +517,9 @@ onUnmounted(() => {
                   @click="repairRun(record)"
                 >
                   修复
+                </a-link>
+                <a-link v-if="record.trial_total > 0 && record.result_review_status !== 'running'" @click="resultReviewRun(record)">
+                  结果复核
                 </a-link>
                 <a-link @click="regression(record)">
                   回归
@@ -532,6 +569,12 @@ onUnmounted(() => {
             </a-descriptions-item>
             <a-descriptions-item label="Findings / 覆盖缺口">
               {{ detail.dispatch?.finding_cnt || 0 }} / {{ detail.dispatch?.coverage_gap_cnt || 0 }}
+            </a-descriptions-item>
+            <a-descriptions-item label="结果复核">
+              <a-tag :color="resultReviewMeta(detail.dispatch?.result_review_status).color">
+                {{ resultReviewMeta(detail.dispatch?.result_review_status).label }}
+              </a-tag>
+              <span v-if="detail.dispatch?.result_review_agent" class="reviewer-agent">{{ detail.dispatch.result_review_agent }}</span>
             </a-descriptions-item>
             <a-descriptions-item label="失败原因" :span="2">
               {{ detail.dispatch?.failed_reason || '--' }}
@@ -612,6 +655,30 @@ onUnmounted(() => {
               <a-table-column title="REVIEW" data-index="review" :width="90" />
               <a-table-column title="BLOCKED" data-index="block" :width="90" />
               <a-table-column title="ERROR" data-index="error" :width="90" />
+            </template>
+          </a-table>
+
+          <a-divider orientation="left">
+            结果复核
+          </a-divider>
+          <a-table :data="detail.results || []" :pagination="false" row-key="result_id" size="small">
+            <template #columns>
+              <a-table-column title="用例" :width="180" ellipsis tooltip>
+                <template #cell="{ record }">
+                  {{ record.case_code || record.case_id }}
+                </template>
+              </a-table-column>
+              <a-table-column title="API" data-index="api_path" ellipsis tooltip />
+              <a-table-column title="执行结论" data-index="verdict" :width="100" />
+              <a-table-column title="复核结论" :width="120">
+                <template #cell="{ record }">
+                  <a-tag :color="resultVerdictMeta(record.review_verdict).color">
+                    {{ resultVerdictMeta(record.review_verdict).label }}
+                  </a-tag>
+                </template>
+              </a-table-column>
+              <a-table-column title="HTTP" data-index="http_status" :width="80" />
+              <a-table-column title="复核意见" data-index="review_comment" ellipsis tooltip />
             </template>
           </a-table>
         </template>
