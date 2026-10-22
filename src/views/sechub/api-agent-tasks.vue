@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { AgentRunListItem } from '@/types/api-agent'
 /**
  * API安全测试 → Agent任务。
  *
@@ -13,6 +14,8 @@ import { ApiSecTestEnv } from '@/api/apis'
 import { ApiSecScan, resolveStaticScanApi } from '@/api/sechubApis'
 import { formatTime, getAction, postAction } from '@/hooks'
 import ApiInventoryTree from '@/views/metadata/components/ApiInventoryTree.vue'
+import ApiAgentRunDetailDrawer from './components/ApiAgentRunDetailDrawer.vue'
+import { gateMeta, modeMeta, nextActionLabel, PIPELINE_MODE_OPTIONS, stageLabel, statusMeta } from './components/apiAgentShared'
 
 // eslint-disable-next-line vue/component-definition-name-casing
 defineOptions({ name: 'api-agent-tasks' })
@@ -31,6 +34,7 @@ const envs = ref<any[]>([])
 const activeEnvId = ref('')
 const model = ref('')
 const maxApis = ref(10)
+const pipelineMode = ref('hybrid')
 const requirementText = ref('')
 const previewing = ref(false)
 const preview = ref<any>(null)
@@ -108,6 +112,7 @@ async function startAgent() {
       code,
       model: model.value || undefined,
       max_apis: maxApis.value,
+      pipeline_mode: pipelineMode.value,
       requirement_text: requirementText.value.trim() || undefined,
     })
     if (res === null)
@@ -123,7 +128,7 @@ async function startAgent() {
 }
 
 // ── 派发历史 ─────────────────────────────────────────────
-const runs = ref<any[]>([])
+const runs = ref<AgentRunListItem[]>([])
 const runsLoading = ref(false)
 const total = ref(0)
 const pageNum = ref(1)
@@ -148,81 +153,28 @@ async function loadRuns() {
   }
 }
 
-const STATUS_META: Record<string, { label: string, color: string }> = {
-  queued: { label: '排队中', color: 'gray' },
-  running: { label: '执行中', color: 'blue' },
-  completed: { label: '已完成', color: 'green' },
-  failed: { label: '失败', color: 'red' },
-  timeout: { label: '超时', color: 'orangered' },
-}
-const REVIEWER_STATUS_META: Record<string, { label: string, color: string }> = {
-  none: { label: '未评审', color: 'gray' },
-  running: { label: '评审中', color: 'blue' },
-  completed: { label: '已评审', color: 'green' },
-  failed: { label: '评审失败', color: 'red' },
-}
-const REPAIR_STATUS_META: Record<string, { label: string, color: string }> = {
-  none: { label: '未修复', color: 'gray' },
-  running: { label: '修复中', color: 'blue' },
-  completed: { label: '已修复', color: 'green' },
-  failed: { label: '修复失败', color: 'red' },
-  skipped: { label: '跳过', color: 'gray' },
-}
-const RESULT_REVIEW_META: Record<string, { label: string, color: string }> = {
-  none: { label: '未复核', color: 'gray' },
-  running: { label: '结果复核中', color: 'blue' },
-  completed: { label: '已复核', color: 'green' },
-  failed: { label: '复核失败', color: 'red' },
-}
-const RESULT_VERDICT_META: Record<string, { label: string, color: string }> = {
-  true_positive: { label: '真实漏洞', color: 'red' },
-  false_positive: { label: '误报', color: 'orange' },
-  test_defect: { label: '用例缺陷', color: 'orange' },
-  env_blocked: { label: '环境阻塞', color: 'gray' },
-  needs_deeper_audit: { label: '需深挖', color: 'blue' },
-}
-function statusMeta(s?: string) {
-  return STATUS_META[s || ''] || { label: s || '--', color: 'gray' }
-}
-function reviewerMeta(s?: string) {
-  return REVIEWER_STATUS_META[s || ''] || { label: s || '--', color: 'gray' }
-}
-function repairMeta(s?: string) {
-  return REPAIR_STATUS_META[s || ''] || { label: s || '--', color: 'gray' }
-}
-function resultReviewMeta(s?: string) {
-  return RESULT_REVIEW_META[s || ''] || { label: s || '--', color: 'gray' }
-}
-function resultVerdictMeta(s?: string) {
-  return RESULT_VERDICT_META[s || ''] || { label: s || '待复核', color: 'gray' }
-}
-
 // ── 详情 ───────────────────────────────────────────────
 const drawerVisible = ref(false)
-const detail = ref<any>(null)
-const detailLoading = ref(false)
+const detailRunId = ref('')
 
-async function openDetail(runId: string) {
+function openDetail(runId: string) {
+  detailRunId.value = runId
   drawerVisible.value = true
-  detailLoading.value = true
-  detail.value = null
-  try {
-    const data = await getAction<any>(resolveStaticScanApi(ApiSecScan.apiAgentRunDetail, { run_id: runId }))
-    if (data)
-      detail.value = data
-  }
-  finally {
-    detailLoading.value = false
-  }
 }
-
-const detailCases = computed(() => detail.value?.cases || [])
 
 async function retry(record: any) {
   const res = await postAction<any>(resolveStaticScanApi(ApiSecScan.apiAgentRetry, { run_id: record.run_id }))
   if (res === null)
     return
   Message.success('已重新派发')
+  await loadRuns()
+}
+
+async function resumeRun(record: AgentRunListItem) {
+  const res = await postAction<any>(resolveStaticScanApi(ApiSecScan.apiAgentResume, { run_id: record.run_id }))
+  if (res === null)
+    return
+  Message.success(res.message || `已恢复主会话（${res.stage || '当前阶段'}）`)
   await loadRuns()
 }
 
@@ -250,7 +202,15 @@ async function resultReviewRun(record: any) {
   await loadRuns()
 }
 
-async function regression(record: any) {
+async function auditRun(record: AgentRunListItem) {
+  const res = await postAction<any>(resolveStaticScanApi(ApiSecScan.apiAgentAudit, { run_id: record.run_id }))
+  if (res === null)
+    return
+  Message.success(res.message || `最终审计已启动（第 ${res.round || '?'} 轮）`)
+  await loadRuns()
+}
+
+async function regression(record: AgentRunListItem) {
   const res = await postAction<any>(ApiSecScan.apiAgentRegression, {
     sec_env_id: record.sec_env_id,
     dimension: record.dimension,
@@ -277,6 +237,7 @@ async function saveConfig() {
       daily_discover: !!cfg.value.api_agent_daily_discover,
       daily_sec_env_id: cfg.value.api_agent_daily_sec_env_id || '',
       daily_max_apis: Number(cfg.value.api_agent_daily_max_apis || 10),
+      pipeline_mode: cfg.value.api_agent_pipeline_mode || 'hybrid',
     })
     if (res === null)
       return
@@ -343,6 +304,15 @@ onUnmounted(() => {
                 </a-form-item>
               </a-col>
               <a-col :span="6">
+                <a-form-item label="流水线模式">
+                  <a-select v-model="pipelineMode">
+                    <a-option v-for="m in PIPELINE_MODE_OPTIONS" :key="m.value" :value="m.value">
+                      {{ m.label }}
+                    </a-option>
+                  </a-select>
+                </a-form-item>
+              </a-col>
+              <a-col :span="6">
                 <a-form-item label="单轮 API 上限">
                   <a-input-number v-model="maxApis" :min="1" :max="50" style="width: 100%" />
                 </a-form-item>
@@ -385,6 +355,12 @@ onUnmounted(() => {
             <a-select v-model="cfg.api_agent_daily_sec_env_id" allow-clear placeholder="默认全部已有任务" style="width: 220px">
               <a-option v-for="e in envs" :key="e.id" :value="e.id">
                 {{ e.env_name || e.id }}
+              </a-option>
+            </a-select>
+            <span>流水线</span>
+            <a-select v-model="cfg.api_agent_pipeline_mode" style="width: 150px">
+              <a-option v-for="m in PIPELINE_MODE_OPTIONS" :key="m.value" :value="m.value">
+                {{ m.label.split('（')[0] }}
               </a-option>
             </a-select>
             <span>单轮上限</span>
@@ -448,6 +424,16 @@ onUnmounted(() => {
               </a-tag>
             </template>
           </a-table-column>
+          <a-table-column title="流水线" :width="120">
+            <template #cell="{ record }">
+              <a-tag :color="modeMeta(record.pipeline?.mode).color">
+                {{ modeMeta(record.pipeline?.mode).label }}
+              </a-tag>
+              <div class="stage-hint">
+                {{ stageLabel(record.pipeline?.stage) }}
+              </div>
+            </template>
+          </a-table-column>
           <a-table-column title="进度" :width="180">
             <template #cell="{ record }">
               <a-progress :percent="record.progress || 0" size="small" />
@@ -463,19 +449,25 @@ onUnmounted(() => {
               {{ record.trial_pass }} / {{ record.trial_fail }}
             </template>
           </a-table-column>
-          <a-table-column title="独立评审" :width="100">
+          <a-table-column title="门禁" :width="170">
             <template #cell="{ record }">
-              <a-tag :color="reviewerMeta(record.reviewer_status).color">
-                {{ reviewerMeta(record.reviewer_status).label }}
-              </a-tag>
-            </template>
-          </a-table-column>
-          <a-table-column title="修复轮" :width="110">
-            <template #cell="{ record }">
-              <a-tag :color="repairMeta(record.repair_status).color">
-                {{ repairMeta(record.repair_status).label }}
-              </a-tag>
-              <span v-if="record.repair_round > 0" class="reviewer-agent">R{{ record.repair_round }}</span>
+              <a-space :size="4" wrap>
+                <a-tag :color="gateMeta(record.pipeline?.requirements_gate_status).color" size="small">
+                  需
+                </a-tag>
+                <a-tag :color="gateMeta(record.pipeline?.cases_gate_status).color" size="small">
+                  例{{ record.pipeline?.cases_gate_round ? `·R${record.pipeline.cases_gate_round}` : '' }}
+                </a-tag>
+                <a-tag :color="gateMeta(record.pipeline?.pre_trial_gate_status).color" size="small">
+                  跑
+                </a-tag>
+                <a-tag :color="gateMeta(record.pipeline?.results_gate_status).color" size="small">
+                  果{{ record.pipeline?.trial_round ? `·R${record.pipeline.trial_round}` : '' }}
+                </a-tag>
+              </a-space>
+              <div class="stage-hint">
+                {{ nextActionLabel(record.pipeline?.next_action) }}
+              </div>
             </template>
           </a-table-column>
           <a-table-column title="Findings / 覆盖缺口" :width="150">
@@ -488,10 +480,14 @@ onUnmounted(() => {
               </a-tag>
             </template>
           </a-table-column>
-          <a-table-column title="结果复核" :width="110">
+          <a-table-column title="审计 / 结果复核" :width="140">
             <template #cell="{ record }">
-              <a-tag :color="resultReviewMeta(record.result_review_status).color">
-                {{ resultReviewMeta(record.result_review_status).label }}
+              <a-tag :color="gateMeta(record.pipeline?.final_audit_status).color" size="small">
+                审{{ record.pipeline?.final_audit_round ? `·R${record.pipeline.final_audit_round}` : '' }}
+              </a-tag>
+              <br>
+              <a-tag :color="gateMeta(record.result_review_status).color" size="small">
+                {{ record.result_review_status }}
               </a-tag>
             </template>
           </a-table-column>
@@ -506,17 +502,32 @@ onUnmounted(() => {
                 <a-link @click="openDetail(record.run_id)">
                   详情
                 </a-link>
-                <a-link v-if="record.status === 'failed' || record.status === 'timeout'" @click="retry(record)">
+                <a-link
+                  v-if="(record.status === 'failed' || record.status === 'timeout') && record.pipeline?.mode !== 'strict'"
+                  @click="resumeRun(record)"
+                >
+                  继续
+                </a-link>
+                <a-link v-if="(record.status === 'failed' || record.status === 'timeout') && record.pipeline?.mode === 'strict'" @click="retry(record)">
                   重试
                 </a-link>
-                <a-link v-if="record.case_cnt > 0 && record.reviewer_status !== 'running'" @click="reviewRun(record)">
+                <a-link
+                  v-if="record.pipeline?.mode === 'strict' && record.case_cnt > 0 && record.reviewer_status !== 'running'"
+                  @click="reviewRun(record)"
+                >
                   独立评审
                 </a-link>
                 <a-link
-                  v-if="record.reviewer_status === 'completed' && record.repair_status !== 'running' && (record.repair_round || 0) < 2"
+                  v-if="record.pipeline?.mode === 'strict' && record.reviewer_status === 'completed' && record.repair_status !== 'running' && (record.repair_round || 0) < 2"
                   @click="repairRun(record)"
                 >
                   修复
+                </a-link>
+                <a-link
+                  v-if="record.pipeline?.mode !== 'strict' && record.status !== 'completed' && record.pipeline?.final_audit_status !== 'running' && record.pipeline?.final_audit_status !== 'passed'"
+                  @click="auditRun(record)"
+                >
+                  最终审计
                 </a-link>
                 <a-link v-if="record.trial_total > 0 && record.result_review_status !== 'running'" @click="resultReviewRun(record)">
                   结果复核
@@ -534,156 +545,7 @@ onUnmounted(() => {
       </a-table>
     </a-card>
 
-    <a-drawer v-model:visible="drawerVisible" :width="860" title="Agent 任务详情" unmount-on-close>
-      <a-spin :loading="detailLoading" style="display: block">
-        <template v-if="detail">
-          <a-descriptions :column="3" bordered size="small">
-            <a-descriptions-item label="任务编码">
-              {{ detail.dispatch?.task_code || '--' }}
-            </a-descriptions-item>
-            <a-descriptions-item label="任务名称" :span="2">
-              {{ detail.dispatch?.task_name || '--' }}
-            </a-descriptions-item>
-            <a-descriptions-item label="状态">
-              <a-tag :color="statusMeta(detail.dispatch?.status).color">
-                {{ statusMeta(detail.dispatch?.status).label }}
-              </a-tag>
-            </a-descriptions-item>
-            <a-descriptions-item label="候选">
-              {{ detail.dispatch?.candidate_total }}
-            </a-descriptions-item>
-            <a-descriptions-item label="用例 / approved">
-              {{ detail.dispatch?.case_cnt }} / {{ detail.dispatch?.approved_cnt }}
-            </a-descriptions-item>
-            <a-descriptions-item label="独立评审">
-              <a-tag :color="reviewerMeta(detail.dispatch?.reviewer_status).color">
-                {{ reviewerMeta(detail.dispatch?.reviewer_status).label }}
-              </a-tag>
-              <span v-if="detail.dispatch?.reviewer_agent" class="reviewer-agent">{{ detail.dispatch.reviewer_agent }}</span>
-            </a-descriptions-item>
-            <a-descriptions-item label="修复轮">
-              <a-tag :color="repairMeta(detail.dispatch?.repair_status).color">
-                {{ repairMeta(detail.dispatch?.repair_status).label }}
-              </a-tag>
-              <span v-if="detail.dispatch?.repair_round > 0" class="reviewer-agent">R{{ detail.dispatch.repair_round }}</span>
-            </a-descriptions-item>
-            <a-descriptions-item label="Findings / 覆盖缺口">
-              {{ detail.dispatch?.finding_cnt || 0 }} / {{ detail.dispatch?.coverage_gap_cnt || 0 }}
-            </a-descriptions-item>
-            <a-descriptions-item label="结果复核">
-              <a-tag :color="resultReviewMeta(detail.dispatch?.result_review_status).color">
-                {{ resultReviewMeta(detail.dispatch?.result_review_status).label }}
-              </a-tag>
-              <span v-if="detail.dispatch?.result_review_agent" class="reviewer-agent">{{ detail.dispatch.result_review_agent }}</span>
-            </a-descriptions-item>
-            <a-descriptions-item label="失败原因" :span="2">
-              {{ detail.dispatch?.failed_reason || '--' }}
-            </a-descriptions-item>
-          </a-descriptions>
-
-          <a-divider orientation="left">
-            候选 API
-          </a-divider>
-          <a-table :data="detail.candidates || []" :pagination="false" row-key="api_path" size="small">
-            <template #columns>
-              <a-table-column title="API" data-index="api_path" ellipsis tooltip />
-              <a-table-column title="方法" data-index="http_method" :width="80" />
-              <a-table-column title="dev_mode" data-index="dev_mode" :width="90" />
-              <a-table-column title="thirdapp" data-index="thirdapp_auth" :width="90" />
-              <a-table-column title="应用" data-index="app_number" :width="100" />
-            </template>
-          </a-table>
-
-          <a-divider orientation="left">
-            评审 Findings
-          </a-divider>
-          <a-table :data="detail.findings || []" :pagination="false" row-key="id" size="small">
-            <template #columns>
-              <a-table-column title="类型" data-index="kind" :width="120" />
-              <a-table-column title="级别" data-index="severity" :width="80" />
-              <a-table-column title="状态" data-index="status" :width="90" />
-              <a-table-column title="API" data-index="api_path" ellipsis tooltip />
-              <a-table-column title="标题" data-index="title" ellipsis tooltip />
-              <a-table-column title="目标用例" data-index="target_case_id" :width="130" ellipsis tooltip />
-            </template>
-          </a-table>
-
-          <a-divider orientation="left">
-            覆盖缺口
-          </a-divider>
-          <a-table :data="detail.coverage_gaps || []" :pagination="false" size="small">
-            <template #columns>
-              <a-table-column title="API" data-index="api_path" ellipsis tooltip />
-              <a-table-column title="风险" data-index="risk" :width="150" />
-              <a-table-column title="级别" data-index="level" :width="80" />
-              <a-table-column title="期望用例" :width="200">
-                <template #cell="{ record }">
-                  {{ (record.expected_tests || []).join(' / ') }}
-                </template>
-              </a-table-column>
-              <a-table-column title="原因" data-index="reason" ellipsis tooltip />
-            </template>
-          </a-table>
-
-          <a-divider orientation="left">
-            回写用例
-          </a-divider>
-          <a-table :data="detailCases" :pagination="false" row-key="id" size="small">
-            <template #columns>
-              <a-table-column title="用例" :width="150" ellipsis tooltip>
-                <template #cell="{ record }">
-                  {{ record.case_code || record.id?.slice(-8) }}
-                </template>
-              </a-table-column>
-              <a-table-column title="标题" data-index="title" ellipsis tooltip />
-              <a-table-column title="角色" data-index="test_role" :width="80" />
-              <a-table-column title="类型" data-index="test_type" :width="100" />
-              <a-table-column title="评审" data-index="review_status" :width="100" />
-              <a-table-column title="断言" data-index="assertion" :width="120" />
-            </template>
-          </a-table>
-
-          <a-divider orientation="left">
-            试跑
-          </a-divider>
-          <a-table :data="detail.trial_runs || []" :pagination="false" row-key="run_id" size="small">
-            <template #columns>
-              <a-table-column title="运行" data-index="run_name" ellipsis tooltip />
-              <a-table-column title="状态" data-index="status" :width="100" />
-              <a-table-column title="PASS" data-index="pass" :width="80" />
-              <a-table-column title="FAIL" data-index="fail" :width="80" />
-              <a-table-column title="REVIEW" data-index="review" :width="90" />
-              <a-table-column title="BLOCKED" data-index="block" :width="90" />
-              <a-table-column title="ERROR" data-index="error" :width="90" />
-            </template>
-          </a-table>
-
-          <a-divider orientation="left">
-            结果复核
-          </a-divider>
-          <a-table :data="detail.results || []" :pagination="false" row-key="result_id" size="small">
-            <template #columns>
-              <a-table-column title="用例" :width="180" ellipsis tooltip>
-                <template #cell="{ record }">
-                  {{ record.case_code || record.case_id }}
-                </template>
-              </a-table-column>
-              <a-table-column title="API" data-index="api_path" ellipsis tooltip />
-              <a-table-column title="执行结论" data-index="verdict" :width="100" />
-              <a-table-column title="复核结论" :width="120">
-                <template #cell="{ record }">
-                  <a-tag :color="resultVerdictMeta(record.review_verdict).color">
-                    {{ resultVerdictMeta(record.review_verdict).label }}
-                  </a-tag>
-                </template>
-              </a-table-column>
-              <a-table-column title="HTTP" data-index="http_status" :width="80" />
-              <a-table-column title="复核意见" data-index="review_comment" ellipsis tooltip />
-            </template>
-          </a-table>
-        </template>
-      </a-spin>
-    </a-drawer>
+    <ApiAgentRunDetailDrawer v-model:visible="drawerVisible" :run-id="detailRunId" />
   </div>
 </template>
 
@@ -693,5 +555,5 @@ onUnmounted(() => {
 .dimension-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--color-text-2); }
 .tree-wrap { height: 330px; overflow: auto; }
 .cfg-hint { margin-top: 8px; color: var(--color-text-3); font-size: 12px; }
-.reviewer-agent { margin-left: 8px; color: var(--color-text-3); font-size: 12px; }
+.stage-hint { margin-top: 2px; color: var(--color-text-3); font-size: 12px; }
 </style>

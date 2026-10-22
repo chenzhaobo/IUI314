@@ -416,6 +416,9 @@ export enum ApiSecScan {
   apiAgentReview = '/sechub/scan/api-agent/runs/{run_id}/review',
   apiAgentRepair = '/sechub/scan/api-agent/runs/{run_id}/repair',
   apiAgentResultReview = '/sechub/scan/api-agent/runs/{run_id}/result-review',
+  apiAgentResume = '/sechub/scan/api-agent/runs/{run_id}/resume',
+  apiAgentAudit = '/sechub/scan/api-agent/runs/{run_id}/audit',
+  apiAgentAuditOverride = '/sechub/scan/api-agent/runs/{run_id}/audit/override',
   apiAgentConfig = '/sechub/scan/api-agent/config',
   // 用例人工评审（POST { review_status, review_comment }）
   caseReview = '/sechub/scan/cases/{id}/review',
