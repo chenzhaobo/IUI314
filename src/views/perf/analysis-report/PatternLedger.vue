@@ -7,7 +7,7 @@
           <a-input v-model="searchForm.keyword" placeholder="标题/编号" allow-clear @press-enter="handleSearch" />
         </a-col>
         <a-col :span="3">
-          <a-select v-model="searchForm.product_line" placeholder="产品线" allow-clear>
+          <a-select v-model="searchForm.product_line" placeholder="产品线" @change="handleProductLineFilterChange">
             <a-option v-for="o in productLineOptions" :key="o.value" :value="o.value">
               {{ o.label }}
             </a-option>
@@ -1582,10 +1582,21 @@ const handleSearch = () => {
   selectedRowsById.value = new Map()
   fetchData()
 }
+// 顶部产品线切换：右表、应用下拉、左树必须同一条线
+const handleProductLineFilterChange = () => {
+  const line = searchForm.product_line || '星瀚'
+  searchForm.product_line = line
+  appQuery.value = { product_line: line }
+  void fetchApps()
+  // 左树的 initialScope 只在挂载时读取一次，换产品线必须重挂
+  routeScope.value = { product_line: line }
+  scopeTreeKey.value += 1
+  handleSearch()
+}
 const handleReset = () => {
   Object.assign(searchForm, {
     // status 回到 'new' 而不是空：与初始状态一致，否则"重置"会变成"看全部"
-    keyword: '', product_line: '', dimension_type: '', dimension_value: '', attribution_tag: '', status: 'new',
+    keyword: '', product_line: '星瀚', dimension_type: '', dimension_value: '', attribution_tag: '', status: 'new',
     project_group_code: '',
     cloud_number: '',
     business_area: '',

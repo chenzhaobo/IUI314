@@ -35,7 +35,7 @@ export function fmtRate(v?: number | null): string {
 }
 
 export function useGovernanceBoard() {
-  const query = ref<GovernanceQuery>({ product_domain: '集团财务', period_type: 'monthly', period: '', only_failing: true })
+  const query = ref<GovernanceQuery>({ product_line: '星瀚', product_domain: '集团财务', period_type: 'monthly', period: '', only_failing: true })
   const board = ref<GovernanceBoard | null>(null)
   const loading = ref(false)
   const periods = ref<PeriodOption[]>([])
@@ -53,7 +53,7 @@ export function useGovernanceBoard() {
     })
   }
 
-  const periodPayload = ref({ period_type: 'monthly', product_line: '星瀚' })
+  const periodPayload = ref({ period_type: 'monthly', product_line: query.value.product_line || '星瀚' })
   const { execute: fetchPeriods } = useGet<PeriodOption[]>(ApiPerfCompliance.periodOptions, periodPayload, {
     immediate: false,
     onSuccess(data) {
@@ -67,24 +67,35 @@ export function useGovernanceBoard() {
   function changePeriodType(type: string) {
     query.value.period_type = type
     query.value.period = ''
-    periodPayload.value = { period_type: type, product_line: '星瀚' }
+    periodPayload.value = { period_type: type, product_line: query.value.product_line || '星瀚' }
     void fetchPeriods()
   }
 
   const domains = ref<DomainOption[]>([])
-  const { execute: fetchDomains } = useGet<DomainOption[]>(ApiPerfCompliance.dimensionOptions, ref({ level: 'product_domain' }), {
+  const domainPayload = ref({ level: 'product_domain', product_line: query.value.product_line || '星瀚' })
+  const { execute: fetchDomains } = useGet<DomainOption[]>(ApiPerfCompliance.dimensionOptions, domainPayload, {
     immediate: false,
     onSuccess(data) {
       domains.value = Array.isArray(data) ? data : []
     },
   })
+  /** 切换产品线：周期与产品领域选项都要按新线重载，再回到最新周期。 */
+  function changeProductLine(line: string) {
+    const next = line || '星瀚'
+    query.value.product_line = next
+    query.value.period = ''
+    domainPayload.value = { level: 'product_domain', product_line: next }
+    void fetchDomains()
+    periodPayload.value = { period_type: query.value.period_type || 'monthly', product_line: next }
+    void fetchPeriods()
+  }
   /** 首次进入：领域选项与周期并行取，周期取回后自动加载看板。 */
   function init() {
     void fetchDomains()
     changePeriodType(query.value.period_type || 'monthly')
   }
 
-  return { query, board, loading, periods, domains, load, changePeriodType, init }
+  return { query, board, loading, periods, domains, load, changePeriodType, changeProductLine, init }
 }
 
 export function useGovernancePlan() {

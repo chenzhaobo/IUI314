@@ -114,6 +114,14 @@
           </div>
 
           <div class="f-mid">
+            <a-select v-model="searchForm.product_line" placeholder="产品线" @change="handleSearch">
+              <a-option v-for="o in productLineFilterOptions" :key="o.value" :value="o.value">
+                {{ o.label }}
+              </a-option>
+            </a-select>
+          </div>
+
+          <div class="f-mid">
             <a-input v-model="searchForm.app_number" placeholder="应用编码" allow-clear />
           </div>
 
@@ -183,7 +191,7 @@
               :pagination="pagination"
               :row-selection="{ type: 'checkbox', showCheckedAll: true }"
               :selected-keys="selectedIds"
-              :scroll="{ minWidth: 2571, y: tableHeight }"
+              :scroll="{ minWidth: 2651, y: tableHeight }"
               row-key="id"
               @selection-change="onSelectionChange"
               @sorter-change="handleSorterChange"
@@ -234,6 +242,7 @@
                   </template>
                 </a-table-column>
                 <a-table-column title="应用" data-index="app_number" :width="80" :filterable="filterableOf('app_number')" />
+                <a-table-column title="产品线" data-index="product_line" :width="80" :filterable="enumFilterable(productLineFilterOptions, searchForm.product_line)" />
                 <a-table-column title="项目组" data-index="project_group_code" :width="150" ellipsis tooltip :filterable="filterableOf('project_group_code')">
                   <template #cell="{ record }">
                     {{ record.project_group_name || record.project_group_code || '--' }}
@@ -740,6 +749,7 @@ function onEnumFilterChange(dataIndex: string, filteredValues: string[]) {
     case 'status': searchForm.status = value; break
     case 'process_status': searchForm.process_status = value; break
     case 'source': searchForm.source = value; break
+    case 'product_line': searchForm.product_line = value; break
     default: return
   }
   pageNum.value = 1
@@ -814,6 +824,15 @@ const sourceFilterOptions = [
   { label: 'Agent 诊断', value: 'diagnosis' },
   { label: 'AI 分析', value: 'trace_ai' },
 ]
+// 产品线统一走 perf_product_line 字典，默认星瀚
+const productLineDict = useDicts('perf_product_line')
+const productLineFilterOptions = computed(() => {
+  const raw: unknown = productLineDict.value.perf_product_line
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((d: any) => ({ value: d.value ?? d.dict_value, label: d.label ?? d.dict_label }))
+    .filter((o: { value?: string, label?: string }) => Boolean(o.value && o.label))
+})
 
 const getNextStatuses = (current: string) => {
   // 与后端 is_valid_transition 保持一致（service/src/perf/plan/issue.rs）
@@ -1346,7 +1365,7 @@ const handleScopeChange = (scope: {
 const handleSearch = () => { pageNum.value = 1; fetchData() }
 const handleReset = () => {
   Object.assign(searchForm, {
-    keyword: '', status: '', severity: '', issue_type: '', category: '', source: '', product_line: '',
+    keyword: '', status: '', severity: '', issue_type: '', category: '', source: '', product_line: '星瀚',
     project_group_code: '',
     cloud_number: '',
     business_area: '',

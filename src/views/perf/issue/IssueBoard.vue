@@ -5,8 +5,9 @@
       <a-row :gutter="16" style="margin-bottom: 16px">
         <a-col :span="4">
           <a-select v-model="filterProductLine" placeholder="产品线" allow-clear @change="fetchData">
-            <a-option value="星瀚">星瀚</a-option>
-            <a-option value="星空">星空</a-option>
+            <a-option v-for="o in productLineOptions" :key="o.value" :value="o.value">
+              {{ o.label }}
+            </a-option>
           </a-select>
         </a-col>
         <a-col :span="4">
@@ -73,6 +74,7 @@
               <div class="issue-footer">
                 <span v-if="issue.app_name" class="issue-app">{{ issue.app_name }}</span>
                 <span v-if="issue.project_group_name" class="issue-pg">{{ issue.project_group_name }}</span>
+                <a-tag v-if="issue.product_line" size="small">{{ issue.product_line }}</a-tag>
               </div>
             </div>
             <a-empty v-if="getColumnIssues(col.status).length === 0" description="暂无" />
@@ -94,6 +96,7 @@
         <a-descriptions-item label="类型">{{ currentIssue?.issue_type }}</a-descriptions-item>
         <a-descriptions-item label="应用">{{ currentIssue?.app_name }}</a-descriptions-item>
         <a-descriptions-item label="表单">{{ currentIssue?.form_name }}</a-descriptions-item>
+        <a-descriptions-item label="产品线">{{ currentIssue?.product_line || '--' }}</a-descriptions-item>
         <a-descriptions-item label="项目组">{{ currentIssue?.project_group_name }}</a-descriptions-item>
         <a-descriptions-item label="客户">{{ currentIssue?.customer_name }}</a-descriptions-item>
         <a-descriptions-item label="平均耗时">{{ currentIssue?.avg_cost }}ms</a-descriptions-item>
@@ -124,11 +127,19 @@
 import { ref, computed, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { ApiPerfIssue } from '@/api/perfApis'
-import { useGet, usePut } from '@/hooks'
+import { useDicts, useGet, usePut } from '@/hooks'
 
 defineOptions({ name: 'issue-board' })
 
-const filterProductLine = ref('')
+const filterProductLine = ref('星瀚')
+const productLineDict = useDicts('perf_product_line')
+const productLineOptions = computed(() => {
+  const raw: unknown = productLineDict.value.perf_product_line
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((d: any) => ({ value: d.value ?? d.dict_value, label: d.label ?? d.dict_label }))
+    .filter((o: { value?: string, label?: string }) => Boolean(o.value && o.label))
+})
 const filterSeverity = ref('')
 const filterProjectGroup = ref('')
 const drawerVisible = ref(false)
@@ -157,6 +168,7 @@ interface IssueRow {
   id: string
   status: string
   severity?: string
+  product_line?: string
   project_group_name?: string
   app_name?: string
   title?: string
@@ -208,7 +220,7 @@ const getAvailableActions = (status: string) => {
 
 const fetchData = () => { fetchList(); fetchStats() }
 const handleReset = () => {
-  filterProductLine.value = ''
+  filterProductLine.value = '星瀚'
   filterSeverity.value = ''
   filterProjectGroup.value = ''
   fetchData()

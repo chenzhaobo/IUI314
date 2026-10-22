@@ -85,6 +85,7 @@ export interface GovernancePushPreview {
 
 /** 查询范围（与达标率看板同口径） */
 export interface GovernanceQuery {
+  product_line?: string
   product_domain?: string
   period_type?: string
   period?: string

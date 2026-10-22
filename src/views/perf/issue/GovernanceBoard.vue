@@ -5,6 +5,7 @@
  */
 import type { GovernanceQuery, GovernanceRow } from '@/types/perf-governance'
 import { computed, onMounted, ref } from 'vue'
+import { useDicts } from '@/hooks'
 import { useRoute } from 'vue-router'
 import ListPage from '@/components/common/ListPage.vue'
 import GovernancePlanDrawer from '@/views/perf/components/GovernancePlanDrawer.vue'
@@ -14,7 +15,16 @@ import { fmtRate, useGovernanceBoard } from '@/views/perf/composables/useGoverna
 // eslint-disable-next-line vue/component-definition-name-casing
 defineOptions({ name: 'governance-board' })
 
-const { query, board, loading, periods, domains, load, changePeriodType, init } = useGovernanceBoard()
+const { query, board, loading, periods, domains, load, changePeriodType, changeProductLine, init } = useGovernanceBoard()
+
+const productLineDict = useDicts('perf_product_line')
+const productLineOptions = computed(() => {
+  const raw: unknown = productLineDict.value.perf_product_line
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((d: any) => ({ value: d.value ?? d.dict_value, label: d.label ?? d.dict_label }))
+    .filter((o: { value?: string, label?: string }) => Boolean(o.value && o.label))
+})
 
 const rows = computed<GovernanceRow[]>(() => {
   const b = board.value
@@ -47,6 +57,16 @@ onMounted(() => {
     <ListPage>
       <template #filter>
         <a-space wrap>
+          <a-select
+            v-model="query.product_line"
+            placeholder="产品线"
+            class="gb-sel"
+            @change="v => changeProductLine(String(v))"
+          >
+            <a-option v-for="o in productLineOptions" :key="o.value" :value="o.value">
+              {{ o.label }}
+            </a-option>
+          </a-select>
           <a-select v-model="query.product_domain" placeholder="产品领域" allow-clear class="gb-sel" @change="load">
             <a-option v-for="o in domains" :key="o.code" :value="o.code">
               {{ o.name }}
