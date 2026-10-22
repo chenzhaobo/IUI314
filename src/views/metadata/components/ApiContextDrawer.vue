@@ -35,6 +35,7 @@ const form = reactive({
   remark: '',
 })
 const requiredFieldsText = ref('[]')
+const riskProfileText = ref('[]')
 const sourceType = ref('')
 const confidence = ref<number | null>(null)
 const reviewStatus = ref('')
@@ -45,6 +46,7 @@ function reset() {
   form.form_relations = ''
   form.remark = ''
   requiredFieldsText.value = '[]'
+  riskProfileText.value = '[]'
   sourceType.value = ''
   confidence.value = null
   reviewStatus.value = ''
@@ -57,6 +59,7 @@ const SOURCE_LABELS: Record<string, string> = {
 }
 const RELATED_FORMS_PLACEHOLDER = 'JSON，如 {"forms":[{"id":"fircm_creditarg","kind":"meta_table","role":"前置数据","create_via":{"type":"api","ref":"..."},"sample":{"bizbill":"{{BILL_TYPE}}"}}],"variables":{"BILL_TYPE":{"value":"","source":"fircm_creditarg.bizbill","required":true}},"data_setup_required":true}'
 const FORM_RELATIONS_PLACEHOLDER = 'JSON，如 {"relations":[{"from":"fircm_creditarg","to":"bill","join":"fircm_creditarg.bizbill = bill.billNumber"}],"creation_order":["fircm_creditarg","bill"],"cleanup_order":["bill","fircm_creditarg"]}'
+const RISK_PROFILE_PLACEHOLDER = 'JSON 数组，如 [{"risk":"authz","status":"applicable","level":"high","evidence":"未校验 userId 组织权限","suggested_tests":["idor","horizon"]}]'
 const REVIEW_LABELS: Record<string, string> = {
   draft: 'AI 草稿（待人工确认）',
   approved: '已确认',
@@ -78,6 +81,7 @@ async function load() {
     form.form_relations = res.form_relations || ''
     form.remark = res.remark || ''
     requiredFieldsText.value = JSON.stringify(res.required_fields || [], null, 2)
+    riskProfileText.value = JSON.stringify(res.risk_profile_json || [], null, 2)
     sourceType.value = res.source_type || 'manual'
     confidence.value = res.confidence ?? null
     reviewStatus.value = res.review_status || 'approved'
@@ -101,6 +105,15 @@ async function handleSave() {
     Message.warning('强制字段必须是合法 JSON 数组')
     return
   }
+  let riskProfile: unknown[] = []
+  try {
+    const parsed = JSON.parse(riskProfileText.value || '[]')
+    riskProfile = Array.isArray(parsed) ? parsed : []
+  }
+  catch {
+    Message.warning('风险自检清单必须是合法 JSON 数组')
+    return
+  }
   saving.value = true
   try {
     const res = await postAction(ApiMetadataInventory.context, {
@@ -109,6 +122,7 @@ async function handleSave() {
       // 人工保存视为确认；保留 AI 来源/证据，只把评审状态改为 approved
       review_status: 'approved',
       required_fields: requiredFields,
+      risk_profile: riskProfile,
     })
     if (res === null)
       return
@@ -191,6 +205,16 @@ watch(visible, (v) => {
           />
           <template #extra>
             从源码 DTO/OpenAPI/文档梳理出的强制字段；AI 生成用例的请求体必须覆盖，否则质量门禁会驳回。
+          </template>
+        </a-form-item>
+        <a-form-item label="首轮风险自检清单（JSON 数组）">
+          <a-textarea
+            v-model="riskProfileText"
+            :placeholder="RISK_PROFILE_PLACEHOLDER"
+            :auto-size="{ minRows: 4, maxRows: 14 }"
+          />
+          <template #extra>
+            九个风险面（authz/injection/deserialization/reflection_privilege/ssrf_xxe/mass_assignment/write_side_effect/data_leak/thirdapp_auth）三态结论 + 证据；applicable 必须有 suggested_tests。
           </template>
         </a-form-item>
         <a-form-item label="其他备注">
