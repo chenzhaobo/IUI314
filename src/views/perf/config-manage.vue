@@ -105,10 +105,22 @@ async function reloadConfigs() {
   await getList()
 }
 
+/** 配置搜索：匹配 label / config_key / remark，方便直接按 key 找 */
+const configSearch = ref('')
+
+const filteredConfigs = computed(() => {
+  const keyword = configSearch.value.trim().toLowerCase()
+  if (!keyword)
+    return configList.value
+  return configList.value.filter((c: any) =>
+    [c.label, c.config_key, c.remark].some(value => String(value ?? '').toLowerCase().includes(keyword)),
+  )
+})
+
 // 按 group_name 分组
 const groupedConfigs = computed(() => {
   const groups: Record<string, any[]> = {}
-  for (const c of configList.value) {
+  for (const c of filteredConfigs.value) {
     const g = c.group_name || '其他'
     if (!groups[g]) groups[g] = []
     groups[g].push(c)
@@ -176,6 +188,12 @@ function getGroupLabel(key: string) {
     <a-card title="平台配置管理" :bordered="false">
       <template #extra>
         <a-space>
+          <a-input-search
+            v-model="configSearch"
+            placeholder="搜索配置名称 / key，如 static_scan_unit_max_candidates"
+            allow-clear
+            style="width: 360px"
+          />
           <a-button @click="() => getList()">
             <template #icon><icon-refresh /></template>
             刷新
