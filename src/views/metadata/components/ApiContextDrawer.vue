@@ -214,7 +214,7 @@ watch(visible, (v) => {
             :auto-size="{ minRows: 4, maxRows: 14 }"
           />
           <template #extra>
-            九个风险面（authz/injection/deserialization/reflection_privilege/ssrf_xxe/mass_assignment/write_side_effect/data_leak/thirdapp_auth）三态结论 + 证据；applicable 必须有 suggested_tests。
+            十个风险面（authz/injection/dynamic_service_invocation/deserialization/reflection_privilege/ssrf_xxe/mass_assignment/write_side_effect/data_leak/thirdapp_auth）三态结论 + 证据；applicable 必须有 suggested_tests。
           </template>
         </a-form-item>
         <a-form-item label="其他备注">
