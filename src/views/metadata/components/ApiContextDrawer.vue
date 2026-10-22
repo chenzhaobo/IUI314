@@ -55,7 +55,7 @@ const SOURCE_LABELS: Record<string, string> = {
   ai_source: 'AI 源码调研',
   ai_doc: 'AI 需求文档梳理',
 }
-const RELATED_FORMS_PLACEHOLDER = 'JSON，如 {"forms":[{"id":"fircm_creditarg","kind":"meta_table","role":"前置数据","create_via":{"type":"api","ref":"..."},"sample":{"bizbill":"{{BILL_TYPE}}"}}],"data_setup_required":true}'
+const RELATED_FORMS_PLACEHOLDER = 'JSON，如 {"forms":[{"id":"fircm_creditarg","kind":"meta_table","role":"前置数据","create_via":{"type":"api","ref":"..."},"sample":{"bizbill":"{{BILL_TYPE}}"}}],"variables":{"BILL_TYPE":{"value":"","source":"fircm_creditarg.bizbill","required":true}},"data_setup_required":true}'
 const FORM_RELATIONS_PLACEHOLDER = 'JSON，如 {"relations":[{"from":"fircm_creditarg","to":"bill","join":"fircm_creditarg.bizbill = bill.billNumber"}],"creation_order":["fircm_creditarg","bill"],"cleanup_order":["bill","fircm_creditarg"]}'
 const REVIEW_LABELS: Record<string, string> = {
   draft: 'AI 草稿（待人工确认）',
