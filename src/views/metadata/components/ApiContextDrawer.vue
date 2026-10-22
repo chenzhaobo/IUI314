@@ -39,6 +39,10 @@ const riskProfileText = ref('[]')
 const sourceType = ref('')
 const confidence = ref<number | null>(null)
 const reviewStatus = ref('')
+const reviewedBy = ref('')
+const reviewedAt = ref('')
+const reviewComment = ref('')
+const reviewRound = ref(0)
 
 function reset() {
   form.biz_summary = ''
@@ -50,6 +54,10 @@ function reset() {
   sourceType.value = ''
   confidence.value = null
   reviewStatus.value = ''
+  reviewedBy.value = ''
+  reviewedAt.value = ''
+  reviewComment.value = ''
+  reviewRound.value = 0
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -61,7 +69,8 @@ const RELATED_FORMS_PLACEHOLDER = 'JSON，如 {"forms":[{"id":"fircm_creditarg",
 const FORM_RELATIONS_PLACEHOLDER = 'JSON，如 {"relations":[{"from":"fircm_creditarg","to":"bill","join":"fircm_creditarg.bizbill = bill.billNumber"}],"creation_order":["fircm_creditarg","bill"],"cleanup_order":["bill","fircm_creditarg"]}'
 const RISK_PROFILE_PLACEHOLDER = 'JSON 数组，如 [{"risk":"authz","status":"applicable","level":"high","evidence":"未校验 userId 组织权限","suggested_tests":["idor","horizon"]}]'
 const REVIEW_LABELS: Record<string, string> = {
-  draft: 'AI 草稿（待人工确认）',
+  draft: 'AI 草稿（待确认）',
+  needs_fix: '待修复',
   approved: '已确认',
   rejected: '已驳回',
 }
@@ -85,6 +94,10 @@ async function load() {
     sourceType.value = res.source_type || 'manual'
     confidence.value = res.confidence ?? null
     reviewStatus.value = res.review_status || 'approved'
+    reviewedBy.value = res.reviewed_by || ''
+    reviewedAt.value = res.reviewed_at || ''
+    reviewComment.value = res.review_comment || ''
+    reviewRound.value = res.review_round || 0
   }
   finally {
     loading.value = false
@@ -167,6 +180,16 @@ watch(visible, (v) => {
         </a-descriptions-item>
         <a-descriptions-item v-if="reviewStatus" label="确认状态">
           {{ REVIEW_LABELS[reviewStatus] || reviewStatus }}
+          <a-tag v-if="reviewRound > 0" color="arcoblue" size="small" style="margin-left: 6px">
+            R{{ reviewRound }}
+          </a-tag>
+        </a-descriptions-item>
+        <a-descriptions-item v-if="reviewedBy" label="评审人">
+          {{ reviewedBy }}
+          <span v-if="reviewedAt" class="confidence">{{ reviewedAt }}</span>
+        </a-descriptions-item>
+        <a-descriptions-item v-if="reviewComment" label="评审意见" :span="2">
+          {{ reviewComment }}
         </a-descriptions-item>
       </a-descriptions>
       <a-form :model="form" layout="vertical">

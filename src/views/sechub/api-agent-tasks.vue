@@ -451,6 +451,16 @@ onUnmounted(() => {
               <span v-if="record.repair_round > 0" class="reviewer-agent">R{{ record.repair_round }}</span>
             </template>
           </a-table-column>
+          <a-table-column title="Findings / 覆盖缺口" :width="150">
+            <template #cell="{ record }">
+              <a-tag :color="(record.finding_cnt || 0) > 0 ? 'orange' : 'gray'" size="small">
+                F {{ record.finding_cnt || 0 }}
+              </a-tag>
+              <a-tag :color="(record.coverage_gap_cnt || 0) > 0 ? 'red' : 'gray'" size="small">
+                C {{ record.coverage_gap_cnt || 0 }}
+              </a-tag>
+            </template>
+          </a-table-column>
           <a-table-column title="失败原因" :width="220" ellipsis tooltip>
             <template #cell="{ record }">
               {{ record.failed_reason || '--' }}
@@ -520,6 +530,9 @@ onUnmounted(() => {
               </a-tag>
               <span v-if="detail.dispatch?.repair_round > 0" class="reviewer-agent">R{{ detail.dispatch.repair_round }}</span>
             </a-descriptions-item>
+            <a-descriptions-item label="Findings / 覆盖缺口">
+              {{ detail.dispatch?.finding_cnt || 0 }} / {{ detail.dispatch?.coverage_gap_cnt || 0 }}
+            </a-descriptions-item>
             <a-descriptions-item label="失败原因" :span="2">
               {{ detail.dispatch?.failed_reason || '--' }}
             </a-descriptions-item>
@@ -535,6 +548,37 @@ onUnmounted(() => {
               <a-table-column title="dev_mode" data-index="dev_mode" :width="90" />
               <a-table-column title="thirdapp" data-index="thirdapp_auth" :width="90" />
               <a-table-column title="应用" data-index="app_number" :width="100" />
+            </template>
+          </a-table>
+
+          <a-divider orientation="left">
+            评审 Findings
+          </a-divider>
+          <a-table :data="detail.findings || []" :pagination="false" row-key="id" size="small">
+            <template #columns>
+              <a-table-column title="类型" data-index="kind" :width="120" />
+              <a-table-column title="级别" data-index="severity" :width="80" />
+              <a-table-column title="状态" data-index="status" :width="90" />
+              <a-table-column title="API" data-index="api_path" ellipsis tooltip />
+              <a-table-column title="标题" data-index="title" ellipsis tooltip />
+              <a-table-column title="目标用例" data-index="target_case_id" :width="130" ellipsis tooltip />
+            </template>
+          </a-table>
+
+          <a-divider orientation="left">
+            覆盖缺口
+          </a-divider>
+          <a-table :data="detail.coverage_gaps || []" :pagination="false" size="small">
+            <template #columns>
+              <a-table-column title="API" data-index="api_path" ellipsis tooltip />
+              <a-table-column title="风险" data-index="risk" :width="150" />
+              <a-table-column title="级别" data-index="level" :width="80" />
+              <a-table-column title="期望用例" :width="200">
+                <template #cell="{ record }">
+                  {{ (record.expected_tests || []).join(' / ') }}
+                </template>
+              </a-table-column>
+              <a-table-column title="原因" data-index="reason" ellipsis tooltip />
             </template>
           </a-table>
 
