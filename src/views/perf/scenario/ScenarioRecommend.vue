@@ -4,9 +4,9 @@
       <!-- 筛选栏 -->
       <a-row :gutter="16" style="margin-bottom: 16px">
         <a-col :span="4">
+          <!-- 性能测试暂按星瀚专用 -->
           <a-select v-model="productLine" placeholder="产品线">
             <a-option value="星瀚">星瀚</a-option>
-            <a-option value="星空">星空</a-option>
           </a-select>
         </a-col>
         <a-col :span="4">

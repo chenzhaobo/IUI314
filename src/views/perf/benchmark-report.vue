@@ -13,7 +13,10 @@ const activeTab = ref('report')
 // ── 产品线选择（数据字典）──────────────────────────
 const productLine = ref('星瀚')
 const { data: dictRaw } = useGet<any>(ApiSysDictData.getByType, { dict_type: 'perf_product_line' }, { immediate: true })
-const productLineOptions = computed(() => (Array.isArray(dictRaw.value) ? dictRaw.value : []).map((d: any) => ({ label: d.dict_label, value: d.dict_value })))
+// 性能测试暂按星瀚专用：只暴露星瀚
+const productLineOptions = computed(() => (Array.isArray(dictRaw.value) ? dictRaw.value : [])
+  .map((d: any) => ({ label: d.dict_label, value: d.dict_value }))
+  .filter((o: { value: string }) => o.value === '星瀚'))
 
 watch(dictRaw, (val) => {
   if (!productLine.value && Array.isArray(val) && val.length > 0) {
