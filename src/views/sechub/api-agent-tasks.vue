@@ -161,11 +161,21 @@ const REVIEWER_STATUS_META: Record<string, { label: string, color: string }> = {
   completed: { label: '已评审', color: 'green' },
   failed: { label: '评审失败', color: 'red' },
 }
+const REPAIR_STATUS_META: Record<string, { label: string, color: string }> = {
+  none: { label: '未修复', color: 'gray' },
+  running: { label: '修复中', color: 'blue' },
+  completed: { label: '已修复', color: 'green' },
+  failed: { label: '修复失败', color: 'red' },
+  skipped: { label: '跳过', color: 'gray' },
+}
 function statusMeta(s?: string) {
   return STATUS_META[s || ''] || { label: s || '--', color: 'gray' }
 }
 function reviewerMeta(s?: string) {
   return REVIEWER_STATUS_META[s || ''] || { label: s || '--', color: 'gray' }
+}
+function repairMeta(s?: string) {
+  return REPAIR_STATUS_META[s || ''] || { label: s || '--', color: 'gray' }
 }
 
 // ── 详情 ───────────────────────────────────────────────
@@ -202,6 +212,14 @@ async function reviewRun(record: any) {
   if (res === null)
     return
   Message.success(res.message || '独立评审已启动')
+  await loadRuns()
+}
+
+async function repairRun(record: any) {
+  const res = await postAction<any>(resolveStaticScanApi(ApiSecScan.apiAgentRepair, { run_id: record.run_id }))
+  if (res === null)
+    return
+  Message.success(res.message || `修复轮已启动（第 ${res.round || '?'} 轮）`)
   await loadRuns()
 }
 
@@ -425,6 +443,14 @@ onUnmounted(() => {
               </a-tag>
             </template>
           </a-table-column>
+          <a-table-column title="修复轮" :width="110">
+            <template #cell="{ record }">
+              <a-tag :color="repairMeta(record.repair_status).color">
+                {{ repairMeta(record.repair_status).label }}
+              </a-tag>
+              <span v-if="record.repair_round > 0" class="reviewer-agent">R{{ record.repair_round }}</span>
+            </template>
+          </a-table-column>
           <a-table-column title="失败原因" :width="220" ellipsis tooltip>
             <template #cell="{ record }">
               {{ record.failed_reason || '--' }}
@@ -441,6 +467,12 @@ onUnmounted(() => {
                 </a-link>
                 <a-link v-if="record.case_cnt > 0 && record.reviewer_status !== 'running'" @click="reviewRun(record)">
                   独立评审
+                </a-link>
+                <a-link
+                  v-if="record.reviewer_status === 'completed' && record.repair_status !== 'running' && (record.repair_round || 0) < 2"
+                  @click="repairRun(record)"
+                >
+                  修复
                 </a-link>
                 <a-link @click="regression(record)">
                   回归
@@ -481,6 +513,12 @@ onUnmounted(() => {
                 {{ reviewerMeta(detail.dispatch?.reviewer_status).label }}
               </a-tag>
               <span v-if="detail.dispatch?.reviewer_agent" class="reviewer-agent">{{ detail.dispatch.reviewer_agent }}</span>
+            </a-descriptions-item>
+            <a-descriptions-item label="修复轮">
+              <a-tag :color="repairMeta(detail.dispatch?.repair_status).color">
+                {{ repairMeta(detail.dispatch?.repair_status).label }}
+              </a-tag>
+              <span v-if="detail.dispatch?.repair_round > 0" class="reviewer-agent">R{{ detail.dispatch.repair_round }}</span>
             </a-descriptions-item>
             <a-descriptions-item label="失败原因" :span="2">
               {{ detail.dispatch?.failed_reason || '--' }}
