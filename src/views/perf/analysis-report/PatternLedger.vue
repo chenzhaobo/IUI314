@@ -511,6 +511,20 @@
       </div>
       <div v-else class="content-block">暂无</div>
 
+      <!-- 证据不足的台账没有自己的报告，读报告时会提示“见已查/缺失证据”。
+           这两段必须显示出来，否则提示指向一个界面上不存在的字段。 -->
+      <a-divider>已查证据 (checked_evidence)</a-divider>
+      <div v-if="Array.isArray(currentRecord?.checked_evidence) && currentRecord.checked_evidence.length" class="content-block">
+        <div v-for="(item, idx) in currentRecord.checked_evidence" :key="idx" style="margin-bottom: 6px">· {{ item }}</div>
+      </div>
+      <div v-else class="content-block">暂无</div>
+
+      <a-divider>缺失证据 (missing_evidence)</a-divider>
+      <div v-if="Array.isArray(currentRecord?.missing_evidence) && currentRecord.missing_evidence.length" class="content-block">
+        <div v-for="(item, idx) in currentRecord.missing_evidence" :key="idx" style="margin-bottom: 6px">· {{ item }}</div>
+      </div>
+      <div v-else class="content-block">暂无</div>
+
       <a-divider>影响客户 (customer_names)</a-divider>
       <div v-if="currentRecord?.customer_names && Array.isArray(currentRecord.customer_names)" class="content-block">
         <a-tag v-for="(name, idx) in currentRecord.customer_names" :key="idx" style="margin: 2px">{{ name }}</a-tag>
