@@ -55,6 +55,8 @@ const SOURCE_LABELS: Record<string, string> = {
   ai_source: 'AI 源码调研',
   ai_doc: 'AI 需求文档梳理',
 }
+const RELATED_FORMS_PLACEHOLDER = 'JSON，如 {"forms":[{"id":"fircm_creditarg","kind":"meta_table","role":"前置数据","create_via":{"type":"api","ref":"..."},"sample":{"bizbill":"{{BILL_TYPE}}"}}],"data_setup_required":true}'
+const FORM_RELATIONS_PLACEHOLDER = 'JSON，如 {"relations":[{"from":"fircm_creditarg","to":"bill","join":"fircm_creditarg.bizbill = bill.billNumber"}],"creation_order":["fircm_creditarg","bill"],"cleanup_order":["bill","fircm_creditarg"]}'
 const REVIEW_LABELS: Record<string, string> = {
   draft: 'AI 草稿（待人工确认）',
   approved: '已确认',
@@ -161,19 +163,25 @@ watch(visible, (v) => {
             :auto-size="{ minRows: 3, maxRows: 8 }"
           />
         </a-form-item>
-        <a-form-item label="后台表单">
+        <a-form-item label="关联表单 / 实体 / 表（造数用）">
           <a-textarea
             v-model="form.related_forms"
-            placeholder="如 gl_voucher, gl_vouchertype"
-            :auto-size="{ minRows: 2, maxRows: 6 }"
+            :placeholder="RELATED_FORMS_PLACEHOLDER"
+            :auto-size="{ minRows: 4, maxRows: 10 }"
           />
+          <template #extra>
+            写接口必须回写：表单/实体/表、造数入口 create_via、查询入口 query_via、关键字段和样例；AI 生成用例和换环境造数都会读这里。
+          </template>
         </a-form-item>
-        <a-form-item label="表单之间的联系">
+        <a-form-item label="表单 / 实体关系（造数顺序与清理）">
           <a-textarea
             v-model="form.form_relations"
-            placeholder="如 主单-子单 / 上下游 / 数据流说明"
-            :auto-size="{ minRows: 3, maxRows: 8 }"
+            :placeholder="FORM_RELATIONS_PLACEHOLDER"
+            :auto-size="{ minRows: 4, maxRows: 10 }"
           />
+          <template #extra>
+            写清 join 字段、依赖方向、创建顺序和清理顺序；单表单无关联时写 relations=[] + reason。
+          </template>
         </a-form-item>
         <a-form-item label="接口强制字段（JSON 数组）">
           <a-textarea
