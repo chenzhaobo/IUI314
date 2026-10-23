@@ -34,6 +34,8 @@ const evidenceVisible = ref(false)
 const selectedResult = ref<any>(null)
 const selectedEvidence = computed(() => parseEvidence(selectedResult.value))
 const scriptCases = computed<any[]>(() => selectedEvidence.value?.script_evidence?.cases || [])
+const scriptKeys = computed(() => scriptCases.value.map((item, idx) => item.id || String(idx)))
+const scriptHasCalls = computed(() => scriptCases.value.some(item => (item.http_calls || []).length > 0))
 const requestView = computed<any>(() => selectedEvidence.value?.request || {})
 
 function parseEvidence(record: any) {
@@ -318,11 +320,14 @@ watch(visible, (v) => {
           <a-divider orientation="left">
             脚本逐 case 调用
           </a-divider>
-          <a-collapse :bordered="false">
+          <a-alert v-if="!scriptHasCalls" type="warning" style="margin-bottom: 8px">
+            该结果来自旧脚本执行版本，未记录逐 case 请求/响应；重新执行用例后即可查看。
+          </a-alert>
+          <a-collapse :bordered="false" :default-active-key="scriptKeys">
             <a-collapse-item
               v-for="(item, idx) in scriptCases"
-              :key="item.id || idx"
-              :header="`${item.id || 'case'} · ${item.verdict || '--'} · ${item.desc || ''}`"
+              :key="item.id || String(idx)"
+              :header="`${item.id || 'case'} · ${item.verdict || '--'} · ${(item.http_calls || []).length} 次请求 · ${item.desc || ''}`"
             >
               <div class="case-detail">
                 {{ item.detail || '--' }}
