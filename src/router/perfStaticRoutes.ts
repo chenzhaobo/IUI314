@@ -15,7 +15,7 @@ import { Layout } from './constant'
  * 若不注册路由，从列表页跳过去会落到 404 —— 所以改由前端静态路由承接。
  *
  * 两条约束：
- * 1. 必须套 Layout 才能带侧栏（同 constant.ts 里 /cloud-perf/compliance 的写法）；
+ * 1. 必须套 Layout 才能带侧栏（同 constant.ts 里系统固定页的写法）；
  * 2. 子路由写绝对路径，URL 与菜单页同级；父级 path 特意取菜单里不存在的段，
  *    避免与菜单页同 path 撞车（同 path 的记录谁先注册谁生效，静态路由注册在前）。
  */

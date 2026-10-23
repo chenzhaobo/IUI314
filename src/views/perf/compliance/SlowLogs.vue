@@ -4,6 +4,7 @@ import type { SlowLogPeriodOption, SlowLogPeriodType } from '@/types/perf-slow-l
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTableAutoHeight } from '@/hooks'
+import { ComplianceSlowLogsRouteName } from '@/router/constant'
 import { fetchPeriodOptions } from '@/views/perf/compliance/slowLogService'
 import { formatSize, operationLabel, useFormSlowLogs } from '@/views/perf/composables/useFormSlowLogs'
 
@@ -43,7 +44,7 @@ function search() {
   const label = periodOptions.value.find(p => p.period === form.period)?.label ?? form.period
   const sameForm = form.formId.trim() === queryText('form_id')
   void router.replace({
-    name: 'compliance-slow-logs',
+    name: ComplianceSlowLogsRouteName,
     query: {
       product_line: productLine.value,
       period_type: form.periodType,
@@ -117,7 +118,7 @@ function goBack() {
 
 // 同一路由换参数时组件复用，需按 query 重载；只响应本路由
 watch(() => route.query, () => {
-  if (route.name === 'compliance-slow-logs')
+  if (route.name === ComplianceSlowLogsRouteName)
     void reload()
 }, { immediate: true })
 </script>

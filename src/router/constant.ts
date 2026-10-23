@@ -12,7 +12,8 @@ export const DictDataRouteName = 'DictData' // 字典数据
 export const ApiManageRouteName = 'ApiManage' // 字典数据
 export const ScheduledTasksLogRouteName = 'scheduled_tasks_log' // 定时任务日志
 export const UserProfileRouteName = 'user_profile' // 用户中心
-export const ComplianceSlowLogsRouteName = 'compliance-slow-logs' // 达标率看板-查看慢日志
+// 慢日志是 sys_menu 菜单页（达标率管理 > 慢日志），动态路由 name 即菜单 path
+export const ComplianceSlowLogsRouteName = 'slow-logs'
 
 export const DEFAULT_ROUTE: TagProps = {
   title: '首页',
@@ -130,31 +131,10 @@ export const UserProfileRoute: AppRouteRecordRaw = {
   ],
 }
 
-// 达标率看板「查看慢日志」：从看板行操作进入，不单独占菜单（高亮回达标率看板）
-export const ComplianceSlowLogsRoute: AppRouteRecordRaw = {
-  path: '/cloud-perf/compliance',
-  component: Layout,
-  hidden: true,
-  children: [
-    {
-      path: 'slow-logs',
-      component: () => import('@/views/perf/compliance/SlowLogs.vue'),
-      name: ComplianceSlowLogsRouteName,
-      meta: {
-        title: '慢日志',
-        activeMenu: '/cloud-perf/compliance/compliance-dashboard',
-        no_cache: true,
-        icon: 'dict',
-      },
-    },
-  ],
-}
-
 // 导出所有固定路由
 export const FixedRoutes = [
   DictDataRoute,
   ApiManageRoute,
   ScheduledTasksLogRoute,
   UserProfileRoute,
-  ComplianceSlowLogsRoute,
 ]

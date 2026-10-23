@@ -200,6 +200,7 @@ import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { ApiPerfCompliance } from '@/api/perfApis'
 import { rateColor, useAutoHeight, useDownload, useGet, useTableAutoHeight } from '@/hooks'
+import { ComplianceSlowLogsRouteName } from '@/router/constant'
 
 defineOptions({ name: 'compliance-dashboard' })
 
@@ -679,7 +680,7 @@ const gotoSlowLogs = (record: DrillRow) => {
   const formRowName = record.level === 'form' ? record.name : (findTreeNode(treeData.value, `form:${scope.form_id}`)?.title || '')
   const label = periodOptions.value.find((p: { period: string }) => p.period === selectedPeriod.value)?.label || selectedPeriod.value
   router.push({
-    name: 'compliance-slow-logs',
+    name: ComplianceSlowLogsRouteName,
     query: {
       product_line: productLine.value,
       period_type: periodType.value,
