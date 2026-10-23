@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * API安全测试 → Agent反馈。
+ * API安全测试 → 运行反馈（API-Agent complete 回调提交的运行反馈）。
  *
  * Agent 每次 complete 时提交 problems/improvements/coverage_gaps；
  * 平台按 fingerprint 聚合、累计出现次数。本页用于按“出现次数×严重度”分诊，
@@ -142,7 +142,7 @@ onMounted(load)
 <template>
   <div class="feedback-page">
     <a-alert type="info" style="margin-bottom: 12px">
-      Agent 每次完成会提交执行反馈；平台按问题指纹聚合、累计出现次数。
+      API-Agent 每次 complete 会上报运行反馈；平台按问题指纹聚合、累计出现次数。
       优先处理「出现次数高 × 严重度高」的问题，把它们转成技能/工具/平台/数据前置的改进项。
       反馈是过程问题，不是漏洞结论。
     </a-alert>

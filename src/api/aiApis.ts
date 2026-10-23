@@ -52,6 +52,43 @@ export enum ApiAiExecution {
   stats = '/ai/execution/stats',
 }
 
+// ── 通用 Agent 复盘反馈 ──────────────────────────────
+export enum ApiAiFeedback {
+  list = '/ai/agent-feedback/list',
+  collect = '/ai/agent-feedback/collect',
+  status = '/ai/agent-feedback/status',
+}
+
+export interface AiAgentFeedback {
+  id: string
+  execution_id: string
+  feedback_execution_id: string | null
+  caller_module: string
+  caller_id: string | null
+  domain: string
+  agent_code: string | null
+  skill_code: string | null
+  model: string | null
+  session_id: string | null
+  source: string
+  category: string
+  severity: string
+  status: string
+  title: string
+  detail: string
+  suggestion: string | null
+  evidence_json: unknown
+  fingerprint: string
+  occurrences: number
+  first_execution_id: string | null
+  last_execution_id: string | null
+  first_seen_at: string | null
+  last_seen_at: string | null
+  created_by: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
 // ── 统一调用 ──────────────────────────────────────
 export enum ApiAiInvoke {
   invoke = '/ai/invoke',
@@ -157,6 +194,10 @@ export interface AiExecution {
   duration_ms: number | null
   status: string
   error_message: string | null
+  feedback_status: string
+  feedback_started_at: string | null
+  feedback_finished_at: string | null
+  feedback_error: string | null
   created_by: string | null
   created_at: string
   started_at: string | null
