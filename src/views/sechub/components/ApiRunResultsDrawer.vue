@@ -29,6 +29,59 @@ const total = ref(0)
 const pageNum = ref(1)
 const pageSize = ref(20)
 
+// 请求/响应证据
+const evidenceVisible = ref(false)
+const selectedResult = ref<any>(null)
+const selectedEvidence = computed(() => parseEvidence(selectedResult.value))
+const scriptCases = computed<any[]>(() => selectedEvidence.value?.script_evidence?.cases || [])
+const requestView = computed<any>(() => selectedEvidence.value?.request || {})
+
+function parseEvidence(record: any) {
+  const raw = record?.evidence
+  if (!raw)
+    return {}
+  if (typeof raw === 'object')
+    return raw
+  try {
+    return JSON.parse(raw)
+  }
+  catch {
+    return {}
+  }
+}
+
+function pretty(value: any) {
+  if (value === null || value === undefined || value === '')
+    return '--'
+  if (typeof value === 'string') {
+    try {
+      return JSON.stringify(JSON.parse(value), null, 2)
+    }
+    catch {
+      return value
+    }
+  }
+  try {
+    return JSON.stringify(value, null, 2)
+  }
+  catch {
+    return String(value)
+  }
+}
+
+function openEvidence(record: any) {
+  selectedResult.value = record
+  evidenceVisible.value = true
+}
+
+function responseText(record: any) {
+  return record?.response_body_preview || selectedEvidence.value?.response_preview || ''
+}
+
+function requestBody(record: any) {
+  return requestView.value?.body ?? record?.case?.request_body
+}
+
 const filter = reactive({ verdict: '', test_type: '', keyword: '' })
 
 const pagination = computed(() => ({
@@ -215,11 +268,152 @@ watch(visible, (v) => {
             {{ record.detail || record.error_message || '--' }}
           </template>
         </a-table-column>
+        <a-table-column title="证据" :width="100" fixed="right">
+          <template #cell="{ record }">
+            <a-link @click="openEvidence(record)">
+              请求/响应
+            </a-link>
+          </template>
+        </a-table-column>
       </template>
       <template #empty>
         <a-empty description="暂无执行结果（该运行可能还没有 API 域结果）" />
       </template>
     </a-table>
+
+    <a-modal
+      v-model:visible="evidenceVisible"
+      title="请求 / 响应证据"
+      :width="1040"
+      :footer="false"
+      unmount-on-close
+    >
+      <template v-if="selectedResult">
+        <a-descriptions :column="3" bordered size="small">
+          <a-descriptions-item label="用例">
+            {{ selectedResult.case?.case_code || selectedResult.case_id || '--' }}
+          </a-descriptions-item>
+          <a-descriptions-item label="接口" :span="2">
+            {{ selectedResult.case?.api_path || '--' }}
+          </a-descriptions-item>
+          <a-descriptions-item label="结果">
+            <a-tag :color="verdictColor(selectedResult.verdict)">
+              {{ selectedResult.verdict }}
+            </a-tag>
+          </a-descriptions-item>
+          <a-descriptions-item label="HTTP / 耗时">
+            {{ selectedResult.http_status_code ?? selectedEvidence.http_status ?? '--' }}
+            /
+            {{ selectedResult.response_time_ms ?? selectedEvidence.elapsed_ms ?? '--' }} ms
+          </a-descriptions-item>
+          <a-descriptions-item label="用例类型">
+            {{ caseTypeOf(selectedResult) }}
+          </a-descriptions-item>
+          <a-descriptions-item label="判定说明" :span="3">
+            {{ selectedResult.detail || selectedResult.error_message || '--' }}
+          </a-descriptions-item>
+        </a-descriptions>
+
+        <template v-if="scriptCases.length">
+          <a-divider orientation="left">
+            脚本逐 case 调用
+          </a-divider>
+          <a-collapse :bordered="false">
+            <a-collapse-item
+              v-for="(item, idx) in scriptCases"
+              :key="item.id || idx"
+              :header="`${item.id || 'case'} · ${item.verdict || '--'} · ${item.desc || ''}`"
+            >
+              <div class="case-detail">
+                {{ item.detail || '--' }}
+              </div>
+              <div v-if="(item.http_calls || []).length" class="calls">
+                <div v-for="(call, ci) in item.http_calls" :key="ci" class="call-block">
+                  <div class="call-title">
+                    {{ call.method }} {{ call.path }} · 角色 {{ call.role || '--' }} ·
+                    HTTP {{ call.status_code ?? '--' }} · {{ call.elapsed_ms ?? '--' }} ms
+                    <a-tag v-if="call.timeout" color="orange" size="small">
+                      超时
+                    </a-tag>
+                    <a-tag v-if="call.sse" color="arcoblue" size="small">
+                      SSE
+                    </a-tag>
+                  </div>
+                  <a-row :gutter="12">
+                    <a-col :span="12">
+                      <div class="evidence-label">
+                        请求
+                      </div>
+                      <pre class="evidence-pre">{{ pretty(call.request_body ?? call.params) }}</pre>
+                    </a-col>
+                    <a-col :span="12">
+                      <div class="evidence-label">
+                        响应
+                      </div>
+                      <pre class="evidence-pre">{{ pretty(call.response_preview) }}</pre>
+                    </a-col>
+                  </a-row>
+                </div>
+              </div>
+              <a-empty v-else description="该 case 未记录 HTTP 调用（可能是 SSE/直接 requests 或旧脚本）" />
+              <details v-if="item.evidence && Object.keys(item.evidence).length" class="raw-evidence">
+                <summary>case evidence</summary>
+                <pre class="evidence-pre">{{ pretty(item.evidence) }}</pre>
+              </details>
+            </a-collapse-item>
+          </a-collapse>
+        </template>
+
+        <template v-else>
+          <a-divider orientation="left">
+            请求
+          </a-divider>
+          <div class="request-meta">
+            {{ requestView.method || selectedResult.case?.http_method || '--' }}
+            {{ requestView.path || selectedResult.case?.api_path || '--' }}
+            · 角色 {{ requestView.role || selectedResult.case?.test_role || '--' }}
+          </div>
+          <div class="evidence-label">
+            请求体
+          </div>
+          <pre class="evidence-pre">{{ pretty(requestBody(selectedResult)) }}</pre>
+          <template v-if="requestView.headers && Object.keys(requestView.headers).length">
+            <div class="evidence-label">
+              请求头
+            </div>
+            <pre class="evidence-pre">{{ pretty(requestView.headers) }}</pre>
+          </template>
+
+          <a-divider orientation="left">
+            响应
+          </a-divider>
+          <div class="request-meta">
+            HTTP {{ selectedResult.http_status_code ?? selectedEvidence.http_status ?? '--' }}
+            · {{ selectedResult.response_time_ms ?? selectedEvidence.elapsed_ms ?? '--' }} ms
+          </div>
+          <pre class="evidence-pre response-pre">{{ pretty(responseText(selectedResult)) }}</pre>
+          <a-empty v-if="!responseText(selectedResult)" description="该结果未保存响应预览" />
+        </template>
+
+        <a-collapse v-if="selectedEvidence.stdout || selectedEvidence.stderr" class="io-collapse">
+          <a-collapse-item header="脚本 stdout / stderr">
+            <div class="evidence-label">
+              stdout
+            </div>
+            <pre class="evidence-pre">{{ selectedEvidence.stdout || '--' }}</pre>
+            <div class="evidence-label">
+              stderr
+            </div>
+            <pre class="evidence-pre">{{ selectedEvidence.stderr || '--' }}</pre>
+          </a-collapse-item>
+        </a-collapse>
+        <a-collapse class="io-collapse">
+          <a-collapse-item header="完整证据 JSON">
+            <pre class="evidence-pre">{{ pretty(selectedEvidence) }}</pre>
+          </a-collapse-item>
+        </a-collapse>
+      </template>
+    </a-modal>
   </a-drawer>
 </template>
 
@@ -242,5 +436,58 @@ watch(visible, (v) => {
 .filter-bar > div :deep(.arco-select),
 .filter-bar > div :deep(.arco-input-wrapper) {
   width: 100%;
+}
+
+.request-meta,
+.case-detail {
+  color: var(--color-text-2);
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.evidence-label {
+  color: var(--color-text-3);
+  font-size: 12px;
+  margin: 6px 0 2px;
+}
+
+.evidence-pre {
+  max-height: 260px;
+  overflow: auto;
+  padding: 8px;
+  margin: 0 0 10px;
+  color: var(--color-text-1);
+  background: var(--color-fill-1);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.response-pre {
+  max-height: 360px;
+}
+
+.call-block {
+  padding: 10px;
+  margin-bottom: 10px;
+  border: 1px solid var(--color-border-2);
+  border-radius: 4px;
+}
+
+.call-title {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.raw-evidence {
+  margin-top: 8px;
+}
+
+.io-collapse {
+  margin-top: 12px;
 }
 </style>
