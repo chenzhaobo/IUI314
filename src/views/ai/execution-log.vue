@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import type { AiExecution, AiExecutionStats, AiListResult } from '@/api/aiApis'
+import type { AiAgentFeedbackPrompt, AiExecution, AiExecutionStats, AiListResult } from '@/api/aiApis'
 import { Message, Modal } from '@arco-design/web-vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -150,6 +150,12 @@ function feedbackActionLabel(record: AiExecution) {
   return '复盘'
 }
 
+const feedbackModalVisible = ref(false)
+const feedbackTarget = ref<AiExecution | null>(null)
+const feedbackPreview = ref<AiAgentFeedbackPrompt | null>(null)
+const feedbackPrompt = ref('')
+const feedbackStarting = ref(false)
+
 async function collectFeedback(record: AiExecution) {
   if (record.caller_module === 'agent_feedback') {
     Message.warning('复盘执行本身不能再复盘')
@@ -163,17 +169,40 @@ async function collectFeedback(record: AiExecution) {
     void router.push({ path: '/ai/agent-feedback', query: { execution_id: record.id } })
     return
   }
-  const res = await postAction<{ status?: string, message?: string }>(ApiAiFeedback.collect, { execution_id: record.id })
-  if (res === null)
+  const preview = await getAction<AiAgentFeedbackPrompt>(ApiAiFeedback.prompt, { execution_id: record.id })
+  if (!preview)
     return
-  if (res.status === 'skipped') {
-    Message.warning(res.message || '该执行不支持恢复会话，已跳过复盘')
+  feedbackTarget.value = record
+  feedbackPreview.value = preview
+  feedbackPrompt.value = preview.prompt
+  feedbackModalVisible.value = true
+}
+
+async function startFeedback() {
+  const record = feedbackTarget.value
+  if (!record || !feedbackPrompt.value.trim())
+    return
+  if (feedbackPreview.value && !feedbackPreview.value.can_resume)
+    return
+  feedbackStarting.value = true
+  try {
+    const res = await postAction<{ status?: string, message?: string }>(ApiAiFeedback.collect, {
+      execution_id: record.id,
+      prompt: feedbackPrompt.value,
+    })
+    if (res === null)
+      return
+    feedbackModalVisible.value = false
+    if (res.status === 'skipped')
+      Message.warning(res.message || '该执行不支持恢复会话，已跳过复盘')
+    else
+      Message.success(res.message || '复盘会话已启动')
+    await new Promise(resolve => setTimeout(resolve, 500))
+    fetchList()
   }
-  else {
-    Message.success(res.message || '复盘会话已启动')
+  finally {
+    feedbackStarting.value = false
   }
-  await new Promise(resolve => setTimeout(resolve, 500))
-  fetchList()
 }
 
 onMounted(async () => {
@@ -327,6 +356,46 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
         </a-table>
       </a-card>
     </div>
+
+    <!-- 复盘提示词弹框 -->
+    <a-modal
+      v-model:visible="feedbackModalVisible"
+      title="发起 Agent 复盘"
+      :width="900"
+      :mask-closable="false"
+      :ok-loading="feedbackStarting"
+      :ok-button-props="{ disabled: !feedbackPreview?.can_resume || !feedbackPrompt.trim() }"
+      ok-text="开始复盘"
+      cancel-text="取消"
+      @ok="startFeedback"
+    >
+      <a-alert
+        v-if="feedbackPreview && !feedbackPreview.can_resume"
+        type="warning"
+        class="m-b-12px"
+      >
+        {{ feedbackPreview.skip_reason || '该执行不支持恢复会话，无法复盘' }}
+      </a-alert>
+      <a-alert v-else type="info" class="m-b-12px">
+        将恢复原会话执行只读复盘。请保留「输出文件」与 JSON 结构要求，否则平台无法解析反馈。
+      </a-alert>
+      <a-descriptions :column="2" size="small" class="m-b-8px">
+        <a-descriptions-item label="执行 ID">
+          {{ feedbackPreview?.execution_id }}
+        </a-descriptions-item>
+        <a-descriptions-item label="Agent">
+          {{ feedbackPreview?.agent_code }}
+        </a-descriptions-item>
+      </a-descriptions>
+      <a-textarea
+        v-model="feedbackPrompt"
+        :auto-size="{ minRows: 12, maxRows: 24 }"
+        :max-length="20000"
+        show-word-limit
+        :disabled="!feedbackPreview?.can_resume"
+        placeholder="复盘提示词"
+      />
+    </a-modal>
 
     <!-- 详情抽屉 -->
     <a-drawer v-model:visible="drawerVisible" title="执行详情" :width="680" :footer="false">
