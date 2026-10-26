@@ -15,6 +15,8 @@ import { computed, reactive, ref } from 'vue'
 import { ApiSecScan, ApiSecTestEnv, resolveStaticScanApi } from '@/api/sechubApis'
 import ListPage from '@/components/common/ListPage.vue'
 import { formatTime, postAction, putAction, useGet } from '@/hooks'
+import { validateCron } from '@/utils/cron'
+import TaskScheduleFields from './components/TaskScheduleFields.vue'
 
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
 // （见 components/layout/app-main.vue 的注释）。lint 的 PascalCase 提示只是警告，
@@ -133,6 +135,8 @@ const form = reactive({
   env_id: '',
   test_types: [] as string[],
   scope: '',
+  schedule_enabled: false,
+  schedule_cron: '',
 })
 
 function openAdd() {
@@ -143,6 +147,8 @@ function openAdd() {
   form.env_id = ''
   form.test_types = TEST_TYPE_OPTIONS.map(o => o.value)
   form.scope = ''
+  form.schedule_enabled = false
+  form.schedule_cron = ''
   modalVisible.value = true
 }
 
@@ -153,6 +159,8 @@ function openEdit(record: any) {
   form.description = record.description || ''
   form.env_id = record.env_id || ''
   form.scope = record.scope || ''
+  form.schedule_enabled = record.schedule_enabled === '1'
+  form.schedule_cron = record.schedule_cron || ''
   try {
     const arr = JSON.parse(record.test_types || '[]')
     form.test_types = Array.isArray(arr) ? arr : []
@@ -172,6 +180,10 @@ async function handleSubmit() {
     Message.warning('请至少选择一种测试类型')
     return
   }
+  if (form.schedule_enabled && !validateCron(form.schedule_cron)) {
+    Message.warning('请填写合法的 6 段 cron 表达式（秒 分 时 日 月 周）')
+    return
+  }
 
   const base = {
     name: form.name.trim(),
@@ -179,6 +191,8 @@ async function handleSubmit() {
     env_id: form.env_id || null,
     test_types: JSON.stringify(form.test_types),
     scope: form.scope || null,
+    schedule_enabled: form.schedule_enabled ? '1' : '0',
+    schedule_cron: form.schedule_cron.trim() || null,
   }
 
   modalLoading.value = true
@@ -197,7 +211,6 @@ async function handleSubmit() {
         ...base,
         id: '',
         account_overrides: null,
-        schedule_cron: null,
         status: 'active',
         last_run_id: null,
         last_run_status: null,
@@ -233,6 +246,26 @@ function handleRun(record: any) {
       await fetchData()
     },
   })
+}
+
+// ── 定时开关（列表内联） ───────────────────────────
+async function handleToggleSchedule(record: any, enabled: boolean) {
+  if (enabled && !validateCron(record.schedule_cron || '')) {
+    Message.warning('请先编辑任务并填写合法的 cron 表达式')
+    return
+  }
+  const previous = record.schedule_enabled
+  record.schedule_enabled = enabled ? '1' : '0'
+  const res = await postAction<string>(
+    resolveStaticScanApi(ApiSecScan.taskSchedule, { id: record.id }),
+    { enabled, cron: record.schedule_cron || null },
+  )
+  if (res === null) {
+    record.schedule_enabled = previous
+    return
+  }
+  Message.success(enabled ? '已启用定时执行' : '已停用定时执行')
+  await fetchData()
 }
 
 // ── 删除 ──────────────────────────────────────────
@@ -331,7 +364,7 @@ function handlePageSizeChange(size: number) {
           :data="tableData"
           :loading="loading"
           :pagination="pagination"
-          :scroll="{ minWidth: 1000, y: tableHeight }"
+          :scroll="{ minWidth: 1280, y: tableHeight }"
           row-key="id"
           @page-change="handlePageChange"
           @page-size-change="handlePageSizeChange"
@@ -346,6 +379,24 @@ function handlePageSizeChange(size: number) {
             <a-table-column title="环境" data-index="env_id" :width="150" ellipsis tooltip>
               <template #cell="{ record }">
                 {{ envName(record.env_id) }}
+              </template>
+            </a-table-column>
+            <a-table-column title="定时" data-index="schedule_enabled" :width="80">
+              <template #cell="{ record }">
+                <a-switch
+                  :model-value="record.schedule_enabled === '1'"
+                  @change="value => handleToggleSchedule(record, Boolean(value))"
+                />
+              </template>
+            </a-table-column>
+            <a-table-column title="Cron" data-index="schedule_cron" :width="150" ellipsis tooltip>
+              <template #cell="{ record }">
+                {{ record.schedule_cron || '--' }}
+              </template>
+            </a-table-column>
+            <a-table-column title="下次执行" data-index="next_run_at" :width="160">
+              <template #cell="{ record }">
+                {{ record.schedule_enabled === '1' ? formatTime(record.next_run_at) : '--' }}
               </template>
             </a-table-column>
             <a-table-column title="最新状态" data-index="last_run_status" :width="90">
@@ -429,6 +480,13 @@ function handlePageSizeChange(size: number) {
             v-model="form.scope"
             placeholder="可选：限定要扫描的项目组 / 应用 / 表单，留空表示全部范围"
             :auto-size="{ minRows: 2, maxRows: 4 }"
+          />
+        </a-form-item>
+        <a-form-item label="定时执行">
+          <TaskScheduleFields
+            v-model:enabled="form.schedule_enabled"
+            v-model:cron="form.schedule_cron"
+            :next-run-at="editingRecord?.next_run_at ? formatTime(editingRecord.next_run_at) : ''"
           />
         </a-form-item>
       </a-form>

@@ -368,6 +368,7 @@ export enum ApiSecScan {
   taskById = '/sechub/scan/tasks/{id}',
   taskDelete = '/sechub/scan/tasks/{id}/delete',
   taskRun = '/sechub/scan/tasks/{id}/run',
+  taskSchedule = '/sechub/scan/tasks/{id}/schedule',
   // 运行记录
   runList = '/sechub/scan/runs',
   runGetById = '/sechub/scan/runs/{id}',

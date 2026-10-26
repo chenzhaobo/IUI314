@@ -7,6 +7,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { ApiAiAgent } from '@/api/aiApis'
 import { ApiSecModuleRepository, ApiSecPrescan } from '@/api/sechubApis'
 import { formatTime, postAction, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
+import { validateCron } from '@/utils/cron'
 import ScanModeTip from './components/ScanModeTip.vue'
 
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
@@ -209,14 +210,6 @@ const modalLoading = ref(false)
 
 /** 搜索词过滤仓库选项 */
 const repoSearchKeyword = ref('')
-
-/** cron 基础格式校验：按空格分段必须是 6 段，且非空 */
-function validateCron(expr: string): boolean {
-  if (!expr.trim())
-    return false
-  const parts = expr.trim().split(/\s+/)
-  return parts.length === 6
-}
 
 const form = reactive<{
   id: string
