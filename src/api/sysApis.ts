@@ -168,6 +168,18 @@ export enum ApiSysServiceMonitor {
 }
 
 /**
+ * 慢请求 / 慢 SQL 性能日志
+ */
+export enum ApiSysSlowRequest {
+  getList = '/system/monitor/slow-request/list',
+}
+
+export enum ApiSysSlowSql {
+  getList = '/system/monitor/slow-sql/list',
+  getById = '/system/monitor/slow-sql/get_by_id',
+}
+
+/**
  * 定时任务
  */
 export enum ApiSysScheduledTasks {

@@ -1,0 +1,5 @@
+export { default as SlowRequestQuery } from './slow-request-query.vue'
+export { default as SlowRequestTable } from './slow-request-table.vue'
+export { default as SlowSqlDetail } from './slow-sql-detail.vue'
+export { default as SlowSqlQuery } from './slow-sql-query.vue'
+export { default as SlowSqlTable } from './slow-sql-table.vue'

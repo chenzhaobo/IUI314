@@ -64,6 +64,10 @@ export const systemMenus: Record<string, routeMenuInfo> = {
     path: 'server-monitor',
     name: '服务监控',
   },
+  slowLog: {
+    path: 'slow-log',
+    name: '性能日志',
+  },
 }
 
 export const constMenus: Record<string, routeMenuInfo> = { ...systemMenus }
