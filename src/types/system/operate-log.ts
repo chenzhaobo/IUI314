@@ -18,6 +18,7 @@ export interface operateLog extends operateInfo {
   oper_name?: string
   dept_name?: string
   oper_url?: string
+  trace_id?: string | null
   oper_ip?: string
   oper_location?: string
   oper_param?: string
@@ -36,6 +37,7 @@ export interface loginLogList extends pageData {
 export interface operateLogQueryParam extends pageQueryParam {
   title?: string
   oper_name?: string
+  trace_id?: string
   operator_type?: string
   status?: string
 }

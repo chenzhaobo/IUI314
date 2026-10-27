@@ -3,13 +3,23 @@ import { ref } from 'vue'
 import Pagination from '@/components/common/pagination.vue'
 import { systemMenus } from '@/router'
 import {
+  SlowRequestDetail,
+  SlowRequestOverviewPanel,
   SlowRequestQuery,
   SlowRequestTable,
   SlowSqlDetail,
+  SlowSqlOverviewPanel,
   SlowSqlQuery,
   SlowSqlTable,
 } from './pages/slow-log'
-import { useSlowRequestLog, useSlowSqlDetail, useSlowSqlLog } from './pages/slow-log/use-slow-log'
+import {
+  useSlowRequestDetail,
+  useSlowRequestLog,
+  useSlowRequestOverview,
+  useSlowSqlDetail,
+  useSlowSqlLog,
+  useSlowSqlOverview,
+} from './pages/slow-log/use-slow-log'
 
 defineOptions({ name: systemMenus.slowLog.path })
 
@@ -29,13 +39,34 @@ const {
   query: sqlSearch,
 } = useSlowSqlLog()
 const { detail, loading: detailLoading, visible: detailVisible, openDetail } = useSlowSqlDetail()
+const {
+  overview: requestOverview,
+  loading: requestOverviewLoading,
+} = useSlowRequestOverview()
+const { overview: sqlOverview, loading: sqlOverviewLoading } = useSlowSqlOverview()
+const {
+  detail: requestDetail,
+  relatedSql,
+  detailLoading: requestDetailLoading,
+  sqlLoading: relatedSqlLoading,
+  visible: requestDetailVisible,
+  openDetail: openRequestDetail,
+} = useSlowRequestDetail()
 </script>
 
 <template>
   <a-tabs v-model:active-key="activeTab" type="rounded">
     <a-tab-pane key="request" title="慢请求">
+      <SlowRequestOverviewPanel :overview="requestOverview" :loading="requestOverviewLoading" />
       <SlowRequestQuery v-model:query-params="requestQuery" @query="requestSearch" />
-      <SlowRequestTable :table-data="requestData?.list || []" :loading="requestLoading" />
+      <SlowRequestTable :table-data="requestData?.list || []" :loading="requestLoading" @view="openRequestDetail" />
+      <SlowRequestDetail
+        v-model:visible="requestDetailVisible"
+        :detail="requestDetail"
+        :related-sql="relatedSql?.list || []"
+        :detail-loading="requestDetailLoading"
+        :sql-loading="relatedSqlLoading"
+      />
       <Pagination
         v-if="requestData?.total"
         v-model:limit="requestQuery.page_size"
@@ -45,6 +76,7 @@ const { detail, loading: detailLoading, visible: detailVisible, openDetail } = u
       />
     </a-tab-pane>
     <a-tab-pane key="sql" title="慢 SQL">
+      <SlowSqlOverviewPanel :overview="sqlOverview" :loading="sqlOverviewLoading" />
       <SlowSqlQuery v-model:query-params="sqlQuery" @query="sqlSearch" />
       <SlowSqlTable :table-data="sqlData?.list || []" :loading="sqlLoading" @view="openDetail" />
       <Pagination

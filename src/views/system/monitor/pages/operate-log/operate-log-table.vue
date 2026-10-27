@@ -1,12 +1,14 @@
 <script lang="ts" setup>
 import type { TableColumnData, TableRowSelection } from '@arco-design/web-vue'
-import { type PropType, computed, h, ref } from 'vue'
-import OperateLogDetail from './operate-log-detail.vue'
+import type { PropType } from 'vue'
+import type { dictUse } from '@/types/system/dict'
+import type { operateLog } from '@/types/system/operate-log'
+import { computed, h, ref } from 'vue'
 import { ApiSysOperateLog } from '@/api/sysApis'
 import DictTag from '@/components/common/dict-tag.vue'
 import { hasPermission, parseTime, useTableAutoHeight } from '@/hooks'
-import { dictKey, type dictUse } from '@/types/system/dict'
-import type { operateLog } from '@/types/system/operate-log'
+import { dictKey } from '@/types/system/dict'
+import OperateLogDetail from './operate-log-detail.vue'
 
 defineOptions({ name: 'OperateLogTable' })
 const props = defineProps({
@@ -84,6 +86,14 @@ const columns = computed<TableColumnData[]>(() => [
     tooltip: true,
   },
   {
+    title: 'Trace ID',
+    dataIndex: 'trace_id',
+    width: 220,
+    ellipsis: true,
+    tooltip: true,
+    align: 'center',
+  },
+  {
     title: '地址',
     dataIndex: 'oper_location',
     ellipsis: true,
@@ -138,30 +148,30 @@ function handleView(row: operateLog) {
   </a-skeleton>
   <div v-else ref="tableWrap">
     <a-table
-  column-resizable
-    :columns="columns"
-    :data="tableData || []"
-    :row-selection="rowSelection"
-    row-key="oper_id"
-    :scroll="{ minWidth: 800, y: tableHeight }"
-    :pagination="false"
-    @selection-change="handleSelectionChange"
-  >
-    <template #operation="{ record }">
-      <a-button
-        v-if="hasPermission(ApiSysOperateLog.delete)"
-        type="text"
-        shape="round"
-        status="normal"
-        @click="handleView(record)"
-      >
-        查看
-        <template #icon>
-          <IconEye />
-        </template>
-      </a-button>
-    </template>
-  </a-table>
+      column-resizable
+      :columns="columns"
+      :data="tableData || []"
+      :row-selection="rowSelection"
+      row-key="oper_id"
+      :scroll="{ minWidth: 800, y: tableHeight }"
+      :pagination="false"
+      @selection-change="handleSelectionChange"
+    >
+      <template #operation="{ record }">
+        <a-button
+          v-if="hasPermission(ApiSysOperateLog.delete)"
+          type="text"
+          shape="round"
+          status="normal"
+          @click="handleView(record)"
+        >
+          查看
+          <template #icon>
+            <IconEye />
+          </template>
+        </a-button>
+      </template>
+    </a-table>
   </div>
   <OperateLogDetail
     ref="modalRef"

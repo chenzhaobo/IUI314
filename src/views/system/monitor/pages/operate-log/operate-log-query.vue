@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { type PropType, computed, ref } from 'vue'
-import IuQueryForm from '@/components/iui/iu-query-form.vue'
-import { FormItemType, type IuQueryFormField } from '@/types/base/iu-form'
-import { dictKey, type dictUse } from '@/types/system/dict'
+import type { PropType } from 'vue'
+import type { IuQueryFormField } from '@/types/base/iu-form'
+import type { dictUse } from '@/types/system/dict'
 import type { operateLogQueryParam } from '@/types/system/operate-log'
+import { computed, ref } from 'vue'
+import IuQueryForm from '@/components/iui/iu-query-form.vue'
+import { FormItemType } from '@/types/base/iu-form'
+import { dictKey } from '@/types/system/dict'
 
 defineOptions({ name: 'OperateLogQuery' })
 
@@ -36,6 +39,15 @@ const queryFormItems = ref<IuQueryFormField[]>([
     input: {
       allowClear: true,
       placeholder: '请输入操作人员',
+    },
+  },
+  {
+    field: 'trace_id',
+    label: 'Trace ID',
+    type: FormItemType.input,
+    input: {
+      allowClear: true,
+      placeholder: '完整 trace_id',
     },
   },
   {

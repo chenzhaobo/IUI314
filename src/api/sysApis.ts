@@ -172,11 +172,14 @@ export enum ApiSysServiceMonitor {
  */
 export enum ApiSysSlowRequest {
   getList = '/system/monitor/slow-request/list',
+  getById = '/system/monitor/slow-request/get_by_id',
+  getOverview = '/system/monitor/slow-request/overview',
 }
 
 export enum ApiSysSlowSql {
   getList = '/system/monitor/slow-sql/list',
   getById = '/system/monitor/slow-sql/get_by_id',
+  getOverview = '/system/monitor/slow-sql/overview',
 }
 
 /**

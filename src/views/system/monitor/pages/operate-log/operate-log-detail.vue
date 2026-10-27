@@ -1,11 +1,14 @@
 <script setup lang="ts">
+import type { PropType } from 'vue'
+import type { IuFormField } from '@/types/base/iu-form'
+import type { dictUse } from '@/types/system/dict'
+import type { operateLog } from '@/types/system/operate-log'
 import { IconEye } from '@arco-design/web-vue/es/icon'
-import { type PropType, computed, h, ref } from 'vue'
+import { computed, h, ref } from 'vue'
 import DictTag from '@/components/common/dict-tag.vue'
 import IuModal from '@/components/iui/iu-modal.vue'
-import { FormItemType, type IuFormField } from '@/types/base/iu-form'
-import { dictKey, type dictUse } from '@/types/system/dict'
-import type { operateLog } from '@/types/system/operate-log'
+import { FormItemType } from '@/types/base/iu-form'
+import { dictKey } from '@/types/system/dict'
 
 defineOptions({ name: 'OperateLogDetail' })
 
@@ -51,6 +54,11 @@ const modalFormItems = computed<IuFormField[]>(() => [
   {
     field: 'oper_url',
     label: '请求地址',
+    type: FormItemType.text,
+  },
+  {
+    field: 'trace_id',
+    label: 'Trace ID',
     type: FormItemType.text,
   },
   {
