@@ -551,13 +551,12 @@ function modelLabel(row: CrossRunAggRow): { text: string, pending: boolean } {
 }
 
 /**
- * 需要 AI 确认的候选数：排除证据型（evidence）与白名单豁免（waived）。
+ * 需要 AI 确认的候选数：排除证据型（evidence）、白名单豁免（waived）和失败中止（aborted）。
  *
- * 这两类候选在预扫描阶段就已定稿、不会派发 AI；用全量候选当分母会让进度在
- * AI 还没开始时先跳到 1-6%（例如 145 条 evidence / 10804 条 = 1.34%）。
+ * 这些候选在预扫描阶段就已定稿/中止、不会派发 AI；用全量候选当分母会让进度失真。
  */
 function aiEligibleTotal(row: CrossRunAggRow): number {
-  return Math.max(0, (row.total ?? 0) - (row.evidence ?? 0) - (row.waived ?? 0))
+  return Math.max(0, (row.total ?? 0) - (row.evidence ?? 0) - (row.waived ?? 0) - (row.aborted ?? 0))
 }
 
 /**
@@ -585,12 +584,15 @@ function progressTip(row: CrossRunAggRow): string {
   const total = row.total ?? 0
   const evidence = row.evidence ?? 0
   const waived = row.waived ?? 0
+  const aborted = row.aborted ?? 0
   const eligible = aiEligibleTotal(row)
   const parts = [`需 AI 判定 ${eligible} 条 / 全部 ${total} 条`]
   if (evidence > 0)
     parts.push(`证据型 ${evidence} 条已并入权威候选，不派发 AI`)
   if (waived > 0)
     parts.push(`白名单豁免 ${waived} 条`)
+  if (aborted > 0)
+    parts.push(`预扫描失败中止 ${aborted} 条，不派发 AI`)
   parts.push(`待确认 ${row.pending ?? 0} · 失败 ${row.error ?? 0} · 待复核 ${row.review_needed ?? 0}`)
   return parts.join('；')
 }

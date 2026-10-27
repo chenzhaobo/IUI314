@@ -74,6 +74,8 @@ export const aiStatusLabels: Record<string, { label: string, color: string }> = 
   waived: { label: '已豁免', color: 'gray' },
   // 009b：证据型规则候选，已并入同行权威候选（不进 AI、不回写缺陷）
   evidence: { label: '证据（已并入）', color: 'lime' },
+  // 预扫描失败后中止的候选：不进入 AI 确认，保留在列表供排查
+  aborted: { label: '已中止', color: 'gray' },
 }
 
 /** 扫描范围 target_type → 中文（006：unified = 统一扫描；其余为过渡期旧轨） */
