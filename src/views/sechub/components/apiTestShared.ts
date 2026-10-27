@@ -58,6 +58,19 @@ export const TEST_TYPE_LABELS: Record<string, string> = {
   idor: '越权(IDOR)',
   base: '正向基线',
   robustness: '健壮性',
+  robust: '健壮性',
+  horizon: '水平越权',
+  horizontal: '水平越权',
+  injection: '注入',
+  leak: '信息泄露',
+  privilege: '提权',
+  deserialization: '反序列化',
+  callback: '回调/签名',
+  signature: '签名',
+  diag: '诊断',
+  meta_perm: '元数据权限',
+  meta_log: '元数据日志',
+  meta_anon: '元数据匿名',
 }
 
 /** 测试角色：ALL=全量账号 / LIM=受限账号 / NONE=无权限账号 */

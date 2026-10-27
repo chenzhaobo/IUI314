@@ -36,6 +36,7 @@ const model = ref('')
 const maxApis = ref(10)
 const pipelineMode = ref('hybrid')
 const requirementText = ref('')
+const includeInternal = ref(false)
 const previewing = ref(false)
 const preview = ref<any>(null)
 const running = ref(false)
@@ -89,6 +90,7 @@ async function doPreview() {
       code,
       only_untested: true,
       limit: 50,
+      include_internal: includeInternal.value,
     })
     if (data)
       preview.value = data
@@ -113,6 +115,7 @@ async function startAgent() {
       model: model.value || undefined,
       max_apis: maxApis.value,
       pipeline_mode: pipelineMode.value,
+      include_internal: includeInternal.value,
       requirement_text: requirementText.value.trim() || undefined,
     })
     if (res === null)
@@ -315,6 +318,14 @@ onUnmounted(() => {
               <a-col :span="6">
                 <a-form-item label="单轮 API 上限">
                   <a-input-number v-model="maxApis" :min="1" :max="50" style="width: 100%" />
+                </a-form-item>
+              </a-col>
+              <a-col :span="24">
+                <a-form-item label="范围选项">
+                  <a-checkbox v-model="includeInternal">
+                    包含内测接口（status=A）
+                  </a-checkbox>
+                  <span class="tip">默认只取已发布 C/enabled；勾选后再纳入 A 档。</span>
                 </a-form-item>
               </a-col>
               <a-col :span="24">

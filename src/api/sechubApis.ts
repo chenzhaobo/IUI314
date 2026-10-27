@@ -380,12 +380,18 @@ export enum ApiSecScan {
   runCancel = '/sechub/scan/runs/{id}/cancel',
   // 用例（GET 列表 / POST 新建）
   caseList = '/sechub/scan/cases',
+  // 批量导入/更新用例（按 task_id+case_code 幂等）
+  caseImport = '/sechub/scan/cases/import',
   caseUpdate = '/sechub/scan/cases/{id}',
   caseDelete = '/sechub/scan/cases/{id}/delete',
   // 用例试跑（单条/批量：POST { case_ids: [...] } → { run_id, run_name, case_count }）
   caseTrial = '/sechub/scan/cases/trial',
   // Python 脚本（multipart 上传，字段名 file，仅 .py；GET 列出 {name,size_bytes,modified_at}）
   scripts = '/sechub/scan/scripts',
+  // 脚本内容（GET，返回 {name,size_bytes,content}）
+  scriptContent = '/sechub/scan/scripts/{name}',
+  // 回归上下文包（任务 + 用例 + 需求上下文 + 运行历史 + 脚本清单）
+  regressionContext = '/sechub/scan/regression/context',
   // 测试域视图（表单安全遍历 / OpenAPI测试）
   domainCases = '/sechub/scan/domain/cases',
   // 范围树

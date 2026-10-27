@@ -227,6 +227,8 @@ const agentMaxApis = ref(10)
 const agentSelectedPaths = ref<string[]>([])
 /** 可选需求文档/说明：有文档时 Agent 以文档为主、源码为辅 */
 const agentRequirementText = ref('')
+/** 是否纳入内测（status=A）接口 */
+const agentIncludeInternal = ref(false)
 
 // 安全测试环境列表（sec_test_env.id 作为后端 sec_env_id）；打开弹窗时才拉取
 const envRes = ref<any>(null)
@@ -268,6 +270,7 @@ function openAgent(mode: 'run' | 'regression', apiPaths: string[] = []) {
   agentSelectedPaths.value = [...apiPaths]
   agentMaxApis.value = apiPaths.length || 10
   agentRequirementText.value = ''
+  agentIncludeInternal.value = false
   void fetchEnvs()
   agentModalVisible.value = true
 }
@@ -286,6 +289,7 @@ async function handleAgentSubmit() {
         dimension: dim,
         code,
         max_apis: agentSelectedPaths.value.length || agentMaxApis.value,
+        include_internal: agentIncludeInternal.value,
         ...(agentSelectedPaths.value.length ? { api_paths: agentSelectedPaths.value } : {}),
         ...(agentRequirementText.value.trim() ? { requirement_text: agentRequirementText.value.trim() } : {}),
       })
@@ -493,6 +497,12 @@ watch([productLine, activeEnvId], () => {
               …等 {{ agentSelectedPaths.length }} 个
             </div>
           </div>
+        </a-form-item>
+        <a-form-item v-if="agentMode === 'run'" label="范围选项">
+          <a-checkbox v-model="agentIncludeInternal">
+            包含内测接口（status=A）
+          </a-checkbox>
+          <span class="agent-tip">勾选后可纳入尚未发布的 A 档接口；默认只取 C/enabled。</span>
         </a-form-item>
         <a-form-item v-if="agentMode === 'run'" label="单轮配额（最多处理多少个待测 API）">
           <a-input-number v-model="agentMaxApis" :min="1" :max="50" :step="1" style="width: 160px" :disabled="agentSelectedPaths.length > 0" />
