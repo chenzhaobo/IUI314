@@ -434,6 +434,99 @@ export enum ApiSecScan {
   envCredentialTest = '/sechub/scan/env-credentials/test',
 }
 
+// ── 产品线回归套件（多环境 suite） ─────────────────
+// 一个套件持有 test_types/scope/cron，绑定 N 个环境；触发时为每个启用环境
+// 复用/创建单环境任务并建 run。接口见 api/src/sechub/regression_suite.rs。
+export enum ApiSecRegressionSuite {
+  // GET 分页列表（keyword/product_line/status）/ POST 新建
+  list = '/sechub/scan/suites',
+  // GET 详情 / PUT 编辑
+  byId = '/sechub/scan/suites/{id}',
+  delete = '/sechub/scan/suites/{id}/delete',
+  // GET 绑定环境列表 / POST 批量绑定 { env_ids: [...] }
+  envs = '/sechub/scan/suites/{id}/envs',
+  unbindEnv = '/sechub/scan/suites/{id}/envs/{env_id}/delete',
+  // POST 手动触发全部启用环境
+  run = '/sechub/scan/suites/{id}/run',
+  // GET 套件运行记录（可按 env_id 过滤）
+  runs = '/sechub/scan/suites/{id}/runs',
+}
+
+/** 产品线：后端只接受这两个值（service/regression_suite::normalize_product_line） */
+export type SecProductLine = '星瀚' | '星空'
+
+export interface SecRegressionSuite {
+  id: string
+  suite_code: string
+  name: string
+  product_line: SecProductLine
+  /** JSON 字符串数组，如 ["api","script"]；不允许为空 */
+  test_types: string
+  scope: string | null
+  schedule_cron: string | null
+  schedule_enabled: string
+  status: string
+  last_scheduled_at: string | null
+  next_run_at: string | null
+  created_at: string | null
+  updated_at: string | null
+  create_by: string | null
+}
+
+/** 新建/编辑入参；编辑时 suite_code/product_line/status 省略保持原值 */
+export interface SecRegressionSuiteInput {
+  suite_code: string
+  name: string
+  product_line: string
+  test_types: string
+  scope: string | null
+  schedule_cron: string | null
+  schedule_enabled: string
+  status?: string
+}
+
+export interface SecRegressionSuiteEnv {
+  id: string
+  suite_id: string
+  sec_env_id: string
+  enabled: string
+  created_at: string | null
+  env_name: string | null
+  env_url: string | null
+  product_line: string | null
+  task_id: string | null
+}
+
+export interface SecRegressionSuiteBindResult {
+  added: number
+  duplicated: number
+  rejected: Array<{ env_id: string, reason: string }>
+}
+
+export interface SecRegressionSuiteRun {
+  id: string
+  task_id: string
+  env_id: string | null
+  run_name: string
+  status: string
+  trigger_mode: string
+  total_cases: number
+  pass_cnt: number
+  fail_cnt: number
+  started_at: string | null
+  finished_at: string | null
+  created_at: string | null
+  task_name: string | null
+}
+
+export interface SecRegressionSuiteTriggerResult {
+  suite_id: string
+  triggered: number
+  skipped: number
+  runs: Array<{ env_id: string, task_id: string, task_created: boolean, run_id: string }>
+  skipped_envs: Array<{ env_id: string, reason: string }>
+}
+
 // ── 表单测试分组（表单概览 / 表单测试结果 / 测试类型维护）──
 // 概览：每个表单 × 测试类型的用例数/执行情况 + 元数据扫描三态（不通过/不涉及/总数）；
 // 结果：一条条原始结果（sec_sec_result join 用例）；类型：测试类型字典（内置不可删/不可改 code）。
