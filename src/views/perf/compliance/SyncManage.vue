@@ -364,10 +364,11 @@ const handleSave = async () => {
   saving.value = true
   const payload: any = {
     name: form.name, product_line: form.product_line, time_type: form.time_type,
-    period_start: form.period_start || undefined, period_end: form.period_end || undefined,
-    product_domain: form.product_domain || undefined, business_area: form.business_area || undefined,
-    project_group_code: form.project_group_code || undefined,
-    app_numbers: form.app_numbers?.length ? form.app_numbers : undefined,
+    // 清空时显式传空串：传 undefined 会被 JSON 省略，后端就保留旧值，表现为“清不掉”。
+    period_start: form.period_start || '', period_end: form.period_end || '',
+    product_domain: form.product_domain || '', business_area: form.business_area || '',
+    project_group_code: form.project_group_code || '',
+    app_numbers: form.app_numbers || [],
     schedule_enabled: scheduleOn.value ? '1' : '0',
     schedule_type: scheduleOn.value ? form.schedule_type : undefined,
     schedule_cron: scheduleOn.value ? buildCron() : undefined,
