@@ -510,9 +510,14 @@ async function compensateIssues() {
   }
   bulkBusy.value = true
   try {
-    const resp = await postAction<{ message?: string }>(ApiSecPrescan.compensateIssues, body)
-    if (resp)
-      Message.success(resp.message || '已提交补偿')
+    const resp = await postAction<{ message?: string; checked?: number; created?: number }>(ApiSecPrescan.compensateIssues, body)
+    if (resp) {
+      // 补偿接口是同步执行的：优先展示后端返回的“检查 N 条、补齐 M 条”，
+      // 只有旧版本没返回 message 时才回退到通用文案。
+      const detail = resp.message
+        || (typeof resp.checked === 'number' ? `补偿完成：检查 ${resp.checked} 个已确认候选，补齐 ${resp.created ?? 0} 条缺陷` : '补偿完成')
+      Message.success(detail)
+    }
   }
   finally {
     bulkBusy.value = false
