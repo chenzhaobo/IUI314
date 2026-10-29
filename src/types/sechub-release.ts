@@ -155,3 +155,83 @@ export interface AgentRunResult {
   run_id: string | null
   message: string
 }
+
+/** 发版缺陷状态（sec_defect.defect_status） */
+export type DefectStatus = 'draft' | 'submitted' | 'fixed' | 'closed'
+
+/** 发版缺陷来源（defect_draft.rs 的 SOURCE_API / SOURCE_CONFIG） */
+export type DefectSource = 'release_api' | 'release_config'
+
+/** `GET /sechub/release/defects` 的列表项（defect_view 出参） */
+export interface ReleaseDefect {
+  id: string
+  defect_code: string
+  title: string
+  status: DefectStatus
+  priority: string | null
+  project_group_name: string | null
+  app_name: string | null
+  source: DefectSource | null
+  iteration_code: string | null
+  /** RFC3339 */
+  discovered_at: string | null
+  /** RFC3339 */
+  updated_at: string | null
+  external_no: string | null
+  /** Markdown 原文 */
+  content: string | null
+}
+
+/** 缺陷列表 / 导出查询参数（空值不下发） */
+export interface DefectQuery {
+  iteration_id?: string
+  project_group?: string
+  status?: DefectStatus
+  source?: DefectSource
+  keyword?: string
+  page_num?: number
+  page_size?: number
+}
+
+/** 页面筛选状态（空串表示不过滤） */
+export interface DefectFilters {
+  /** 查询用迭代 id；页面把它单独放在 v-model 上，因此可选 */
+  iterationId?: string
+  projectGroup: string
+  status: '' | DefectStatus
+  source: '' | DefectSource
+  keyword: string
+}
+
+/** `GET /sechub/release/defects` */
+export interface DefectListResponse {
+  list: ReleaseDefect[]
+  total: number
+  page_num: number
+  page_size: number
+}
+
+/** `POST /sechub/release/defects/{id}/status` 请求体 */
+export interface DefectStatusPayload {
+  status: DefectStatus
+  external_no?: string
+}
+
+/** `POST /sechub/release/defects/{id}/status` 响应 */
+export interface DefectStatusResult {
+  id: string
+  status: DefectStatus
+  external_no: string | null
+}
+
+/** `POST /sechub/release/results/{result_id}/confirm-defect` 请求体 */
+export interface ConfirmDefectPayload {
+  comment?: string
+}
+
+/** `POST /sechub/release/results/{result_id}/confirm-defect` 响应 */
+export interface ConfirmDefectResult {
+  id: string
+  created: boolean
+  review_verdict: 'true_positive'
+}

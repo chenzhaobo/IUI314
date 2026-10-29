@@ -13,6 +13,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { ApiSecScan, resolveStaticScanApi } from '@/api/sechubApis'
 import { formatTime, getAction } from '@/hooks'
 import { CASE_TYPE_LABELS, TEST_TYPE_LABELS, VERDICT_OPTIONS, verdictColor } from './apiTestShared'
+import ConfirmDefectButton from './release/defect/ConfirmDefectButton.vue'
 
 const props = defineProps<{
   /** 当前运行记录（列表行已含运行名称/统计，不再查详情） */
@@ -270,11 +271,14 @@ watch(visible, (v) => {
             {{ record.detail || record.error_message || '--' }}
           </template>
         </a-table-column>
-        <a-table-column title="证据" :width="100" fixed="right">
+        <a-table-column title="操作" :width="180" fixed="right">
           <template #cell="{ record }">
-            <a-link @click="openEvidence(record)">
-              请求/响应
-            </a-link>
+            <a-space :size="4">
+              <a-link @click="openEvidence(record)">
+                请求/响应
+              </a-link>
+              <ConfirmDefectButton v-if="record.verdict !== 'PASS'" :result-id="record.id" />
+            </a-space>
           </template>
         </a-table-column>
       </template>
