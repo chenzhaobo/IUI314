@@ -5,7 +5,9 @@
  * 页面只留模板：列表/左树/分页/两处弹窗的状态与动作都在 ./waivers/useWaivers，
  * 常量与展示口径在 ./waivers/types，取数在 ./waivers/service（组件不碰 `@/api`）。
  */
-import { onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
+import { useGet } from '@/hooks'
+import { ApiSysUser } from '@/api/sysApis'
 import ListPage from '@/components/common/ListPage.vue'
 import {
   WAIVER_STATUS_COLORS,
@@ -20,6 +22,22 @@ import WaiverCreateModal from './waivers/WaiverCreateModal.vue'
 // （见 components/layout/app-main.vue 注释）。lint 的 PascalCase 提示只是警告，改名却会让页签缓存失效。
 // eslint-disable-next-line vue/component-definition-name-casing
 defineOptions({ name: 'waivers' })
+
+// 申请人/审批人显示昵称：白名单存的是 sys_user.id，直接显示 id 无法辨认
+const { data: userOptionsData } = useGet<any[]>(ApiSysUser.options, {}, { immediate: true })
+const userNameMap = computed(() => {
+  const map: Record<string, string> = {}
+  for (const user of (Array.isArray(userOptionsData.value) ? userOptionsData.value : [])) {
+    if (user.user_id)
+      map[user.user_id] = user.user_nickname || user.user_name || user.user_id
+  }
+  return map
+})
+function displayUserName(id?: string | null) {
+  if (!id)
+    return '—'
+  return userNameMap.value[id] ?? id
+}
 
 const {
   dataList,
@@ -151,8 +169,12 @@ onMounted(() => {
                 </a-tag>
               </template>
             </a-table-column>
-            <a-table-column title="申请人" data-index="requester_id" :width="120" ellipsis tooltip />
-            <a-table-column title="审批人" data-index="approver_id" :width="120" ellipsis tooltip />
+            <a-table-column title="申请人" :width="120" ellipsis tooltip>
+              <template #cell="{ record }">{{ displayUserName(record.requester_id) }}</template>
+            </a-table-column>
+            <a-table-column title="审批人" :width="120" ellipsis tooltip>
+              <template #cell="{ record }">{{ displayUserName(record.approver_id) }}</template>
+            </a-table-column>
             <a-table-column title="生效时间" data-index="effective_from" :width="160" ellipsis tooltip />
             <a-table-column title="过期时间" data-index="effective_to" :width="160" ellipsis tooltip />
             <a-table-column title="操作" :width="160" fixed="right">

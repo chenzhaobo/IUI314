@@ -815,6 +815,32 @@ async function withdrawApproval(row: ScanIssueRow) {
   void getList()
 }
 
+// ===== 疑似重复缺陷 =====
+const similarVisible = ref(false)
+const similarLoading = ref(false)
+const similarRows = ref<any[]>([])
+const similarTitle = ref('')
+
+async function openSimilar(row: ScanIssueRow) {
+  similarTitle.value = row.title
+  similarRows.value = []
+  similarVisible.value = true
+  similarLoading.value = true
+  try {
+    const rows = await getAction<any[]>(ApiSecPrescan.issueSimilar, { issue_id: row.id })
+    if (rows === null) {
+      Message.error('查询疑似重复缺陷失败')
+      return
+    }
+    similarRows.value = Array.isArray(rows) ? rows : []
+    if (!similarRows.value.length)
+      Message.info('未发现相似度较高的其他缺陷')
+  }
+  finally {
+    similarLoading.value = false
+  }
+}
+
 async function openApprovalHistory(row: ScanIssueRow) {
   approvalHistoryTitle.value = row.title
   approvalHistoryRows.value = []
@@ -1308,6 +1334,8 @@ function onOpsSelect(value: unknown, row: ScanIssueRow) {
     confirmRepro(row)
   else if (value === 'approvalHistory')
     void openApprovalHistory(row)
+  else if (value === 'similar')
+    void openSimilar(row)
   else if (value === 'withdrawApproval')
     void withdrawApproval(row)
   else if (value === 'approve')
@@ -1497,6 +1525,20 @@ function shortSha(sha: string | null | undefined): string {
               {{ pg.label }}
             </a-option>
           </a-select>
+          <a-select v-model="queryParams.nofix_approval_state" allow-clear placeholder="审批状态" style="width: 130px" @change="refresh">
+            <a-option value="pending">
+              待审批
+            </a-option>
+            <a-option value="rejected">
+              审批驳回
+            </a-option>
+            <a-option value="approved">
+              已通过
+            </a-option>
+            <a-option value="withdrawn">
+              已撤回
+            </a-option>
+          </a-select>
           <a-select v-model="queryParams.repository_id" allow-search allow-clear placeholder="应用" style="width: 280px" @change="refresh">
             <a-option v-for="repo in repositories" :key="repo.repository_id" :value="repo.repository_id">
               {{ repo.module_name }}（{{ repo.repository_name }}）
@@ -1624,18 +1666,6 @@ function shortSha(sha: string | null | undefined): string {
             @press-enter="refresh"
             @clear="refresh"
           />
-          <a-select
-            v-model="queryParams.project_group_id"
-            allow-search
-            allow-clear
-            placeholder="项目组"
-            style="width: 160px"
-            @change="refresh"
-          >
-            <a-option v-for="g in pgOptions" :key="g.value" :value="g.value">
-              {{ g.label }}
-            </a-option>
-          </a-select>
           <a-select v-model="queryParams.source" allow-clear placeholder="来源" style="width: 110px" @change="refresh">
             <a-option v-for="opt in ISSUE_SOURCE_OPTIONS" :key="opt.value" :value="opt.value">
               {{ opt.label }}
@@ -1916,6 +1946,9 @@ function shortSha(sha: string | null | undefined): string {
                         <a-doption value="events">
                           流转
                         </a-doption>
+                        <a-doption value="similar">
+                          疑似重复
+                        </a-doption>
                         <a-doption
                           v-if="record.nofix_approval_state && record.nofix_approval_state !== 'none'"
                           value="approvalHistory"
@@ -1974,6 +2007,29 @@ function shortSha(sha: string | null | undefined): string {
             未选日期提交会清除所选 {{ planFinishTargets.length }} 条缺陷的计划完成时间
           </a-alert>
         </a-form>
+      </a-modal>
+
+      <!-- 疑似重复缺陷：同仓库同文件/方法/指纹 + 文本相似 -->
+      <a-modal v-model:visible="similarVisible" :title="`疑似重复 · ${similarTitle}`" width="860px" :footer="false">
+        <a-table :data="similarRows" :loading="similarLoading" :pagination="false" row-key="id" size="small">
+          <template #columns>
+            <a-table-column title="缺陷编号" data-index="defect_code" :width="180" ellipsis tooltip />
+            <a-table-column title="标题" data-index="title" ellipsis tooltip />
+            <a-table-column title="状态" data-index="status" :width="90" />
+            <a-table-column title="文件" data-index="file_path" :width="200" ellipsis tooltip />
+            <a-table-column title="行" data-index="start_line" :width="60" />
+            <a-table-column title="相似度" :width="90">
+              <template #cell="{ record }">
+                <a-tag :color="record.score >= 0.8 ? 'red' : record.score >= 0.65 ? 'orange' : 'gray'" size="small">
+                  {{ Math.round(record.score * 100) }}%
+                </a-tag>
+              </template>
+            </a-table-column>
+            <a-table-column title="依据" :width="240" ellipsis tooltip>
+              <template #cell="{ record }">{{ (record.reasons || []).join('；') }}</template>
+            </a-table-column>
+          </template>
+        </a-table>
       </a-modal>
 
       <!-- 不处理审批：展示完整理由，可逐条同意/驳回并自动带出下一条 -->

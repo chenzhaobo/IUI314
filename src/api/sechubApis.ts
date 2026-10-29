@@ -310,6 +310,7 @@ export enum ApiSecPrescan {
   issues = '/sechub/prescan/issues',
   issueEvents = '/sechub/prescan/issue-events',
   issueWontFix = '/sechub/prescan/issue-wont-fix',
+  issueSimilar = '/sechub/prescan/issue-similar',
   issueVerify = '/sechub/prescan/issue-verify',
   issueClaim = '/sechub/prescan/issue-claim',
   issueFixed = '/sechub/prescan/issue-fixed',

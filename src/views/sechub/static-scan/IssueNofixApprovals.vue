@@ -33,8 +33,9 @@ interface ApprovalRow {
   decided_at?: string | null
 }
 
-const { data: capabilityData } = useGet<any>(ApiSecGovernance.me, {}, { immediate: true })
+const { data: capabilityData, isFetching: capabilityLoading } = useGet<any>(ApiSecGovernance.me, {}, { immediate: true })
 const capability = computed(() => capabilityData.value ?? {})
+const capabilityDataLoaded = computed(() => !capabilityLoading.value && capabilityData.value != null)
 const canApprove = computed(() => Boolean(capability.value.can_approve_issue_nofix))
 
 const approverConfig = ref<{ approvers_configured?: boolean, director_configured?: boolean, domains_with_architect?: string[] }>({})
@@ -143,7 +144,15 @@ const decisionText = computed(() => (decideForm.value.decision === 'approved' ? 
       当前未配置任何不处理审批人（领域架构师或总监）。申请会保持待审批，请联系管理员在「项目组 → 项目组人员」中配置。
     </a-alert>
 
+    <a-alert v-if="capabilityDataLoaded && !canApprove" type="info" class="mb-3">
+      当前账号没有不处理审批权限。请在「项目组 → 项目组人员」中把自己配成领域架构师（覆盖对应产品领域）或总监；
+      下方仍可查看全部待审批记录，但操作会被服务端拒绝。
+    </a-alert>
     <div class="mb-3 flex flex-wrap items-center gap-2">
+      <a-radio-group v-model="queryParams.scope" type="button" size="small" @change="onSearch">
+        <a-radio value="mine">待我审批</a-radio>
+        <a-radio value="">全部待审批</a-radio>
+      </a-radio-group>
       <a-select v-model="queryParams.status" :options="statusOptions" placeholder="审批状态" allow-clear style="width: 140px" @change="onSearch" />
       <a-input v-model="queryParams.product_domain" placeholder="产品领域" allow-clear style="width: 160px" @press-enter="onSearch" />
       <a-button type="primary" size="small" @click="onSearch">
