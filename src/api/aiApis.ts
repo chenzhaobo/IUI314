@@ -13,6 +13,10 @@ export enum ApiAiAgent {
   delete = '/ai/agent/delete',
   healthCheck = '/ai/agent/health_check',
   syncModels = '/ai/agent/sync_models',
+  queueList = '/ai/agent/queue/list',
+  queueStats = '/ai/agent/queue/stats',
+  queuePriority = '/ai/agent/queue/priority',
+  queueClear = '/ai/agent/queue/clear',
 }
 
 // ── Skill 管理 ──────────────────────────────────────
@@ -261,4 +265,33 @@ export interface AiSkillFile {
   content_type: string | null
   uploaded_by: string | null
   created_at: string
+}
+
+// ── Agent 执行队列 ──────────────────────────────────
+export interface AiAgentQueueRow {
+  id: string
+  agent_id: string
+  agent_code: string
+  caller_module: string
+  caller_id: string | null
+  skill_code: string | null
+  model: string | null
+  status: string
+  priority: number
+  execution_id: string | null
+  last_error: string | null
+  wait_ms: number
+  run_ms: number | null
+  created_at: string
+}
+
+export interface AiAgentQueueStat {
+  agent_id: string
+  pending: number
+  running: number
+  succeeded: number
+  failed: number
+  cancelled: number
+  cleared: number
+  oldest_pending_secs: number
 }

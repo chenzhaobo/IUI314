@@ -1,10 +1,10 @@
 <script lang="ts" setup>
-import type { AgentModelSyncResult, AiAgent, AiListResult } from '@/api/aiApis'
+import type { AgentModelSyncResult, AiAgent, AiAgentQueueRow, AiAgentQueueStat, AiListResult } from '@/api/aiApis'
 import { Message, Modal } from '@arco-design/web-vue'
-import { computed, ref } from 'vue'
-import { ApiAiAgent } from '@/api/aiApis'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { ApiAiAgent, ApiAiExecution } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
-import { useDelete, useGet, usePost, usePut, useTableAutoHeight, withTableDefaults } from '@/hooks'
+import { postAction, useDelete, useGet, usePost, usePut, useTableAutoHeight, withTableDefaults } from '@/hooks'
 
 defineOptions({ name: 'ai-agent-manage' })
 
@@ -146,6 +146,137 @@ async function syncAgentModels(record: AiAgent, applyRecommendedTemplate = false
   }
 }
 
+// ── Agent 执行队列（每行抽屉：排队/运行/历史 + 置顶/清空/停止）──────
+const { data: queueStatsData, execute: loadQueueStats } = useGet<{ list: AiAgentQueueStat[] }>(ApiAiAgent.queueStats, {}, { immediate: false })
+const queueStatsRaw = computed<AiAgentQueueStat[]>(() => queueStatsData.value?.list ?? [])
+const queueStatMap = computed(() => {
+  const map: Record<string, AiAgentQueueStat> = {}
+  for (const stat of queueStatsRaw.value)
+    map[stat.agent_id] = stat
+  return map
+})
+function queueStatOf(agentId: string): AiAgentQueueStat {
+  return queueStatMap.value[agentId] ?? { agent_id: agentId, pending: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0, cleared: 0, oldest_pending_secs: 0 }
+}
+
+const queueVisible = ref(false)
+const queueAgent = ref<AiAgent | null>(null)
+const queueTab = ref<'pending' | 'running' | 'history'>('pending')
+const queueSelected = ref<string[]>([])
+const queueQuery = ref({ agent_id: '', limit: 200 })
+const { data: queueRowsData, isFetching: queueLoading, execute: loadQueueRows } = useGet<AiAgentQueueRow[]>(ApiAiAgent.queueList, queueQuery, { immediate: false })
+const queueRows = computed<AiAgentQueueRow[]>(() => queueRowsData.value ?? [])
+const queueFiltered = computed(() => queueRows.value.filter((row) => {
+  if (queueTab.value === 'pending')
+    return row.status === 'pending'
+  if (queueTab.value === 'running')
+    return row.status === 'running'
+  return row.status !== 'pending' && row.status !== 'running'
+}))
+
+let statsTimer: ReturnType<typeof setInterval> | null = null
+let queueTimer: ReturnType<typeof setInterval> | null = null
+
+function formatMs(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined)
+    return '-'
+  const seconds = Math.round(ms / 1000)
+  if (seconds < 60)
+    return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  return `${minutes}m${seconds % 60}s`
+}
+
+function stopQueuePoll() {
+  if (queueTimer) {
+    clearInterval(queueTimer)
+    queueTimer = null
+  }
+}
+function startQueuePoll() {
+  stopQueuePoll()
+  queueTimer = setInterval(() => void loadQueueRows(), 3000)
+}
+function openQueue(record: AiAgent) {
+  queueAgent.value = record
+  queueTab.value = 'pending'
+  queueSelected.value = []
+  queueQuery.value = { agent_id: record.id, limit: 200 }
+  queueVisible.value = true
+  void loadQueueRows()
+  startQueuePoll()
+}
+function closeQueue() {
+  queueVisible.value = false
+  stopQueuePoll()
+}
+function switchQueueTab() {
+  queueSelected.value = []
+  void loadQueueRows()
+}
+async function prioritizeQueued() {
+  if (queueSelected.value.length === 0)
+    return
+  const res = await postAction<{ updated: number, message?: string }>(ApiAiAgent.queuePriority, { ids: queueSelected.value })
+  if (res) {
+    Message.success(res.message ?? '已置顶')
+    queueSelected.value = []
+    void loadQueueRows()
+    void loadQueueStats()
+  }
+}
+function clearQueued() {
+  const agent = queueAgent.value
+  if (!agent)
+    return
+  Modal.warning({
+    title: '清空排队任务？',
+    content: '只清空该 Agent 排队中的作业（运行中的不受影响）；等待方会收到明确的失败结果。',
+    okText: '清空',
+    cancelText: '取消',
+    okButtonProps: { status: 'danger' },
+    onOk: async () => {
+      const res = await postAction<{ cleared: number, message?: string }>(ApiAiAgent.queueClear, { agent_id: agent.id })
+      if (res) {
+        Message.success(res.message ?? '已清空排队任务')
+        queueSelected.value = []
+        void loadQueueRows()
+        void loadQueueStats()
+      }
+    },
+  })
+}
+async function stopQueued(row: AiAgentQueueRow) {
+  if (!row.execution_id)
+    return
+  const res = await postAction<string>(ApiAiExecution.cancel, { id: row.execution_id })
+  if (res)
+    Message.success(res)
+}
+
+const queueColumns = [
+  { title: '状态', dataIndex: 'status', width: 80 },
+  { title: '调用方', dataIndex: 'caller_module', width: 110 },
+  { title: '技能/模型', slotName: 'skillModel', width: 160 },
+  { title: '等待', slotName: 'wait', width: 80 },
+  { title: '执行', slotName: 'run', width: 80 },
+  { title: '执行记录', slotName: 'exec', width: 140 },
+  { title: '错误', dataIndex: 'last_error', ellipsis: true, tooltip: true },
+  { title: '操作', slotName: 'queueOps', width: 90 },
+]
+
+onMounted(() => {
+  void loadQueueStats()
+  statsTimer = setInterval(() => void loadQueueStats(), 15000)
+})
+onUnmounted(() => {
+  if (statsTimer) {
+    clearInterval(statsTimer)
+    statsTimer = null
+  }
+  stopQueuePoll()
+})
+
 // ── 表格列 ──────────────────────────────────
 const columns = withTableDefaults([
   { title: 'Agent Code', dataIndex: 'agent_code', width: 120 },
@@ -154,6 +285,7 @@ const columns = withTableDefaults([
   { title: '默认模型', dataIndex: 'default_model', width: 100 },
   { title: '最大并发', dataIndex: 'max_concurrent', width: 80 },
   { title: '超时(s)', dataIndex: 'max_timeout_secs', width: 80 },
+  { title: '队列', dataIndex: 'queue', width: 120, slotName: 'queue' },
   { title: '状态', dataIndex: 'status', width: 80, slotName: 'status' },
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 300, fixed: 'right' as const },
 ])
@@ -202,11 +334,19 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
           @page-change="handlePageChange"
           :scroll="{ minWidth: 1100, y: tableHeight }"
         >
+          <template #queue="{ record }">
+            <a-space :size="4">
+              <a-tag v-if="queueStatOf(record.id).pending" color="orange" size="small">排队 {{ queueStatOf(record.id).pending }}</a-tag>
+              <a-tag v-if="queueStatOf(record.id).running" color="blue" size="small">运行 {{ queueStatOf(record.id).running }}</a-tag>
+              <span v-if="!queueStatOf(record.id).pending && !queueStatOf(record.id).running">-</span>
+            </a-space>
+          </template>
           <template #status="{ record }">
             <a-tag :color="record.status === 'active' ? 'green' : 'red'">{{ record.status === 'active' ? '启用' : '禁用' }}</a-tag>
           </template>
           <template #operations="{ record }">
             <a-space>
+              <a-button type="text" size="small" @click="openQueue(record)">队列</a-button>
               <a-button type="text" size="small" @click="handleEdit(record)">编辑</a-button>
               <a-button type="text" size="small" :loading="healthCheckingAgentId === record.id" @click="handleHealthCheck(record)">健康检查</a-button>
               <a-button type="text" size="small" :disabled="syncingAgentId === record.id" :loading="syncingAgentId === record.id" @click="syncAgentModels(record)">同步模型</a-button>
@@ -218,6 +358,68 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
         </a-table>
       </a-card>
     </div>
+
+    <!-- Agent 执行队列抽屉 -->
+    <a-drawer
+      :visible="queueVisible"
+      :width="860"
+      title="Agent 执行队列"
+      unmount-on-close
+      @cancel="closeQueue"
+    >
+      <a-space class="m-b-8px" wrap>
+        <a-tag color="orange">排队 {{ queueStatOf(queueAgent?.id ?? '').pending }}</a-tag>
+        <a-tag color="blue">运行 {{ queueStatOf(queueAgent?.id ?? '').running }}</a-tag>
+        <a-tag v-if="queueStatOf(queueAgent?.id ?? '').oldest_pending_secs">最久等待 {{ formatMs(queueStatOf(queueAgent?.id ?? '').oldest_pending_secs * 1000) }}</a-tag>
+        <a-button type="primary" size="small" :disabled="queueTab !== 'pending' || queueSelected.length === 0" @click="prioritizeQueued">
+          置顶选中{{ queueSelected.length ? `(${queueSelected.length})` : '' }}
+        </a-button>
+        <a-button status="danger" size="small" :disabled="queueTab !== 'pending'" @click="clearQueued">
+          清空排队
+        </a-button>
+        <a-button size="small" :loading="queueLoading" @click="() => loadQueueRows()">刷新</a-button>
+      </a-space>
+      <a-tabs v-model:active-key="queueTab" @change="switchQueueTab">
+        <a-tab-pane key="pending" title="排队中" />
+        <a-tab-pane key="running" title="运行中" />
+        <a-tab-pane key="history" title="历史" />
+      </a-tabs>
+      <a-table
+        v-model:selected-keys="queueSelected"
+        :data="queueFiltered"
+        :columns="queueColumns"
+        :loading="queueLoading"
+        row-key="id"
+        size="small"
+        :pagination="{ pageSize: 20 }"
+        :row-selection="queueTab === 'pending' ? { type: 'checkbox', showCheckedAll: true } : undefined"
+      >
+        <template #skillModel="{ record }">
+          {{ record.skill_code || '-' }} / {{ record.model || '-' }}
+        </template>
+        <template #wait="{ record }">
+          {{ formatMs(record.wait_ms) }}
+        </template>
+        <template #run="{ record }">
+          {{ formatMs(record.run_ms) }}
+        </template>
+        <template #exec="{ record }">
+          <span v-if="record.execution_id">{{ record.execution_id.slice(0, 8) }}</span>
+          <span v-else>-</span>
+        </template>
+        <template #queueOps="{ record }">
+          <a-button
+            v-if="record.status === 'running' && record.execution_id"
+            type="text"
+            size="small"
+            status="danger"
+            @click="stopQueued(record)"
+          >
+            停止
+          </a-button>
+        </template>
+      </a-table>
+    </a-drawer>
 
     <!-- 健康检查结果 -->
     <a-card v-if="healthResult" :bordered="false" class="m-t-8px" title="健康检查结果">
