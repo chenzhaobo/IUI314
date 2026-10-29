@@ -48,6 +48,9 @@ async function loadMembersForEdit(record: any) {
       remark: member.remark || '',
     }))
   }
+  catch {
+    Message.error('加载项目组成员失败，请稍后重试')
+  }
   finally {
     memberLoading.value = false
   }
@@ -245,14 +248,17 @@ async function handleImportSubmit() {
       <template #form-extra="{ isEdit }">
         <a-col v-if="isEdit" :span="24">
           <a-divider orientation="left">项目组人员</a-divider>
-          <a-spin :loading="memberLoading" style="width: 100%">
+          <a-alert v-if="memberCandidateOptions.length === 0" type="warning" class="m-b-12px">
+            没有可选人员：请先给用户分配扫描登录角色（KDSCANUSER）。
+          </a-alert>
+          <div>
             <div style="margin-bottom: 12px">
               <a-button type="primary" size="small" @click="addMemberRow">
                 <template #icon><icon-plus /></template>
                 增加人员
               </a-button>
             </div>
-            <a-table :data="memberRows" :pagination="false" row-key="_key" :scroll="{ y: 320 }">
+            <a-table :data="memberRows" :loading="memberLoading" :pagination="false" row-key="_key" :scroll="{ y: 320 }">
               <a-table-column title="人员" :width="240">
                 <template #cell="{ record }">
                   <a-select v-model="record.user_id" placeholder="选择扫描登录用户" allow-search>
@@ -289,7 +295,7 @@ async function handleImportSubmit() {
                 </template>
               </a-table-column>
             </a-table>
-          </a-spin>
+          </div>
         </a-col>
       </template>
       <template #extra-actions>

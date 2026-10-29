@@ -925,6 +925,11 @@ export interface ScanIssueRow {
   last_verify_event_id?: string | null
   /** 最近一次复核是否留了报告正文（正文不在列表里，点开时才按事件取） */
   last_verify_has_report?: boolean
+  /** 不处理审批当前态：none/pending/approved/rejected/withdrawn */
+  nofix_approval_state?: string
+  nofix_approval_id?: string | null
+  nofix_requested_at?: string | null
+  nofix_decided_at?: string | null
 }
 
 export interface ScanIssuePage {

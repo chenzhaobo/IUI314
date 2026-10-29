@@ -7,12 +7,16 @@ import { Message } from '@arco-design/web-vue'
 import { formatTime, useGet, usePost, useTableAutoHeight } from '@/hooks'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSecApproval } from '@/api/sechubApis'
+import IssueNofixApprovals from './IssueNofixApprovals.vue'
 
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
 // （见 components/layout/app-main.vue 的注释）。lint 的 PascalCase 提示只是警告，
 // 改名却会让页签缓存失效，所以此处保持 kebab-case。
 // eslint-disable-next-line vue/component-definition-name-casing
 defineOptions({ name: 'approvals' })
+
+// 默认落在新的缺陷级审批；历史 finding 审批保留为第二个 Tab
+const activeTab = ref('issue')
 
 // ── 查询 ──────────────────────────────────────────
 const queryParams = ref<Record<string, any>>({
@@ -125,7 +129,12 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
 
 <template>
   <div class="p-4">
-    <a-card title="非修复审批">
+    <a-card title="审批管理">
+      <a-tabs v-model:active-key="activeTab">
+        <a-tab-pane key="issue" title="缺陷不处理">
+          <IssueNofixApprovals />
+        </a-tab-pane>
+        <a-tab-pane key="legacy" title="历史非修复审批">
       <!-- 筛选栏 -->
       <div class="mb-4 flex flex-wrap gap-3">
         <a-input v-model="queryParams.finding_id" placeholder="Finding ID" allow-clear style="width: 200px" @press-enter="onSearch" />
@@ -167,6 +176,8 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
         </template>
         </a-table>
       </div>
+        </a-tab-pane>
+      </a-tabs>
     </a-card>
 
     <!-- 审批弹窗 -->

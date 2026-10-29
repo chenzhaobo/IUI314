@@ -7,7 +7,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiAiAgent } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
-import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
+import { ApiSecApproval, ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
 import { ApiSysUser } from '@/api/sysApis'
 import { downloadText, formatTime, getAction, useAutoHeight, useDicts, useDownload, useGet, usePost, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
 import { useUserStore } from '@/stores'
@@ -75,6 +75,8 @@ const queryParams = ref({
   status: '',
   // 治理状态三桶（与缺陷治理看板同口径）：in_progress / handled / wont_fix
   governance_status: '',
+  // 不处理审批展示态：pending / rejected / approved / withdrawn
+  nofix_approval_state: '',
   rule_version_id: '',
   scan_point_id: '',
   // 不处理原因代码过滤（Arco 表格 filterable 触发后写入此字段，传给后端）
@@ -349,11 +351,15 @@ function onPageSizeChange(size: number) {
 // ===== 不处理原因列过滤（后端过滤）=====
 // Arco 表格 @filter-change 事件签名：(dataIndex: string, filteredValues: string[]) => any
 // 只关心 wont_fix_reason_code 列的过滤值，取第一个选中值传给后端（后端支持单值过滤）
-function onWontFixReasonFilter(dataIndex: string, filteredValues: string[]) {
-  if (dataIndex !== 'wont_fix_reason_code')
+function onTableFilter(dataIndex: string, filteredValues: string[]) {
+  if (dataIndex !== 'wont_fix_reason_code' && dataIndex !== 'nofix_approval_state')
     return
   // 取第一个选中值；未选时清空过滤
-  queryParams.value.wont_fix_reason_code = filteredValues.length > 0 ? (filteredValues[0] ?? '') : ''
+  const next = filteredValues.length > 0 ? (filteredValues[0] ?? '') : ''
+  if (dataIndex === 'wont_fix_reason_code')
+    queryParams.value.wont_fix_reason_code = next
+  else
+    queryParams.value.nofix_approval_state = next
   queryParams.value.page_num = 1
   void getList()
 }
@@ -386,9 +392,10 @@ function exportIssues() {
 }
 
 // ===== 状态能力判断 =====
-// 可标记不处理：待处理，以及"验证不通过"（复核确认仍在，但决定不修）；007a 待复现/不稳定同样允许
-function canWontFix(status: string): boolean {
-  return ['open', 'reopened', 'verification_failed', 'pending_repro', 'unstable'].includes(status)
+// 可申请不处理：状态允许，且当前没有待审批申请（驳回/撤回后可以重新申请）
+function canWontFix(row: ScanIssueRow): boolean {
+  const state = row.nofix_approval_state ?? 'none'
+  return ['open', 'reopened', 'verification_failed', 'pending_repro', 'unstable'].includes(row.status) && state !== 'pending'
 }
 // 可发起复核的：**任意状态**都能验（内网批量导入的历史缺陷大多没走过人工流程，
 // 却可能早已在代码里修掉了 —— 要求先手工标「已修复」再验证不现实）。
@@ -465,7 +472,7 @@ const PROCESS_ACTIONS = [
   { value: 'fixed', label: '已修复' },
   { value: 'verified', label: '已验证' },
   { value: 'reopen', label: '重开' },
-  { value: 'wont_fix', label: '不处理' },
+  { value: 'wont_fix', label: '申请不处理' },
 ]
 const processLoading = ref(false)
 
@@ -735,9 +742,9 @@ function openWontFixModal() {
     Message.warning('请先勾选缺陷')
     return
   }
-  const eligible = selectedRows.value.filter(r => canWontFix(r.status))
+  const eligible = selectedRows.value.filter(r => canWontFix(r))
   if (!eligible.length) {
-    Message.warning('所选缺陷中没有可标记不处理的（仅「待修复/验证不通过/待复现/不稳定」状态可操作）')
+    Message.warning('所选缺陷中没有可申请不处理的（仅「待修复/验证不通过/待复现/不稳定」且无待审批申请的可操作）')
     return
   }
   wontFixTargets.value = eligible
@@ -758,19 +765,26 @@ async function submitWontFix() {
   wontFixLoading.value = true
   try {
     let ok = 0
+    let approverMissing = 0
     for (const row of wontFixTargets.value) {
-      if (await postAction(ApiSecPrescan.issueWontFix, {
+      const res = await postAction<{ approvers_configured?: boolean }>(ApiSecPrescan.issueWontFix, {
         issue_id: row.id,
         reason: wontFixForm.value.reason,
         impact_note: wontFixForm.value.impact_note,
         sync_whitelist: wontFixForm.value.sync_whitelist,
         expires_at: wontFixForm.value.expires_at || null,
         reason_code: wontFixForm.value.reason_code,
-      }) !== null) {
+      })
+      if (res !== null) {
         ok++
+        if (res.approvers_configured === false)
+          approverMissing++
       }
     }
-    Message.success(`已标记不处理 ${ok}/${wontFixTargets.value.length} 条`)
+    Message.success(`已提交不处理申请 ${ok}/${wontFixTargets.value.length} 条，等待领域架构师或总监审批`)
+    if (approverMissing > 0) {
+      Message.warning(`${approverMissing} 条所在产品领域未配置领域架构师且无总监，申请会保持待审批，请联系管理员配置审批人`)
+    }
     wontFixVisible.value = false
     clearSelection()
     void getList()
@@ -778,6 +792,60 @@ async function submitWontFix() {
   finally {
     wontFixLoading.value = false
   }
+}
+
+// ===== 不处理审批记录（多次申请/驳回/撤回全部展示）=====
+const approvalHistoryVisible = ref(false)
+const approvalHistoryLoading = ref(false)
+const approvalHistoryRows = ref<any[]>([])
+const approvalHistoryTitle = ref('')
+
+async function withdrawApproval(row: ScanIssueRow) {
+  if (!row.nofix_approval_id) {
+    Message.warning('没有可撤回的申请')
+    return
+  }
+  const res = await postAction(ApiSecApproval.issueWithdraw, { id: row.nofix_approval_id, comment: '申请人撤回' })
+  if (res === null)
+    return
+  Message.success('已撤回不处理申请，缺陷保持待修复')
+  void getList()
+}
+
+async function openApprovalHistory(row: ScanIssueRow) {
+  approvalHistoryTitle.value = row.title
+  approvalHistoryRows.value = []
+  approvalHistoryVisible.value = true
+  approvalHistoryLoading.value = true
+  try {
+    const rows = await getAction<any[]>(ApiSecApproval.issueHistory, { issue_id: row.id })
+    if (rows === null) {
+      Message.error('加载审批记录失败')
+      return
+    }
+    approvalHistoryRows.value = Array.isArray(rows) ? rows : []
+  }
+  finally {
+    approvalHistoryLoading.value = false
+  }
+}
+
+const nofixStateLabels: Record<string, { label: string, color: string }> = {
+  none: { label: '-', color: 'gray' },
+  pending: { label: '待审批', color: 'gold' },
+  approved: { label: '已通过', color: 'green' },
+  rejected: { label: '审批驳回', color: 'red' },
+  withdrawn: { label: '已撤回', color: 'gray' },
+}
+const nofixStateFilters = [
+  { text: '待审批', value: 'pending' },
+  { text: '审批驳回', value: 'rejected' },
+  { text: '已通过', value: 'approved' },
+  { text: '已撤回', value: 'withdrawn' },
+]
+
+function nofixStateLabel(state?: string | null) {
+  return nofixStateLabels[state ?? 'none'] ?? nofixStateLabels.none
 }
 
 // ===== 缺陷处理：重新验证（重新拉取最新代码后由所选 AI 复核判定）=====
@@ -1046,6 +1114,10 @@ const eventTypeLabels: Record<string, { label: string, color: string }> = {
   finding_absent: { label: '扫描未再发现', color: 'gray' },
   file_deleted: { label: '文件删除失活', color: 'gray' },
   verify_error: { label: '复核执行失败', color: 'orange' },
+  no_fix_requested: { label: '申请不处理', color: 'gold' },
+  no_fix_approved: { label: '不处理审批通过', color: 'green' },
+  no_fix_rejected: { label: '不处理审批驳回', color: 'red' },
+  no_fix_withdrawn: { label: '撤回不处理申请', color: 'gray' },
 }
 
 // ===== 流转事件的结构化上下文（meta_json）=====
@@ -1153,6 +1225,10 @@ function onOpsSelect(value: unknown, row: ScanIssueRow) {
     void viewEvents(row)
   else if (value === 'confirmRepro')
     confirmRepro(row)
+  else if (value === 'approvalHistory')
+    void openApprovalHistory(row)
+  else if (value === 'withdrawApproval')
+    void withdrawApproval(row)
 }
 
 // 下载 AI 生成的原始 md 报告。
@@ -1249,6 +1325,13 @@ const columns = computed(() => withTableDefaults([
   { title: '风险', dataIndex: 'risk_level', slotName: 'risk', width: 65, ellipsis: true, tooltip: true },
   // 宽度要容下「状态标签 + AI直判徽标」（90 时徽标会被 ellipsis 截掉，看不到）
   { title: '状态', dataIndex: 'status', slotName: 'status', width: 128, ellipsis: true, tooltip: true },
+  {
+    title: '审批状态',
+    dataIndex: 'nofix_approval_state',
+    slotName: 'nofixApproval',
+    width: 100,
+    filterable: { filters: nofixStateFilters, multiple: false, filter: () => true },
+  },
   { title: '负责人', dataIndex: 'assignee', width: 75 },
   // 计划完成：点单元格可单条改；表头排序按后端白名单的 plan_finish_date（最早到期在前）
   { title: '计划完成', dataIndex: 'plan_finish_date', slotName: 'planFinish', width: 124, sortable: { sortDirections: ['ascend', 'descend'] } },
@@ -1591,7 +1674,7 @@ function shortSha(sha: string | null | undefined): string {
                 :scroll="{ minWidth: 1480, y: tableHeight }"
                 @page-change="onPageChange"
                 @page-size-change="onPageSizeChange"
-                @filter-change="onWontFixReasonFilter"
+                @filter-change="onTableFilter"
               >
                 <template #defectCode="{ record }">
                   <!-- 编号+复制按钮必须同一行：不设 nowrap 时按钮会把编号挤到第二行 -->
@@ -1652,6 +1735,16 @@ function shortSha(sha: string | null | undefined): string {
                     </a-tag>
                     <span v-if="isAiDirectVerified(record)" class="ai-direct-badge">AI直判</span>
                   </span>
+                </template>
+                <template #nofixApproval="{ record }">
+                  <a-tag
+                    v-if="record.nofix_approval_state && record.nofix_approval_state !== 'none'"
+                    :color="nofixStateLabel(record.nofix_approval_state).color"
+                    size="small"
+                  >
+                    {{ nofixStateLabel(record.nofix_approval_state).label }}
+                  </a-tag>
+                  <span v-else class="text-muted">-</span>
                 </template>
                 <template #planFinish="{ record }">
                   <!-- 计划完成时间：点单元格可单条改；着色口径见 planFinishHint -->
@@ -1721,6 +1814,15 @@ function shortSha(sha: string | null | undefined): string {
                         </a-doption>
                         <a-doption value="events">
                           流转
+                        </a-doption>
+                        <a-doption
+                          v-if="record.nofix_approval_state && record.nofix_approval_state !== 'none'"
+                          value="approvalHistory"
+                        >
+                          审批记录
+                        </a-doption>
+                        <a-doption v-if="record.nofix_approval_state === 'pending'" value="withdrawApproval">
+                          撤回申请
                         </a-doption>
                         <a-doption v-if="canConfirmRepro(record)" value="confirmRepro">
                           确认复现
@@ -1827,10 +1929,10 @@ function shortSha(sha: string | null | undefined): string {
       </a-modal>
 
       <!-- 标记不处理弹窗（批量） -->
-      <a-modal v-model:visible="wontFixVisible" :title="`标记不处理（${wontFixTargets.length} 条）`" width="560px" :ok-loading="wontFixLoading" @ok="submitWontFix" @cancel="wontFixVisible = false">
+      <a-modal v-model:visible="wontFixVisible" :title="`申请不处理（${wontFixTargets.length} 条）`" width="560px" :ok-loading="wontFixLoading" @ok="submitWontFix" @cancel="wontFixVisible = false">
         <a-form layout="vertical" :model="layoutOnlyModel">
           <a-alert type="warning" class="m-b-12px">
-            将对 {{ wontFixTargets.length }} 条「待修复」的缺陷统一标记为不处理
+            将对 {{ wontFixTargets.length }} 条缺陷提交不处理申请：缺陷状态在审批通过前保持「待修复」，需领域架构师或总监审批；驳回后可修改证据重新申请
           </a-alert>
           <!-- 不处理原因分类（必选，后续统计与过滤的依据） -->
           <a-form-item label="原因分类" required>
@@ -1863,6 +1965,62 @@ function shortSha(sha: string | null | undefined): string {
             <a-date-picker v-model="wontFixForm.expires_at" value-format="YYYY-MM-DD" style="width: 100%" />
           </a-form-item>
         </a-form>
+      </a-modal>
+
+      <!-- 不处理审批记录（申请/驳回/撤回/通过全部周期）-->
+      <a-modal
+        v-model:visible="approvalHistoryVisible"
+        :title="`审批记录 · ${approvalHistoryTitle}`"
+        width="820px"
+        :footer="false"
+      >
+        <a-table
+          :data="approvalHistoryRows"
+          :loading="approvalHistoryLoading"
+          :pagination="false"
+          row-key="id"
+          size="small"
+        >
+          <a-table-column title="申请时间" :width="150">
+            <template #cell="{ record }">{{ formatTime(record.created_at) }}</template>
+          </a-table-column>
+          <a-table-column title="状态" :width="90">
+            <template #cell="{ record }">
+              <a-tag :color="nofixStateLabel(record.status).color" size="small">
+                {{ nofixStateLabel(record.status).label }}
+              </a-tag>
+            </template>
+          </a-table-column>
+          <a-table-column title="申请人" :width="100">
+            <template #cell="{ record }">{{ record.requester_name }}</template>
+          </a-table-column>
+          <a-table-column title="原因" ellipsis tooltip>
+            <template #cell="{ record }">
+              {{ record.reason }}
+            </template>
+          </a-table-column>
+          <a-table-column title="审批人" :width="140">
+            <template #cell="{ record }">
+              <span v-if="record.approver_name">
+                {{ record.approver_name }}
+                <span class="text-muted">（{{ record.approver_role === 'director' ? '总监' : '领域架构师' }}）</span>
+              </span>
+              <span v-else class="text-muted">-</span>
+            </template>
+          </a-table-column>
+          <a-table-column title="审批意见" ellipsis tooltip>
+            <template #cell="{ record }">
+              <span v-if="record.decision_comment">{{ record.decision_comment }}</span>
+              <span v-else class="text-muted">-</span>
+            </template>
+          </a-table-column>
+          <a-table-column title="审批时间" :width="150">
+            <template #cell="{ record }">
+              <span v-if="record.decided_at">{{ formatTime(record.decided_at) }}</span>
+              <span v-else class="text-muted">-</span>
+            </template>
+          </a-table-column>
+        </a-table>
       </a-modal>
 
       <!-- 流转记录抽屉 -->

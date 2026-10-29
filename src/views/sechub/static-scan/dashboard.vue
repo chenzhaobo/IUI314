@@ -74,6 +74,10 @@ const capabilities = computed(() => me.value || {})
         <a-tag :color="capabilities.can_disposition ? 'green' : 'gray'" data-testid="cap-disposition">
           {{ capabilities.can_disposition ? '✓' : '✗' }} 问题处置
         </a-tag>
+        <a-tag :color="capabilities.can_approve_issue_nofix ? 'green' : 'gray'" data-testid="cap-issue-nofix">
+          {{ capabilities.can_approve_issue_nofix ? '✓' : '✗' }} 不处理审批
+          <span v-if="capabilities.pending_issue_nofix_approvals">（{{ capabilities.pending_issue_nofix_approvals }}）</span>
+        </a-tag>
         <a-tag :color="capabilities.can_approve_domain ? 'green' : 'gray'" data-testid="cap-domain">
           {{ capabilities.can_approve_domain ? '✓' : '✗' }} 领域审批
         </a-tag>

@@ -223,6 +223,14 @@ export enum ApiSecApproval {
   create = '/sechub/approval/create',
   domainDecide = '/sechub/approval/domain-decide',
   directorDecide = '/sechub/approval/director-decide',
+  // 缺陷级不处理审批
+  issueList = '/sechub/approval/issues/list',
+  issueHistory = '/sechub/approval/issues/history',
+  issueRequest = '/sechub/approval/issues/request',
+  issueDecide = '/sechub/approval/issues/decide',
+  issueDecideBatch = '/sechub/approval/issues/decide-batch',
+  issueWithdraw = '/sechub/approval/issues/withdraw',
+  issueApproverConfig = '/sechub/approval/issues/approver-config',
 }
 
 // ── 白名单 (Waiver) ──────────────────────────────────
