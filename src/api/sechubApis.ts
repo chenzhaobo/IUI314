@@ -578,3 +578,10 @@ export enum ApiSecFormAssetSync {
   sync = '/sechub/form-assets/sync',
   status = '/sechub/form-assets/sync/{task_id}',
 }
+
+// ── 发版质量：接口覆盖 ──────────────────────────────
+// 迭代下拉（默认当前迭代）与覆盖看板（summary / groups / 分页 list）。
+export enum ApiSecRelease {
+  iterations = '/sechub/release/iterations',
+  coverage = '/sechub/release/coverage',
+}
