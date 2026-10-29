@@ -226,6 +226,7 @@ export enum ApiSecApproval {
   // 缺陷级不处理审批
   issueList = '/sechub/approval/issues/list',
   issueHistory = '/sechub/approval/issues/history',
+  issueGetById = '/sechub/approval/issues/get_by_id',
   issueRequest = '/sechub/approval/issues/request',
   issueDecide = '/sechub/approval/issues/decide',
   issueDecideBatch = '/sechub/approval/issues/decide-batch',

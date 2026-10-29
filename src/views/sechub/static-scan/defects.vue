@@ -7,7 +7,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiAiAgent } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
-import { ApiSecApproval, ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
+import { ApiSecApproval, ApiSecGovernance, ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
 import { ApiSysUser } from '@/api/sysApis'
 import { downloadText, formatTime, getAction, useAutoHeight, useDicts, useDownload, useGet, usePost, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
 import { useUserStore } from '@/stores'
@@ -410,6 +410,7 @@ const transferVisible = ref(false)
 const transferLoading = ref(false)
 const transferAssignee = ref('')
 const transferRemark = ref('')
+const transferProjectGroup = ref('')
 
 // 处理人下拉：取用户选项接口（/system/user/options），不从项目组成员取 ——
 // 项目组成员表常常是空的（缺陷行上也没有项目组字段），下拉会没有数据；
@@ -435,6 +436,7 @@ function openTransferModal() {
   }
   transferAssignee.value = ''
   transferRemark.value = ''
+  transferProjectGroup.value = selectedRows.value[0]?.project_group_id || ''
   transferVisible.value = true
   void loadTransferUsers()
 }
@@ -451,6 +453,7 @@ async function submitTransfer() {
       ids: selectedIds.value,
       assignee,
       remark: transferRemark.value.trim() || undefined,
+      project_group_id: transferProjectGroup.value || undefined,
     })
     if (!res)
       return
@@ -848,6 +851,84 @@ function nofixStateLabel(state?: string | null) {
   return nofixStateLabels[state ?? 'none'] ?? nofixStateLabels.none
 }
 
+// ===== 不处理审批（领域架构师/总监）：详情 + 逐条同意/驳回 =====
+const { data: capData } = useGet<any>(ApiSecGovernance.me, {}, { immediate: true })
+const canApproveNofix = computed(() => Boolean(capData.value?.can_approve_issue_nofix))
+const reviewVisible = ref(false)
+const reviewLoading = ref(false)
+const reviewSubmitting = ref(false)
+const reviewRow = ref<any>(null)
+const reviewComment = ref('')
+
+async function openApprovalById(id: string) {
+  reviewLoading.value = true
+  reviewVisible.value = true
+  reviewRow.value = null
+  reviewComment.value = ''
+  try {
+    const row = await getAction<any>(ApiSecApproval.issueGetById, { id })
+    if (row === null) {
+      Message.error('加载审批详情失败')
+      reviewVisible.value = false
+      return
+    }
+    reviewRow.value = row
+  }
+  finally {
+    reviewLoading.value = false
+  }
+}
+
+function openApprovalForRow(row: ScanIssueRow) {
+  if (!row.nofix_approval_id) {
+    Message.warning('该缺陷没有待审批申请')
+    return
+  }
+  void openApprovalById(row.nofix_approval_id)
+}
+
+async function openNextApproval() {
+  if (!canApproveNofix.value) {
+    Message.warning('当前账号没有不处理审批权限')
+    return
+  }
+  const res = await getAction<any>(ApiSecApproval.issueList, { scope: 'mine', status: 'pending', page_num: 1, page_size: 20 })
+  const next = res?.list?.[0]
+  if (!next) {
+    Message.info('没有待审批的不处理申请')
+    return
+  }
+  await openApprovalById(next.id)
+}
+
+async function submitApproval(decision: 'approved' | 'rejected', next: boolean) {
+  if (!reviewRow.value)
+    return
+  if (decision === 'rejected' && !reviewComment.value.trim()) {
+    Message.warning('驳回必须填写原因')
+    return
+  }
+  reviewSubmitting.value = true
+  try {
+    const res = await postAction(ApiSecApproval.issueDecide, {
+      id: reviewRow.value.id,
+      decision,
+      comment: reviewComment.value.trim() || null,
+    })
+    if (res === null)
+      return
+    Message.success(decision === 'approved' ? '已通过，不处理申请生效' : '已驳回，缺陷保持待修复')
+    reviewVisible.value = false
+    reviewRow.value = null
+    void getList()
+    if (next)
+      await openNextApproval()
+  }
+  finally {
+    reviewSubmitting.value = false
+  }
+}
+
 // ===== 缺陷处理：重新验证（重新拉取最新代码后由所选 AI 复核判定）=====
 //
 // 为什么要能指定分支/commit：开发协作场景下，1 号在 sit 扫出的缺陷，3 号开发把
@@ -1229,6 +1310,8 @@ function onOpsSelect(value: unknown, row: ScanIssueRow) {
     void openApprovalHistory(row)
   else if (value === 'withdrawApproval')
     void withdrawApproval(row)
+  else if (value === 'approve')
+    openApprovalForRow(row)
 }
 
 // 下载 AI 生成的原始 md 报告。
@@ -1321,6 +1404,7 @@ const columns = computed(() => withTableDefaults([
   { title: '缺陷标题', dataIndex: 'title', width: 240 },
   { title: '来源', dataIndex: 'source', slotName: 'source', width: 80 },
   { title: '领域', dataIndex: 'domain', slotName: 'domain', width: 70, ellipsis: true, tooltip: true },
+  { title: '项目组', dataIndex: 'project_group_name', width: 130, ellipsis: true, tooltip: true },
   { title: '分类', dataIndex: 'category', width: 100 },
   { title: '风险', dataIndex: 'risk_level', slotName: 'risk', width: 65, ellipsis: true, tooltip: true },
   // 宽度要容下「状态标签 + AI直判徽标」（90 时徽标会被 ellipsis 截掉，看不到）
@@ -1540,6 +1624,18 @@ function shortSha(sha: string | null | undefined): string {
             @press-enter="refresh"
             @clear="refresh"
           />
+          <a-select
+            v-model="queryParams.project_group_id"
+            allow-search
+            allow-clear
+            placeholder="项目组"
+            style="width: 160px"
+            @change="refresh"
+          >
+            <a-option v-for="g in pgOptions" :key="g.value" :value="g.value">
+              {{ g.label }}
+            </a-option>
+          </a-select>
           <a-select v-model="queryParams.source" allow-clear placeholder="来源" style="width: 110px" @change="refresh">
             <a-option v-for="opt in ISSUE_SOURCE_OPTIONS" :key="opt.value" :value="opt.value">
               {{ opt.label }}
@@ -1561,7 +1657,7 @@ function shortSha(sha: string | null | undefined): string {
               已标注
             </a-option>
           </a-select>
-          <a-button @click="refresh">
+          <a-button type="outline" @click="refresh">
             刷新
           </a-button>
         </a-space>
@@ -1594,13 +1690,16 @@ function shortSha(sha: string | null | undefined): string {
                   <!-- 补偿匹配白名单：拿白名单里的指纹回头匹配待处理缺陷，把漏标的补上。
                  白名单来源是「标记不处理」时勾选的「同步白名单」 -->
                   <a-tooltip content="用白名单里的指纹匹配待处理缺陷，命中的自动标记不处理" mini>
-                    <a-button :loading="whitelistBusy" @click="compensateWhitelist">
+                    <a-button type="outline" status="warning" :loading="whitelistBusy" @click="compensateWhitelist">
                       补偿匹配白名单
                     </a-button>
                   </a-tooltip>
                   <!-- 转交：选项目组 → 从该组成员里选处理人（与性能问题列表同形态） -->
                   <a-button type="primary" :disabled="!selectedIds.length" @click="openTransferModal">
                     转交
+                  </a-button>
+                  <a-button v-if="canApproveNofix" type="outline" status="warning" @click="openNextApproval">
+                    审批
                   </a-button>
                   <!-- 处理：状态流转统一入口（不处理需填原因，走弹窗） -->
                   <a-dropdown :disabled="!selectedIds.length" @select="onProcessSelect">
@@ -1620,24 +1719,24 @@ function shortSha(sha: string | null | undefined): string {
                     重新验证
                   </a-button>
                   <a-tooltip content="把所选缺陷关联到 DMP 单号，可批量填同一个" mini>
-                    <a-button @click="openDmpModal">
+                    <a-button type="outline" @click="openDmpModal">
                       DMP 编码
                     </a-button>
                   </a-tooltip>
                   <a-tooltip content="项目组标注所选缺陷的计划处理完成时间（留空即清除）" mini>
-                    <a-button :disabled="!selectedIds.length" @click="openPlanFinishModal">
+                    <a-button type="outline" :disabled="!selectedIds.length" @click="openPlanFinishModal">
                       计划完成
                     </a-button>
                   </a-tooltip>
                   <a-tooltip :content="selectedIds.length ? `只导出勾选的 ${selectedIds.length} 条` : '导出当前筛选下全部缺陷'" mini>
-                    <a-button @click="exportIssues">
+                    <a-button type="outline" status="success" @click="exportIssues">
                       导出
                     </a-button>
                   </a-tooltip>
                   <a-button status="success" @click="openImport">
                     导入
                   </a-button>
-                  <a-button @click="downloadImportTemplate">
+                  <a-button type="outline" @click="downloadImportTemplate">
                     下载模板
                   </a-button>
                   <span v-if="selectedIds.length" class="selected-hint">已选 {{ selectedIds.length }} 条</span>
@@ -1821,6 +1920,9 @@ function shortSha(sha: string | null | undefined): string {
                         >
                           审批记录
                         </a-doption>
+                        <a-doption v-if="record.nofix_approval_state === 'pending' && canApproveNofix" value="approve">
+                          审批
+                        </a-doption>
                         <a-doption v-if="record.nofix_approval_state === 'pending'" value="withdrawApproval">
                           撤回申请
                         </a-doption>
@@ -1872,6 +1974,52 @@ function shortSha(sha: string | null | undefined): string {
         </a-form>
       </a-modal>
 
+      <!-- 不处理审批：展示完整理由，可逐条同意/驳回并自动带出下一条 -->
+      <a-modal v-model:visible="reviewVisible" title="审批不处理申请" width="760px">
+        <a-spin :loading="reviewLoading" style="width: 100%">
+          <template v-if="reviewRow">
+            <a-descriptions :column="2" size="small" bordered>
+              <a-descriptions-item label="缺陷编号">{{ reviewRow.defect_code || '-' }}</a-descriptions-item>
+              <a-descriptions-item label="项目组">{{ reviewRow.project_group_name || '-' }}</a-descriptions-item>
+              <a-descriptions-item label="缺陷标题" :span="2">{{ reviewRow.issue_title }}</a-descriptions-item>
+              <a-descriptions-item label="产品领域">{{ reviewRow.product_domain || '-' }}</a-descriptions-item>
+              <a-descriptions-item label="申请人">{{ reviewRow.requester_name }}</a-descriptions-item>
+              <a-descriptions-item label="申请时间">{{ formatTime(reviewRow.created_at) }}</a-descriptions-item>
+              <a-descriptions-item label="当前状态">{{ reviewRow.issue_status }}</a-descriptions-item>
+            </a-descriptions>
+            <a-divider style="margin: 12px 0" />
+            <div class="approval-reason-block">
+              <div><b>原因分类：</b>{{ reviewRow.reason_code || '未指定' }}</div>
+              <div style="white-space: pre-wrap"><b>不处理原因：</b>{{ reviewRow.reason }}</div>
+              <div v-if="reviewRow.impact_note" style="white-space: pre-wrap"><b>影响说明：</b>{{ reviewRow.impact_note }}</div>
+              <div v-if="reviewRow.evidence" style="white-space: pre-wrap"><b>补充证据：</b>{{ reviewRow.evidence }}</div>
+            </div>
+            <a-form-item label="审批意见（驳回必填）" style="margin-top: 12px">
+              <a-textarea v-model="reviewComment" :auto-size="{ minRows: 3 }" :max-length="500" show-word-limit />
+            </a-form-item>
+          </template>
+        </a-spin>
+        <template #footer>
+          <a-space>
+            <a-button @click="reviewVisible = false">
+              关闭
+            </a-button>
+            <a-button status="danger" :loading="reviewSubmitting" @click="submitApproval('rejected', false)">
+              驳回
+            </a-button>
+            <a-button status="danger" type="outline" :loading="reviewSubmitting" @click="submitApproval('rejected', true)">
+              驳回并下一条
+            </a-button>
+            <a-button type="primary" :loading="reviewSubmitting" @click="submitApproval('approved', false)">
+              同意
+            </a-button>
+            <a-button type="primary" status="success" :loading="reviewSubmitting" @click="submitApproval('approved', true)">
+              同意并下一条
+            </a-button>
+          </a-space>
+        </template>
+      </a-modal>
+
       <!-- 转交弹窗：处理人从系统用户里选（缺陷本身没有项目组字段，不在此改归属） -->
       <a-modal v-model:visible="transferVisible" title="转交缺陷" :width="520" :footer="false" unmount-on-close>
         <a-form layout="vertical" :model="layoutOnlyModel">
@@ -1885,6 +2033,16 @@ function shortSha(sha: string | null | undefined): string {
                 {{ u.label }}
               </a-option>
             </a-select>
+          </a-form-item>
+          <a-form-item label="项目组">
+            <a-select v-model="transferProjectGroup" allow-search allow-clear placeholder="默认按工程归属；特殊工程可指定其他项目组">
+              <a-option v-for="g in pgOptions" :key="g.value" :value="g.value">
+                {{ g.label }}
+              </a-option>
+            </a-select>
+            <div class="text-muted" style="margin-top: 4px; font-size: 12px">
+              只改缺陷归属，不改工程；重新验证仍按原仓库拉代码。
+            </div>
           </a-form-item>
           <a-form-item label="说明（可选）">
             <a-input v-model="transferRemark" placeholder="写入流转记录" allow-clear />
@@ -1951,10 +2109,10 @@ function shortSha(sha: string | null | undefined): string {
             </a-select>
           </a-form-item>
           <a-form-item label="不处理原因" required>
-            <a-textarea v-model="wontFixForm.reason" placeholder="如：测试环境专用配置，生产不启用" :max-length="200" show-word-limit />
+            <a-textarea v-model="wontFixForm.reason" placeholder="如：测试环境专用配置，生产不启用" :max-length="2000" show-word-limit :auto-size="{ minRows: 3 }" />
           </a-form-item>
           <a-form-item label="影响说明">
-            <a-textarea v-model="wontFixForm.impact_note" placeholder="说明该问题不处理的影响范围" :max-length="200" show-word-limit />
+            <a-textarea v-model="wontFixForm.impact_note" placeholder="说明该问题不处理的影响范围" :max-length="1000" show-word-limit :auto-size="{ minRows: 2 }" />
           </a-form-item>
           <a-form-item label="同步白名单">
             <a-checkbox v-model="wontFixForm.sync_whitelist">

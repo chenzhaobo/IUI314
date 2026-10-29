@@ -223,6 +223,26 @@ const decisionText = computed(() => (decideForm.value.decision === 'approved' ? 
       :ok-loading="decideLoading"
       @ok="submitDecide"
     >
+      <div v-if="decideTargets.length === 1" class="approval-detail">
+        <div><b>{{ decideTargets[0].defect_code || '-' }} · {{ decideTargets[0].issue_title }}</b></div>
+        <div class="text-muted">
+          {{ decideTargets[0].project_group_name || '-' }} / {{ decideTargets[0].product_domain || '-' }} ·
+          申请人 {{ decideTargets[0].requester_name }} ·
+          {{ formatTime(decideTargets[0].created_at) }}
+        </div>
+        <div style="margin-top: 8px; white-space: pre-wrap">
+          <b>不处理原因：</b>{{ decideTargets[0].reason }}
+        </div>
+        <div v-if="decideTargets[0].impact_note" style="white-space: pre-wrap">
+          <b>影响说明：</b>{{ decideTargets[0].impact_note }}
+        </div>
+        <div v-if="decideTargets[0].evidence" style="white-space: pre-wrap">
+          <b>补充证据：</b>{{ decideTargets[0].evidence }}
+        </div>
+      </div>
+      <div v-else class="text-muted" style="margin-bottom: 12px">
+        本次将批量处理 {{ decideTargets.length }} 条不处理申请，请确认审批决定。
+      </div>
       <a-form :model="decideForm" layout="vertical">
         <a-form-item label="审批决定" required>
           <a-radio-group v-model="decideForm.decision">

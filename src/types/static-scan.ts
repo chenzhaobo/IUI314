@@ -930,6 +930,9 @@ export interface ScanIssueRow {
   nofix_approval_id?: string | null
   nofix_requested_at?: string | null
   nofix_decided_at?: string | null
+  /** 缺陷归属项目组（转交时可覆盖，优先于仓库映射） */
+  project_group_id?: string | null
+  project_group_name?: string | null
 }
 
 export interface ScanIssuePage {
