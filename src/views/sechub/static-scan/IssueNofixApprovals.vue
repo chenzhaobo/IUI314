@@ -246,9 +246,9 @@ const decisionText = computed(() => (decideForm.value.decision === 'approved' ? 
     <a-modal
       v-model:visible="decideVisible"
       :title="`${decisionText}不处理申请（${decideTargets.length} 条）`"
-      width="min(1360px, 92vw)"
+      fullscreen
       :ok-loading="decideLoading"
-      :body-style="{ padding: '12px', height: 'calc(86vh - 140px)', minHeight: '520px', overflow: 'hidden' }"
+      :body-style="{ padding: '12px', flex: '1 1 auto', minHeight: 0, overflow: 'hidden' }"
       @ok="submitDecide"
     >
       <div style="display: flex; gap: 16px; height: 100%; min-height: 0">

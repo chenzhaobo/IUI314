@@ -2068,10 +2068,10 @@ function shortSha(sha: string | null | undefined): string {
       <a-modal
         v-model:visible="reviewVisible"
         title="审批不处理申请"
-        width="min(1360px, 92vw)"
-        :body-style="{ padding: '12px', height: 'calc(86vh - 120px)', minHeight: '520px', overflow: 'hidden' }"
+        fullscreen
+        :body-style="{ padding: '12px', flex: '1 1 auto', minHeight: 0, overflow: 'hidden' }"
       >
-        <a-spin :loading="reviewLoading" style="width: 100%">
+        <div v-if="reviewLoading" style="padding: 24px">加载中…</div>
           <template v-if="reviewRow">
           <div style="display: flex; gap: 16px; align-items: stretch; height: 100%; min-height: 0">
           <div style="flex: 1 1 56%; min-width: 0; height: 100%; overflow-y: auto; overflow-x: hidden; border-right: 1px solid var(--color-border-2); padding-right: 12px">
@@ -2102,7 +2102,6 @@ function shortSha(sha: string | null | undefined): string {
           </div>
           </div>
           </template>
-        </a-spin>
         <template #footer>
           <a-space>
             <a-button @click="reviewVisible = false">
