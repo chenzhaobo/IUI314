@@ -247,7 +247,7 @@ const decisionText = computed(() => (decideForm.value.decision === 'approved' ? 
       v-model:visible="decideVisible"
       :title="`${decisionText}不处理申请（${decideTargets.length} 条）`"
       fullscreen
-      :ok-loading="decideLoading"
+      :footer="false"
       :body-style="{ padding: '12px', flex: '1 1 auto', minHeight: 0, overflow: 'hidden' }"
       @ok="submitDecide"
     >
@@ -257,7 +257,7 @@ const decisionText = computed(() => (decideForm.value.decision === 'approved' ? 
           <MdPreview v-if="decideReport" :model-value="decideReport" />
           <a-empty v-else description="该缺陷没有 AI 报告" />
         </div>
-        <div style="flex: 1 1 45%; min-width: 0; height: 100%; overflow-y: auto; overflow-x: hidden">
+        <div style="flex: 1 1 45%; min-width: 0; height: 100%; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column">
           <div v-if="decideTargets.length === 1" class="approval-detail">
             <div><b>{{ decideTargets[0].defect_code || '-' }} · {{ decideTargets[0].issue_title }}</b></div>
             <div class="text-muted">
@@ -268,13 +268,13 @@ const decisionText = computed(() => (decideForm.value.decision === 'approved' ? 
             <div style="margin-top: 8px">
               <b>原因分类：</b>{{ decideTargets[0].reason_code ? (reasonLabelMap[decideTargets[0].reason_code] ?? decideTargets[0].reason_code) : '未指定' }}
             </div>
-            <div style="white-space: pre-wrap">
+            <div class="nofix-long-text">
               <b>不处理原因：</b>{{ decideTargets[0].reason }}
             </div>
-            <div v-if="decideTargets[0].impact_note" style="white-space: pre-wrap">
+            <div v-if="decideTargets[0].impact_note" class="nofix-long-text">
               <b>影响说明：</b>{{ decideTargets[0].impact_note }}
             </div>
-            <div v-if="decideTargets[0].evidence" style="white-space: pre-wrap">
+            <div v-if="decideTargets[0].evidence" class="nofix-long-text">
               <b>补充证据：</b>{{ decideTargets[0].evidence }}
             </div>
           </div>
@@ -293,10 +293,21 @@ const decisionText = computed(() => (decideForm.value.decision === 'approved' ? 
               </a-radio-group>
             </a-form-item>
             <a-form-item label="审批意见（必填）">
-              <a-textarea v-model="decideForm.comment" :auto-size="{ minRows: 3 }" :max-length="500" show-word-limit />
+              <a-textarea v-model="decideForm.comment" :auto-size="{ minRows: 4, maxRows: 10 }" :max-length="500" show-word-limit />
             </a-form-item>
             <div v-if="decideTargets.some(row => row.requester_id === myUserId)" class="text-muted">
               其中包含本人提交的申请（自审），允许直接审批。
+            </div>
+            <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px">
+              <a-button @click="decideVisible = false">
+                取消
+              </a-button>
+              <a-button status="danger" :loading="decideLoading" @click="decideForm.decision = 'rejected'; submitDecide()">
+                驳回
+              </a-button>
+              <a-button type="primary" :loading="decideLoading" @click="decideForm.decision = 'approved'; submitDecide()">
+                同意
+              </a-button>
             </div>
           </a-form>
         </div>
@@ -304,3 +315,16 @@ const decisionText = computed(() => (decideForm.value.decision === 'approved' ? 
     </a-modal>
   </div>
 </template>
+
+<style scoped>
+/* 2000 字不处理原因：必须换行，不能把右栏撑穿到左栏 */
+.nofix-long-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-height: 28vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  margin-top: 4px;
+}
+</style>

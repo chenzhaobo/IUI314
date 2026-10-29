@@ -926,6 +926,23 @@ function openApprovalForRow(row: ScanIssueRow) {
   void openApprovalById(row.nofix_approval_id)
 }
 
+function onApprovalClick() {
+  if (selectedIds.value.length > 1) {
+    Message.warning('审批不支持批量，请只勾选一条缺陷')
+    return
+  }
+  if (selectedIds.value.length === 1) {
+    const row = selectedRows.value[0]
+    if (row?.nofix_approval_state === 'pending' && row.nofix_approval_id) {
+      openApprovalForRow(row)
+    } else {
+      Message.info('该缺陷没有待审批的不处理申请')
+    }
+    return
+  }
+  void openNextApproval()
+}
+
 async function openNextApproval() {
   if (!canApproveNofix.value) {
     Message.warning('当前账号没有不处理审批权限')
@@ -1749,22 +1766,10 @@ function shortSha(sha: string | null | undefined): string {
             <template #title>
               <div class="defect-toolbar">
                 <a-space>
-                  <!-- 补偿匹配白名单：拿白名单里的指纹回头匹配待处理缺陷，把漏标的补上。
-                 白名单来源是「标记不处理」时勾选的「同步白名单」 -->
-                  <a-tooltip content="用白名单里的指纹匹配待处理缺陷，命中的自动标记不处理" mini>
-                    <a-button type="outline" status="warning" :loading="whitelistBusy" @click="compensateWhitelist">
-                      补偿匹配白名单
-                    </a-button>
-                  </a-tooltip>
                   <!-- 转交：选项目组 → 从该组成员里选处理人（与性能问题列表同形态） -->
                   <a-button type="primary" :disabled="!selectedIds.length" @click="openTransferModal">
                     转交
                   </a-button>
-                  <a-tooltip :content="canApproveNofix ? '逐条审批自己负责的不处理申请' : '当前账号没有不处理审批权限（需在项目组成员里配置领域架构师/总监）'" mini>
-                    <a-button type="outline" status="warning" :disabled="!canApproveNofix" @click="openNextApproval">
-                      审批
-                    </a-button>
-                  </a-tooltip>
                   <!-- 处理：状态流转统一入口（不处理需填原因，走弹窗） -->
                   <a-dropdown :disabled="!selectedIds.length" @select="onProcessSelect">
                     <a-button type="primary" :disabled="!selectedIds.length" :loading="processLoading">
@@ -1779,6 +1784,11 @@ function shortSha(sha: string | null | undefined): string {
                       </a-doption>
                     </template>
                   </a-dropdown>
+                  <a-tooltip :content="canApproveNofix ? '逐条审批自己负责的不处理申请' : '当前账号没有不处理审批权限（需在项目组成员里配置领域架构师/总监）'" mini>
+                    <a-button type="outline" status="warning" :disabled="!canApproveNofix" @click="onApprovalClick">
+                      审批
+                    </a-button>
+                  </a-tooltip>
                   <a-button status="warning" :disabled="!selectedIds.length" :loading="batchVerifyLoading" @click="openVerifyDialog">
                     重新验证
                   </a-button>
@@ -1803,6 +1813,13 @@ function shortSha(sha: string | null | undefined): string {
                   <a-button type="outline" @click="downloadImportTemplate">
                     下载模板
                   </a-button>
+                  <!-- 补偿匹配白名单：拿白名单里的指纹回头匹配待处理缺陷，把漏标的补上。
+                 白名单来源是「标记不处理」时勾选的「同步白名单」 -->
+                  <a-tooltip content="用白名单里的指纹匹配待处理缺陷，命中的自动标记不处理" mini>
+                    <a-button type="outline" status="warning" :loading="whitelistBusy" @click="compensateWhitelist">
+                      补偿匹配白名单
+                    </a-button>
+                  </a-tooltip>
                   <span v-if="selectedIds.length" class="selected-hint">已选 {{ selectedIds.length }} 条</span>
                 </a-space>
                 <!-- 最右：只看我负责的（默认开）。负责人是认领/转交记下的名字 -->
@@ -2069,6 +2086,7 @@ function shortSha(sha: string | null | undefined): string {
         v-model:visible="reviewVisible"
         title="审批不处理申请"
         fullscreen
+        :footer="false"
         :body-style="{ padding: '12px', flex: '1 1 auto', minHeight: 0, overflow: 'hidden' }"
       >
         <div v-if="reviewLoading" style="padding: 24px">加载中…</div>
@@ -2079,7 +2097,7 @@ function shortSha(sha: string | null | undefined): string {
             <MdPreview v-if="reviewRow.ai_detail_report" :model-value="reviewRow.ai_detail_report" />
             <a-empty v-else description="该缺陷没有 AI 报告" />
           </div>
-          <div style="flex: 1 1 44%; min-width: 0; height: 100%; overflow-y: auto; overflow-x: hidden">
+          <div style="flex: 1 1 44%; min-width: 0; height: 100%; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column">
             <a-descriptions :column="2" size="small" bordered>
               <a-descriptions-item label="缺陷编号">{{ reviewRow.defect_code || '-' }}</a-descriptions-item>
               <a-descriptions-item label="项目组">{{ reviewRow.project_group_name || '-' }}</a-descriptions-item>
@@ -2092,35 +2110,33 @@ function shortSha(sha: string | null | undefined): string {
             <a-divider style="margin: 12px 0" />
             <div class="approval-reason-block">
               <div><b>原因分类：</b>{{ reviewRow.reason_code ? (wontFixReasonLabelMap[reviewRow.reason_code] ?? reviewRow.reason_code) : '未指定' }}</div>
-              <div style="white-space: pre-wrap"><b>不处理原因：</b>{{ reviewRow.reason }}</div>
-              <div v-if="reviewRow.impact_note" style="white-space: pre-wrap"><b>影响说明：</b>{{ reviewRow.impact_note }}</div>
-              <div v-if="reviewRow.evidence" style="white-space: pre-wrap"><b>补充证据：</b>{{ reviewRow.evidence }}</div>
+              <div class="nofix-long-text"><b>不处理原因：</b>{{ reviewRow.reason }}</div>
+              <div v-if="reviewRow.impact_note" class="nofix-long-text"><b>影响说明：</b>{{ reviewRow.impact_note }}</div>
+              <div v-if="reviewRow.evidence" class="nofix-long-text"><b>补充证据：</b>{{ reviewRow.evidence }}</div>
             </div>
             <a-form-item label="审批意见（必填）" style="margin-top: 12px">
-              <a-textarea v-model="reviewComment" :auto-size="{ minRows: 3 }" :max-length="500" show-word-limit />
+              <a-textarea v-model="reviewComment" :auto-size="{ minRows: 4, maxRows: 10 }" :max-length="500" show-word-limit />
             </a-form-item>
+            <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px">
+              <a-button @click="reviewVisible = false">
+                关闭
+              </a-button>
+              <a-button status="danger" :loading="reviewSubmitting" @click="submitApproval('rejected', false)">
+                驳回
+              </a-button>
+              <a-button status="danger" type="outline" :loading="reviewSubmitting" @click="submitApproval('rejected', true)">
+                驳回并下一条
+              </a-button>
+              <a-button type="primary" :loading="reviewSubmitting" @click="submitApproval('approved', false)">
+                同意
+              </a-button>
+              <a-button type="primary" status="success" :loading="reviewSubmitting" @click="submitApproval('approved', true)">
+                同意并下一条
+              </a-button>
+            </div>
           </div>
           </div>
           </template>
-        <template #footer>
-          <a-space>
-            <a-button @click="reviewVisible = false">
-              关闭
-            </a-button>
-            <a-button status="danger" :loading="reviewSubmitting" @click="submitApproval('rejected', false)">
-              驳回
-            </a-button>
-            <a-button status="danger" type="outline" :loading="reviewSubmitting" @click="submitApproval('rejected', true)">
-              驳回并下一条
-            </a-button>
-            <a-button type="primary" :loading="reviewSubmitting" @click="submitApproval('approved', false)">
-              同意
-            </a-button>
-            <a-button type="primary" status="success" :loading="reviewSubmitting" @click="submitApproval('approved', true)">
-              同意并下一条
-            </a-button>
-          </a-space>
-        </template>
       </a-modal>
 
       <!-- 转交弹窗：处理人从系统用户里选（缺陷本身没有项目组字段，不在此改归属） -->
@@ -2662,4 +2678,15 @@ function shortSha(sha: string | null | undefined): string {
 /* 状态悬浮：摘要按换行渲染（statusTooltip 用 \n 分行）；复核报告入口在深色气泡上用白字下划线 */
 .status-tip { white-space: pre-line; }
 .tip-report-link { margin-top: 6px; color: #fff; font-weight: 600; text-decoration: underline; cursor: pointer; }
+
+/* 2000 字不处理原因：必须换行，不能把右栏撑穿到左栏 */
+.nofix-long-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-height: 28vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  margin-top: 4px;
+}
 </style>
