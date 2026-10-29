@@ -441,6 +441,8 @@ export enum ApiSecScan {
   apiAgentConfig = '/sechub/scan/api-agent/config',
   // 用例人工评审（POST { review_status, review_comment }）
   caseReview = '/sechub/scan/cases/{id}/review',
+  // 用例批量评审（POST { case_ids, verdict, comment? }；1–500 条，驳回时 comment 必填）
+  caseBatchReview = '/sechub/scan/cases/batch-review',
   // 环境应用凭据（GET ?env_id= / POST 保存 / POST test 连接自检）
   envCredential = '/sechub/scan/env-credentials',
   envCredentialTest = '/sechub/scan/env-credentials/test',

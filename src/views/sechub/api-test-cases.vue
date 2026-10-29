@@ -25,6 +25,7 @@ import ApiCaseTable from './components/ApiCaseTable.vue'
 import ApiRunResultsDrawer from './components/ApiRunResultsDrawer.vue'
 import ApiScriptCaseDrawer from './components/ApiScriptCaseDrawer.vue'
 import { ASSERTION_OPTIONS, TEST_TYPE_LABELS } from './components/apiTestShared'
+import CaseBatchReviewBar from './components/CaseBatchReviewBar.vue'
 
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
 // eslint-disable-next-line vue/component-definition-name-casing
@@ -231,6 +232,12 @@ function handleSelectionChange(keys: (string | number)[]) {
   selectedKeys.value = keys
 }
 
+/** 批量通过 / 驳回完成：清空勾选并刷新（评审状态与 API 聚合都变了） */
+function onBatchReviewed() {
+  selectedKeys.value = []
+  fetchList()
+}
+
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
@@ -369,6 +376,7 @@ function runBatch() {
         </a-tag>
         <span v-else-if="scopeHint" class="scope-hint">{{ scopeHint }}</span>
         <div class="toolbar-spacer" />
+        <CaseBatchReviewBar :selected-ids="selectedKeys.map(String)" @done="onBatchReviewed" />
         <a-button :loading="trialRunning" :disabled="!selectedKeys.length" @click="runBatch">
           批量执行{{ selectedKeys.length ? `（${selectedKeys.length}）` : '' }}
         </a-button>

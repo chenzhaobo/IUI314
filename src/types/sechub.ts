@@ -217,3 +217,25 @@ export interface secUserStory extends operateInfo {
 export interface secDeleteReq {
   ids: string[]
 }
+
+// ── 用例批量评审（POST /sechub/scan/cases/batch-review，见 D04） ──
+export type CaseBatchVerdict = 'approved' | 'rejected'
+
+export interface CaseBatchReviewReq {
+  case_ids: string[]
+  verdict: CaseBatchVerdict
+  /** verdict = rejected 时必填 */
+  comment?: string
+}
+
+export interface CaseBatchSkip {
+  id: string
+  reason: string
+}
+
+export interface CaseBatchReviewResult {
+  verdict: string
+  updated: number
+  skipped: CaseBatchSkip[]
+  recomputed_apis: number
+}
