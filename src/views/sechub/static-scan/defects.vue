@@ -1698,9 +1698,11 @@ function shortSha(sha: string | null | undefined): string {
                   <a-button type="primary" :disabled="!selectedIds.length" @click="openTransferModal">
                     转交
                   </a-button>
-                  <a-button v-if="canApproveNofix" type="outline" status="warning" @click="openNextApproval">
-                    审批
-                  </a-button>
+                  <a-tooltip :content="canApproveNofix ? '逐条审批自己负责的不处理申请' : '当前账号没有不处理审批权限（需在项目组成员里配置领域架构师/总监）'" mini>
+                    <a-button type="outline" status="warning" :disabled="!canApproveNofix" @click="openNextApproval">
+                      审批
+                    </a-button>
+                  </a-tooltip>
                   <!-- 处理：状态流转统一入口（不处理需填原因，走弹窗） -->
                   <a-dropdown :disabled="!selectedIds.length" @select="onProcessSelect">
                     <a-button type="primary" :disabled="!selectedIds.length" :loading="processLoading">
