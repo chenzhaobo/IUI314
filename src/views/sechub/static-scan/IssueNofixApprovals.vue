@@ -246,18 +246,18 @@ const decisionText = computed(() => (decideForm.value.decision === 'approved' ? 
     <a-modal
       v-model:visible="decideVisible"
       :title="`${decisionText}不处理申请（${decideTargets.length} 条）`"
-      width="1120px"
+      width="min(1360px, 92vw)"
       :ok-loading="decideLoading"
-      :body-style="{ padding: '12px' }"
+      :body-style="{ padding: '12px', height: 'calc(86vh - 140px)', minHeight: '520px', overflow: 'hidden' }"
       @ok="submitDecide"
     >
-      <div style="display: flex; gap: 16px; min-height: 480px">
-        <div v-if="decideTargets.length === 1" style="flex: 1 1 55%; min-width: 0; max-height: 70vh; overflow: auto; border-right: 1px solid var(--color-border-2); padding-right: 12px">
-          <div style="font-weight: 600; margin-bottom: 8px">缺陷报告</div>
+      <div style="display: flex; gap: 16px; height: 100%; min-height: 0">
+        <div v-if="decideTargets.length === 1" style="flex: 1 1 55%; min-width: 0; height: 100%; overflow-y: auto; overflow-x: hidden; border-right: 1px solid var(--color-border-2); padding-right: 12px">
+          <div style="font-weight: 600; margin-bottom: 8px; position: sticky; top: 0; background: var(--color-bg-2); z-index: 1">缺陷报告（可滚动）</div>
           <MdPreview v-if="decideReport" :model-value="decideReport" />
           <a-empty v-else description="该缺陷没有 AI 报告" />
         </div>
-        <div style="flex: 1 1 45%; min-width: 0; max-height: 70vh; overflow: auto">
+        <div style="flex: 1 1 45%; min-width: 0; height: 100%; overflow-y: auto; overflow-x: hidden">
           <div v-if="decideTargets.length === 1" class="approval-detail">
             <div><b>{{ decideTargets[0].defect_code || '-' }} · {{ decideTargets[0].issue_title }}</b></div>
             <div class="text-muted">

@@ -2065,16 +2065,21 @@ function shortSha(sha: string | null | undefined): string {
       </a-modal>
 
       <!-- 不处理审批：展示完整理由，可逐条同意/驳回并自动带出下一条 -->
-      <a-modal v-model:visible="reviewVisible" title="审批不处理申请" width="1180px" :body-style="{ padding: '12px' }">
+      <a-modal
+        v-model:visible="reviewVisible"
+        title="审批不处理申请"
+        width="min(1360px, 92vw)"
+        :body-style="{ padding: '12px', height: 'calc(86vh - 120px)', minHeight: '520px', overflow: 'hidden' }"
+      >
         <a-spin :loading="reviewLoading" style="width: 100%">
           <template v-if="reviewRow">
-          <div style="display: flex; gap: 16px; align-items: stretch; min-height: 520px">
-          <div style="flex: 1 1 56%; min-width: 0; max-height: 72vh; overflow: auto; border-right: 1px solid var(--color-border-2); padding-right: 12px">
-            <div style="font-weight: 600; margin-bottom: 8px">缺陷报告</div>
+          <div style="display: flex; gap: 16px; align-items: stretch; height: 100%; min-height: 0">
+          <div style="flex: 1 1 56%; min-width: 0; height: 100%; overflow-y: auto; overflow-x: hidden; border-right: 1px solid var(--color-border-2); padding-right: 12px">
+            <div style="font-weight: 600; margin-bottom: 8px; position: sticky; top: 0; background: var(--color-bg-2); z-index: 1">缺陷报告（可滚动）</div>
             <MdPreview v-if="reviewRow.ai_detail_report" :model-value="reviewRow.ai_detail_report" />
             <a-empty v-else description="该缺陷没有 AI 报告" />
           </div>
-          <div style="flex: 1 1 44%; min-width: 0; max-height: 72vh; overflow: auto">
+          <div style="flex: 1 1 44%; min-width: 0; height: 100%; overflow-y: auto; overflow-x: hidden">
             <a-descriptions :column="2" size="small" bordered>
               <a-descriptions-item label="缺陷编号">{{ reviewRow.defect_code || '-' }}</a-descriptions-item>
               <a-descriptions-item label="项目组">{{ reviewRow.project_group_name || '-' }}</a-descriptions-item>
