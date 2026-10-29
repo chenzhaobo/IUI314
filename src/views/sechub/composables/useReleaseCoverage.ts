@@ -14,9 +14,10 @@ import type {
   ReleaseIteration,
 } from '@/types/sechub-release'
 import { computed, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 
 import { fetchCoverage, fetchIterations } from '../services/releaseService'
-import { apiSelectionKey, groupSelectedApis, isSelectable } from './releaseCoverageRules'
+import { apiSelectionKey, COVERAGE_STATUS_OPTIONS, groupSelectedApis, isSelectable } from './releaseCoverageRules'
 
 export interface ReleaseFilters {
   projectGroup: string
@@ -25,7 +26,13 @@ export interface ReleaseFilters {
   keyword: string
 }
 
+/** query 里的 status 只接受状态下拉里的取值 */
+function isCoverageStatusFilter(value: string): value is CoverageStatusFilter {
+  return COVERAGE_STATUS_OPTIONS.some(option => option.value === value)
+}
+
 export function useReleaseCoverage() {
+  const route = useRoute()
   const loading = ref(false)
   const iterations = ref<ReleaseIteration[]>([])
   const iterationId = ref('')
@@ -110,8 +117,24 @@ export function useReleaseCoverage() {
   }
 
   async function init() {
+    applyRouteFilters()
     await loadIterations()
     await loadCoverage()
+  }
+
+  /**
+   * 从路由 query 预填筛选（质量看板的「新增未覆盖」「项目组」跳转会带过来）。
+   *
+   * 只在 init 读一次：进入页面时覆盖筛选，之后用户在本页的修改不受地址栏影响。
+   */
+  function applyRouteFilters() {
+    const { tag, status, project_group: projectGroup } = route.query
+    if (tag === 'new' || tag === 'changed')
+      filters.tag = tag
+    if (typeof status === 'string' && isCoverageStatusFilter(status))
+      filters.status = status
+    if (typeof projectGroup === 'string' && projectGroup.trim())
+      filters.projectGroup = projectGroup.trim()
   }
 
   function clearSelection() {

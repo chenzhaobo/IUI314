@@ -81,6 +81,15 @@ export interface CoverageCounts {
   new_covered: number
 }
 
+/** 有效用例最新有效判定计数（loader::VerdictCounts） */
+export interface ReleaseVerdictCounts {
+  pass: number
+  fail: number
+  review: number
+  blocked: number
+  error: number
+}
+
 /** 单个接口的覆盖事实 */
 export interface ReleaseApi {
   api_path: string
@@ -107,6 +116,23 @@ export interface ReleaseApi {
   test_types: string[]
   /** RFC3339 */
   last_tested_at: string | null
+  /** 本迭代执行过的有效用例数 */
+  executed_cnt: number
+  verdicts: ReleaseVerdictCounts
+  /** 有效判定 FAIL 且未复核的用例数 */
+  unreviewed_fail_cnt: number
+  /** 每个 BLOCKED 有效用例的阻塞归类（去重排序） */
+  block_reasons: string[]
+  ai_case_cnt: number
+  manual_case_cnt: number
+  /** 有效用例的 test_type 是否同时覆盖 base / perm / idor */
+  has_minimal_set: boolean
+  /** 游客可访问或高风险开发模式 */
+  high_risk: boolean
+  /** 写类接口 */
+  write_like: boolean
+  /** 有效用例最新结果 HTTP 状态为 404 / 405 */
+  contract_mismatch: boolean
 }
 
 /** 项目组统计行：项目组字段 + 平铺的计数 */
@@ -505,4 +531,326 @@ export interface WaiverRevokeReq {
 export interface WaiverRevokeResult {
   /** 退回 open 的检查项数 */
   affected: number
+}
+
+// ── 质量看板 / 发版检查 / 发版报告（D18） ─────────────
+// 以 `service/src/sechub/release/{dashboard,metrics,snapshot,check}.rs` 与
+// `api/src/sechub/release.rs` 的实际出参为准：比率均为 0~1 的小数（4 位），
+// 分母为 0 时为 null；计数类字段没有 null。
+
+/** 发版结论（metrics::Conclusion 的 serde 名） */
+export type ReleaseConclusion = 'blocked' | 'risky' | 'passed'
+
+/** 结论触发项（Blocked 在前，最多 10 条） */
+export interface ReleaseTrigger {
+  level: ReleaseConclusion
+  code: string
+  text: string
+}
+
+/** 范围指标（metrics::ScopeMetrics） */
+export interface ReleaseScopeMetrics {
+  accessible: number
+  new_total: number
+  changed_total: number
+  removed_total: number
+  /** test_type → 接口数 */
+  test_type_dist: Record<string, number>
+}
+
+/** 覆盖指标（metrics::CoverageMetrics） */
+export interface ReleaseCoverageMetrics {
+  covered: number
+  coverage_rate: number | null
+  new_covered: number
+  new_coverage_rate: number | null
+  high_risk_total: number
+  high_risk_covered: number
+  high_risk_rate: number | null
+  minimal_complete: number
+  minimal_rate: number | null
+  new_minimal_complete: number
+  new_minimal_rate: number | null
+  pending_review: number
+  exempt: number
+  /** 新增接口中的免测数（新增覆盖率分母扣除） */
+  new_exempt: number
+}
+
+/** 执行指标（metrics::ExecutionMetrics） */
+export interface ReleaseExecutionMetrics {
+  valid_cases: number
+  executed: number
+  exec_rate: number | null
+  verdicts: ReleaseVerdictCounts
+  pass_rate: number | null
+  block_rate: number | null
+  pending_review: number
+  api_executed: number
+  api_passed: number
+  api_pass_rate: number | null
+  /** 阻塞归类 → 阻塞接口数 */
+  block_reasons: Record<string, number>
+}
+
+/** 问题输入（metrics::IssueInputs） */
+export interface ReleaseIssueInputs {
+  open_defects: number
+  open_high_defects: number
+  new_defects: number
+  legacy_defects: number
+  new_high_config_open: number
+  legacy_high_config_open: number
+  config_open: number
+  config_waived: number
+  config_new: number
+  config_fixed: number
+}
+
+/** 目标线比较项（metrics::TargetCheck） */
+export type ReleaseTargetKey
+  = | 'new_coverage'
+    | 'open_high_defects'
+    | 'new_high_config'
+    | 'exec_rate'
+    | 'new_minimal'
+    | 'block_rate'
+
+export interface ReleaseTargetCheck {
+  key: ReleaseTargetKey
+  label: string
+  actual: number | null
+  target: number | null
+  /** null = 未设目标线或实际值为 null（不判达标） */
+  met: boolean | null
+}
+
+/** 项目组矩阵行（metrics::GroupRow） */
+export interface ReleaseGroupRow {
+  project_group_code: string
+  project_group_name: string
+  scope: ReleaseScopeMetrics
+  coverage: ReleaseCoverageMetrics
+  execution: ReleaseExecutionMetrics
+  issues: ReleaseIssueInputs
+  conclusion: ReleaseConclusion
+}
+
+/** AI 投入与效率（dashboard::AiMetrics） */
+export interface ReleaseAiMetrics {
+  dispatches: number
+  ai_cases_created: number
+  ai_cases_approved: number
+  ai_approve_rate: number | null
+  ai_valid_cases: number
+  manual_valid_cases: number
+  agent_duration_ms: number
+}
+
+/** `GET /sechub/release/dashboard` */
+export interface ReleaseDashboardData {
+  iteration: ReleaseIterationScope
+  env: ReleaseEnv
+  product_domains: string[]
+  conclusion: ReleaseConclusion
+  triggers: ReleaseTrigger[]
+  scope: ReleaseScopeMetrics
+  coverage: ReleaseCoverageMetrics
+  execution: ReleaseExecutionMetrics
+  issues: ReleaseIssueInputs
+  targets: ReleaseTargetCheck[]
+  groups: ReleaseGroupRow[]
+  /** 未覆盖 / 待评审，已按新增 > 高风险 > 变更 > 路径排序，最多 20 条 */
+  uncovered_top: ReleaseApi[]
+  ai: ReleaseAiMetrics
+  /** RFC3339 */
+  generated_at: string
+}
+
+/** 看板查询（空值不下发） */
+export interface ReleaseDashboardQuery {
+  iteration_id?: string
+  env_id?: string
+  product_domains?: string
+}
+
+/** 趋势点（snapshot::trend 的 list 项） */
+export interface ReleaseTrendPoint {
+  iteration_id: string
+  iteration_name: string
+  is_final: boolean
+  conclusion: string | null
+  coverage_rate: number | null
+  new_coverage_rate: number | null
+  pass_rate: number | null
+  new_defects: number
+  high_config_open: number
+}
+
+/** `GET /sechub/release/trend` */
+export interface ReleaseTrendResponse {
+  env_id: string
+  product_line: string
+  /** 按迭代开始日期升序：当前迭代 + 最多 6 个更早迭代 */
+  list: ReleaseTrendPoint[]
+}
+
+/** 趋势查询 */
+export interface ReleaseTrendQuery {
+  iteration_id?: string
+  env_id?: string
+}
+
+/** 快照列表行（snapshot::SnapshotListRow，不含 metrics_json / report_md） */
+export interface ReleaseSnapshotRow {
+  id: string
+  iteration_id: string
+  iteration_code: string | null
+  iteration_name: string | null
+  product_line: string
+  env_id: string
+  product_domains: string
+  /** blocked / risky / passed */
+  conclusion: string
+  /** '1' 已定稿 / '0' 未定稿 */
+  is_final: string
+  finalized_by: string | null
+  /** RFC3339 */
+  finalized_at: string | null
+  generated_by: string | null
+  /** RFC3339 */
+  created_at: string | null
+}
+
+/** `GET /sechub/release/snapshots` */
+export interface ReleaseSnapshotListResponse {
+  total: number
+  page_num: number
+  page_size: number
+  list: ReleaseSnapshotRow[]
+}
+
+/** 快照列表查询 */
+export interface ReleaseSnapshotQuery {
+  iteration_id?: string
+  page_num?: number
+  page_size?: number
+}
+
+/** `POST /sechub/release/snapshots` 请求体 */
+export interface ReleaseSnapshotGenerateReq {
+  iteration_id?: string
+  env_id?: string
+}
+
+/** `POST /sechub/release/snapshots` 响应 */
+export interface ReleaseSnapshotGenerateResult {
+  id: string
+  conclusion: string
+}
+
+/** `GET /sechub/release/snapshots/{id}`：整行（含 metrics_json / report_md） */
+export interface ReleaseSnapshotDetail extends ReleaseSnapshotRow {
+  /** 生成时的 DashboardData（页面不渲染） */
+  metrics_json: unknown
+  report_md: string | null
+  unfinalize_reason: string | null
+  /** RFC3339 */
+  updated_at: string | null
+}
+
+/** 定稿 / 撤销定稿响应（`{ id, is_final }`） */
+export interface ReleaseSnapshotFinalizeResult {
+  id: string
+  is_final: string
+}
+
+/** `POST /sechub/release/snapshots/{id}/unfinalize` 请求体 */
+export interface ReleaseSnapshotUnfinalizeReq {
+  reason: string
+}
+
+/** 发版回归套件摘要（check::status 的 suite） */
+export interface ReleaseSuiteSummary {
+  id: string
+  suite_code: string
+  name: string
+  schedule_cron: string | null
+  /** '1' 启用 / '0' 停用 */
+  schedule_enabled: string
+}
+
+/** 套件运行（sec_sec_run 实体全字段 + task_name） */
+export interface ReleaseSuiteRun {
+  id: string
+  task_id: string
+  env_id: string | null
+  run_name: string
+  iteration_phase: string | null
+  status: string
+  /** RFC3339 */
+  started_at: string | null
+  /** RFC3339 */
+  finished_at: string | null
+  total_cases: number
+  pass_cnt: number
+  fail_cnt: number
+  review_cnt: number
+  block_cnt: number
+  error_cnt: number
+  new_forms_cnt: number
+  new_buttons_cnt: number
+  new_apis_cnt: number
+  account_overrides: string | null
+  triggered_by: string | null
+  trigger_mode: string
+  create_by: string
+  /** RFC3339 */
+  created_at: string | null
+  task_name: string | null
+}
+
+/** 回归后 AI 复核状态（GET runs/{run_id}/review；从未复核时后端返回 status=none） */
+export interface ReleaseRunReview {
+  /** running / succeeded / failed / timeout；none 表示从未复核 */
+  status: string
+  started_at?: string
+  finished_at?: string
+  error_message?: string | null
+}
+
+/** `POST /sechub/release/runs/{run_id}/review` 响应（受理 running / 无需复核 skipped / 已在跑 message） */
+export interface ReleaseRunReviewStartResult {
+  status?: string
+  /** 本次交给 AI 的结果条数 */
+  candidates?: number
+  skipped?: boolean
+  message?: string
+}
+
+/** `GET /sechub/release/check/status` */
+export interface ReleaseCheckStatusResponse {
+  product_line: string
+  /** 仅在尚未创建套件时返回（无套件时 suite 为 null） */
+  suite_code?: string
+  suite: ReleaseSuiteSummary | null
+  latest_runs: ReleaseSuiteRun[]
+  latest_snapshot: ReleaseSnapshotRow | null
+  /** 汇总复核状态；当前后端固定为 null */
+  review: ReleaseRunReview | null
+}
+
+/** 发版检查查询 / 触发请求体（产品线，缺省星瀚） */
+export interface ReleaseCheckQuery {
+  product_line?: string
+}
+
+/** `POST /sechub/release/check/run` 响应（回归套件触发结果 + 配置检查受理标记） */
+export interface ReleaseCheckRunResult {
+  suite_id: string
+  triggered: number
+  skipped: number
+  runs: Array<{ env_id: string, task_id: string, task_created: boolean, run_id: string }>
+  skipped_envs: Array<{ env_id: string, reason: string }>
+  config_check_started: boolean
 }

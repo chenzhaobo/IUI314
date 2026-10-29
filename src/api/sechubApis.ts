@@ -598,4 +598,16 @@ export enum ApiSecRelease {
   // 白名单：列表 / 新增 / 撤销
   waivers = '/sechub/release/waivers',
   waiverRevoke = '/sechub/release/waivers/{id}/revoke',
+  // 质量看板 / 趋势 / 快照（发版报告）
+  dashboard = '/sechub/release/dashboard',
+  trend = '/sechub/release/trend',
+  snapshots = '/sechub/release/snapshots',
+  snapshotDetail = '/sechub/release/snapshots/{id}',
+  snapshotReport = '/sechub/release/snapshots/{id}/report.md',
+  snapshotFinalize = '/sechub/release/snapshots/{id}/finalize',
+  snapshotUnfinalize = '/sechub/release/snapshots/{id}/unfinalize',
+  // 发版检查（套件 / 一键执行 / 回归后 AI 复核）
+  checkRun = '/sechub/release/check/run',
+  checkStatus = '/sechub/release/check/status',
+  runReview = '/sechub/release/runs/{run_id}/review',
 }
