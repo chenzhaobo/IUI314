@@ -589,4 +589,13 @@ export enum ApiSecRelease {
   defectStatus = '/sechub/release/defects/{id}/status',
   defectsExport = '/sechub/release/defects/export.md',
   confirmDefect = '/sechub/release/results/{result_id}/confirm-defect',
+  // 配置检查：汇总 / 明细 / 变更记录 / 手动执行 / 生成缺陷
+  configSummary = '/sechub/release/config-check/summary',
+  configItems = '/sechub/release/config-check/items',
+  configItemEvents = '/sechub/release/config-check/items/{id}/events',
+  configRun = '/sechub/release/config-check/run',
+  configDefect = '/sechub/release/config-check/defect',
+  // 白名单：列表 / 新增 / 撤销
+  waivers = '/sechub/release/waivers',
+  waiverRevoke = '/sechub/release/waivers/{id}/revoke',
 }
