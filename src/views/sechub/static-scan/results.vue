@@ -774,6 +774,79 @@ async function submitManualVerdict() {
   }
 }
 
+// ===== 批量确认缺陷：大批量人工裁定的快捷入口 =====
+// 单条裁定每次都要算规则效果/联动缺陷，几万条会拖死请求；批量走服务端分块落库，
+// 缺陷由后台任务生成，这里只负责确认范围与理由。
+const bulkManualVisible = ref(false)
+const bulkManualScope = ref<'selected' | 'pending'>('selected')
+const bulkManualReason = ref('')
+const bulkManualBusy = ref(false)
+const bulkPendingTotal = ref<number | null>(null)
+
+async function openBulkManualModal() {
+  bulkManualScope.value = selectedCandidateIds.value.length > 0 ? 'selected' : 'pending'
+  bulkManualReason.value = ''
+  bulkPendingTotal.value = null
+  bulkManualVisible.value = true
+  if (!currentRun.value?.run_id)
+    return
+  try {
+    const params = new URLSearchParams({ run_id: currentRun.value.run_id, ai_status: 'pending', page_num: '1', page_size: '1' })
+    const page = await fetchJson<{ total?: number }>(`${ApiSecPrescan.candidates}?${params.toString()}`)
+    bulkPendingTotal.value = page?.total ?? null
+  }
+  catch {
+    bulkPendingTotal.value = null
+  }
+}
+
+async function submitBulkManualConfirm() {
+  const run = currentRun.value
+  if (!run?.run_id) {
+    Message.warning('请先选择轮次')
+    return
+  }
+  const reason = bulkManualReason.value.trim()
+  if (!reason) {
+    Message.warning('请填写批量裁定理由（会写入每条结论报告）')
+    return
+  }
+  const scope = bulkManualScope.value
+  const ids = selectedCandidateIds.value
+  if (scope === 'selected' && ids.length === 0) {
+    Message.warning('请先勾选候选')
+    return
+  }
+  if (scope === 'pending') {
+    const total = bulkPendingTotal.value ?? 0
+    if (total <= 0) {
+      Message.warning('当前轮次没有待确认候选')
+      return
+    }
+    if (!window.confirm(`将把该轮次全部 ${total} 条待确认候选确认成缺陷，确定继续？`))
+      return
+  }
+  bulkManualBusy.value = true
+  try {
+    const res = await postAction<{ message?: string, confirmed?: number, skipped?: number }>(ApiSecPrescan.manualConfirmBatch, {
+      run_id: run.run_id,
+      candidate_ids: scope === 'selected' ? ids : [],
+      include_all_pending: scope === 'pending',
+      reason,
+    })
+    if (!res)
+      return
+    Message.success(res.message ?? `已确认 ${res.confirmed ?? 0} 条候选`)
+    bulkManualVisible.value = false
+    selectedCandidateIds.value = []
+    await loadCandidates()
+    void loadRuleStats()
+  }
+  finally {
+    bulkManualBusy.value = false
+  }
+}
+
 // ===== 多模型结论对比（展开行，见 ./results/CandidateVerdictHistory.vue）=====
 /** 查看某轮结论对应的报告正文（复用报告弹窗，只替换正文） */
 function viewVerdictReport(row: CandidateDetailRow, v: CandidateVerdictRow) {
@@ -1332,6 +1405,12 @@ watch(() => route.query, (newQ, oldQ) => {
               </template>
               <template #extra>
                 <a-space :size="8">
+                  <!-- 批量确认缺陷：几万条待确认候选一次裁定，结论同步落库、缺陷后台生成 -->
+                  <a-tooltip content="把选中候选（或整轮全部待确认）确认为缺陷；已有结论的不会被覆盖" mini>
+                    <a-button type="primary" status="danger" size="small" :loading="bulkManualBusy" @click="openBulkManualModal">
+                      批量确认缺陷
+                    </a-button>
+                  </a-tooltip>
                   <a-button
                     type="primary"
                     size="small"
@@ -1605,6 +1684,40 @@ watch(() => route.query, (newQ, oldQ) => {
             v-model="manualReason"
             :auto-size="{ minRows: 3, maxRows: 8 }"
             placeholder="为什么这么判？依据或否定的是哪条线索 / 证据（可达性、净化、上下文）——会写入报告留痕"
+          />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <!-- 批量确认缺陷：大批量人工裁定（结论同步落库，缺陷后台生成） -->
+    <a-modal
+      v-model:visible="bulkManualVisible"
+      title="批量确认缺陷"
+      :ok-loading="bulkManualBusy"
+      ok-text="确认"
+      @ok="submitBulkManualConfirm"
+      @cancel="bulkManualVisible = false"
+    >
+      <a-alert type="warning" class="m-b-12px">
+        会把选中的候选（或整轮全部待确认候选）直接<strong>确认为缺陷</strong>，并为每条新增一条「人工裁定」结论；
+        已有 confirmed / rejected 的候选不会被覆盖。缺陷在后台生成，稍后到缺陷列表查看。
+      </a-alert>
+      <a-form :model="{}" layout="vertical">
+        <a-form-item label="处理范围" required>
+          <a-radio-group v-model="bulkManualScope" type="button">
+            <a-radio value="selected">
+              选中的 {{ selectedCandidateIds.length }} 条
+            </a-radio>
+            <a-radio value="pending">
+              全部待确认{{ bulkPendingTotal !== null ? `（${bulkPendingTotal} 条）` : '' }}
+            </a-radio>
+          </a-radio-group>
+        </a-form-item>
+        <a-form-item label="裁定理由" required>
+          <a-textarea
+            v-model="bulkManualReason"
+            :auto-size="{ minRows: 3, maxRows: 8 }"
+            placeholder="写入每条结论的报告留痕，例如：客户已确认这批为真实缺陷，统一提单给开发处理"
           />
         </a-form-item>
       </a-form>
