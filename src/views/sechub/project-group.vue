@@ -248,7 +248,7 @@ async function handleImportSubmit() {
       <template #form-extra="{ isEdit }">
         <a-col v-if="isEdit" :span="24">
           <a-divider orientation="left">项目组人员</a-divider>
-          <a-alert v-if=\"memberCandidateOptions.length === 0\" type=\"warning\" class=\"m-b-12px\">
+          <a-alert v-if="memberCandidateOptions.length === 0" type="warning" class="m-b-12px">
             没有可选人员：请先给用户分配扫描登录角色（KDSCANUSER）。
           </a-alert>
           <div>
@@ -258,7 +258,7 @@ async function handleImportSubmit() {
                 增加人员
               </a-button>
             </div>
-            <a-table :data="memberRows" :loading=\"memberLoading\" :pagination="false" row-key="_key" :scroll="{ y: 320 }">
+            <a-table :data="memberRows" :loading="memberLoading" :pagination="false" row-key="_key" :scroll="{ y: 320 }">
               <a-table-column title="人员" :width="240">
                 <template #cell="{ record }">
                   <a-select v-model="record.user_id" placeholder="选择扫描登录用户" allow-search>
