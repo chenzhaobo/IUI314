@@ -420,14 +420,26 @@ const transferProjectGroup = ref('')
 // 选项接口只返回登录名+昵称、不受菜单权限约束（同 /ai/agent/options 先例）。
 // 值取登录名：负责人要和「谁在操作」对得上（标记已修复只认当前处理人），
 // 昵称会改、也可能重名，只用于展示。
-const { isFetching: transferUsersLoading, data: transferUsersRes, execute: loadTransferUsers } = useGet<any>(ApiSysUser.options, {}, { immediate: false })
-const transferUserOptions = computed(() => {
-  const list = transferUsersRes.value
-  return (Array.isArray(list) ? list : []).map((u: any) => ({
-    value: u.user_name,
-    label: u.user_nickname ? `${u.user_nickname}（${u.user_name}）` : u.user_name,
-  }))
-})
+const transferUsersLoading = ref(false)
+const transferUserOptions = ref<{ value: string, label: string }[]>([])
+let transferSearchTimer: ReturnType<typeof setTimeout> | undefined
+async function searchTransferUsers(keyword = '') {
+  if (transferSearchTimer)
+    clearTimeout(transferSearchTimer)
+  transferSearchTimer = setTimeout(async () => {
+    transferUsersLoading.value = true
+    try {
+      const list = await getAction<any[]>(ApiSysUser.options, { keyword: keyword.trim() })
+      transferUserOptions.value = (Array.isArray(list) ? list : []).map((u: any) => ({
+        value: u.user_name,
+        label: u.user_nickname ? `${u.user_nickname}（${u.user_name}）` : u.user_name,
+      }))
+    }
+    finally {
+      transferUsersLoading.value = false
+    }
+  }, 250)
+}
 
 function openTransferModal() {
   if (!selectedIds.value.length) {
@@ -438,7 +450,7 @@ function openTransferModal() {
   transferRemark.value = ''
   transferProjectGroup.value = selectedRows.value[0]?.project_group_id || ''
   transferVisible.value = true
-  void loadTransferUsers()
+  void searchTransferUsers('')
 }
 
 async function submitTransfer() {
@@ -880,6 +892,7 @@ function nofixStateLabel(state?: string | null) {
 // ===== 不处理审批（领域架构师/总监）：详情 + 逐条同意/驳回 =====
 const { data: capData } = useGet<any>(ApiSecGovernance.me, {}, { immediate: true })
 const canApproveNofix = computed(() => Boolean(capData.value?.can_approve_issue_nofix))
+const capability = computed(() => capData.value ?? {})
 const reviewVisible = ref(false)
 const reviewLoading = ref(false)
 const reviewSubmitting = ref(false)
@@ -919,9 +932,28 @@ async function openNextApproval() {
     return
   }
   const res = await getAction<any>(ApiSecApproval.issueList, { scope: 'mine', status: 'pending', page_num: 1, page_size: 20 })
-  const next = res?.list?.[0]
+  if (res === null) {
+    Message.error('加载待审批列表失败，请稍后重试')
+    return
+  }
+  let next = res.list?.[0]
+  // 兜底：待我审批为空时再看全部待审批，按当前账号覆盖的产品领域过滤，
+  // 避免「明明还有待办却提示没有」。
   if (!next) {
-    Message.info('没有待审批的不处理申请')
+    const all = await getAction<any>(ApiSecApproval.issueList, { status: 'pending', page_num: 1, page_size: 50 })
+    if (all === null) {
+      Message.error('加载待审批列表失败，请稍后重试')
+      return
+    }
+    if (capability.value.is_director) {
+      next = all.list?.[0]
+    } else {
+      const domains: string[] = capability.value.domain_architect_product_domains || []
+      next = (all.list || []).find((row: any) => row.product_domain && domains.includes(row.product_domain))
+    }
+  }
+  if (!next) {
+    Message.info('当前没有你负责的待审批申请')
     return
   }
   await openApprovalById(next.id)
@@ -930,8 +962,8 @@ async function openNextApproval() {
 async function submitApproval(decision: 'approved' | 'rejected', next: boolean) {
   if (!reviewRow.value)
     return
-  if (decision === 'rejected' && !reviewComment.value.trim()) {
-    Message.warning('驳回必须填写原因')
+  if (!reviewComment.value.trim()) {
+    Message.warning('审批意见必填')
     return
   }
   reviewSubmitting.value = true
@@ -2033,9 +2065,16 @@ function shortSha(sha: string | null | undefined): string {
       </a-modal>
 
       <!-- 不处理审批：展示完整理由，可逐条同意/驳回并自动带出下一条 -->
-      <a-modal v-model:visible="reviewVisible" title="审批不处理申请" width="760px">
+      <a-modal v-model:visible="reviewVisible" title="审批不处理申请" width="1180px" :body-style="{ padding: '12px' }">
         <a-spin :loading="reviewLoading" style="width: 100%">
           <template v-if="reviewRow">
+          <div style="display: flex; gap: 16px; align-items: stretch; min-height: 520px">
+          <div style="flex: 1 1 56%; min-width: 0; max-height: 72vh; overflow: auto; border-right: 1px solid var(--color-border-2); padding-right: 12px">
+            <div style="font-weight: 600; margin-bottom: 8px">缺陷报告</div>
+            <MdPreview v-if="reviewRow.ai_detail_report" :model-value="reviewRow.ai_detail_report" />
+            <a-empty v-else description="该缺陷没有 AI 报告" />
+          </div>
+          <div style="flex: 1 1 44%; min-width: 0; max-height: 72vh; overflow: auto">
             <a-descriptions :column="2" size="small" bordered>
               <a-descriptions-item label="缺陷编号">{{ reviewRow.defect_code || '-' }}</a-descriptions-item>
               <a-descriptions-item label="项目组">{{ reviewRow.project_group_name || '-' }}</a-descriptions-item>
@@ -2047,14 +2086,16 @@ function shortSha(sha: string | null | undefined): string {
             </a-descriptions>
             <a-divider style="margin: 12px 0" />
             <div class="approval-reason-block">
-              <div><b>原因分类：</b>{{ reviewRow.reason_code || '未指定' }}</div>
+              <div><b>原因分类：</b>{{ reviewRow.reason_code ? (wontFixReasonLabelMap[reviewRow.reason_code] ?? reviewRow.reason_code) : '未指定' }}</div>
               <div style="white-space: pre-wrap"><b>不处理原因：</b>{{ reviewRow.reason }}</div>
               <div v-if="reviewRow.impact_note" style="white-space: pre-wrap"><b>影响说明：</b>{{ reviewRow.impact_note }}</div>
               <div v-if="reviewRow.evidence" style="white-space: pre-wrap"><b>补充证据：</b>{{ reviewRow.evidence }}</div>
             </div>
-            <a-form-item label="审批意见（驳回必填）" style="margin-top: 12px">
+            <a-form-item label="审批意见（必填）" style="margin-top: 12px">
               <a-textarea v-model="reviewComment" :auto-size="{ minRows: 3 }" :max-length="500" show-word-limit />
             </a-form-item>
+          </div>
+          </div>
           </template>
         </a-spin>
         <template #footer>
@@ -2086,7 +2127,7 @@ function shortSha(sha: string | null | undefined): string {
           </a-alert>
           <a-form-item label="处理人" required>
             <!-- 手输请填登录名：「标记已修复」按登录名判定是不是本人 -->
-            <a-select v-model="transferAssignee" allow-search allow-create :loading="transferUsersLoading" placeholder="从系统用户中选择（手输请填登录名）">
+            <a-select v-model="transferAssignee" allow-search allow-create :filter-option="false" :loading="transferUsersLoading" placeholder="输入姓名/登录名搜索" @search="searchTransferUsers">
               <a-option v-for="u in transferUserOptions" :key="u.value" :value="u.value">
                 {{ u.label }}
               </a-option>

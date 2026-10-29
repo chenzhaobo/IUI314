@@ -6,6 +6,9 @@
 import { Message } from '@arco-design/web-vue'
 import { computed, ref } from 'vue'
 import { ApiSecApproval, ApiSecGovernance } from '@/api/sechubApis'
+import { ApiSysDictData } from '@/api/sysApis'
+import { MdPreview } from 'md-editor-v3'
+import 'md-editor-v3/lib/style.css'
 import { formatTime, getAction, postAction, useGet } from '@/hooks'
 import { useUserStore } from '@/stores'
 
@@ -35,6 +38,13 @@ interface ApprovalRow {
 
 const { data: capabilityData, isFetching: capabilityLoading } = useGet<any>(ApiSecGovernance.me, {}, { immediate: true })
 const capability = computed(() => capabilityData.value ?? {})
+const { data: reasonDict } = useGet<any>(ApiSysDictData.getByType, { dict_type: 'static_scan_wont_fix_reason' }, { immediate: true })
+const reasonLabelMap = computed(() => {
+  const map: Record<string, string> = {}
+  for (const item of (Array.isArray(reasonDict.value) ? reasonDict.value : []))
+    map[item.dict_value] = item.dict_label
+  return map
+})
 const capabilityDataLoaded = computed(() => !capabilityLoading.value && capabilityData.value != null)
 const canApprove = computed(() => Boolean(capability.value.can_approve_issue_nofix))
 
@@ -77,9 +87,10 @@ const selectedIds = ref<string[]>([])
 const decideVisible = ref(false)
 const decideLoading = ref(false)
 const decideTargets = ref<ApprovalRow[]>([])
+const decideReport = ref('')
 const decideForm = ref({ decision: 'approved', comment: '' })
 
-function openDecide(rows: ApprovalRow[], decision = 'approved') {
+async function openDecide(rows: ApprovalRow[], decision = 'approved') {
   if (!rows.length) {
     Message.warning('请先勾选待审批记录')
     return
@@ -91,12 +102,18 @@ function openDecide(rows: ApprovalRow[], decision = 'approved') {
   }
   decideTargets.value = pending
   decideForm.value = { decision, comment: '' }
+  decideReport.value = ''
   decideVisible.value = true
+  if (pending.length === 1) {
+    const detail = await getAction<any>(ApiSecApproval.issueGetById, { id: pending[0].id })
+    if (detail?.ai_detail_report)
+      decideReport.value = detail.ai_detail_report
+  }
 }
 
 async function submitDecide() {
-  if (decideForm.value.decision === 'rejected' && !decideForm.value.comment.trim()) {
-    Message.warning('驳回必须填写原因')
+  if (!decideForm.value.comment.trim()) {
+    Message.warning('审批意见必填')
     return
   }
   decideLoading.value = true
@@ -229,47 +246,61 @@ const decisionText = computed(() => (decideForm.value.decision === 'approved' ? 
     <a-modal
       v-model:visible="decideVisible"
       :title="`${decisionText}不处理申请（${decideTargets.length} 条）`"
+      width="1120px"
       :ok-loading="decideLoading"
+      :body-style="{ padding: '12px' }"
       @ok="submitDecide"
     >
-      <div v-if="decideTargets.length === 1" class="approval-detail">
-        <div><b>{{ decideTargets[0].defect_code || '-' }} · {{ decideTargets[0].issue_title }}</b></div>
-        <div class="text-muted">
-          {{ decideTargets[0].project_group_name || '-' }} / {{ decideTargets[0].product_domain || '-' }} ·
-          申请人 {{ decideTargets[0].requester_name }} ·
-          {{ formatTime(decideTargets[0].created_at) }}
+      <div style="display: flex; gap: 16px; min-height: 480px">
+        <div v-if="decideTargets.length === 1" style="flex: 1 1 55%; min-width: 0; max-height: 70vh; overflow: auto; border-right: 1px solid var(--color-border-2); padding-right: 12px">
+          <div style="font-weight: 600; margin-bottom: 8px">缺陷报告</div>
+          <MdPreview v-if="decideReport" :model-value="decideReport" />
+          <a-empty v-else description="该缺陷没有 AI 报告" />
         </div>
-        <div style="margin-top: 8px; white-space: pre-wrap">
-          <b>不处理原因：</b>{{ decideTargets[0].reason }}
-        </div>
-        <div v-if="decideTargets[0].impact_note" style="white-space: pre-wrap">
-          <b>影响说明：</b>{{ decideTargets[0].impact_note }}
-        </div>
-        <div v-if="decideTargets[0].evidence" style="white-space: pre-wrap">
-          <b>补充证据：</b>{{ decideTargets[0].evidence }}
+        <div style="flex: 1 1 45%; min-width: 0; max-height: 70vh; overflow: auto">
+          <div v-if="decideTargets.length === 1" class="approval-detail">
+            <div><b>{{ decideTargets[0].defect_code || '-' }} · {{ decideTargets[0].issue_title }}</b></div>
+            <div class="text-muted">
+              {{ decideTargets[0].project_group_name || '-' }} / {{ decideTargets[0].product_domain || '-' }} ·
+              申请人 {{ decideTargets[0].requester_name }} ·
+              {{ formatTime(decideTargets[0].created_at) }}
+            </div>
+            <div style="margin-top: 8px">
+              <b>原因分类：</b>{{ decideTargets[0].reason_code ? (reasonLabelMap[decideTargets[0].reason_code] ?? decideTargets[0].reason_code) : '未指定' }}
+            </div>
+            <div style="white-space: pre-wrap">
+              <b>不处理原因：</b>{{ decideTargets[0].reason }}
+            </div>
+            <div v-if="decideTargets[0].impact_note" style="white-space: pre-wrap">
+              <b>影响说明：</b>{{ decideTargets[0].impact_note }}
+            </div>
+            <div v-if="decideTargets[0].evidence" style="white-space: pre-wrap">
+              <b>补充证据：</b>{{ decideTargets[0].evidence }}
+            </div>
+          </div>
+          <div v-else class="text-muted" style="margin-bottom: 12px">
+            本次将批量处理 {{ decideTargets.length }} 条不处理申请，请确认审批决定。
+          </div>
+          <a-form :model="decideForm" layout="vertical">
+            <a-form-item label="审批决定" required>
+              <a-radio-group v-model="decideForm.decision">
+                <a-radio value="approved">
+                  同意（置为不处理并写白名单）
+                </a-radio>
+                <a-radio value="rejected">
+                  驳回（保持待修复）
+                </a-radio>
+              </a-radio-group>
+            </a-form-item>
+            <a-form-item label="审批意见（必填）">
+              <a-textarea v-model="decideForm.comment" :auto-size="{ minRows: 3 }" :max-length="500" show-word-limit />
+            </a-form-item>
+            <div v-if="decideTargets.some(row => row.requester_id === myUserId)" class="text-muted">
+              其中包含本人提交的申请（自审），允许直接审批。
+            </div>
+          </a-form>
         </div>
       </div>
-      <div v-else class="text-muted" style="margin-bottom: 12px">
-        本次将批量处理 {{ decideTargets.length }} 条不处理申请，请确认审批决定。
-      </div>
-      <a-form :model="decideForm" layout="vertical">
-        <a-form-item label="审批决定" required>
-          <a-radio-group v-model="decideForm.decision">
-            <a-radio value="approved">
-              同意（置为不处理并写白名单）
-            </a-radio>
-            <a-radio value="rejected">
-              驳回（保持待修复）
-            </a-radio>
-          </a-radio-group>
-        </a-form-item>
-        <a-form-item :label="decideForm.decision === 'rejected' ? '驳回原因（必填）' : '审批意见'">
-          <a-textarea v-model="decideForm.comment" :auto-size="{ minRows: 3 }" :max-length="500" show-word-limit />
-        </a-form-item>
-        <div v-if="decideTargets.some(row => row.requester_id === myUserId)" class="text-muted">
-          其中包含本人提交的申请（自审），允许直接审批。
-        </div>
-      </a-form>
     </a-modal>
   </div>
 </template>

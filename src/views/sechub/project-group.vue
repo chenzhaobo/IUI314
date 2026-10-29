@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import SecCrudPage from './components/SecCrudPage.vue'
-import { useGet, postAction, putAction, withTableDefaults } from '@/hooks'
+import { getAction, useGet, postAction, putAction, withTableDefaults } from '@/hooks'
 import { ApiSecProjectGroup, ApiSysDictData } from '@/api/apis'
 
 defineOptions({ name: 'project-group' })
@@ -23,12 +23,31 @@ interface MemberRow {
 }
 
 const { data: memberRoleDict } = useGet<any>(ApiSysDictData.getByType, { dict_type: 'static_scan_business_role' }, { immediate: true })
-const { data: memberCandidateData } = useGet<any[]>(ApiSecProjectGroup.memberCandidates, {}, { immediate: true })
 const memberRoleOptions = computed(() => (Array.isArray(memberRoleDict.value) ? memberRoleDict.value : []).map((d: any) => ({ label: d.dict_label, value: d.dict_value })))
-const memberCandidateOptions = computed(() => (Array.isArray(memberCandidateData.value) ? memberCandidateData.value : []).map((user: any) => ({
-  label: `${user.user_nickname}（${user.user_name}）`,
-  value: user.user_id,
-})))
+const memberCandidateOptions = ref<{ label: string, value: string }[]>([])
+const memberUserNames = new Map<string, { name?: string, nickname?: string }>()
+let memberSearchTimer: ReturnType<typeof setTimeout> | undefined
+function mergeMemberOption(userId: string, userName?: string, nickname?: string) {
+  if (!userId || memberCandidateOptions.value.some(option => option.value === userId))
+    return
+  memberCandidateOptions.value.push({
+    value: userId,
+    label: nickname ? `${nickname}（${userName}）` : (userName || userId),
+  })
+}
+async function searchMemberCandidates(keyword = '') {
+  if (memberSearchTimer)
+    clearTimeout(memberSearchTimer)
+  memberSearchTimer = setTimeout(async () => {
+    const list = await getAction<any[]>(ApiSecProjectGroup.memberCandidates, { keyword: keyword.trim() })
+    memberCandidateOptions.value = (Array.isArray(list) ? list : []).map((user: any) => ({
+      label: `${user.user_nickname}（${user.user_name}）`,
+      value: user.user_id,
+    }))
+    for (const [userId, names] of memberUserNames)
+      mergeMemberOption(userId, names.name, names.nickname)
+  }, 250)
+}
 
 const memberLoading = ref(false)
 const memberRows = ref<MemberRow[]>([])
@@ -41,12 +60,17 @@ async function loadMembersForEdit(record: any) {
   memberLoading.value = true
   try {
     await fetchMembers()
-    memberRows.value = (Array.isArray(memberData.value) ? memberData.value : []).map((member: any) => ({
-      _key: ++memberRowKey,
-      user_id: member.user_id,
-      business_role_codes: Array.isArray(member.business_role_codes) ? [...member.business_role_codes] : [],
-      remark: member.remark || '',
-    }))
+    memberRows.value = (Array.isArray(memberData.value) ? memberData.value : []).map((member: any) => {
+      memberUserNames.set(member.user_id, { name: member.user_name, nickname: member.user_nickname })
+      mergeMemberOption(member.user_id, member.user_name, member.user_nickname)
+      return {
+        _key: ++memberRowKey,
+        user_id: member.user_id,
+        business_role_codes: Array.isArray(member.business_role_codes) ? [...member.business_role_codes] : [],
+        remark: member.remark || '',
+      }
+    })
+    void searchMemberCandidates('')
   }
   catch {
     Message.error('加载项目组成员失败，请稍后重试')
@@ -263,7 +287,7 @@ async function handleImportSubmit() {
               <template #columns>
                 <a-table-column title="人员" :width="240">
                 <template #cell="{ record }">
-                  <a-select v-model="record.user_id" placeholder="选择扫描登录用户" allow-search>
+                  <a-select v-model="record.user_id" placeholder="输入姓名/登录名搜索" allow-search :filter-option="false" @search="searchMemberCandidates">
                     <a-option
                       v-for="option in memberCandidateOptions"
                       :key="option.value"
