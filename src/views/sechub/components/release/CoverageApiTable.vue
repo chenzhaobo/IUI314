@@ -6,6 +6,7 @@
  * 勾选状态由页面持有（跨页保留），本组件只负责渲染与 emit。
  */
 import type { ReleaseApi } from '@/types/sechub-release'
+import { computed } from 'vue'
 import { formatTime } from '@/hooks'
 
 import {
@@ -47,6 +48,9 @@ function rowKey(record: { api_path: string, http_method: string | null }): strin
   return apiSelectionKey(record.api_path, record.http_method)
 }
 
+/** Arco 的 row-key 只能是字段名：给每行补一个由路径 + 方法拼出的唯一键 */
+const rows = computed(() => props.list.map(api => ({ ...api, row_key: rowKey(api) })))
+
 function isChecked(record: { api_path: string, http_method: string | null }): boolean {
   return props.selectedKeys.includes(rowKey(record))
 }
@@ -54,10 +58,10 @@ function isChecked(record: { api_path: string, http_method: string | null }): bo
 
 <template>
   <a-table
-    :data="list"
+    :data="rows"
     :loading="loading"
     :pagination="pagination"
-    :row-key="rowKey"
+    row-key="row_key"
     :scroll="{ minWidth: 1560 }"
     size="small"
     @page-change="emit('pageChange', $event)"

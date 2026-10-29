@@ -3,6 +3,7 @@
  * 项目组覆盖统计表：全范围（不受接口列表筛选影响）的按组汇总。
  * 点击行 emit 项目组编码，页面据此过滤接口列表；再次点击同一行取消过滤。
  */
+import type { TableData } from '@arco-design/web-vue'
 import type { CoverageGroupRow } from '@/types/sechub-release'
 
 import { coverageRateText } from '../../composables/releaseCoverageRules'
@@ -17,12 +18,17 @@ const emit = defineEmits<{
   (e: 'select', projectGroupCode: string): void
 }>()
 
-function rowClass(record: { project_group_code: string }): string {
-  return record.project_group_code === props.activeGroup ? 'active-row' : ''
+// Arco 的行回调收 TableData（Record<string, any>），这里只读项目组编码
+function groupCode(record: TableData): string {
+  return (record as unknown as CoverageGroupRow).project_group_code
 }
 
-function onRowClick(record: { project_group_code: string }) {
-  emit('select', record.project_group_code)
+function rowClass(record: TableData): string {
+  return groupCode(record) === props.activeGroup ? 'active-row' : ''
+}
+
+function onRowClick(record: TableData) {
+  emit('select', groupCode(record))
 }
 </script>
 
@@ -30,7 +36,7 @@ function onRowClick(record: { project_group_code: string }) {
   <a-table
     :data="groups"
     :pagination="false"
-    :row-class="(record) => rowClass(record)"
+    :row-class="rowClass"
     :scroll="{ minWidth: 1080 }"
     row-key="project_group_code"
     size="small"
