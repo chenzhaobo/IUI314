@@ -23,6 +23,7 @@ const form = ref<any>({
   app_secret: '',
   account_id: '',
   secret_field: 'appSecuret',
+  auth_mode: 'app_token',
   tenant_id: '',
   verify_ssl: true,
 })
@@ -41,6 +42,7 @@ async function load() {
         app_secret: '',
         account_id: data.account_id || '',
         secret_field: data.secret_field || 'appSecuret',
+        auth_mode: data.auth_mode || 'app_token',
         tenant_id: data.tenant_id || '',
         verify_ssl: data.verify_ssl !== false,
       }
@@ -69,6 +71,7 @@ async function save() {
       app_secret: form.value.app_secret || undefined,
       account_id: form.value.account_id,
       secret_field: form.value.secret_field,
+      auth_mode: form.value.auth_mode,
       tenant_id: form.value.tenant_id || undefined,
       verify_ssl: form.value.verify_ssl,
     })
@@ -107,7 +110,7 @@ async function testConnection() {
   <a-drawer v-model:visible="visible" :width="620" :title="`应用凭据 — ${env?.env_name || env?.id || ''}`" unmount-on-close>
     <a-spin :loading="loading" style="display: block">
       <a-alert type="info" style="margin-bottom: 12px">
-        secret 加密存储，读取接口不回显。8023 老环境用 <b>appSecuret</b>；新环境一般用 <b>appSecret</b> 并填 tenantid。
+        secret 加密存储，读取接口不回显。星瀚用 getAppToken；星空选择 OAuth2，secret_field 无需配置。
         <template v-if="!secretSet">
           当前未配置 DB secret，执行层会回退内置 8023 值。
         </template>
@@ -130,8 +133,20 @@ async function testConnection() {
             </a-form-item>
           </a-col>
           <a-col :span="12">
+            <a-form-item label="认证方式">
+              <a-select v-model="form.auth_mode">
+                <a-option value="app_token">
+                  getAppToken + login.do
+                </a-option>
+                <a-option value="oauth2">
+                  OAuth2 getToken（星空）
+                </a-option>
+              </a-select>
+            </a-form-item>
+          </a-col>
+          <a-col :span="12">
             <a-form-item label="secret_field">
-              <a-select v-model="form.secret_field">
+              <a-select v-model="form.secret_field" :disabled="form.auth_mode === 'oauth2'">
                 <a-option value="appSecuret">
                   appSecuret（老环境）
                 </a-option>
@@ -165,8 +180,8 @@ async function testConnection() {
 
       <a-card v-if="testResult" title="连接结果" :bordered="false" style="margin-top: 16px">
         <div class="app-token">
-          app token：<a-tag :color="testResult.app_token_ok ? 'green' : 'red'">
-            {{ testResult.app_token_ok ? 'OK' : 'FAIL' }}
+          认证方式：<a-tag color="blue">
+            {{ testResult.auth_mode || 'app_token' }}
           </a-tag>
         </div>
         <a-table :data="testResult.roles || []" :pagination="false" row-key="role" size="small">
