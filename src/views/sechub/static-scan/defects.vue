@@ -1981,6 +1981,7 @@ function shortSha(sha: string | null | undefined): string {
           row-key="id"
           size="small"
         >
+          <template #columns>
           <a-table-column title="申请时间" :width="150">
             <template #cell="{ record }">{{ formatTime(record.created_at) }}</template>
           </a-table-column>
@@ -2020,6 +2021,7 @@ function shortSha(sha: string | null | undefined): string {
               <span v-else class="text-muted">-</span>
             </template>
           </a-table-column>
+          </template>
         </a-table>
       </a-modal>
 

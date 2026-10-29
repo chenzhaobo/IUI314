@@ -57,11 +57,12 @@ async function loadMembersForEdit(record: any) {
 }
 
 function addMemberRow() {
-  memberRows.value.push({ _key: ++memberRowKey, user_id: '', business_role_codes: [], remark: '' })
+  // 用不可变更新，避免依赖表格对数组原地修改的侦听行为。
+  memberRows.value = [...memberRows.value, { _key: ++memberRowKey, user_id: '', business_role_codes: [], remark: '' }]
 }
 
 function removeMemberRow(index: number) {
-  memberRows.value.splice(index, 1)
+  memberRows.value = memberRows.value.filter((_, i) => i !== index)
 }
 
 function candidateDisabled(userId: string, rowKey: number) {
@@ -259,7 +260,8 @@ async function handleImportSubmit() {
               </a-button>
             </div>
             <a-table :data="memberRows" :loading="memberLoading" :pagination="false" row-key="_key" :scroll="{ y: 320 }">
-              <a-table-column title="人员" :width="240">
+              <template #columns>
+                <a-table-column title="人员" :width="240">
                 <template #cell="{ record }">
                   <a-select v-model="record.user_id" placeholder="选择扫描登录用户" allow-search>
                     <a-option
@@ -294,6 +296,8 @@ async function handleImportSubmit() {
                   </a-button>
                 </template>
               </a-table-column>
+              </template>
+
             </a-table>
           </div>
         </a-col>

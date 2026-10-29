@@ -173,6 +173,7 @@ const decisionText = computed(() => (decideForm.value.decision === 'approved' ? 
       @page-change="(page: number) => { queryParams.page_num = page; refresh() }"
     >
       <a-table-column title="缺陷编号" data-index="defect_code" :width="180" ellipsis tooltip />
+      <template #columns>
       <a-table-column title="缺陷标题" data-index="issue_title" :width="220" ellipsis tooltip />
       <a-table-column title="项目组" data-index="project_group_name" :width="140" ellipsis tooltip />
       <a-table-column title="产品领域" data-index="product_domain" :width="120" ellipsis tooltip />
@@ -213,6 +214,7 @@ const decisionText = computed(() => (decideForm.value.decision === 'approved' ? 
           <span v-else class="text-muted">-</span>
         </template>
       </a-table-column>
+      </template>
     </a-table>
 
     <a-modal
