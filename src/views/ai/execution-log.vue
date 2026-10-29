@@ -38,6 +38,24 @@ function handlePageChange(page: number) {
   fetchList()
 }
 
+// ── 停止执行（只终止本进程内正在跑的 CLI 及其子进程）──
+async function stopExecution(record: AiExecution) {
+  Modal.warning({
+    title: '停止该 AI 执行？',
+    content: '会终止该执行对应的 CLI 与子进程；半截结果不保留。排队中/已结束的执行不受影响。',
+    okText: '停止',
+    cancelText: '取消',
+    okButtonProps: { status: 'danger' },
+    onOk: async () => {
+      const res = await postAction<string>(ApiAiExecution.cancel, { id: record.id })
+      if (res) {
+        Message.success(res)
+        fetchList()
+      }
+    },
+  })
+}
+
 // ── 批量删除（清理等待中的僵尸队列）──────────────────
 const selectedKeys = ref<string[]>([])
 const deleting = ref(false)
@@ -341,6 +359,15 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
             <a-space>
               <a-button type="text" size="small" @click="showDetail(record)">
                 详情
+              </a-button>
+              <a-button
+                v-if="record.status === 'running'"
+                type="text"
+                size="small"
+                status="danger"
+                @click="stopExecution(record)"
+              >
+                停止
               </a-button>
               <a-button
                 v-if="record.caller_module !== 'agent_feedback'"
