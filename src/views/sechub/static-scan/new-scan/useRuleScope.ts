@@ -9,7 +9,26 @@ import { computed, ref, watch } from 'vue'
 import { buildRuleScopeIndex, buildRuleScopeNodes, ruleScopeExpandedKeys, ruleScopePayload, ruleScopeTreeKeys, toggleRuleScopeKey } from './ruleScopeTree'
 import { fetchRuleSetTree } from './service'
 
-export function useRuleScope() {
+/** 规则树里「领域证据（表单 / 微服务）」分组的 code（与后端 DOMAIN_EVIDENCE_CATEGORY_CODE 一致） */
+const DOMAIN_EVIDENCE_CATEGORY_CODE = 'domain_evidence'
+
+/** 去掉领域证据分组；去掉后变空的域一并去掉 */
+function withoutDomainEvidence(tree: RuleSetTree): RuleSetTree {
+  const domains = tree.domains
+    .map(domain => ({ ...domain, categories: domain.categories.filter(category => category.code !== DOMAIN_EVIDENCE_CATEGORY_CODE) }))
+    .filter(domain => domain.categories.length > 0)
+  return { ...tree, domains }
+}
+
+export interface UseRuleScopeOptions {
+  /**
+   * 是否隐藏领域证据分组。反编译源码库没有表单 / 微服务资产，整仓扫描也不执行这两个检出器，
+   * 勾了会被后端拒绝，所以树里干脆不给选。按当前仓库实时判断（换仓库会重置并重新拉树）。
+   */
+  hideDomainEvidence?: () => boolean
+}
+
+export function useRuleScope(options: UseRuleScopeOptions = {}) {
   const ruleScopeMode = ref<RuleScopeMode>('all')
   const ruleTree = ref<RuleSetTree | null>(null)
   const loadingRuleTree = ref(false)
@@ -42,7 +61,7 @@ export function useRuleScope() {
       const tree = await fetchRuleSetTree(ruleSetId)
       if (seq !== treeSeq)
         return
-      ruleTree.value = tree
+      ruleTree.value = tree && options.hideDomainEvidence?.() ? withoutDomainEvidence(tree) : tree
       ruleExpandedKeys.value = ruleScopeExpandedKeys(ruleTreeNodes.value, false)
     }
     finally {

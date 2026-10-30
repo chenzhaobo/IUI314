@@ -122,6 +122,9 @@ export interface FullTriggerRequest {
   scan_mode: 'full'
   rule_set_id?: string
   force: boolean
+  /** 自选扫描项（部分扫描），字段名与统一扫描一致；都不传 = 全目录 */
+  scan_point_ids?: string[]
+  rule_version_ids?: string[]
 }
 
 /**
