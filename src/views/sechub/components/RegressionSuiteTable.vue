@@ -30,6 +30,7 @@ const emit = defineEmits<{
   pageChange: [page: number]
   pageSizeChange: [size: number]
   openEnvs: [record: SecRegressionSuite]
+  openRuns: [record: SecRegressionSuite]
   edit: [record: SecRegressionSuite]
   trigger: [record: SecRegressionSuite]
   delete: [record: SecRegressionSuite]
@@ -156,11 +157,14 @@ function firstRun(record: SecRegressionSuite) {
           </a-tag>
         </template>
       </a-table-column>
-      <a-table-column title="操作" :width="250" fixed="right">
+      <a-table-column title="操作" :width="300" fixed="right">
         <template #cell="{ record }">
           <a-space>
             <a-link @click="emit('openEnvs', record)">
               环境/运行
+            </a-link>
+            <a-link @click="emit('openRuns', record)">
+              执行记录
             </a-link>
             <a-link @click="emit('edit', record)">
               编辑

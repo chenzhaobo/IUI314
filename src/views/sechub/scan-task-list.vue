@@ -11,12 +11,14 @@
  */
 import { Message, Modal } from '@arco-design/web-vue'
 import { computed, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import { ApiSecScan, ApiSecTestEnv, resolveStaticScanApi } from '@/api/sechubApis'
 import ListPage from '@/components/common/ListPage.vue'
 import { formatTime, postAction, putAction, useGet } from '@/hooks'
 import { validateCron } from '@/utils/cron'
 import TaskScheduleFields from './components/TaskScheduleFields.vue'
+import { firstQueryText, toTaskRuns } from './composables/secNavigation'
 
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
 // （见 components/layout/app-main.vue 的注释）。lint 的 PascalCase 提示只是警告，
@@ -57,10 +59,16 @@ function runStatusMeta(status?: string | null) {
   return RUN_STATUS[status || ''] ?? { label: status || '--', color: 'gray' }
 }
 
+// ── 路由穿透（进入时读一次）───────────────────────
+const route = useRoute()
+const router = useRouter()
+
 // ── 筛选 ──────────────────────────────────────────
 const searchForm = reactive({
   keyword: '',
   last_run_status: '',
+  // 执行记录页「任务名」跳过来时定位该任务（后端 dyn_filter 按主键 id 精确过滤）
+  task_id: firstQueryText(route.query.task_id),
 })
 
 const pageNum = ref(1)
@@ -71,14 +79,19 @@ const pageSize = ref(20)
  * 每项 `{field, op, value}`，`field` 必须能在实体 Column 上解析出来，
  * 否则后端直接报错（db/src/common/dyn_filter.rs）。这里只用于状态精确匹配。
  */
-const queryParams = computed(() => ({
-  page_num: pageNum.value,
-  page_size: pageSize.value,
-  keyword: searchForm.keyword,
-  filters: searchForm.last_run_status
-    ? JSON.stringify([{ field: 'last_run_status', op: 'eq', value: searchForm.last_run_status }])
-    : '',
-}))
+const queryParams = computed(() => {
+  const filters: Array<{ field: string, op: string, value: string }> = []
+  if (searchForm.last_run_status)
+    filters.push({ field: 'last_run_status', op: 'eq', value: searchForm.last_run_status })
+  if (searchForm.task_id)
+    filters.push({ field: 'id', op: 'eq', value: searchForm.task_id })
+  return {
+    page_num: pageNum.value,
+    page_size: pageSize.value,
+    keyword: searchForm.keyword,
+    filters: filters.length ? JSON.stringify(filters) : '',
+  }
+})
 
 const {
   isFetching: loading,
@@ -94,6 +107,16 @@ const pagination = computed(() => ({
   showTotal: true,
   showPageSize: true,
 }))
+
+/** 从执行记录跳来时只保留该任务，命中行加底色便于确认定位结果 */
+function rowClass(record: Record<string, unknown>): string {
+  return searchForm.task_id && record.id === searchForm.task_id ? 'pinned-row' : ''
+}
+
+function clearPinnedTask() {
+  searchForm.task_id = ''
+  handleSearch()
+}
 
 // ── 环境下拉：任务存 env_id，列表里要显示环境名称 ──────────────
 const { data: envRes } = useGet<any>(ApiSecTestEnv.getList, { page_num: 1, page_size: 200 }, { immediate: true })
@@ -295,6 +318,7 @@ function handleSearch() {
 function handleReset() {
   searchForm.keyword = ''
   searchForm.last_run_status = ''
+  searchForm.task_id = ''
   handleSearch()
 }
 
@@ -349,6 +373,9 @@ function handlePageSizeChange(size: number) {
           <a-button @click="handleReset">
             重置
           </a-button>
+          <a-tag v-if="searchForm.task_id" closable color="arcoblue" @close="clearPinnedTask">
+            仅看任务：{{ searchForm.task_id }}
+          </a-tag>
         </div>
       </template>
 
@@ -367,6 +394,7 @@ function handlePageSizeChange(size: number) {
           :pagination="pagination"
           :scroll="{ minWidth: 1280, y: tableHeight }"
           row-key="id"
+          :row-class="rowClass"
           @page-change="handlePageChange"
           @page-size-change="handlePageSizeChange"
         >
@@ -413,9 +441,12 @@ function handlePageSizeChange(size: number) {
                 {{ formatTime(record.last_run_at) }}
               </template>
             </a-table-column>
-            <a-table-column title="操作" :width="150" fixed="right">
+            <a-table-column title="操作" :width="210" fixed="right">
               <template #cell="{ record }">
                 <a-space>
+                  <a-link @click="router.push(toTaskRuns(record.id))">
+                    执行记录
+                  </a-link>
                   <a-link @click="openEdit(record)">
                     编辑
                   </a-link>
@@ -529,5 +560,10 @@ function handlePageSizeChange(size: number) {
 .muted-text {
   color: var(--color-text-4);
   font-size: 12px;
+}
+
+/* 从执行记录跳转定位的任务行 */
+:deep(.pinned-row td) {
+  background: var(--color-primary-light-1);
 }
 </style>

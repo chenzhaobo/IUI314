@@ -15,6 +15,7 @@
  */
 import { Message, Modal } from '@arco-design/web-vue'
 import { computed, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 
 import { ApiSecScan, resolveStaticScanApi } from '@/api/sechubApis'
 import ListPage from '@/components/common/ListPage.vue'
@@ -26,10 +27,13 @@ import ApiRunResultsDrawer from './components/ApiRunResultsDrawer.vue'
 import ApiScriptCaseDrawer from './components/ApiScriptCaseDrawer.vue'
 import { ASSERTION_OPTIONS, TEST_TYPE_LABELS } from './components/apiTestShared'
 import CaseBatchReviewBar from './components/CaseBatchReviewBar.vue'
+import { toApiResult } from './composables/secNavigation'
 
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
 // eslint-disable-next-line vue/component-definition-name-casing
 defineOptions({ name: 'api-test-cases' })
+
+const router = useRouter()
 
 /** API 域用例类型（与后端 sec_case::OPENAPI_CASE_TYPES + 手工脚本用例） */
 const API_CASE_TYPES = 'openapi_perm,openapi_inject,script'
@@ -287,6 +291,13 @@ function runOne(record: any) {
   startTrial([String(record.id)])
 }
 
+/** 「看结果」：打开 API 测试结果页对应接口的详情抽屉 */
+function openApiResult(record: { api_path?: string | null, http_method?: string | null }) {
+  const target = toApiResult(record.api_path ?? '', record.http_method)
+  if (target)
+    router.push(target)
+}
+
 function runBatch() {
   const ids = selectedKeys.value.map(String)
   if (!ids.length) {
@@ -412,6 +423,7 @@ function runBatch() {
           @page-size-change="handlePageSizeChange"
           @selection-change="handleSelectionChange"
           @run="runOne"
+          @view-result="openApiResult"
           @edit="openEdit"
           @delete="handleDelete"
           @review="handleReview"

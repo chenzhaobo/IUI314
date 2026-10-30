@@ -9,6 +9,7 @@
 import type { SecRegressionSuite, SecRegressionSuiteTriggerResult } from '@/api/sechubApis'
 import { Message, Modal } from '@arco-design/web-vue'
 import { computed, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import { ApiSecRegressionSuite, resolveStaticScanApi } from '@/api/sechubApis'
 import ListPage from '@/components/common/ListPage.vue'
@@ -16,12 +17,21 @@ import { postAction, useGet } from '@/hooks'
 import RegressionSuiteEnvs from './components/RegressionSuiteEnvs.vue'
 import RegressionSuiteForm from './components/RegressionSuiteForm.vue'
 import RegressionSuiteTable from './components/RegressionSuiteTable.vue'
+import { firstQueryText, toSuiteRuns } from './composables/secNavigation'
 
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive 按它匹配缓存
 // eslint-disable-next-line vue/component-definition-name-casing
 defineOptions({ name: 'regression-suites' })
 
-const searchForm = reactive({ keyword: '', product_line: '', status: '' })
+const route = useRoute()
+const router = useRouter()
+
+const searchForm = reactive({
+  // 测试结果详情「套件」跳过来时按编码过滤（后端 keyword 同时匹配名称与 suite_code）
+  keyword: firstQueryText(route.query.suite_code),
+  product_line: '',
+  status: '',
+})
 const pageNum = ref(1)
 const pageSize = ref(20)
 
@@ -64,6 +74,11 @@ function openEdit(record: SecRegressionSuite) {
 function openEnvs(record: SecRegressionSuite) {
   envsSuite.value = record
   envsVisible.value = true
+}
+
+/** 套件运行只认「所属任务 ∈ 该套件」，runs 接口原生支持 suite_id 过滤 */
+function openRuns(record: SecRegressionSuite) {
+  router.push(toSuiteRuns(record.id, record.name))
 }
 
 function handleSaved() {
@@ -196,6 +211,7 @@ function handlePageSizeChange(size: number) {
           @page-change="handlePageChange"
           @page-size-change="handlePageSizeChange"
           @open-envs="openEnvs"
+          @open-runs="openRuns"
           @edit="openEdit"
           @trigger="handleTrigger"
           @delete="handleDelete"

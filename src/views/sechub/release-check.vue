@@ -13,6 +13,7 @@ import CheckRunsTable from './components/release/check/CheckRunsTable.vue'
 import CheckSnapshotPanel from './components/release/check/CheckSnapshotPanel.vue'
 import CheckSuitePanel from './components/release/check/CheckSuitePanel.vue'
 import { conclusionMeta } from './composables/releaseDashboardRules'
+import { toRunResults } from './composables/secNavigation'
 import { useReleaseCheck } from './composables/useReleaseCheck'
 
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
@@ -73,9 +74,9 @@ async function handleGenerate() {
   Message.success(`已生成发版报告（结论：${conclusionMeta(result.conclusion).label}）`)
 }
 
-/** 扫描运行页不读取 query，按任务卡只做普通跳转 */
-function openScanRuns() {
-  router.push('/sechub/scan/scan-runs')
+/** 「查看结果」直接打开该运行的结果抽屉（执行记录页读 run_id） */
+function openScanRuns(run: ReleaseSuiteRun) {
+  router.push(toRunResults(run.id))
 }
 </script>
 

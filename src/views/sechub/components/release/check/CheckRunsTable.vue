@@ -14,7 +14,7 @@ defineProps<{
 
 const emit = defineEmits<{
   (e: 'review', run: ReleaseSuiteRun): void
-  (e: 'view'): void
+  (e: 'view', run: ReleaseSuiteRun): void
 }>()
 
 function reviewMeta(runId: string, reviews: Record<string, ReleaseRunReview | null>) {
@@ -107,7 +107,7 @@ function reviewError(runId: string, reviews: Record<string, ReleaseRunReview | n
             <a-button
               size="small"
               type="text"
-              @click="emit('view')"
+              @click="emit('view', record)"
             >
               查看结果
             </a-button>

@@ -34,6 +34,7 @@ const emit = defineEmits<{
   (e: 'delete', record: any): void
   (e: 'selectionChange', keys: (string | number)[]): void
   (e: 'run', record: any): void
+  (e: 'viewResult', record: { api_path?: string | null, http_method?: string | null }): void
   (e: 'review', record: any, status: 'approved' | 'rejected'): void
 }>()
 
@@ -133,9 +134,12 @@ function runnable(record: any): boolean {
           </a-tag>
         </template>
       </a-table-column>
-      <a-table-column title="操作" :width="260" fixed="right">
+      <a-table-column title="操作" :width="310" fixed="right">
         <template #cell="{ record }">
           <a-space>
+            <a-link v-if="record.api_path" @click="emit('viewResult', record)">
+              看结果
+            </a-link>
             <a-tooltip v-if="!runnable(record)" content="仅平台编排（配了断言）与已配脚本的 Python 用例可试跑">
               <a-link disabled>
                 执行

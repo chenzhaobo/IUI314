@@ -3,7 +3,7 @@
  * 安全扫描 — 执行记录
  *
  * 对应后端 `/sechub/scan/runs`（api/src/sechub/scan_task.rs + service/sec_run.rs + sec_report.rs）：
- *   - 列表：GET /sechub/scan/runs（page_num / page_size / keyword / filters）
+ *   - 列表：GET /sechub/scan/runs（page_num / page_size / keyword / filters / suite_id / env_id）
  *   - 详情：GET /sechub/scan/runs/{id}
  *   - 结果：GET /sechub/scan/runs/{id}/results（分页 + verdict/test_type/keyword 筛选，
  *     每条结果内嵌 `case` 用例信息。全量运行可达数万条，绝不能一次全取）
@@ -11,14 +11,27 @@
  *     4 万条明细不可能靠翻；摘要可点击下钻回结果列表）
  *   - 导出：GET /sechub/scan/runs/{id}/export（CSV 下载，需带 Authorization 头）
  *   - 取消：POST /sechub/scan/runs/{id}/cancel
+ *
+ * 路由 query（E09 穿透，进入时读一次）：
+ *   - run_id   直接打开该运行的结果抽屉
+ *   - task_id  列表按任务过滤
+ *   - suite_id 列表按回归套件下环境任务过滤（suite_name 仅用于提示）
  */
 import { Message, Modal } from '@arco-design/web-vue'
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import { ApiSecScan, resolveStaticScanApi } from '@/api/sechubApis'
 import ListPage from '@/components/common/ListPage.vue'
 import { formatTime, getAction, postAction, useDownload, useGet } from '@/hooks'
+import RunResultTable from './components/RunResultTable.vue'
 import RunSummaryPanel from './components/RunSummaryPanel.vue'
+import { firstQueryText, toTask } from './composables/secNavigation'
+import {
+  RESULT_TEST_TYPE_OPTIONS,
+  useRunResults,
+  VERDICT_OPTIONS,
+} from './composables/useRunResults'
 
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
 // （见 components/layout/app-main.vue 的注释）。lint 的 PascalCase 提示只是警告，
@@ -53,72 +66,38 @@ function runStatusMeta(status?: string | null) {
   return RUN_STATUS[status || ''] ?? { label: status || '--', color: 'gray' }
 }
 
-// ── 结果判定（sec_sec_result.verdict）──────────────
-const VERDICT: Record<string, { color: string }> = {
-  PASS: { color: 'green' },
-  FAIL: { color: 'red' },
-  REVIEW: { color: 'orange' },
-  BLOCKED: { color: 'gray' },
-  ERROR: { color: 'orangered' },
-}
-const verdictColor = (v?: string | null) => VERDICT[v || '']?.color ?? 'gray'
-
-// ── 用例类型 / 测试类型展示 ────────────────────────
-const CASE_TYPE_LABELS: Record<string, string> = {
-  form_perm: '表单权限',
-  form_inject: '表单注入',
-  openapi_perm: 'OpenAPI权限',
-  openapi_inject: 'OpenAPI注入',
-  script: 'Python脚本',
-}
-const TEST_TYPE_LABELS: Record<string, string> = {
-  perm: '权限',
-  anon: '未鉴权访问',
-  xss: 'XSS注入',
-  sqli: 'SQL注入',
-  java_reflect: 'Java反射',
-  idor: '越权(IDOR)',
-  base: '正向基线',
-  robustness: '健壮性',
-  form_url: '表单URL直达',
-  // 静态扫描（meta_collect）产出的用例类型
-  meta_perm: '元数据-权限配置',
-  meta_anon: '元数据-匿名访问',
-  meta_log: '元数据-操作日志',
+interface SecRunRow {
+  id: string
+  run_name?: string | null
+  status?: string | null
+  task_id?: string | null
+  iteration_phase?: string | null
+  trigger_mode?: string | null
+  started_at?: string | null
+  finished_at?: string | null
+  total_cases?: number | null
+  pass_cnt?: number | null
+  fail_cnt?: number | null
+  review_cnt?: number | null
+  block_cnt?: number | null
+  error_cnt?: number | null
+  new_forms_cnt?: number | null
+  new_buttons_cnt?: number | null
+  new_apis_cnt?: number | null
 }
 
-/** 结果筛选下拉的选项（值与 case.test_type 一致） */
-const RESULT_TEST_TYPE_OPTIONS = [
-  { value: 'perm', label: '权限' },
-  { value: 'anon', label: '未鉴权访问' },
-  { value: 'idor', label: '越权(IDOR)' },
-  { value: 'base', label: '正向基线' },
-  { value: 'robustness', label: '健壮性' },
-  { value: 'xss', label: 'XSS注入' },
-  { value: 'sqli', label: 'SQL注入' },
-  { value: 'java_reflect', label: 'Java反射' },
-  { value: 'form_url', label: '表单URL直达' },
-  { value: 'meta_perm', label: '元数据-权限配置' },
-  { value: 'meta_anon', label: '元数据-匿名访问' },
-  { value: 'meta_log', label: '元数据-操作日志' },
-]
-
-const VERDICT_OPTIONS = ['PASS', 'FAIL', 'REVIEW', 'BLOCKED', 'ERROR']
-/** 结果行优先展示测试类型（越权/注入/正向），没有时退回用例类型 */
-function resultTypeText(c: any): string {
-  if (!c)
-    return '--'
-  if (c.test_type)
-    return TEST_TYPE_LABELS[c.test_type] || c.test_type
-  if (c.case_type)
-    return CASE_TYPE_LABELS[c.case_type] || c.case_type
-  return '--'
-}
+// ── 路由穿透（进入时读一次）───────────────────────
+const route = useRoute()
+const router = useRouter()
+const initialRunId = firstQueryText(route.query.run_id)
+const initialSuiteName = firstQueryText(route.query.suite_name)
 
 // ── 筛选 ──────────────────────────────────────────
 const searchForm = reactive({
   keyword: '',
   status: '',
+  task_id: firstQueryText(route.query.task_id),
+  suite_id: firstQueryText(route.query.suite_id),
 })
 
 const pageNum = ref(1)
@@ -127,15 +106,22 @@ const pageSize = ref(20)
 /**
  * `filters` 是后端 dyn_filter 的通用筛选协议：JSON 数组字符串（{field, op, value}），
  * 字段名必须能在实体 Column 上解析出来，否则后端报错（db/src/common/dyn_filter.rs）。
+ * suite_id 是 runs 接口的独立参数（service/sec_run.rs），不经 filters。
  */
-const queryParams = computed(() => ({
-  page_num: pageNum.value,
-  page_size: pageSize.value,
-  keyword: searchForm.keyword,
-  filters: searchForm.status
-    ? JSON.stringify([{ field: 'status', op: 'eq', value: searchForm.status }])
-    : '',
-}))
+const queryParams = computed(() => {
+  const filters: Array<{ field: string, op: string, value: string }> = []
+  if (searchForm.status)
+    filters.push({ field: 'status', op: 'eq', value: searchForm.status })
+  if (searchForm.task_id)
+    filters.push({ field: 'task_id', op: 'eq', value: searchForm.task_id })
+  return {
+    page_num: pageNum.value,
+    page_size: pageSize.value,
+    keyword: searchForm.keyword,
+    suite_id: searchForm.suite_id,
+    filters: filters.length ? JSON.stringify(filters) : '',
+  }
+})
 
 const {
   isFetching: loading,
@@ -167,12 +153,22 @@ function taskName(taskId?: string | null) {
   return taskId ? taskNameMap.value[taskId] || taskId : '--'
 }
 
+const suiteFilterLabel = computed(() => initialSuiteName || searchForm.suite_id)
+
+function clearTaskFilter() {
+  searchForm.task_id = ''
+  handleSearch()
+}
+
+function clearSuiteFilter() {
+  searchForm.suite_id = ''
+  handleSearch()
+}
+
 // ── 查看结果 ──────────────────────────────────────
 const drawerVisible = ref(false)
 const drawerLoading = ref(false)
-const resultsLoading = ref(false)
-const currentRun = ref<any>(null)
-const results = ref<any[]>([])
+const currentRun = ref<SecRunRow | null>(null)
 
 // 执行摘要（OPT-2）：整体判定分布 + 按「用例类型×测试类型」分组
 const summaryLoading = ref(false)
@@ -180,53 +176,23 @@ const summary = ref<any>(null)
 const exporting = ref(false)
 const { downloadWithTip } = useDownload()
 
-// 结果分页 + 筛选：一次全量运行有 4 万+ 条结果，必须分页拉取
-const resultPageNum = ref(1)
-const resultPageSize = ref(20)
-const resultTotal = ref(0)
-const resultFilter = reactive({
-  verdict: '',
-  test_type: '',
-  keyword: '',
-})
-const resultPagination = computed(() => ({
-  current: resultPageNum.value,
-  pageSize: resultPageSize.value,
-  total: resultTotal.value,
-  showTotal: true,
-  showPageSize: true,
-  pageSizeOptions: [20, 50, 100],
-}))
+// 结果分页 + 筛选 + 摘要下钻（4 万+ 条结果，必须服务端分页）
+const {
+  resultsLoading,
+  results,
+  resultTotal,
+  resultFilter,
+  resultPagination,
+  loadForRun,
+  handleSearch: handleResultSearch,
+  handleReset: handleResultReset,
+  handlePageChange: handleResultPageChange,
+  handlePageSizeChange: handleResultPageSizeChange,
+  drillGroup,
+} = useRunResults()
 
-async function fetchResults() {
-  const id = currentRun.value?.id
-  if (!id)
-    return
-  resultsLoading.value = true
-  try {
-    const res = await getAction<any>(resolveStaticScanApi(ApiSecScan.runResults, { id }), {
-      page_num: resultPageNum.value,
-      page_size: resultPageSize.value,
-      verdict: resultFilter.verdict,
-      test_type: resultFilter.test_type,
-      keyword: resultFilter.keyword,
-    })
-    results.value = res?.list || []
-    resultTotal.value = res?.total || 0
-  }
-  finally {
-    resultsLoading.value = false
-  }
-}
-
-async function openResults(record: any) {
+async function openResults(record: SecRunRow) {
   currentRun.value = record
-  results.value = []
-  resultTotal.value = 0
-  resultPageNum.value = 1
-  resultFilter.verdict = ''
-  resultFilter.test_type = ''
-  resultFilter.keyword = ''
   summary.value = null
   drawerVisible.value = true
 
@@ -235,9 +201,9 @@ async function openResults(record: any) {
     // 详情单独拉一次：列表字段与详情同构，但执行中统计会不断变化。
     // 摘要与结果页并行请求：三个接口互不依赖，串行会让抽屉白屏更久。
     const [detail] = await Promise.all([
-      getAction<any>(resolveStaticScanApi(ApiSecScan.runGetById, { id: record.id })),
-      fetchSummary(),
-      fetchResults(),
+      getAction<SecRunRow>(resolveStaticScanApi(ApiSecScan.runGetById, { id: record.id })),
+      fetchSummary(record.id),
+      loadForRun(record.id),
     ])
     if (detail)
       currentRun.value = detail
@@ -247,32 +213,9 @@ async function openResults(record: any) {
   }
 }
 
-function handleResultSearch() {
-  resultPageNum.value = 1
-  fetchResults()
-}
-
-function handleResultReset() {
-  resultFilter.verdict = ''
-  resultFilter.test_type = ''
-  resultFilter.keyword = ''
-  handleResultSearch()
-}
-
-function handleResultPageChange(page: number) {
-  resultPageNum.value = page
-  fetchResults()
-}
-
-function handleResultPageSizeChange(size: number) {
-  resultPageSize.value = size
-  resultPageNum.value = 1
-  fetchResults()
-}
-
 // ── 执行摘要（OPT-2）─────────────────────────────
-async function fetchSummary() {
-  const id = currentRun.value?.id
+async function fetchSummary(runId?: string | null) {
+  const id = runId || currentRun.value?.id
   if (!id)
     return
   summaryLoading.value = true
@@ -282,18 +225,6 @@ async function fetchSummary() {
   finally {
     summaryLoading.value = false
   }
-}
-
-/** 点分组卡片下钻：把该组「测试类型 + 占比最大的判定」灌进结果筛选并刷新明细 */
-function drillGroup(group: any) {
-  const counts = group?.counts || {}
-  const topVerdict = Object.keys(counts).sort((a, b) => Number(counts[b]) - Number(counts[a]))[0] || ''
-  resultFilter.keyword = ''
-  resultFilter.verdict = topVerdict
-  resultFilter.test_type = group?.test_type || ''
-  if (!group?.test_type)
-    Message.info('该分组用例没有测试类型，已按判定筛选')
-  handleResultSearch()
 }
 
 /** 导出当前筛选下的结果 CSV（文件名与后端一致：运行 id 前 8 位 + 导出时间） */
@@ -327,7 +258,7 @@ function exportFileName(id: string) {
 }
 
 // ── 取消运行 ──────────────────────────────────────
-function handleCancel(record: any) {
+function handleCancel(record: SecRunRow) {
   Modal.confirm({
     title: '取消运行',
     content: `确认取消「${record.run_name}」？已产生的用例结果会保留。`,
@@ -340,8 +271,9 @@ function handleCancel(record: any) {
       Message.success('已取消')
       await fetchData()
       // 抽屉里正看着这条运行时同步刷新状态
-      if (currentRun.value?.id === record.id)
-        await openResults(currentRun.value)
+      const watching = currentRun.value
+      if (watching && watching.id === record.id)
+        await openResults(watching)
     },
   })
 }
@@ -355,6 +287,8 @@ function handleSearch() {
 function handleReset() {
   searchForm.keyword = ''
   searchForm.status = ''
+  searchForm.task_id = ''
+  searchForm.suite_id = ''
   handleSearch()
 }
 
@@ -369,6 +303,11 @@ function handlePageSizeChange(size: number) {
   pageNum.value = 1
   fetchData()
 }
+
+onMounted(() => {
+  if (initialRunId)
+    void openResults({ id: initialRunId })
+})
 </script>
 
 <template>
@@ -399,6 +338,12 @@ function handlePageSizeChange(size: number) {
           <a-button @click="handleReset">
             重置
           </a-button>
+          <a-tag v-if="searchForm.task_id" closable color="arcoblue" @close="clearTaskFilter">
+            任务：{{ taskName(searchForm.task_id) }}
+          </a-tag>
+          <a-tag v-if="searchForm.suite_id" closable color="arcoblue" @close="clearSuiteFilter">
+            套件：{{ suiteFilterLabel }}
+          </a-tag>
         </div>
       </template>
 
@@ -416,7 +361,10 @@ function handlePageSizeChange(size: number) {
             <a-table-column title="运行名称" data-index="run_name" :width="240" ellipsis tooltip />
             <a-table-column title="任务" data-index="task_id" :width="200" ellipsis tooltip>
               <template #cell="{ record }">
-                {{ taskName(record.task_id) }}
+                <a-link v-if="record.task_id" @click="router.push(toTask(record.task_id))">
+                  {{ taskName(record.task_id) }}
+                </a-link>
+                <span v-else>--</span>
               </template>
             </a-table-column>
             <a-table-column title="迭代阶段" data-index="iteration_phase" :width="130" ellipsis tooltip>
@@ -482,7 +430,10 @@ function handlePageSizeChange(size: number) {
             </a-tag>
           </a-descriptions-item>
           <a-descriptions-item label="所属任务">
-            {{ taskName(currentRun?.task_id) }}
+            <a-link v-if="currentRun?.task_id" @click="router.push(toTask(currentRun.task_id))">
+              {{ taskName(currentRun.task_id) }}
+            </a-link>
+            <span v-else>--</span>
           </a-descriptions-item>
           <a-descriptions-item label="迭代阶段">
             {{ currentRun?.iteration_phase || '--' }}
@@ -553,49 +504,13 @@ function handlePageSizeChange(size: number) {
           重置
         </a-button>
       </div>
-      <a-spin :loading="resultsLoading" style="display: block; min-height: 60px">
-        <a-table
-          :data="results"
-          :pagination="resultPagination"
-          :scroll="{ minWidth: 760 }"
-          row-key="id"
-          size="small"
-          @page-change="handleResultPageChange"
-          @page-size-change="handleResultPageSizeChange"
-        >
-          <template #columns>
-            <a-table-column title="表单 / API" :width="200" ellipsis tooltip>
-              <template #cell="{ record }">
-                {{ record.case?.entity_number || record.case?.api_path || '--' }}
-              </template>
-            </a-table-column>
-            <a-table-column title="用例ID" data-index="case_id" :width="200" ellipsis tooltip />
-            <a-table-column title="类型" :width="110">
-              <template #cell="{ record }">
-                {{ resultTypeText(record.case) }}
-              </template>
-            </a-table-column>
-            <a-table-column title="结果" :width="90">
-              <template #cell="{ record }">
-                <a-tooltip v-if="record.detail || record.error_message" :content="record.error_message || record.detail" mini>
-                  <a-tag :color="verdictColor(record.verdict)">
-                    {{ record.verdict }}
-                  </a-tag>
-                </a-tooltip>
-                <a-tag v-else :color="verdictColor(record.verdict)">
-                  {{ record.verdict }}
-                </a-tag>
-              </template>
-            </a-table-column>
-            <a-table-column title="耗时" :width="90">
-              <template #cell="{ record }">
-                {{ record.response_time_ms != null ? `${record.response_time_ms} ms` : '--' }}
-              </template>
-            </a-table-column>
-          </template>
-        </a-table>
-        <a-empty v-if="!resultsLoading && !results.length" description="暂无执行结果" />
-      </a-spin>
+      <RunResultTable
+        :results="results"
+        :loading="resultsLoading"
+        :pagination="resultPagination"
+        @page-change="handleResultPageChange"
+        @page-size-change="handleResultPageSizeChange"
+      />
     </a-drawer>
   </div>
 </template>

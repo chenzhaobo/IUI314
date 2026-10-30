@@ -7,10 +7,15 @@
  */
 import type { TableColumnData } from '@arco-design/web-vue'
 import type { CaseResultItem } from '@/types/sechub-test-results'
+import { useRouter } from 'vue-router'
+
 import { formatTime } from '@/hooks'
+import { toRunResults, toSuite, toTask } from '../composables/secNavigation'
 import { verdictColor } from '../composables/testResultsRules'
 
 defineProps<{ results: CaseResultItem[] }>()
+
+const router = useRouter()
 
 const columns: TableColumnData[] = [
   { title: '执行时间', slotName: 'testedAt', width: 160 },
@@ -18,7 +23,7 @@ const columns: TableColumnData[] = [
   { title: '说明', dataIndex: 'detail', ellipsis: true, tooltip: true },
   { title: '执行记录', slotName: 'run', width: 220, ellipsis: true },
   { title: '触发方式', slotName: 'trigger', width: 90 },
-  { title: '任务', dataIndex: 'task_name', width: 160, ellipsis: true, tooltip: true },
+  { title: '任务', slotName: 'task', width: 160, ellipsis: true },
   { title: '套件', slotName: 'suite', width: 160, ellipsis: true },
 ]
 
@@ -50,13 +55,25 @@ function triggerText(mode?: string | null): string {
       </a-tag>
     </template>
     <template #run="{ record }">
-      {{ record.run_name || record.run_id || '--' }}
+      <a-link v-if="record.run_id" @click="router.push(toRunResults(record.run_id))">
+        {{ record.run_name || record.run_id }}
+      </a-link>
+      <span v-else>--</span>
     </template>
     <template #trigger="{ record }">
       {{ triggerText(record.trigger_mode) }}
     </template>
+    <template #task="{ record }">
+      <a-link v-if="record.task_id" @click="router.push(toTask(record.task_id))">
+        {{ record.task_name || record.task_id }}
+      </a-link>
+      <span v-else>{{ record.task_name || '--' }}</span>
+    </template>
     <template #suite="{ record }">
-      {{ record.suite_name || record.suite_code || '--' }}
+      <a-link v-if="record.suite_code" @click="router.push(toSuite(record.suite_code))">
+        {{ record.suite_name || record.suite_code }}
+      </a-link>
+      <span v-else>{{ record.suite_name || '--' }}</span>
     </template>
   </a-table>
 </template>
