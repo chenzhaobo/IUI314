@@ -35,6 +35,7 @@ const route = useRoute()
 // 默认只看自己的会让人以为列表漏了数据。
 const userStore = useUserStore()
 const mineOnly = ref(false)
+const approvalMine = ref(false)
 function mineAssigneeValue(): string {
   if (!mineOnly.value)
     return ''
@@ -77,6 +78,8 @@ const queryParams = ref({
   governance_status: '',
   // 不处理审批展示态：pending / rejected / approved / withdrawn
   nofix_approval_state: '',
+  // `mine` = 只看当前账号审批范围内的待审批申请（「待我审批」开关）
+  nofix_approval_scope: '',
   rule_version_id: '',
   scan_point_id: '',
   // 不处理原因代码过滤（Arco 表格 filterable 触发后写入此字段，传给后端）
@@ -301,6 +304,21 @@ function refresh() {
 }
 
 /** 切换「我负责的」：重算负责人过滤值并刷新列表 */
+function onApprovalMineChange(value: string | number | boolean) {
+  if (value) {
+    approvalMine.value = true
+    queryParams.value.nofix_approval_state = 'pending'
+    queryParams.value.nofix_approval_scope = 'mine'
+  } else {
+    approvalMine.value = false
+    queryParams.value.nofix_approval_scope = ''
+    if (queryParams.value.nofix_approval_state === 'pending')
+      queryParams.value.nofix_approval_state = ''
+  }
+  queryParams.value.page_num = 1
+  void getList()
+}
+
 function onMineOnlyChange() {
   queryParams.value.assignee = mineAssigneeValue()
   refresh()
