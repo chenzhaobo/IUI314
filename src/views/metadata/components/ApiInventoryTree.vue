@@ -40,7 +40,14 @@ const props = withDefaults(defineProps<{
   productDomain?: string
   /** 业务领域筛选（与右表同口径） */
   businessArea?: string
-}>(), { depth: 'app', source: '', envId: '', productLine: '', productDomain: '', businessArea: '' })
+  /** 换数据源：返回结构须与 /metadata/api-inventory/tree 一致（如自定义API测试的任务树）；缺省 = 清单树 */
+  endpoint?: string
+  /** 附加查询参数（如 { task_id }），变化时重新拉取 */
+  extraParams?: Record<string, string | undefined>
+  /** 空闲：不请求、清空树，只显示 emptyText（如「未选任务」） */
+  idle?: boolean
+  emptyText?: string
+}>(), { depth: 'app', source: '', envId: '', productLine: '', productDomain: '', businessArea: '', endpoint: '', extraParams: () => ({}), idle: false, emptyText: '暂无数据' })
 
 const emit = defineEmits<{
   (e: 'select', scope: TreeScope): void
@@ -153,9 +160,17 @@ function handleSelect(keys: any) {
 }
 
 async function fetchTree() {
+  if (props.idle) {
+    envName.value = ''
+    totalApis.value = 0
+    groups.value = []
+    unclassified.value = []
+    selectedKeys.value = ['all']
+    return
+  }
   loading.value = true
   try {
-    const res = await getAction<any>(ApiMetadataInventory.tree, {
+    const res = await getAction<any>(props.endpoint || ApiMetadataInventory.tree, {
       dimension: props.dimension,
       env_id: props.envId || undefined,
       product_line: props.productLine || undefined,
@@ -163,6 +178,7 @@ async function fetchTree() {
       business_area: props.businessArea || undefined,
       depth: props.depth,
       source: props.source || undefined,
+      ...props.extraParams,
     })
     if (res) {
       envName.value = res.env?.name || ''
@@ -185,7 +201,7 @@ async function fetchTree() {
 defineExpose({ reload: fetchTree, envName, totalApis })
 
 watch(
-  () => [props.dimension, props.envId, props.productLine, props.productDomain, props.businessArea, props.depth, props.source],
+  () => [props.dimension, props.envId, props.productLine, props.productDomain, props.businessArea, props.depth, props.source, props.endpoint, props.idle, JSON.stringify(props.extraParams)],
   () => {
     selectedKeys.value = ['all']
     void fetchTree()
@@ -198,6 +214,7 @@ watch(
   <div class="api-scope-tree">
     <a-spin :loading="loading" style="display: block">
       <a-tree
+        v-if="!idle"
         :data="treeData"
         :selected-keys="selectedKeys"
         :expanded-keys="expandedKeys"
@@ -205,7 +222,7 @@ watch(
         @select="handleSelect"
         @expand="handleExpand"
       />
-      <a-empty v-if="!loading && !groups.length && !unclassified.length" description="暂无数据" />
+      <a-empty v-if="!loading && !groups.length && !unclassified.length" :description="emptyText" />
     </a-spin>
   </div>
 </template>
