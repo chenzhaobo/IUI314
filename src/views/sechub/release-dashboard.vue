@@ -2,11 +2,11 @@
 /**
  * 发版质量 → 质量看板（菜单 sys_menu.component = 'sechub/release-dashboard'）。
  *
- * 页面只做组装：筛选 + 结论 / KPI / 新增未覆盖 / 项目组矩阵 / 趋势 / 问题分布 /
+ * 页面只做组装：范围筛选 + 结论 / KPI / 新增未覆盖 / 项目组矩阵 / 趋势 / 问题分布 /
  * 未覆盖 Top 20 与阻塞原因 / AI 投入。取数在 `useReleaseDashboard`。
  */
 import { Modal } from '@arco-design/web-vue'
-import { onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { formatTime } from '@/hooks'
@@ -17,6 +17,7 @@ import IssueDistribution from './components/release/dashboard/IssueDistribution.
 import KpiCards from './components/release/dashboard/KpiCards.vue'
 import TrendPanel from './components/release/dashboard/TrendPanel.vue'
 import UncoveredTopPanel from './components/release/dashboard/UncoveredTopPanel.vue'
+import ReleaseScopeBar from './components/release/ReleaseScopeBar.vue'
 import { conclusionMeta } from './composables/releaseDashboardRules'
 import { useReleaseDashboard } from './composables/useReleaseDashboard'
 
@@ -29,16 +30,35 @@ const {
   loading,
   trendLoading,
   generating,
+  scopeLoading,
+  scopeOptions,
+  productLine,
   iterationId,
-  iterationOptions,
+  productDomain,
+  businessArea,
+  projectGroup,
+  effectiveDomains,
+  summaryText,
+  envUnavailable,
   newUncovered,
   data,
   trend,
   init,
   refresh,
-  handleIterationChange,
+  handleScopeChange,
+  selectGroup,
   generateReport,
 } = useReleaseDashboard()
+
+/** 跳转其他发版页面时带上当前产品线与迭代 */
+const scopeQuery = computed(() => {
+  const query: Record<string, string> = {}
+  if (productLine.value)
+    query.product_line = productLine.value
+  if (iterationId.value)
+    query.iteration_id = iterationId.value
+  return query
+})
 
 async function handleGenerate() {
   const result = await generateReport()
@@ -50,7 +70,7 @@ async function handleGenerate() {
     okText: '去发版报告',
     cancelText: '留在本页',
     onOk: () => {
-      void router.push('/sechub/release/release-reports')
+      void router.push({ path: '/sechub/release/release-reports', query: scopeQuery.value })
     },
   })
 }
@@ -58,7 +78,7 @@ async function handleGenerate() {
 function goUncovered() {
   void router.push({
     path: '/sechub/release/release-coverage',
-    query: { tag: 'new', status: 'not_covered' },
+    query: { ...scopeQuery.value, tag: 'new', status: 'not_covered' },
   })
 }
 
@@ -69,85 +89,103 @@ onMounted(() => {
 
 <template>
   <div class="release-dashboard">
-    <a-card :bordered="false">
-      <div class="toolbar">
-        <a-space wrap>
-          <a-select
-            v-model="iterationId"
-            :options="iterationOptions"
-            placeholder="选择迭代"
-            style="width: 260px"
-            @change="handleIterationChange"
-          />
-          <a-button :loading="loading" @click="refresh">
-            刷新
-          </a-button>
-        </a-space>
-        <a-button type="primary" :loading="generating" @click="handleGenerate">
-          生成报告
-        </a-button>
-      </div>
+    <ReleaseScopeBar
+      :business-area="businessArea"
+      :effective-domains="effectiveDomains"
+      :iteration-id="iterationId"
+      :loading="scopeLoading"
+      :options="scopeOptions"
+      :product-domain="productDomain"
+      :product-line="productLine"
+      :project-group="projectGroup"
+      :summary-text="summaryText"
+      @change="handleScopeChange"
+    />
+
+    <a-card v-if="envUnavailable" :bordered="false">
+      <a-empty description="该产品线暂无测试环境，暂无发版数据" />
     </a-card>
 
-    <a-spin :loading="loading" style="width: 100%">
-      <div v-if="data" class="content">
-        <ConclusionCard
-          :conclusion="data.conclusion"
-          :iteration="data.iteration"
-          :triggers="data.triggers"
-        />
-        <KpiCards
-          :coverage="data.coverage"
-          :execution="data.execution"
-          :issues="data.issues"
-          :targets="data.targets"
-        />
-
-        <a-card :bordered="false">
-          <div class="new-uncovered">
-            <div>
-              <div class="section-title">
-                本迭代新增未覆盖
-              </div>
-              <div class="new-uncovered-value">
-                {{ newUncovered }}
-              </div>
-              <div class="hint">
-                新增接口 {{ data.scope.new_total }}，新增已覆盖 {{ data.coverage.new_covered }}，新增免测 {{ data.coverage.new_exempt }}
-              </div>
-            </div>
-            <a-button type="outline" @click="goUncovered">
-              去接口覆盖一键测试
+    <template v-else>
+      <a-card :bordered="false">
+        <div class="toolbar">
+          <span class="hint">看板按当前范围实时计算；生成报告会先重算派生检查。</span>
+          <a-space>
+            <a-button :loading="loading" @click="refresh">
+              刷新
             </a-button>
-          </div>
-        </a-card>
+            <a-button type="primary" :loading="generating" @click="handleGenerate">
+              生成报告
+            </a-button>
+          </a-space>
+        </div>
+      </a-card>
 
-        <a-card :bordered="false">
-          <div class="section-title">
-            项目组矩阵（点击项目组名按组查看接口）
-          </div>
-          <GroupMatrixTable :rows="data.groups" />
-        </a-card>
+      <a-spin :loading="loading" style="width: 100%">
+        <div v-if="data" class="content">
+          <ConclusionCard
+            :conclusion="data.conclusion"
+            :iteration="data.iteration"
+            :triggers="data.triggers"
+          />
+          <KpiCards
+            :coverage="data.coverage"
+            :execution="data.execution"
+            :issues="data.issues"
+            :targets="data.targets"
+          />
 
-        <a-card :bordered="false">
-          <div class="section-title">
-            趋势（近 6 个迭代）
-          </div>
-          <TrendPanel :trend="trend" :loading="trendLoading" />
-        </a-card>
+          <a-card :bordered="false">
+            <div class="new-uncovered">
+              <div>
+                <div class="section-title">
+                  本迭代新增未覆盖
+                </div>
+                <div class="new-uncovered-value">
+                  {{ newUncovered }}
+                </div>
+                <div class="hint">
+                  新增接口 {{ data.scope.new_total }}，新增已覆盖 {{ data.coverage.new_covered }}，新增免测 {{ data.coverage.new_exempt }}
+                </div>
+              </div>
+              <a-button type="outline" @click="goUncovered">
+                去接口覆盖一键测试
+              </a-button>
+            </div>
+          </a-card>
 
-        <IssueDistribution :issues="data.issues" />
+          <a-card :bordered="false">
+            <div class="section-title">
+              项目组矩阵（点击项目组名按组筛选，右侧「看接口」跳覆盖页）
+            </div>
+            <GroupMatrixTable
+              :iteration-id="iterationId"
+              :product-line="productLine"
+              :rows="data.groups"
+              @select-group="selectGroup"
+            />
+          </a-card>
 
-        <UncoveredTopPanel :apis="data.uncovered_top" :block-reasons="data.execution.block_reasons" />
+          <a-card :bordered="false">
+            <div class="section-title">
+              趋势（近 6 个迭代）
+            </div>
+            <TrendPanel :trend="trend" :loading="trendLoading" />
+          </a-card>
 
-        <AiEfficiencyPanel :ai="data.ai" />
+          <IssueDistribution :issues="data.issues" />
+
+          <UncoveredTopPanel :apis="data.uncovered_top" :block-reasons="data.execution.block_reasons" />
+
+          <AiEfficiencyPanel :ai="data.ai" />
+        </div>
+        <a-empty v-else description="暂无看板数据" />
+      </a-spin>
+
+      <div v-if="data" class="generated">
+        看板生成时间：{{ formatTime(data.generated_at) }}
       </div>
-      <a-empty v-else description="暂无看板数据" />
-    </a-spin>
-
-    <div v-if="data" class="generated">
-      看板生成时间：{{ formatTime(data.generated_at) }}
-    </div>
+    </template>
   </div>
 </template>
 

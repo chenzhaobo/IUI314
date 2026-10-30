@@ -1,8 +1,9 @@
 /**
- * 「缺陷草稿」页状态：迭代默认当前、筛选、分页、状态流转与 Markdown 导出。
+ * 「缺陷草稿」页状态：范围筛选（产品线 / 迭代 / 领域 / 项目组）、状态 / 来源 / 关键字、
+ * 分页、状态流转与 Markdown 导出。
  *
- * 仿 `useReleaseCoverage`：筛选变化回到第 1 页重新取数；
- * 导出直接走鉴权下载 hook，按当前筛选（不含翻页）请求 export.md。
+ * 仿 `useReleaseCoverage`：范围或筛选变化都回到第 1 页重新取数；
+ * 导出直接走鉴权下载 hook，按当前范围与筛选（不含翻页）请求 export.md。
  */
 import type { DefectAction } from './defectDraftRules'
 import type {
@@ -11,28 +12,46 @@ import type {
   DefectQuery,
   DefectStatusPayload,
   ReleaseDefect,
-  ReleaseIteration,
 } from '@/types/sechub-release'
 import { Message } from '@arco-design/web-vue'
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 
 import { ApiSecRelease } from '@/api/sechubApis'
 import { useDownload } from '@/hooks'
 import { fetchDefects, updateDefectStatus } from '../services/defectDraftService'
-import { fetchIterations } from '../services/releaseService'
 import { defectExportPath, defectQueryOf } from './defectDraftRules'
+import { useReleaseScope } from './useReleaseScope'
+
+/** 表格上方的明细筛选（范围由 ReleaseScopeBar 提供） */
+type DefectTableFilters = Pick<DefectFilters, 'status' | 'source' | 'keyword'>
 
 export function useDefectDrafts() {
+  const scope = useReleaseScope()
   const loading = ref(false)
   const exporting = ref(false)
-  const iterations = ref<ReleaseIteration[]>([])
-  const iterationId = ref('')
-  const filters = reactive<DefectFilters>({ projectGroup: '', status: '', source: '', keyword: '' })
+  const filters = reactive<DefectTableFilters>({ status: '', source: '', keyword: '' })
   const pageNum = ref(1)
   const pageSize = ref(20)
   const data = ref<DefectListResponse | null>(null)
   const { downloadWithTip } = useDownload()
 
+  const {
+    loading: scopeLoading,
+    options: scopeOptions,
+    productLine,
+    iterationId,
+    productDomain,
+    businessArea,
+    projectGroup,
+    effectiveDomains,
+    envError,
+    summaryText,
+    version: scopeVersion,
+    init: initScope,
+    handleChange: handleScopeChange,
+  } = scope
+
+  const envUnavailable = computed(() => Boolean(envError.value))
   const list = computed<ReleaseDefect[]>(() => data.value?.list ?? [])
   const total = computed(() => data.value?.total ?? 0)
   const pagination = computed(() => ({
@@ -44,10 +63,19 @@ export function useDefectDrafts() {
   }))
 
   function buildQuery(): DefectQuery {
-    return defectQueryOf({ ...filters, iterationId: iterationId.value }, pageNum.value, pageSize.value)
+    return defectQueryOf({
+      productLine: productLine.value,
+      iterationId: iterationId.value,
+      projectGroup: projectGroup.value,
+      ...filters,
+    }, pageNum.value, pageSize.value)
   }
 
   async function loadDefects() {
+    if (envUnavailable.value) {
+      data.value = null
+      return
+    }
     loading.value = true
     try {
       const result = await fetchDefects(buildQuery())
@@ -59,21 +87,16 @@ export function useDefectDrafts() {
     }
   }
 
-  /** 迭代下拉：默认选后端 current_id；没有当前迭代时保留首项 */
-  async function loadIterations() {
-    const result = await fetchIterations()
-    if (!result)
-      return
-    iterations.value = result.list
-    const preferred = result.current_id || result.list[0]?.id || ''
-    if (!result.list.some(item => item.id === iterationId.value))
-      iterationId.value = preferred
-  }
-
   async function init() {
-    await loadIterations()
+    await initScope()
     await loadDefects()
   }
+
+  /** 范围变化：回到第 1 页重新取数 */
+  watch(scopeVersion, () => {
+    pageNum.value = 1
+    void loadDefects()
+  })
 
   function handleSearch() {
     pageNum.value = 1
@@ -81,14 +104,9 @@ export function useDefectDrafts() {
   }
 
   function handleReset() {
-    filters.projectGroup = ''
     filters.status = ''
     filters.source = ''
     filters.keyword = ''
-    handleSearch()
-  }
-
-  function handleIterationChange() {
     handleSearch()
   }
 
@@ -117,7 +135,7 @@ export function useDefectDrafts() {
     return true
   }
 
-  /** 按当前筛选导出 Markdown（翻页参数不参与） */
+  /** 按当前范围与筛选导出 Markdown（翻页参数不参与） */
   async function exportMarkdown() {
     exporting.value = true
     try {
@@ -132,8 +150,16 @@ export function useDefectDrafts() {
   return {
     loading,
     exporting,
-    iterations,
+    scopeLoading,
+    scopeOptions,
+    productLine,
     iterationId,
+    productDomain,
+    businessArea,
+    projectGroup,
+    effectiveDomains,
+    summaryText,
+    envUnavailable,
     filters,
     pageNum,
     pageSize,
@@ -143,9 +169,9 @@ export function useDefectDrafts() {
     pagination,
     init,
     loadDefects,
+    handleScopeChange,
     handleSearch,
     handleReset,
-    handleIterationChange,
     handlePageChange,
     handlePageSizeChange,
     applyAction,

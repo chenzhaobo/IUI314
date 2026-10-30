@@ -1,10 +1,11 @@
 /**
- * 发版检查页状态：套件与最近 5 次运行、一键触发、回归后 AI 复核（D20b）轮询。
+ * 发版检查页状态：产品线筛选、套件与最近 5 次运行、一键触发、回归后 AI 复核（D20b）轮询。
  *
  * 复核状态按 run_id 缓存；running 时每 10 秒拉一次，套件运行中时状态页也定时刷新，
  * 离开页面（unmount / keep-alive deactivate）全部停表，避免后台空转。
  */
 import type {
+  ReleaseCheckQuery,
   ReleaseCheckRunResult,
   ReleaseCheckStatusResponse,
   ReleaseRunReview,
@@ -12,7 +13,7 @@ import type {
   ReleaseSnapshotGenerateResult,
   ReleaseSuiteRun,
 } from '@/types/sechub-release'
-import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
 
 import {
   fetchReleaseCheckStatus,
@@ -21,14 +22,14 @@ import {
   runReleaseCheck,
   startRunReview,
 } from '../services/releaseDashboardService'
+import { useReleaseScope } from './useReleaseScope'
 
-/** 发版检查按产品线隔离；页面暂不提供切换，默认星瀚（与后端缺省一致） */
-const PRODUCT_LINE = '星瀚'
 const POLL_INTERVAL_MS = 10_000
 
 const RUNNING_STATUSES = new Set(['pending', 'running'])
 
 export function useReleaseCheck() {
+  const scope = useReleaseScope()
   const loading = ref(false)
   const checking = ref(false)
   const generating = ref(false)
@@ -39,12 +40,25 @@ export function useReleaseCheck() {
   const reviewStarting = ref('')
   const timers = new Map<string, ReturnType<typeof setInterval>>()
 
+  const {
+    productLine,
+    productLineOptions,
+    loading: scopeLoading,
+    version: scopeVersion,
+    init: initScope,
+    handleChange: handleScopeChange,
+  } = scope
+
   const suite = computed(() => data.value?.suite ?? null)
   const suiteCode = computed(() => suite.value?.suite_code ?? data.value?.suite_code ?? '')
   const runs = computed<ReleaseSuiteRun[]>(() => data.value?.latest_runs ?? [])
   const latestSnapshot = computed(() => data.value?.latest_snapshot ?? null)
   /** 任一运行未结束：禁用「立即执行发版检查」 */
   const isRunning = computed(() => runs.value.some(run => RUNNING_STATUSES.has(run.status)))
+
+  function lineQuery(): ReleaseCheckQuery {
+    return productLine.value ? { product_line: productLine.value } : {}
+  }
 
   function stopTimer(key: string) {
     const timer = timers.get(key)
@@ -82,7 +96,7 @@ export function useReleaseCheck() {
   async function loadStatus() {
     loading.value = true
     try {
-      const result = await fetchReleaseCheckStatus({ product_line: PRODUCT_LINE })
+      const result = await fetchReleaseCheckStatus(lineQuery())
       if (result)
         data.value = result
     }
@@ -127,7 +141,7 @@ export function useReleaseCheck() {
       return null
     checking.value = true
     try {
-      const result = await runReleaseCheck({ product_line: PRODUCT_LINE })
+      const result = await runReleaseCheck(lineQuery())
       if (result)
         await refresh()
       return result
@@ -162,7 +176,7 @@ export function useReleaseCheck() {
       return null
     generating.value = true
     try {
-      const result = await generateReleaseSnapshot({})
+      const result = await generateReleaseSnapshot(lineQuery())
       if (result)
         await loadStatus()
       return result
@@ -172,14 +186,29 @@ export function useReleaseCheck() {
     }
   }
 
+  /** 产品线下拉：切换后回到该产品线的检查状态 */
+  function handleProductLineChange(value: unknown) {
+    void handleScopeChange('productLine', typeof value === 'string' ? value : '')
+  }
+
+  /** 产品线切换：旧运行的复核轮询与缓存全部失效 */
+  watch(scopeVersion, () => {
+    stopAllTimers()
+    reviews.value = {}
+    data.value = null
+    void refresh()
+  })
+
   /** 首次取数完成前不响应 onActivated，避免 keep-alive 首次挂载时重复请求 */
   let initialized = false
 
   onMounted(() => {
-    void refresh().then(() => {
+    void (async () => {
+      await initScope()
+      await refresh()
       initialized = true
       resumeReviewPolling()
-    })
+    })()
   })
   onActivated(() => {
     if (initialized)
@@ -190,6 +219,7 @@ export function useReleaseCheck() {
 
   return {
     loading,
+    scopeLoading,
     checking,
     generating,
     data,
@@ -200,7 +230,9 @@ export function useReleaseCheck() {
     reviews,
     reviewStarting,
     isRunning,
-    productLine: PRODUCT_LINE,
+    productLine,
+    productLineOptions,
+    handleProductLineChange,
     refresh,
     triggerCheck,
     triggerReview,

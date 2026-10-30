@@ -19,6 +19,9 @@ defineOptions({ name: 'release-reports' })
 
 const {
   loading,
+  scopeLoading,
+  productLine,
+  productLineOptions,
   list,
   pagination,
   drawerVisible,
@@ -29,6 +32,7 @@ const {
   unfinalizing,
   unfinalizeTarget,
   loadSnapshots,
+  handleProductLineChange,
   handlePageChange,
   handlePageSizeChange,
   openReport,
@@ -58,9 +62,19 @@ function handleFinalize(row: ReleaseSnapshotRow) {
           </div>
           <span class="hint">快照是发版时点的冻结视图；定稿后作为该迭代的最终结论。</span>
         </div>
-        <a-button :loading="loading" @click="loadSnapshots">
-          刷新
-        </a-button>
+        <a-space>
+          <a-select
+            :loading="scopeLoading"
+            :model-value="productLine"
+            :options="productLineOptions"
+            placeholder="产品线"
+            style="width: 150px"
+            @change="handleProductLineChange"
+          />
+          <a-button :loading="loading" @click="loadSnapshots">
+            刷新
+          </a-button>
+        </a-space>
       </div>
       <SnapshotTable
         :acting-id="actingId"

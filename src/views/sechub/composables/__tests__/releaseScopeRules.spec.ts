@@ -11,6 +11,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import {
+  buildProductLineQuery,
   buildScopeQuery,
   businessAreaOptionsOf,
   defaultIterationIdOf,
@@ -136,6 +137,12 @@ test('范围 query：空值不下发，其余按后端字段名输出', () => {
     business_area: '__none__',
     project_group: 'PM1111',
   })
+})
+
+test('仅产品线的查询：空值与空白不下发', () => {
+  assert.deepEqual(buildProductLineQuery('星瀚'), { product_line: '星瀚' })
+  assert.deepEqual(buildProductLineQuery('  '), {})
+  assert.deepEqual(buildProductLineQuery(''), {})
 })
 
 test('按项目组反查上级领域：用于路由预填与统计表点选', () => {

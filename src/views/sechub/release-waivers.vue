@@ -20,6 +20,9 @@ defineOptions({ name: 'release-waivers' })
 
 const {
   loading,
+  scopeLoading,
+  productLine,
+  productLineOptions,
   submitting,
   revoking,
   filters,
@@ -27,6 +30,7 @@ const {
   list,
   pagination,
   init,
+  handleProductLineChange,
   handleSearch,
   handleReset,
   handlePageChange,
@@ -69,6 +73,14 @@ onMounted(() => {
   <div class="release-waivers">
     <a-card :bordered="false">
       <a-space wrap>
+        <a-select
+          :loading="scopeLoading"
+          :model-value="productLine"
+          :options="productLineOptions"
+          placeholder="产品线"
+          style="width: 150px"
+          @change="handleProductLineChange"
+        />
         <a-select
           v-model="filters.ruleCode"
           :options="ruleSelectOptions"

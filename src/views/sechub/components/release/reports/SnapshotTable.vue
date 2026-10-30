@@ -45,18 +45,23 @@ function finalizeTip(row: ReleaseSnapshotRow): string {
     :loading="loading"
     :pagination="pagination"
     row-key="id"
-    :scroll="{ minWidth: 1160 }"
+    :scroll="{ minWidth: 1260 }"
     size="small"
     @page-change="emit('pageChange', $event)"
     @page-size-change="emit('pageSizeChange', $event)"
   >
     <template #columns>
-      <a-table-column title="迭代" :width="240" ellipsis tooltip>
+      <a-table-column title="迭代" :width="220" ellipsis tooltip>
         <template #cell="{ record }">
           <div>{{ record.iteration_name || record.iteration_id }}</div>
           <div class="sub-text">
-            {{ record.iteration_code || '-' }} · {{ record.product_line }}
+            {{ record.iteration_code || '-' }}
           </div>
+        </template>
+      </a-table-column>
+      <a-table-column title="产品线" :width="100">
+        <template #cell="{ record }">
+          {{ record.product_line || '-' }}
         </template>
       </a-table-column>
       <a-table-column title="结论" :width="100">

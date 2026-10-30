@@ -1,5 +1,5 @@
 /**
- * 发版质量「白名单」页状态：列表筛选分页、接口免测新增、撤销。
+ * 发版质量「白名单」页状态：产品线筛选、列表筛选分页、接口免测新增、撤销。
  *
  * 白名单新增 / 撤销都立即生效（后端会同步把检查项 open ↔ waived），
  * 因此每次成功后重载列表；规则下拉取自配置检查的静态规则表。
@@ -7,11 +7,13 @@
 import type { ExemptFormInput } from './configCheckRules'
 import type { ReleaseWaiver, WaiverListResponse, WaiverQuery } from '@/types/sechub-release'
 import { Message } from '@arco-design/web-vue'
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 
 import { toApiParam } from '@/hooks'
 import { addWaiver, fetchConfigSummary, fetchWaivers, revokeWaiver } from '../services/configCheckService'
 import { API_EXEMPT_RULE, exemptRequestOf, validateExemptForm } from './configCheckRules'
+import { buildProductLineQuery } from './releaseScopeRules'
+import { useReleaseScope } from './useReleaseScope'
 
 export interface WaiverFilterState {
   ruleCode: string
@@ -28,6 +30,7 @@ export interface WaiverRuleOption {
 const EXEMPT_OPTION: WaiverRuleOption = { value: API_EXEMPT_RULE, label: '接口免测（API_EXEMPT）' }
 
 export function useWaivers() {
+  const scope = useReleaseScope()
   const loading = ref(false)
   const submitting = ref(false)
   const revoking = ref(false)
@@ -36,6 +39,15 @@ export function useWaivers() {
   const pageNum = ref(1)
   const pageSize = ref(20)
   const ruleOptions = ref<WaiverRuleOption[]>([EXEMPT_OPTION])
+
+  const {
+    productLine,
+    productLineOptions,
+    loading: scopeLoading,
+    version: scopeVersion,
+    init: initScope,
+    handleChange: handleScopeChange,
+  } = scope
 
   const list = computed<ReleaseWaiver[]>(() => data.value?.list ?? [])
   const total = computed(() => data.value?.total ?? 0)
@@ -49,6 +61,7 @@ export function useWaivers() {
 
   function buildQuery(): WaiverQuery {
     const query: WaiverQuery = {
+      ...buildProductLineQuery(productLine.value),
       active_only: filters.activeOnly,
       page_num: pageNum.value,
       page_size: pageSize.value,
@@ -85,8 +98,19 @@ export function useWaivers() {
   }
 
   async function init() {
+    await initScope()
     await Promise.all([loadRuleOptions(), loadWaivers()])
   }
+
+  /** 产品线下拉：切换后回到第 1 页重新取数 */
+  function handleProductLineChange(value: unknown) {
+    void handleScopeChange('productLine', typeof value === 'string' ? value : '')
+  }
+
+  watch(scopeVersion, () => {
+    pageNum.value = 1
+    void loadWaivers()
+  })
 
   function handleSearch() {
     pageNum.value = 1
@@ -155,6 +179,9 @@ export function useWaivers() {
 
   return {
     loading,
+    scopeLoading,
+    productLine,
+    productLineOptions,
     submitting,
     revoking,
     filters,
@@ -164,6 +191,7 @@ export function useWaivers() {
     pagination,
     init,
     loadWaivers,
+    handleProductLineChange,
     handleSearch,
     handleReset,
     handlePageChange,

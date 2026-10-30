@@ -2,7 +2,8 @@
 /**
  * 项目组矩阵：覆盖率 / 新增覆盖率 / 执行率 / 通过率 / FAIL / 未处理高危缺陷 / 高危配置 / 结论。
  *
- * 行序沿用后端（Blocked → 未覆盖多 → 编码）；点项目组名跳接口覆盖页并按组过滤。
+ * 行序沿用后端（Blocked → 未覆盖多 → 编码）；点项目组名交给页面按项目组设置范围，
+ * 「看接口」带当前产品线 / 迭代 / 项目组跳接口覆盖页。
  */
 import type { ReleaseGroupRow } from '@/types/sechub-release'
 import { computed } from 'vue'
@@ -11,25 +12,45 @@ import { conclusionMeta, rateText } from '../../../composables/releaseDashboardR
 
 const props = defineProps<{
   rows: ReleaseGroupRow[]
+  productLine: string
+  iterationId: string
+}>()
+
+const emit = defineEmits<{
+  (e: 'selectGroup', code: string): void
 }>()
 
 const coveragePath = '/sechub/release/release-coverage'
 const tableData = computed(() => props.rows)
+
+function coverageLink(code: string) {
+  const query: Record<string, string> = {}
+  if (props.productLine)
+    query.product_line = props.productLine
+  if (props.iterationId)
+    query.iteration_id = props.iterationId
+  if (code)
+    query.project_group = code
+  return { path: coveragePath, query }
+}
 </script>
 
 <template>
   <a-table
     :data="tableData"
     :pagination="false"
-    :scroll="{ minWidth: 1080 }"
+    :scroll="{ minWidth: 1120 }"
     row-key="project_group_code"
     size="small"
   >
     <template #columns>
-      <a-table-column title="项目组" :width="200" ellipsis tooltip>
+      <a-table-column title="项目组" :width="240" ellipsis tooltip>
         <template #cell="{ record }">
-          <router-link :to="{ path: coveragePath, query: { project_group: record.project_group_code } }">
+          <a-link @click="emit('selectGroup', record.project_group_code || '')">
             {{ record.project_group_name || record.project_group_code || '未分类' }}
+          </a-link>
+          <router-link class="api-link" :to="coverageLink(record.project_group_code || '')">
+            看接口
           </router-link>
           <div class="group-code">
             {{ record.project_group_code || '-' }}
@@ -85,6 +106,10 @@ const tableData = computed(() => props.rows)
 <style scoped>
 .group-code {
   color: var(--color-text-3);
+  font-size: 12px;
+}
+.api-link {
+  margin-left: 8px;
   font-size: 12px;
 }
 </style>

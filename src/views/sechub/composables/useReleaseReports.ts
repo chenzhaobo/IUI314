@@ -1,15 +1,16 @@
 /**
- * 发版报告页状态：快照列表（服务端分页）、报告预览、下载、定稿与撤销定稿。
+ * 发版报告页状态：产品线筛选、快照列表（服务端分页）、报告预览、下载、定稿与撤销定稿。
  *
  * 列表只给摘要字段；预览按需拉详情（含 report_md）。请求失败统一返回 null
  * （拦截器已提示），这里保留旧数据，避免页面闪空。
  */
 import type {
   ReleaseSnapshotDetail,
+  ReleaseSnapshotQuery,
   ReleaseSnapshotRow,
 } from '@/types/sechub-release'
 import { Message } from '@arco-design/web-vue'
-import { computed, onActivated, onMounted, ref } from 'vue'
+import { computed, onActivated, onMounted, ref, watch } from 'vue'
 import { useDownload } from '@/hooks'
 
 import {
@@ -19,8 +20,11 @@ import {
   snapshotReportPath,
   unfinalizeReleaseSnapshot,
 } from '../services/releaseDashboardService'
+import { buildProductLineQuery } from './releaseScopeRules'
+import { useReleaseScope } from './useReleaseScope'
 
 export function useReleaseReports() {
+  const scope = useReleaseScope()
   const loading = ref(false)
   const list = ref<ReleaseSnapshotRow[]>([])
   const pageNum = ref(1)
@@ -36,6 +40,15 @@ export function useReleaseReports() {
   const unfinalizeTarget = ref<ReleaseSnapshotRow | null>(null)
   const { downloadWithTip } = useDownload()
 
+  const {
+    productLine,
+    productLineOptions,
+    loading: scopeLoading,
+    version: scopeVersion,
+    init: initScope,
+    handleChange: handleScopeChange,
+  } = scope
+
   const pagination = computed(() => ({
     current: pageNum.value,
     pageSize: pageSize.value,
@@ -44,10 +57,18 @@ export function useReleaseReports() {
     showPageSize: true,
   }))
 
+  function buildQuery(): ReleaseSnapshotQuery {
+    return {
+      ...buildProductLineQuery(productLine.value),
+      page_num: pageNum.value,
+      page_size: pageSize.value,
+    }
+  }
+
   async function loadSnapshots() {
     loading.value = true
     try {
-      const result = await fetchReleaseSnapshots({ page_num: pageNum.value, page_size: pageSize.value })
+      const result = await fetchReleaseSnapshots(buildQuery())
       if (!result)
         return
       list.value = result.list
@@ -57,6 +78,16 @@ export function useReleaseReports() {
       loading.value = false
     }
   }
+
+  /** 产品线下拉：切换后回到第 1 页重新取数 */
+  function handleProductLineChange(value: unknown) {
+    void handleScopeChange('productLine', typeof value === 'string' ? value : '')
+  }
+
+  watch(scopeVersion, () => {
+    pageNum.value = 1
+    void loadSnapshots()
+  })
 
   function handlePageChange(page: number) {
     pageNum.value = page
@@ -130,9 +161,11 @@ export function useReleaseReports() {
   let initialized = false
 
   onMounted(() => {
-    void loadSnapshots().then(() => {
+    void (async () => {
+      await initScope()
+      await loadSnapshots()
       initialized = true
-    })
+    })()
   })
   onActivated(() => {
     if (initialized)
@@ -141,6 +174,9 @@ export function useReleaseReports() {
 
   return {
     loading,
+    scopeLoading,
+    productLine,
+    productLineOptions,
     list,
     pagination,
     drawerVisible,
@@ -151,6 +187,7 @@ export function useReleaseReports() {
     unfinalizing,
     unfinalizeTarget,
     loadSnapshots,
+    handleProductLineChange,
     handlePageChange,
     handlePageSizeChange,
     openReport,

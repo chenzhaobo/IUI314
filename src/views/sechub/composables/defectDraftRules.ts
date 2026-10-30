@@ -114,9 +114,11 @@ export function defectActions(status: DefectStatus): DefectAction[] {
 /** 页面筛选 → 查询参数：空值不下发，项目组与关键词 trim */
 export function defectQueryOf(filters: DefectFilters, pageNum: number, pageSize: number): DefectQuery {
   const query: DefectQuery = { page_num: pageNum, page_size: pageSize }
+  if (filters.productLine)
+    query.product_line = filters.productLine
   if (filters.iterationId)
     query.iteration_id = filters.iterationId
-  const projectGroup = filters.projectGroup.trim()
+  const projectGroup = filters.projectGroup?.trim() ?? ''
   if (projectGroup)
     query.project_group = projectGroup
   if (filters.status)
@@ -132,6 +134,8 @@ export function defectQueryOf(filters: DefectFilters, pageNum: number, pageSize:
 /** 导出路径：只带筛选条件，翻页参数不下发 */
 export function defectExportPath(base: string, query: DefectQuery): string {
   const params = new URLSearchParams()
+  if (query.product_line)
+    params.set('product_line', query.product_line)
   if (query.iteration_id)
     params.set('iteration_id', query.iteration_id)
   if (query.project_group)

@@ -68,12 +68,37 @@ test('查询参数省略空值，关键词与项目组 trim 后下发', () => {
   assert.deepEqual(empty, { page_num: 1, page_size: 20 })
 })
 
+test('查询参数带产品线：空值不下发', () => {
+  const filters: DefectFilters = {
+    productLine: '星瀚',
+    iterationId: 'ITER1',
+    projectGroup: 'PM013',
+    status: '',
+    source: '',
+    keyword: '',
+  }
+  assert.deepEqual(defectQueryOf(filters, 1, 20), {
+    product_line: '星瀚',
+    iteration_id: 'ITER1',
+    project_group: 'PM013',
+    page_num: 1,
+    page_size: 20,
+  })
+
+  const noLine = defectQueryOf({ iterationId: 'ITER1', status: '', source: '', keyword: '' }, 1, 20)
+  assert.equal('product_line' in noLine, false)
+})
+
 test('导出路径保留筛选条件并做 URL 编码，翻页参数不下发', () => {
   const base = '/sechub/release/defects/export.md'
   assert.equal(defectExportPath(base, { page_num: 1, page_size: 20 }), base)
   assert.equal(
     defectExportPath(base, { status: 'draft', keyword: '越权', page_num: 1, page_size: 20 }),
     `${base}?status=draft&keyword=%E8%B6%8A%E6%9D%83`,
+  )
+  assert.equal(
+    defectExportPath(base, { product_line: '星瀚', project_group: 'PM013', page_num: 1, page_size: 20 }),
+    `${base}?product_line=%E6%98%9F%E7%80%9A&project_group=PM013`,
   )
 })
 

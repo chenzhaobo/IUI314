@@ -172,6 +172,12 @@ export function buildScopeQuery(selection: ReleaseScopeSelection): ReleaseScopeQ
   return query
 }
 
+/** 只需要产品线的页面（发版报告 / 白名单 / 发版检查）的 query */
+export function buildProductLineQuery(productLine: string): ReleaseScopeQuery {
+  const line = productLine.trim()
+  return line ? { product_line: line } : {}
+}
+
 /**
  * 当前范围文字说明。
  *

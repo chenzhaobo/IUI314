@@ -1,7 +1,9 @@
 <script lang="ts" setup>
-import SecCrudPage from './components/SecCrudPage.vue'
 import { ApiSecReleaseWindow } from '@/api/apis'
+import SecCrudPage from './components/SecCrudPage.vue'
 
+// 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
+// eslint-disable-next-line vue/component-definition-name-casing
 defineOptions({ name: 'release-window' })
 
 // 字段以 sec_release_window 实际列为准（code / name / window_type / planned_release_at /

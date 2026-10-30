@@ -23,6 +23,7 @@ defineOptions({ name: 'release-check' })
 const router = useRouter()
 const {
   loading,
+  scopeLoading,
   checking,
   generating,
   suite,
@@ -33,6 +34,8 @@ const {
   reviewStarting,
   isRunning,
   productLine,
+  productLineOptions,
+  handleProductLineChange,
   refresh,
   triggerCheck,
   triggerReview,
@@ -88,9 +91,17 @@ function openScanRuns(run: ReleaseSuiteRun) {
           <div class="section-title">
             发版回归套件
           </div>
-          <span class="hint">产品线：{{ productLine }}；一键检查 = 触发回归套件 + 后台执行清单配置规则。</span>
+          <span class="hint">一键检查 = 触发回归套件 + 后台执行清单配置规则。</span>
         </div>
         <a-space>
+          <a-select
+            :loading="scopeLoading"
+            :model-value="productLine"
+            :options="productLineOptions"
+            placeholder="产品线"
+            style="width: 150px"
+            @change="handleProductLineChange"
+          />
           <a-button :loading="loading" @click="refresh">
             刷新
           </a-button>

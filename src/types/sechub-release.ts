@@ -289,6 +289,8 @@ export interface ReleaseDefect {
 
 /** 缺陷列表 / 导出查询参数（空值不下发） */
 export interface DefectQuery {
+  /** 产品线（字典 perf_product_line） */
+  product_line?: string
   iteration_id?: string
   project_group?: string
   status?: DefectStatus
@@ -302,7 +304,10 @@ export interface DefectQuery {
 export interface DefectFilters {
   /** 查询用迭代 id；页面把它单独放在 v-model 上，因此可选 */
   iterationId?: string
-  projectGroup: string
+  /** 产品线（字典 perf_product_line） */
+  productLine?: string
+  /** 项目组编码；由范围筛选传入，后端同时兼容名称 / ID */
+  projectGroup?: string
   status: '' | DefectStatus
   source: '' | DefectSource
   keyword: string
@@ -574,6 +579,8 @@ export interface WaiverListResponse {
 
 /** 白名单列表查询（active_only 不传 = 后端默认只看有效） */
 export interface WaiverQuery {
+  /** 产品线（字典 perf_product_line） */
+  product_line?: string
   rule_code?: string
   active_only?: boolean
   keyword?: string
@@ -746,11 +753,9 @@ export interface ReleaseDashboardData {
   generated_at: string
 }
 
-/** 看板查询（空值不下发） */
-export interface ReleaseDashboardQuery {
-  iteration_id?: string
+/** 看板查询（空值不下发；范围字段来自 useReleaseScope） */
+export interface ReleaseDashboardQuery extends ReleaseScopeQuery {
   env_id?: string
-  product_domains?: string
 }
 
 /** 趋势点（snapshot::trend 的 list 项） */
@@ -774,9 +779,8 @@ export interface ReleaseTrendResponse {
   list: ReleaseTrendPoint[]
 }
 
-/** 趋势查询 */
-export interface ReleaseTrendQuery {
-  iteration_id?: string
+/** 趋势查询（范围字段来自 useReleaseScope） */
+export interface ReleaseTrendQuery extends ReleaseScopeQuery {
   env_id?: string
 }
 
@@ -811,14 +815,15 @@ export interface ReleaseSnapshotListResponse {
 
 /** 快照列表查询 */
 export interface ReleaseSnapshotQuery {
+  /** 产品线（字典 perf_product_line） */
+  product_line?: string
   iteration_id?: string
   page_num?: number
   page_size?: number
 }
 
-/** `POST /sechub/release/snapshots` 请求体 */
-export interface ReleaseSnapshotGenerateReq {
-  iteration_id?: string
+/** `POST /sechub/release/snapshots` 请求体（范围字段来自 useReleaseScope） */
+export interface ReleaseSnapshotGenerateReq extends ReleaseScopeQuery {
   env_id?: string
 }
 
