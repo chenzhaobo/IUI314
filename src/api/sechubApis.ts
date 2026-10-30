@@ -599,15 +599,19 @@ export enum ApiSecRelease {
   scopeOptions = '/sechub/release/scope-options',
   coverage = '/sechub/release/coverage',
   defects = '/sechub/release/defects',
+  defectDetail = '/sechub/release/defects/{id}',
   defectStatus = '/sechub/release/defects/{id}/status',
+  defectVerifyScript = '/sechub/release/defects/{id}/verify-script',
   defectsExport = '/sechub/release/defects/export.md',
   confirmDefect = '/sechub/release/results/{result_id}/confirm-defect',
-  // 配置检查：汇总 / 明细 / 变更记录 / 手动执行 / 生成缺陷
+  // 配置检查：汇总 / 明细 / 变更记录 / 字段说明 / 手动执行 / 生成缺陷（单个 / 批量）
   configSummary = '/sechub/release/config-check/summary',
   configItems = '/sechub/release/config-check/items',
   configItemEvents = '/sechub/release/config-check/items/{id}/events',
+  configFields = '/sechub/release/config-check/fields',
   configRun = '/sechub/release/config-check/run',
   configDefect = '/sechub/release/config-check/defect',
+  configBatchDefect = '/sechub/release/config-check/defects/batch',
   // 白名单：列表 / 新增 / 撤销
   waivers = '/sechub/release/waivers',
   waiverRevoke = '/sechub/release/waivers/{id}/revoke',
@@ -622,5 +626,6 @@ export enum ApiSecRelease {
   // 发版检查（套件 / 一键执行 / 回归后 AI 复核）
   checkRun = '/sechub/release/check/run',
   checkStatus = '/sechub/release/check/status',
+  checkPlan = '/sechub/release/check/plan',
   runReview = '/sechub/release/runs/{run_id}/review',
 }

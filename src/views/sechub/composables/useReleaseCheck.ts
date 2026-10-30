@@ -22,6 +22,7 @@ import {
   runReleaseCheck,
   startRunReview,
 } from '../services/releaseDashboardService'
+import { useReleaseCheckPlan } from './useReleaseCheckPlan'
 import { useReleaseScope } from './useReleaseScope'
 
 const POLL_INTERVAL_MS = 10_000
@@ -48,6 +49,7 @@ export function useReleaseCheck() {
     init: initScope,
     handleChange: handleScopeChange,
   } = scope
+  const planState = useReleaseCheckPlan(productLine)
 
   const suite = computed(() => data.value?.suite ?? null)
   const suiteCode = computed(() => suite.value?.suite_code ?? data.value?.suite_code ?? '')
@@ -114,18 +116,33 @@ export function useReleaseCheck() {
     if (timers.has('status'))
       return
     const timer = setInterval(() => {
-      void refresh()
+      void pollStatus()
     }, POLL_INTERVAL_MS)
     timers.set('status', timer)
   }
 
-  async function refresh() {
-    await loadStatus()
-    syncStatusPolling()
+  /** 补齐尚未取过复核状态的运行 */
+  function loadMissingReviews() {
     for (const run of runs.value) {
       if (!(run.id in reviews.value))
         void loadReview(run.id)
     }
+  }
+
+  async function refresh() {
+    await Promise.all([loadStatus(), planState.load()])
+    syncStatusPolling()
+    loadMissingReviews()
+  }
+
+  /** 轮询只刷状态；运行结束后再补一次计划（上次执行与预计耗时会变） */
+  async function pollStatus() {
+    const wasRunning = isRunning.value
+    await loadStatus()
+    if (wasRunning && !isRunning.value)
+      await planState.load()
+    syncStatusPolling()
+    loadMissingReviews()
   }
 
   /** keep-alive 切回页面时恢复复核轮询（停表期间落下的 running 状态重新挂上） */
@@ -196,6 +213,7 @@ export function useReleaseCheck() {
     stopAllTimers()
     reviews.value = {}
     data.value = null
+    planState.clear()
     void refresh()
   })
 
@@ -223,6 +241,8 @@ export function useReleaseCheck() {
     checking,
     generating,
     data,
+    checkPlan: planState.plan,
+    planLoading: planState.loading,
     suite,
     suiteCode,
     runs,

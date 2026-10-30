@@ -1,80 +1,124 @@
 <script setup lang="ts">
 /**
- * 检查明细面板：筛选栏 + 明细表 + 分页。
+ * 右栏明细：按项目组分布 + 批量生成缺陷入口 + 明细筛选 + 明细表 + 分页。
  *
- * 筛选条件用 defineModel 双向绑定到页面的 filters；
- * 条件变化 emit search，由 composable 回到第 1 页重新取数。
+ * 项目组分布只是范围条件的快捷入口（写回 ReleaseScopeBar），不是第二个过滤维度；
+ * 批量生成缺陷要求先在左栏选中规则。
  */
 import type { PaginationProps } from '@arco-design/web-vue'
-import type { ConfigItem, ConfigItemState, ConfigSeverity } from '@/types/sechub-release'
+import type { ConfigGroupDistRow } from '../../../composables/configCheckRules'
+import type {
+  ConfigFieldDef,
+  ConfigHandlingFilter,
+  ConfigItem,
+  ConfigSeverity,
+} from '@/types/sechub-release'
 
+import ConfigGroupDistribution from './ConfigGroupDistribution.vue'
 import ConfigItemFilters from './ConfigItemFilters.vue'
 import ConfigItemTable from './ConfigItemTable.vue'
 
 defineProps<{
+  groupRows: ConfigGroupDistRow[]
+  activeGroup: string
+  selectedRuleCode: string
   list: ConfigItem[]
   loading: boolean
   pagination: PaginationProps
-  total: number
+  fieldDefs: Record<string, ConfigFieldDef>
+  productLine: string
+  defectLoadingId: string
 }>()
 
 const emit = defineEmits<{
+  (e: 'selectGroup', code: string): void
+  (e: 'generateBatch'): void
+  (e: 'createDefect', item: ConfigItem): void
+  (e: 'viewDefect', item: ConfigItem): void
+  (e: 'addWaiver', item: ConfigItem): void
+  (e: 'viewEvents', item: ConfigItem): void
   (e: 'search'): void
   (e: 'reset'): void
   (e: 'pageChange', page: number): void
   (e: 'pageSizeChange', size: number): void
-  (e: 'viewEvents', item: ConfigItem): void
-  (e: 'addWaiver', item: ConfigItem): void
 }>()
 
-const state = defineModel<ConfigItemState | 'all'>('state', { required: true })
+const handling = defineModel<ConfigHandlingFilter>('handling', { required: true })
 const severity = defineModel<'' | ConfigSeverity>('severity', { required: true })
 const keyword = defineModel<string>('keyword', { required: true })
 const newOnly = defineModel<boolean>('newOnly', { required: true })
 </script>
 
 <template>
-  <a-card :bordered="false">
-    <div class="toolbar">
-      <div class="title">
-        检查明细
+  <a-card :bordered="false" class="item-panel">
+    <div class="panel-head">
+      <ConfigGroupDistribution
+        :active-group="activeGroup"
+        :rows="groupRows"
+        @select="code => emit('selectGroup', code)"
+      />
+      <div class="batch">
+        <span v-if="selectedRuleCode" class="hint">规则 {{ selectedRuleCode }}</span>
+        <a-button
+          :disabled="!selectedRuleCode"
+          type="primary"
+          @click="emit('generateBatch')"
+        >
+          按项目组生成缺陷
+        </a-button>
       </div>
-      <span class="hint">共 {{ total }} 项</span>
     </div>
+
     <ConfigItemFilters
-      v-model:state="state"
-      v-model:severity="severity"
+      v-model:handling="handling"
       v-model:keyword="keyword"
       v-model:new-only="newOnly"
+      v-model:severity="severity"
+      class="filters"
       @reset="emit('reset')"
       @search="emit('search')"
     />
+
     <ConfigItemTable
+      :defect-loading-id="defectLoadingId"
+      :field-defs="fieldDefs"
       :list="list"
       :loading="loading"
       :pagination="pagination"
+      :product-line="productLine"
       @add-waiver="item => emit('addWaiver', item)"
+      @create-defect="item => emit('createDefect', item)"
       @page-change="page => emit('pageChange', page)"
       @page-size-change="size => emit('pageSizeChange', size)"
+      @view-defect="item => emit('viewDefect', item)"
       @view-events="item => emit('viewEvents', item)"
     />
   </a-card>
 </template>
 
 <style scoped>
-.toolbar {
+.item-panel {
+  min-width: 0;
+  flex: 1;
+}
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.batch {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-.title {
-  color: var(--color-text-1);
-  font-size: 14px;
-  font-weight: 600;
+  gap: 8px;
+  margin-left: auto;
 }
 .hint {
   color: var(--color-text-3);
   font-size: 12px;
+}
+.filters {
+  margin-bottom: 10px;
 }
 </style>

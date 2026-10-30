@@ -2,20 +2,21 @@
 /**
  * 发版质量 → 配置检查（菜单 sys_menu.component = 'sechub/release-config-check'）。
  *
- * 页面只做组装：页头 + 汇总卡 + 概览（规则 / 项目组）+ 明细面板 + 变更记录 / 加白弹窗。
- * 取数、筛选、手动检查、缺陷草稿与加白在 `useConfigCheck`。
+ * 布局：范围筛选 + 手动检查 → 汇总条 → 左栏规则列表 / 右栏明细；
+ * 项目组只是范围条件（ReleaseScopeBar），右下「按项目组分布」点击写回范围，不是第二重过滤。
+ * 取数按关注点拆在 useConfigCheckSummary / Items / Actions，本页只组装。
  */
 import type { WaiverFormInput } from './composables/configCheckRules'
-import type { ConfigItem } from '@/types/sechub-release'
-import { computed, onMounted, ref } from 'vue'
+import { onMounted } from 'vue'
 
-import { formatTime } from '@/hooks'
+import ConfigBatchDefectModal from './components/release/config/ConfigBatchDefectModal.vue'
 import ConfigEventsDrawer from './components/release/config/ConfigEventsDrawer.vue'
 import ConfigItemPanel from './components/release/config/ConfigItemPanel.vue'
-import ConfigOverview from './components/release/config/ConfigOverview.vue'
+import ConfigRuleList from './components/release/config/ConfigRuleList.vue'
 import ConfigToolbar from './components/release/config/ConfigToolbar.vue'
 import ConfigTotalsBar from './components/release/config/ConfigTotalsBar.vue'
 import ConfigWaiverModal from './components/release/config/ConfigWaiverModal.vue'
+import ReleaseScopeBar from './components/release/ReleaseScopeBar.vue'
 import { useConfigCheck } from './composables/useConfigCheck'
 
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
@@ -23,81 +24,70 @@ import { useConfigCheck } from './composables/useConfigCheck'
 defineOptions({ name: 'release-config-check' })
 
 const {
-  iterations,
+  scopeLoading,
+  scopeOptions,
+  productLine,
   iterationId,
-  scope,
-  family,
+  productDomain,
+  businessArea,
+  projectGroup,
+  effectiveDomains,
+  summaryText,
+  handleScopeChange,
+  selectGroup,
   summaryLoading,
-  itemsLoading,
-  running,
-  defectLoading,
-  defectCreated,
-  events,
-  eventsLoading,
-  filters,
-  ruleDefs,
-  ruleStats,
-  groupStats,
   totals,
-  lastScanAt,
-  productDomains,
+  ruleRowByCode,
+  ruleGroups,
+  groupDistribution,
+  lastScanText,
+  itemsLoading,
+  fieldDefs,
+  filters,
   list,
   pagination,
-  canCreateDefect,
-  init,
-  handleIterationChange,
-  handleScopeChange,
-  handleFamilyChange,
+  activeSummaryCell,
   selectRule,
-  selectGroup,
+  handleSummarySelect,
   handleSearch,
   handleReset,
   handlePageChange,
   handlePageSizeChange,
+  family,
+  running,
+  rowDefectLoadingId,
+  batchVisible,
+  batchRule,
+  batchLoading,
+  batchResult,
+  waiverVisible,
+  waiverItem,
+  waiverLoading,
+  eventsVisible,
+  eventsItem,
+  events,
+  eventsLoading,
   runCheck,
-  createDefect,
+  createRowDefect,
+  openDefect,
+  openBatchDefect,
+  submitBatchDefect,
+  openWaiver,
   submitWaiver,
-  loadEvents,
+  openEvents,
+  init,
 } = useConfigCheck()
 
-const eventsVisible = ref(false)
-const waiverVisible = ref(false)
-const waiverLoading = ref(false)
-const currentItem = ref<ConfigItem | null>(null)
-
-const lastScanText = computed(() => (lastScanAt.value ? formatTime(lastScanAt.value) : '尚未检查'))
-const selectedHint = computed(() => {
-  const parts: string[] = []
-  if (filters.ruleCode)
-    parts.push(`规则 ${filters.ruleCode}`)
-  if (filters.projectGroup)
-    parts.push(`项目组 ${filters.projectGroup}`)
-  return parts.join(' · ')
-})
-
-function openEvents(item: ConfigItem) {
-  currentItem.value = item
-  eventsVisible.value = true
-  void loadEvents(item.id)
+function handleGenerateBatch() {
+  const row = ruleRowByCode.value[filters.ruleCode]
+  if (row)
+    openBatchDefect(row)
 }
 
-function openWaiver(item: ConfigItem) {
-  currentItem.value = item
-  waiverVisible.value = true
-}
-
-async function confirmWaiver(form: WaiverFormInput) {
-  if (!currentItem.value)
+async function handleWaiverSubmit(form: WaiverFormInput) {
+  if (!waiverItem.value)
     return
-  waiverLoading.value = true
-  try {
-    const ok = await submitWaiver(currentItem.value, form)
-    if (ok)
-      waiverVisible.value = false
-  }
-  finally {
-    waiverLoading.value = false
-  }
+  await submitWaiver(waiverItem.value, form)
 }
 
 onMounted(() => {
@@ -107,63 +97,87 @@ onMounted(() => {
 
 <template>
   <div class="release-config-check">
-    <ConfigToolbar
-      v-model:iteration-id="iterationId"
-      v-model:scope="scope"
-      v-model:family="family"
-      :iterations="iterations"
-      :last-scan-text="lastScanText"
-      :product-domains="productDomains"
-      :running="running"
-      @family-change="handleFamilyChange"
-      @iteration-change="handleIterationChange"
-      @run="runCheck"
-      @scope-change="handleScopeChange"
-    />
-    <ConfigTotalsBar :totals="totals" />
-    <ConfigOverview
-      :active-group="filters.projectGroup"
-      :active-rule="filters.ruleCode"
-      :can-create-defect="canCreateDefect"
-      :defect-created="defectCreated"
-      :defect-loading="defectLoading"
-      :defs="ruleDefs"
-      :group-stats="groupStats"
-      :loading="summaryLoading"
-      :rule-stats="ruleStats"
-      :selected-hint="selectedHint"
-      @create-defect="createDefect"
-      @select-group="selectGroup"
-      @select-rule="selectRule"
-    />
-    <ConfigItemPanel
-      v-model:keyword="filters.keyword"
-      v-model:new-only="filters.newOnly"
-      v-model:severity="filters.severity"
-      v-model:state="filters.state"
-      :list="list"
-      :loading="itemsLoading"
-      :pagination="pagination"
-      :total="pagination.total"
-      @add-waiver="openWaiver"
-      @page-change="handlePageChange"
-      @page-size-change="handlePageSizeChange"
-      @reset="handleReset"
-      @search="handleSearch"
-      @view-events="openEvents"
+    <div class="top-row">
+      <ReleaseScopeBar
+        class="scope-bar"
+        :business-area="businessArea"
+        :effective-domains="effectiveDomains"
+        :iteration-id="iterationId"
+        :loading="scopeLoading"
+        :options="scopeOptions"
+        :product-domain="productDomain"
+        :product-line="productLine"
+        :project-group="projectGroup"
+        :summary-text="summaryText"
+        @change="handleScopeChange"
+      />
+      <ConfigToolbar
+        v-model:family="family"
+        :last-scan-text="lastScanText"
+        :running="running"
+        @run="runCheck"
+      />
+    </div>
+
+    <ConfigTotalsBar
+      :active="activeSummaryCell"
+      :totals="totals"
+      @select="handleSummarySelect"
     />
 
+    <div class="main-row">
+      <ConfigRuleList
+        :active-rule="filters.ruleCode"
+        :groups="ruleGroups"
+        :loading="summaryLoading"
+        @select="selectRule"
+      />
+      <ConfigItemPanel
+        v-model:handling="filters.handling"
+        v-model:keyword="filters.keyword"
+        v-model:new-only="filters.newOnly"
+        v-model:severity="filters.severity"
+        :active-group="projectGroup"
+        :defect-loading-id="rowDefectLoadingId"
+        :field-defs="fieldDefs"
+        :group-rows="groupDistribution"
+        :list="list"
+        :loading="itemsLoading"
+        :pagination="pagination"
+        :product-line="productLine"
+        :selected-rule-code="filters.ruleCode"
+        @add-waiver="openWaiver"
+        @create-defect="createRowDefect"
+        @generate-batch="handleGenerateBatch"
+        @page-change="handlePageChange"
+        @page-size-change="handlePageSizeChange"
+        @reset="handleReset"
+        @search="handleSearch"
+        @select-group="selectGroup"
+        @view-defect="openDefect"
+        @view-events="openEvents"
+      />
+    </div>
+
+    <ConfigBatchDefectModal
+      v-model:visible="batchVisible"
+      :groups="groupDistribution"
+      :loading="batchLoading"
+      :result="batchResult"
+      :rule="batchRule"
+      @submit="submitBatchDefect"
+    />
     <ConfigEventsDrawer
       v-model:visible="eventsVisible"
       :events="events"
-      :item="currentItem"
+      :item="eventsItem"
       :loading="eventsLoading"
     />
     <ConfigWaiverModal
       v-model:visible="waiverVisible"
-      :item="currentItem"
+      :item="waiverItem"
       :loading="waiverLoading"
-      @submit="confirmWaiver"
+      @submit="handleWaiverSubmit"
     />
   </div>
 </template>
@@ -172,6 +186,20 @@ onMounted(() => {
 .release-config-check {
   display: flex;
   flex-direction: column;
+  gap: 12px;
+}
+.top-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.scope-bar {
+  min-width: 0;
+  flex: 1;
+}
+.main-row {
+  display: flex;
+  align-items: flex-start;
   gap: 12px;
 }
 </style>

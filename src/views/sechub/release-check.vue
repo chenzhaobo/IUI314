@@ -2,16 +2,19 @@
 /**
  * 发版质量 → 发版检查（菜单 sys_menu.component = 'sechub/release-check'）。
  *
- * 套件信息 + 最近 5 次运行 + 一键检查 + 回归后 AI 复核 + 最近快照。
- * 取数与轮询在 `useReleaseCheck`，本页只做组装与提示。
+ * 检查计划 + 一键检查；套件信息 / 最近运行 / 最近快照折叠保留。
+ * 取数与轮询在 `useReleaseCheck`，本页只做组装、确认框与提示。
  */
 import type { ReleaseSuiteRun } from '@/types/sechub-release'
-import { Message } from '@arco-design/web-vue'
+import { Message, Modal } from '@arco-design/web-vue'
+import { h } from 'vue'
 import { useRouter } from 'vue-router'
 
+import CheckPlanPanel from './components/release/check/CheckPlanPanel.vue'
 import CheckRunsTable from './components/release/check/CheckRunsTable.vue'
 import CheckSnapshotPanel from './components/release/check/CheckSnapshotPanel.vue'
 import CheckSuitePanel from './components/release/check/CheckSuitePanel.vue'
+import { confirmLines } from './composables/releaseCheckPlanRules'
 import { conclusionMeta } from './composables/releaseDashboardRules'
 import { toRunResults } from './composables/secNavigation'
 import { useReleaseCheck } from './composables/useReleaseCheck'
@@ -26,6 +29,8 @@ const {
   scopeLoading,
   checking,
   generating,
+  checkPlan,
+  planLoading,
   suite,
   suiteCode,
   runs,
@@ -56,6 +61,27 @@ async function handleTrigger() {
     Message.warning(`没有触发新的运行：${reasons || '环境已有进行中的运行'}`)
   else
     Message.info('没有可执行的发版回归环境')
+}
+
+/** 执行前把「会执行的项目 + 用例数 + 预计耗时」再列一遍 */
+function handleExecute() {
+  const current = checkPlan.value
+  if (!current)
+    return
+  Modal.confirm({
+    title: '确认执行发版检查',
+    content: () => h(
+      'div',
+      { style: 'white-space: pre-line; line-height: 1.8;' },
+      confirmLines(current).join('\n'),
+    ),
+    okText: '执行',
+    cancelText: '取消',
+    titleAlign: 'start',
+    onOk: () => {
+      void handleTrigger()
+    },
+  })
 }
 
 async function handleReview(run: ReleaseSuiteRun) {
@@ -89,9 +115,9 @@ function openScanRuns(run: ReleaseSuiteRun) {
       <div class="toolbar">
         <div>
           <div class="section-title">
-            发版回归套件
+            发版检查
           </div>
-          <span class="hint">一键检查 = 触发回归套件 + 后台执行清单配置规则。</span>
+          <span class="hint">先确认本次检查计划，再执行一键检查。</span>
         </div>
         <a-space>
           <a-select
@@ -105,46 +131,47 @@ function openScanRuns(run: ReleaseSuiteRun) {
           <a-button :loading="loading" @click="refresh">
             刷新
           </a-button>
-          <a-button
-            :disabled="isRunning"
-            :loading="checking"
-            type="primary"
-            @click="handleTrigger"
-          >
-            {{ isRunning ? '检查执行中…' : '立即执行发版检查' }}
-          </a-button>
         </a-space>
       </div>
-      <CheckSuitePanel
+    </a-card>
+
+    <a-card :bordered="false">
+      <CheckPlanPanel
+        :checking="checking"
+        :loading="planLoading"
+        :plan="checkPlan"
         :running="isRunning"
-        :suite="suite"
-        :suite-code="suiteCode"
+        @execute="handleExecute"
       />
     </a-card>
 
     <a-card :bordered="false">
-      <div class="section-title">
-        最近 5 次运行
-      </div>
-      <CheckRunsTable
-        :loading="loading"
-        :review-starting="reviewStarting"
-        :reviews="reviews"
-        :runs="runs"
-        @review="handleReview"
-        @view="openScanRuns"
-      />
-    </a-card>
-
-    <a-card :bordered="false">
-      <div class="section-title">
-        最近快照
-      </div>
-      <CheckSnapshotPanel
-        :generating="generating"
-        :snapshot="latestSnapshot"
-        @generate="handleGenerate"
-      />
+      <a-collapse :bordered="false" :default-active-key="['suite', 'runs']">
+        <a-collapse-item key="suite" header="套件信息">
+          <CheckSuitePanel
+            :running="isRunning"
+            :suite="suite"
+            :suite-code="suiteCode"
+          />
+        </a-collapse-item>
+        <a-collapse-item key="runs" header="最近 5 次运行">
+          <CheckRunsTable
+            :loading="loading"
+            :review-starting="reviewStarting"
+            :reviews="reviews"
+            :runs="runs"
+            @review="handleReview"
+            @view="openScanRuns"
+          />
+        </a-collapse-item>
+        <a-collapse-item key="snapshot" header="最近快照">
+          <CheckSnapshotPanel
+            :generating="generating"
+            :snapshot="latestSnapshot"
+            @generate="handleGenerate"
+          />
+        </a-collapse-item>
+      </a-collapse>
     </a-card>
   </div>
 </template>
@@ -159,16 +186,12 @@ function openScanRuns(run: ReleaseSuiteRun) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
 }
 .section-title {
-  margin-bottom: 8px;
+  margin-bottom: 4px;
   color: var(--color-text-1);
   font-size: 14px;
   font-weight: 600;
-}
-.toolbar .section-title {
-  margin-bottom: 4px;
 }
 .hint {
   color: var(--color-text-3);

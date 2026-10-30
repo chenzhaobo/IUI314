@@ -1,24 +1,35 @@
 <script setup lang="ts">
 /**
- * 配置检查明细表：规则 / 对象 / 应用 / 项目组 / 级别 / 状态 / 时间 / 新增标记 + 行操作。
+ * 配置检查明细表：对象（含类型）/ 规则 / 应用 / 项目组 / 级别 / 处理状态 / 时间 / 新增标记 + 行操作。
  *
- * 行操作：变更记录（抽屉）、加白名单（仅待处理项可加，后端只在 open 时转 waived）。
+ * 列头说明来自 `GET /config-check/fields`；行操作为生成缺陷（已提缺陷时改为查看）、
+ * 加白名单、历史（变更记录抽屉）。未归属项目组的检查项无法生成缺陷。
  */
 import type { PaginationProps, TableData } from '@arco-design/web-vue'
-import type { ConfigItem } from '@/types/sechub-release'
+import type { ConfigFieldDef, ConfigItem } from '@/types/sechub-release'
 
 import { formatTime } from '@/hooks'
-import { configSeverityMeta, configStateMeta } from '../../../composables/configCheckRules'
+import {
+  configDefectLink,
+  configHandlingMeta,
+  configSeverityMeta,
+} from '../../../composables/configCheckRules'
+import ConfigFieldTitle from './ConfigFieldTitle.vue'
 
-defineProps<{
+const props = defineProps<{
   list: ConfigItem[]
   loading: boolean
   pagination: PaginationProps
+  fieldDefs: Record<string, ConfigFieldDef>
+  productLine: string
+  defectLoadingId: string
 }>()
 
 const emit = defineEmits<{
-  (e: 'viewEvents', item: ConfigItem): void
+  (e: 'createDefect', item: ConfigItem): void
+  (e: 'viewDefect', item: ConfigItem): void
   (e: 'addWaiver', item: ConfigItem): void
+  (e: 'viewEvents', item: ConfigItem): void
   (e: 'pageChange', page: number): void
   (e: 'pageSizeChange', size: number): void
 }>()
@@ -38,6 +49,15 @@ function appText(item: ConfigItem): string {
 function groupText(item: ConfigItem): string {
   return item.project_group_name || item.project_group_code || '未分类'
 }
+
+function defectPath(item: ConfigItem): string {
+  return configDefectLink(item.defect?.defect_code ?? '', props.productLine)
+}
+
+/** 只有待处理且归属项目组的检查项可以生成缺陷 */
+function canCreate(item: ConfigItem): boolean {
+  return item.handling === 'pending' && Boolean(item.project_group_code?.trim())
+}
 </script>
 
 <template>
@@ -45,86 +65,141 @@ function groupText(item: ConfigItem): string {
     :data="list"
     :loading="loading"
     :pagination="pagination"
-    :scroll="{ minWidth: 1260 }"
+    :scroll="{ minWidth: 1340 }"
     row-key="id"
     size="small"
     @page-change="(page: number) => emit('pageChange', page)"
     @page-size-change="(size: number) => emit('pageSizeChange', size)"
   >
     <template #columns>
-      <a-table-column title="规则" :width="170">
+      <a-table-column :width="230">
+        <template #title>
+          <ConfigFieldTitle :defs="fieldDefs" fallback="对象" field="object" />
+        </template>
         <template #cell="{ record }">
-          <div class="rule-code">
-            {{ record.rule_code }}
+          <div>{{ objectName(asItem(record)) }}</div>
+          <div class="secondary">
+            <span class="mono">{{ record.object_key }}</span>
+            <span class="type-label">{{ record.object_type_label }}</span>
           </div>
+        </template>
+      </a-table-column>
+
+      <a-table-column :width="170">
+        <template #title>
+          规则
+        </template>
+        <template #cell="{ record }">
+          <a-tooltip :content="record.rule_description || ''" :disabled="!record.rule_description" position="top">
+            <span class="rule-code">{{ record.rule_code }}</span>
+          </a-tooltip>
           <div class="secondary">
             {{ record.rule_title || '-' }}
           </div>
         </template>
       </a-table-column>
-      <a-table-column title="对象" :width="240" ellipsis tooltip>
-        <template #cell="{ record }">
-          <div>{{ objectName(asItem(record)) }}</div>
-          <div class="secondary mono">
-            {{ record.object_key }}
-          </div>
+
+      <a-table-column :width="140" ellipsis>
+        <template #title>
+          <ConfigFieldTitle :defs="fieldDefs" fallback="应用" field="app" />
         </template>
-      </a-table-column>
-      <a-table-column title="应用" :width="150" ellipsis tooltip>
         <template #cell="{ record }">
           {{ appText(asItem(record)) }}
         </template>
       </a-table-column>
-      <a-table-column title="项目组" :width="150" ellipsis tooltip>
+
+      <a-table-column :width="140" ellipsis>
+        <template #title>
+          <ConfigFieldTitle :defs="fieldDefs" fallback="项目组" field="project_group" />
+        </template>
         <template #cell="{ record }">
           {{ groupText(asItem(record)) }}
         </template>
       </a-table-column>
-      <a-table-column title="级别" :width="80">
+
+      <a-table-column :width="80">
+        <template #title>
+          <ConfigFieldTitle :defs="fieldDefs" fallback="级别" field="severity" />
+        </template>
         <template #cell="{ record }">
           <a-tag :color="configSeverityMeta(record.severity).color" size="small">
             {{ configSeverityMeta(record.severity).label }}
           </a-tag>
         </template>
       </a-table-column>
-      <a-table-column title="状态" :width="90">
+
+      <a-table-column :width="160">
+        <template #title>
+          <ConfigFieldTitle :defs="fieldDefs" fallback="处理状态" field="handling" />
+        </template>
         <template #cell="{ record }">
-          <a-tag :color="configStateMeta(record.state).color" size="small">
-            {{ configStateMeta(record.state).label }}
+          <a-tag :color="configHandlingMeta(record.handling).color" size="small">
+            {{ record.handling_label || configHandlingMeta(record.handling).label }}
           </a-tag>
+          <router-link
+            v-if="record.defect"
+            class="defect-link"
+            :to="defectPath(asItem(record))"
+          >
+            {{ record.defect.defect_code }}
+          </router-link>
         </template>
       </a-table-column>
-      <a-table-column title="首次发现" :width="160">
+
+      <a-table-column :width="150">
+        <template #title>
+          <ConfigFieldTitle :defs="fieldDefs" fallback="首次发现" field="first_seen_at" />
+        </template>
         <template #cell="{ record }">
           {{ formatTime(record.first_seen_at) }}
         </template>
       </a-table-column>
-      <a-table-column title="最近发现" :width="160">
+
+      <a-table-column :width="150">
+        <template #title>
+          <ConfigFieldTitle :defs="fieldDefs" fallback="最近一次命中" field="last_seen_at" />
+        </template>
         <template #cell="{ record }">
           {{ formatTime(record.last_seen_at) }}
         </template>
       </a-table-column>
-      <a-table-column title="本迭代新增" :width="100">
+
+      <a-table-column :width="90">
+        <template #title>
+          <ConfigFieldTitle :defs="fieldDefs" fallback="本迭代新增" field="is_new" />
+        </template>
         <template #cell="{ record }">
           <a-tag v-if="record.is_new" color="arcoblue" size="small">
-            新增
+            是
           </a-tag>
-          <span v-else class="secondary">-</span>
+          <span v-else class="secondary">否</span>
         </template>
       </a-table-column>
-      <a-table-column title="操作" :width="170" fixed="right">
+
+      <a-table-column :width="210" fixed="right" title="操作">
         <template #cell="{ record }">
-          <a-space>
-            <a-button size="mini" @click="emit('viewEvents', asItem(record))">
-              变更记录
+          <a-space :size="4">
+            <a-button
+              v-if="record.handling === 'defect_filed' && record.defect"
+              size="mini"
+              @click="emit('viewDefect', asItem(record))"
+            >
+              查看缺陷
             </a-button>
             <a-button
+              v-else
+              :disabled="!canCreate(asItem(record))"
+              :loading="defectLoadingId === record.id"
               size="mini"
-              type="primary"
-              :disabled="record.state !== 'open'"
-              @click="emit('addWaiver', asItem(record))"
+              @click="emit('createDefect', asItem(record))"
             >
+              生成缺陷
+            </a-button>
+            <a-button size="mini" @click="emit('addWaiver', asItem(record))">
               加白名单
+            </a-button>
+            <a-button size="mini" @click="emit('viewEvents', asItem(record))">
+              历史
             </a-button>
           </a-space>
         </template>
@@ -139,8 +214,9 @@ function groupText(item: ConfigItem): string {
 <style scoped>
 .rule-code {
   color: var(--color-text-1);
-  font-weight: 500;
   font-family: var(--font-mono);
+  font-weight: 500;
+  cursor: help;
 }
 .secondary {
   color: var(--color-text-3);
@@ -148,5 +224,15 @@ function groupText(item: ConfigItem): string {
 }
 .mono {
   font-family: var(--font-mono);
+}
+.type-label {
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 2px;
+  background: var(--color-fill-2);
+}
+.defect-link {
+  margin-left: 6px;
+  font-size: 12px;
 }
 </style>

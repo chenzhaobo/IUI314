@@ -5,6 +5,8 @@
  * 复核接口按 D20b 实际出参对接：GET 从未复核时返回 `{status:"none"}`，这里归一成 null。
  */
 import type {
+  ReleaseCheckPlanQuery,
+  ReleaseCheckPlanResponse,
   ReleaseCheckQuery,
   ReleaseCheckRunResult,
   ReleaseCheckStatusResponse,
@@ -72,6 +74,11 @@ export function fetchReleaseCheckStatus(query: ReleaseCheckQuery): Promise<Relea
 /** 一键发版检查（触发回归套件 + 后台清单配置规则） */
 export function runReleaseCheck(payload: ReleaseCheckQuery): Promise<ReleaseCheckRunResult | null> {
   return postAction<ReleaseCheckRunResult>(ApiSecRelease.checkRun, payload)
+}
+
+/** 检查计划（只读）：一键检查会跑哪些测试项 */
+export function fetchReleaseCheckPlan(query: ReleaseCheckPlanQuery): Promise<ReleaseCheckPlanResponse | null> {
+  return getAction<ReleaseCheckPlanResponse>(ApiSecRelease.checkPlan, query)
 }
 
 /** 触发某次运行的回归后 AI 复核 */

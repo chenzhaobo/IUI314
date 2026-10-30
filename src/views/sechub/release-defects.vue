@@ -50,6 +50,8 @@ const {
   handlePageSizeChange,
   applyAction,
   exportMarkdown,
+  scriptDownloading,
+  downloadVerifyScript,
 } = useDefectDrafts()
 
 const detailVisible = ref(false)
@@ -70,6 +72,15 @@ function copyTitle(defect: ReleaseDefect) {
 
 function copyContent(defect: ReleaseDefect) {
   void copyDefectText(defectContentText(defect), '内容')
+}
+
+function downloadScript(defect: ReleaseDefect) {
+  void downloadVerifyScript(defect)
+}
+
+function downloadDetailScript() {
+  if (detailDefect.value)
+    void downloadVerifyScript(detailDefect.value)
 }
 
 function openAction(defect: ReleaseDefect, action: DefectAction) {
@@ -163,13 +174,19 @@ onMounted(() => {
         @action="openAction"
         @copy-content="copyContent"
         @copy-title="copyTitle"
+        @download-script="downloadScript"
         @page-change="handlePageChange"
         @page-size-change="handlePageSizeChange"
         @view="openDetail"
       />
     </a-card>
 
-    <DefectDetailDrawer v-model:visible="detailVisible" :defect="detailDefect" />
+    <DefectDetailDrawer
+      v-model:visible="detailVisible"
+      :defect="detailDefect"
+      :script-downloading="scriptDownloading"
+      @download-script="downloadDetailScript"
+    />
     <DefectStatusModal
       v-model:visible="statusVisible"
       :action="statusAction"

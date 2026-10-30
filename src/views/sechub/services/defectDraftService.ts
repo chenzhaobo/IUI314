@@ -10,6 +10,7 @@ import type {
   DefectQuery,
   DefectStatusPayload,
   DefectStatusResult,
+  ReleaseDefectDetail,
 } from '@/types/sechub-release'
 import { ApiSecRelease, resolveStaticScanApi } from '@/api/sechubApis'
 import { getAction, postAction } from '@/hooks'
@@ -17,6 +18,16 @@ import { getAction, postAction } from '@/hooks'
 /** 缺陷列表（分页 + 筛选）；失败返回 null */
 export function fetchDefects(query: DefectQuery): Promise<DefectListResponse | null> {
   return getAction<DefectListResponse>(ApiSecRelease.defects, query)
+}
+
+/** 缺陷详情（列表字段 + 请求证据 / 完整地址 / curl）；失败返回 null */
+export function fetchDefectDetail(id: string): Promise<ReleaseDefectDetail | null> {
+  return getAction<ReleaseDefectDetail>(resolveStaticScanApi(ApiSecRelease.defectDetail, { id }))
+}
+
+/** 一键验证脚本下载路径（鉴权下载，返回 Python 文件） */
+export function verifyScriptPath(id: string): string {
+  return resolveStaticScanApi(ApiSecRelease.defectVerifyScript, { id })
 }
 
 /** 状态流转（标记已提交 / 已修复 / 退回草稿 / 关闭）；失败返回 null */

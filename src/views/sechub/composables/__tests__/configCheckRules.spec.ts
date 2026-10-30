@@ -5,21 +5,36 @@
  * 由 tsc 编译到临时目录后交给 node 的测试运行器执行。
  */
 /* eslint-disable test/no-import-node-test -- 仓库无 vitest 配置，单测只用 Node 内置 test runner */
-import type { ConfigItem, ConfigRuleDef, ReleaseWaiver } from '@/types/sechub-release'
+import type {
+  ConfigGroupStat,
+  ConfigItem,
+  ConfigRuleDef,
+  ConfigRuleStat,
+  ConfigTotals,
+  ReleaseWaiver,
+} from '@/types/sechub-release'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import {
+  activeSummaryCellOf,
+  configDefectLink,
   configEventLabel,
-  configQueryOf,
+  configFieldsMapOf,
+  configHandlingMeta,
+  configItemsQueryOf,
+  configRuleGroupsOf,
   configSeverityMeta,
   configStateMeta,
   configSummaryQueryOf,
   exemptKeyOf,
   exemptRequestOf,
+  groupDistributionOf,
+  latestScanAt,
   matchTypeLabel,
-  rulesOfFamily,
+  ruleRowsOf,
   ruleTooltipText,
+  summaryCellPresetOf,
   validateExemptForm,
   validateWaiverReason,
   waiverRequestOf,
@@ -84,69 +99,223 @@ function item(patch: Partial<ConfigItem>): ConfigItem {
     updated_at: null,
     is_new: false,
     rule_title: null,
+    rule_description: null,
+    fix_hint: null,
+    object_type_label: '表单',
+    handling: 'pending',
+    handling_label: '待处理',
+    defect: null,
     ...patch,
   }
 }
 
-test('规则按页签过滤 family，保持后端顺序', () => {
-  const rules = [rule('M01', 'meta'), rule('M02', 'meta'), rule('C01', 'api')]
-  assert.deepEqual(rulesOfFamily(rules, 'meta').map(def => def.code), ['M01', 'M02'])
-  assert.deepEqual(rulesOfFamily(rules, 'api').map(def => def.code), ['C01'])
-  assert.deepEqual(rulesOfFamily([], 'api'), [])
+function ruleStat(patch: Partial<ConfigRuleStat> = {}): ConfigRuleStat {
+  return {
+    rule_code: 'M01',
+    title: 'M01 标题',
+    severity: 'high',
+    description: 'M01 说明',
+    fix_hint: 'M01 修复',
+    open: 0,
+    waived: 0,
+    resolved: 0,
+    pending: 0,
+    defect_filed: 0,
+    new_open: 0,
+    fixed_in_iteration: 0,
+    ...patch,
+  }
+}
+
+function groupStat(patch: Partial<ConfigGroupStat> = {}): ConfigGroupStat {
+  return {
+    project_group_code: 'GL',
+    project_group_name: '总账项目组',
+    open: 0,
+    waived: 0,
+    high_open: 0,
+    new_open: 0,
+    ...patch,
+  }
+}
+
+function totals(patch: Partial<ConfigTotals> = {}): ConfigTotals {
+  return {
+    open: 0,
+    waived: 0,
+    high_open: 0,
+    pending: 0,
+    defect_filed: 0,
+    new_open: 0,
+    fixed_in_iteration: 0,
+    ...patch,
+  }
+}
+
+test('规则行：按规则定义顺序合并统计，未命中规则计数为 0', () => {
+  const rows = ruleRowsOf(
+    [rule('M01', 'meta'), rule('M02', 'meta'), rule('C01', 'api')],
+    [ruleStat({
+      rule_code: 'M01',
+      title: '后端统计标题',
+      severity: 'low',
+      description: '统计说明',
+      fix_hint: '统计修复',
+      open: 3,
+      pending: 2,
+      defect_filed: 1,
+      new_open: 1,
+    })],
+  )
+  assert.deepEqual(rows.map(row => row.code), ['M01', 'M02', 'C01'])
+  assert.equal(rows[0].pending, 2)
+  assert.equal(rows[0].defect_filed, 1)
+  assert.equal(rows[0].new_open, 1)
+  assert.equal(rows[0].title, 'M01 标题', '标题 / 说明以规则定义为准')
+  assert.equal(rows[0].description, 'M01 说明')
+  assert.equal(rows[0].fix_hint, 'M01 修复')
+  assert.equal(rows[1].pending, 0)
+  assert.equal(rows[2].family, 'api')
 })
 
-test('列表查询：空筛选项不下发，关键词 trim，状态与范围总是下发', () => {
-  const query = configQueryOf({
-    iterationId: 'it-1',
-    scope: 'domain',
-    ruleCode: ' M01 ',
-    projectGroup: '',
-    state: 'open',
-    severity: '',
-    keyword: '  总账 ',
-    newOnly: false,
-  }, 2, 50)
+test('规则分组：元数据规则在前、清单规则在后', () => {
+  const groups = configRuleGroupsOf(ruleRowsOf(
+    [rule('M01', 'meta'), rule('C01', 'api')],
+    [],
+  ))
+  assert.deepEqual(groups.map(group => group.family), ['meta', 'api'])
+  assert.deepEqual(groups.map(group => group.label), ['元数据规则（M）', '清单规则（C）'])
+  assert.deepEqual(groups[0].rows.map(row => row.code), ['M01'])
+  assert.deepEqual(groups[1].rows.map(row => row.code), ['C01'])
+})
+
+test('明细查询：范围与筛选按后端字段下发，空值不下发', () => {
+  const query = configItemsQueryOf(
+    { ruleCode: ' M01 ', handling: 'open', severity: '', keyword: '  总账 ', newOnly: true },
+    {
+      product_line: 'gan',
+      iteration_id: 'it-1',
+      product_domains: '集团财务',
+      business_area: '共享',
+      project_group: 'PM013',
+    },
+    2,
+    50,
+  )
   assert.deepEqual(query, {
+    product_line: 'gan',
     iteration_id: 'it-1',
-    scope: 'domain',
+    product_domains: '集团财务',
+    business_area: '共享',
+    project_group: 'PM013',
     rule_code: 'M01',
-    state: 'open',
+    handling: 'open',
     keyword: '总账',
+    new_only: true,
     page_num: 2,
     page_size: 50,
   })
-  assert.equal('project_group' in query, false)
   assert.equal('severity' in query, false)
-  assert.equal('new_only' in query, false)
 })
 
-test('列表查询：全部状态与只看新增照原样下发', () => {
-  const query = configQueryOf({
-    iterationId: '',
-    scope: 'all',
-    ruleCode: '',
-    projectGroup: 'GL',
-    state: 'all',
-    severity: 'high',
-    keyword: '',
-    newOnly: true,
-  }, 1, 20)
+test('明细查询：空范围与空筛选不下发', () => {
+  const query = configItemsQueryOf(
+    { ruleCode: '', handling: 'pending', severity: 'high', keyword: '', newOnly: false },
+    {},
+    1,
+    20,
+  )
   assert.deepEqual(query, {
-    scope: 'all',
-    project_group: 'GL',
-    state: 'all',
+    handling: 'pending',
     severity: 'high',
-    new_only: true,
     page_num: 1,
     page_size: 20,
   })
-  assert.equal('iteration_id' in query, false)
-  assert.equal('rule_code' in query, false)
 })
 
-test('汇总查询只带范围，不迭代时不下发 iteration_id', () => {
-  assert.deepEqual(configSummaryQueryOf('it-1', 'domain'), { iteration_id: 'it-1', scope: 'domain' })
-  assert.deepEqual(configSummaryQueryOf('', 'all'), { scope: 'all' })
+test('汇总查询：domain 口径 + 范围字段', () => {
+  assert.deepEqual(
+    configSummaryQueryOf({ product_line: 'gan', iteration_id: 'it-1' }),
+    { scope: 'domain', product_line: 'gan', iteration_id: 'it-1' },
+  )
+  assert.deepEqual(configSummaryQueryOf({}), { scope: 'domain' })
+})
+
+test('汇总点击映射明细筛选：新增=未关闭+只看新增，修复=已修复', () => {
+  assert.deepEqual(summaryCellPresetOf('pending'), { handling: 'pending', newOnly: false })
+  assert.deepEqual(summaryCellPresetOf('defect_filed'), { handling: 'defect_filed', newOnly: false })
+  assert.deepEqual(summaryCellPresetOf('new_open'), { handling: 'open', newOnly: true })
+  assert.deepEqual(summaryCellPresetOf('fixed_in_iteration'), { handling: 'resolved', newOnly: false })
+})
+
+test('当前汇总高亮：只有与预设一致的组合才高亮', () => {
+  assert.equal(activeSummaryCellOf({ handling: 'open', newOnly: false }), '')
+  assert.equal(activeSummaryCellOf({ handling: 'open', newOnly: true }), 'new_open')
+  assert.equal(activeSummaryCellOf({ handling: 'pending', newOnly: false }), 'pending')
+  assert.equal(activeSummaryCellOf({ handling: 'waived', newOnly: false }), 'waived')
+  assert.equal(activeSummaryCellOf({ handling: 'resolved', newOnly: false }), 'fixed_in_iteration')
+  assert.equal(activeSummaryCellOf({ handling: 'resolved', newOnly: true }), '')
+})
+
+test('项目组分布：只保留有待处理的小组，未归属组不可点', () => {
+  const rows = groupDistributionOf([
+    groupStat({ project_group_code: 'GL', project_group_name: '总账项目组', open: 3, high_open: 1, new_open: 2 }),
+    groupStat({ project_group_code: '', project_group_name: '', open: 2 }),
+    groupStat({ project_group_code: 'AR', project_group_name: '应收项目组', open: 0, waived: 5 }),
+  ])
+  assert.deepEqual(rows.map(row => row.code), ['GL', ''])
+  assert.equal(rows[0].name, '总账项目组')
+  assert.equal(rows[0].selectable, true)
+  assert.equal(rows[0].high_open, 1)
+  assert.equal(rows[0].new_open, 2)
+  assert.equal(rows[1].name, '未分类')
+  assert.equal(rows[1].selectable, false)
+})
+
+test('缺陷跳转：编码转义，产品线非空才带', () => {
+  assert.equal(
+    configDefectLink('REL-0001', 'gan'),
+    '/sechub/release/release-defects?keyword=REL-0001&product_line=gan',
+  )
+  assert.equal(
+    configDefectLink('A B', ''),
+    '/sechub/release/release-defects?keyword=A%20B',
+  )
+})
+
+test('最近检查时间：取两个维度的最大值', () => {
+  assert.equal(
+    latestScanAt({ meta: '2026-10-01T09:00:00+08:00', api: '2026-10-03T09:00:00+08:00' }),
+    '2026-10-03T09:00:00+08:00',
+  )
+  assert.equal(latestScanAt({ meta: null, api: '2026-10-03T09:00:00+08:00' }), '2026-10-03T09:00:00+08:00')
+  assert.equal(latestScanAt({ meta: null, api: null }), null)
+  assert.equal(latestScanAt(null), null)
+})
+
+test('字段说明表：按 key 建索引', () => {
+  const map = configFieldsMapOf([
+    { key: 'object', label: '对象', description: '命中的对象' },
+    { key: 'handling', label: '处理状态', description: '待处理 / 已提缺陷' },
+  ])
+  assert.equal(map.object?.label, '对象')
+  assert.equal(map.handling?.description, '待处理 / 已提缺陷')
+})
+
+test('处理状态文案：四种状态与未知值', () => {
+  assert.deepEqual(configHandlingMeta('pending'), { label: '待处理', color: 'orange' })
+  assert.deepEqual(configHandlingMeta('defect_filed'), { label: '已提缺陷', color: 'arcoblue' })
+  assert.deepEqual(configHandlingMeta('waived'), { label: '已加白', color: 'gray' })
+  assert.deepEqual(configHandlingMeta('resolved'), { label: '已修复', color: 'green' })
+  assert.deepEqual(configHandlingMeta('other'), { label: 'other', color: 'gray' })
+})
+
+test('汇总计数：待处理与已提缺陷分开', () => {
+  const value = totals({ pending: 3, defect_filed: 2, new_open: 1, fixed_in_iteration: 4 })
+  assert.equal(value.pending, 3)
+  assert.equal(value.defect_filed, 2)
+  assert.equal(value.new_open, 1)
+  assert.equal(value.fixed_in_iteration, 4)
 })
 
 test('白名单原因至少 4 个字符，纯空白算未填', () => {

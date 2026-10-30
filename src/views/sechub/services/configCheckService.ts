@@ -4,9 +4,12 @@
  * 查询失败统一返回 null（拦截器已提示），由 composable 决定是否保留旧数据。
  */
 import type {
+  ConfigBatchDefectReq,
+  ConfigBatchDefectResult,
   ConfigDefectReq,
   ConfigDefectResult,
   ConfigEventsResponse,
+  ConfigFieldsResponse,
   ConfigItemListResponse,
   ConfigItemQuery,
   ConfigRunFamily,
@@ -38,6 +41,11 @@ export function fetchConfigEvents(itemId: string): Promise<ConfigEventsResponse 
   return getAction<ConfigEventsResponse>(resolveStaticScanApi(ApiSecRelease.configItemEvents, { id: itemId }))
 }
 
+/** 明细表列头说明（后端常量表，前端不另写文案） */
+export function fetchConfigFields(): Promise<ConfigFieldsResponse | null> {
+  return getAction<ConfigFieldsResponse>(ApiSecRelease.configFields)
+}
+
 /** 后台执行配置检查：立即返回受理结果，需要稍后刷新 */
 export function runConfigCheck(family: ConfigRunFamily): Promise<ConfigRunResult | null> {
   return postAction<ConfigRunResult>(ApiSecRelease.configRun, { family })
@@ -46,6 +54,11 @@ export function runConfigCheck(family: ConfigRunFamily): Promise<ConfigRunResult
 /** 按「规则 × 项目组」生成（或更新）缺陷草稿 */
 export function createConfigDefect(payload: ConfigDefectReq): Promise<ConfigDefectResult | null> {
   return postAction<ConfigDefectResult>(ApiSecRelease.configDefect, payload)
+}
+
+/** 按「规则 × 多个项目组」批量生成 / 更新缺陷草稿 */
+export function createConfigDefectsBatch(payload: ConfigBatchDefectReq): Promise<ConfigBatchDefectResult | null> {
+  return postAction<ConfigBatchDefectResult>(ApiSecRelease.configBatchDefect, payload)
 }
 
 /** 白名单列表（active_only 不传时后端默认只看有效） */

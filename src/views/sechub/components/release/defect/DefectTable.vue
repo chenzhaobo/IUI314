@@ -36,6 +36,7 @@ const emit = defineEmits<{
   (e: 'copyTitle', defect: ReleaseDefect): void
   (e: 'copyContent', defect: ReleaseDefect): void
   (e: 'view', defect: ReleaseDefect): void
+  (e: 'downloadScript', defect: ReleaseDefect): void
   (e: 'action', defect: ReleaseDefect, action: DefectAction): void
   (e: 'pageChange', page: number): void
   (e: 'pageSizeChange', size: number): void
@@ -107,7 +108,7 @@ function onActionSelect(defect: ReleaseDefect, value: unknown) {
           {{ record.external_no || '-' }}
         </template>
       </a-table-column>
-      <a-table-column title="操作" :width="250" fixed="right">
+      <a-table-column title="操作" :width="340" fixed="right">
         <template #cell="{ record }">
           <a-space :size="8">
             <a-link @click="emit('copyTitle', record)">
@@ -118,6 +119,12 @@ function onActionSelect(defect: ReleaseDefect, value: unknown) {
             </a-link>
             <a-link @click="emit('view', record)">
               查看
+            </a-link>
+            <a-link
+              v-if="record.source === 'release_api'"
+              @click="emit('downloadScript', record)"
+            >
+              下载验证脚本
             </a-link>
             <a-dropdown
               v-if="defectActions(record.status).length"

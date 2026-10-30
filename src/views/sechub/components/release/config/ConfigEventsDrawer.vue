@@ -32,8 +32,8 @@ const visible = defineModel<boolean>('visible', { default: false })
         <a-descriptions-item label="对象">
           {{ item.object_name || item.object_key }}
         </a-descriptions-item>
-        <a-descriptions-item label="当前状态">
-          {{ configStateMeta(item.state).label }}
+        <a-descriptions-item label="处理状态">
+          {{ item.handling_label || configStateMeta(item.state).label }}
         </a-descriptions-item>
         <a-descriptions-item label="项目组">
           {{ item.project_group_name || item.project_group_code || '未分类' }}

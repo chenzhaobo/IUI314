@@ -287,6 +287,30 @@ export interface ReleaseDefect {
   content: string | null
 }
 
+/** 缺陷详情里的实际请求证据（后端 defect_evidence::RequestEvidence） */
+export interface ReleaseRequestEvidence {
+  method: string
+  path: string
+  role: string | null
+  /** [名称, 值] 二元组（后端 Vec<(String, String)>） */
+  headers: Array<[string, string]>
+  body: string | null
+  http_status: number | null
+  elapsed_ms: number | null
+  response: string | null
+  /** false = 未取到实际请求记录，以下字段回退为用例定义 */
+  from_evidence: boolean
+}
+
+/** `GET /sechub/release/defects/{id}`：defect_view + 请求证据；无关联结果时只有列表字段 */
+export interface ReleaseDefectDetail extends ReleaseDefect {
+  request?: ReleaseRequestEvidence | null
+  /** 完整请求地址（环境地址 + path） */
+  full_url?: string | null
+  /** 可直接执行的 curl */
+  curl?: string | null
+}
+
 /** 缺陷列表 / 导出查询参数（空值不下发） */
 export interface DefectQuery {
   /** 产品线（字典 perf_product_line） */
@@ -359,6 +383,12 @@ export type ConfigSeverity = 'high' | 'medium' | 'low' | 'info'
 /** 检查项状态（sec_config_check_item.state） */
 export type ConfigItemState = 'open' | 'waived' | 'resolved'
 
+/** 处理状态（后端派生：resolved / waived / open + 是否已提缺陷 / 待处理） */
+export type ConfigHandling = 'pending' | 'defect_filed' | 'waived' | 'resolved'
+
+/** 明细处理状态筛选：open = 未关闭（待处理 + 已提缺陷） */
+export type ConfigHandlingFilter = ConfigHandling | 'open' | 'all'
+
 /** 范围口径：domain = 按产品领域过滤；all = 全部 */
 export type ConfigScope = 'domain' | 'all'
 
@@ -381,9 +411,15 @@ export interface ConfigRuleStat {
   rule_code: string
   title: string
   severity: ConfigSeverity
+  description: string
+  fix_hint: string
   open: number
   waived: number
   resolved: number
+  /** open 且未提缺陷 */
+  pending: number
+  /** open 且已生成配置缺陷 */
+  defect_filed: number
   new_open: number
   fixed_in_iteration: number
 }
@@ -403,6 +439,10 @@ export interface ConfigTotals {
   open: number
   waived: number
   high_open: number
+  /** open 且未提缺陷 */
+  pending: number
+  /** open 且已生成配置缺陷 */
+  defect_filed: number
   new_open: number
   fixed_in_iteration: number
 }
@@ -413,11 +453,28 @@ export interface ConfigLastScan {
   api: string | null
 }
 
+/** 已提缺陷摘要（列表行 `defect` 字段） */
+export interface ConfigDefectBrief {
+  id: string
+  defect_code: string
+  status: string
+}
+
+/** 汇总回显的生效范围（数组形式） */
+export interface ConfigSummaryScope {
+  product_line: string
+  product_domains: string[]
+  business_areas: string[]
+  project_groups: string[]
+}
+
 /** `GET /sechub/release/config-check/summary` */
 export interface ConfigSummaryResponse {
   iteration: ReleaseIterationScope
   env: ReleaseEnv
+  product_line: string
   product_domains: string[]
+  scope: ConfigSummaryScope
   rules: ConfigRuleDef[]
   by_rule: ConfigRuleStat[]
   by_group: ConfigGroupStat[]
@@ -425,7 +482,7 @@ export interface ConfigSummaryResponse {
   last_scan: ConfigLastScan
 }
 
-/** 检查项列表行：实体全字段 + 后端补的 is_new / rule_title */
+/** 检查项列表行：实体全字段 + 后端补的 is_new / 规则文案 / 处理状态 / 缺陷 */
 export interface ConfigItem {
   id: string
   env_id: string
@@ -460,15 +517,24 @@ export interface ConfigItem {
   is_new: boolean
   /** 规则中文名；未知规则为 null */
   rule_title: string | null
+  /** 规则说明；未知规则为 null */
+  rule_description: string | null
+  /** 修复建议；未知规则为 null */
+  fix_hint: string | null
+  /** 对象类型中文名（form → 表单等） */
+  object_type_label: string
+  /** 派生处理状态 */
+  handling: ConfigHandling
+  handling_label: string
+  /** 同「项目组 + 规则」的未关闭配置缺陷 */
+  defect: ConfigDefectBrief | null
 }
 
 /** 检查项列表查询（只带非空条件） */
-export interface ConfigItemQuery {
-  iteration_id?: string
+export interface ConfigItemQuery extends ReleaseScopeQuery {
   scope?: ConfigScope
   rule_code?: string
-  project_group?: string
-  state?: ConfigItemState | 'all'
+  handling?: ConfigHandlingFilter
   severity?: ConfigSeverity
   keyword?: string
   new_only?: boolean
@@ -477,9 +543,38 @@ export interface ConfigItemQuery {
 }
 
 /** 汇总查询（summary 只吃范围，不吃列表筛选） */
-export interface ConfigSummaryQuery {
-  iteration_id?: string
+export interface ConfigSummaryQuery extends ReleaseScopeQuery {
   scope?: ConfigScope
+}
+
+/** 明细表列头说明（`GET /config-check/fields`） */
+export interface ConfigFieldDef {
+  key: string
+  label: string
+  description: string
+}
+
+export interface ConfigFieldsResponse {
+  fields: ConfigFieldDef[]
+}
+
+/** `POST /config-check/defects/batch`：同一规则 × 多个项目组 */
+export interface ConfigBatchDefectReq {
+  product_line?: string
+  env_id?: string
+  rule_code: string
+  project_groups: string[]
+}
+
+export interface ConfigBatchDefectFailure {
+  project_group: string
+  error: string
+}
+
+export interface ConfigBatchDefectResult {
+  created: number
+  updated: number
+  failed: ConfigBatchDefectFailure[]
 }
 
 /** `GET /sechub/release/config-check/items` */
@@ -937,4 +1032,97 @@ export interface ReleaseCheckRunResult {
   runs: Array<{ env_id: string, task_id: string, task_created: boolean, run_id: string }>
   skipped_envs: Array<{ env_id: string, reason: string }>
   config_check_started: boolean
+}
+
+/** 发版检查计划查询（产品线；领域 / 业务领域 / 项目组为逗号分隔） */
+export interface ReleaseCheckPlanQuery {
+  product_line?: string
+  product_domains?: string
+  business_area?: string
+  project_group?: string
+}
+
+/** 计划中的测试环境（套件绑定的安全测试环境） */
+export interface ReleaseCheckPlanEnv {
+  id: string
+  name: string
+}
+
+/** 计划中的当前迭代 */
+export interface ReleaseCheckPlanIteration {
+  id: string
+  code: string
+  name: string
+  start_date: string
+  end_date: string
+  /** 距结束天数，由后端按业务日期计算 */
+  days_left: number
+}
+
+/** 计划回显的当前范围 */
+export interface ReleaseCheckPlanScope {
+  product_domains: string[]
+  business_areas: string[]
+  project_groups: string[]
+}
+
+/** 计划里的套件摘要；未创建套件时只有 exists=false */
+export interface ReleaseCheckPlanSuite {
+  exists: boolean
+  suite_code?: string
+  name?: string
+  schedule_cron?: string | null
+  schedule_enabled?: string
+  next_run_at?: string | null
+}
+
+/** 本次会执行的配置规则（来自 config_check::rules::RULES） */
+export interface ReleaseCheckPlanRule {
+  code: string
+  title: string
+  /** high / medium / low / info */
+  severity: string
+  in_conclusion: boolean
+  description: string
+}
+
+/** 单个测试项：包含项给说明 / 规则 / 判定口径 / 用例数，未包含项给原因 */
+export interface ReleaseCheckPlanItem {
+  code: string
+  /** api / config / form */
+  family: string
+  name: string
+  included: boolean
+  description?: string
+  reason?: string
+  rules?: string[]
+  verdicts?: string
+  /** 用例类测试项的用例数；缺少环境时为 null */
+  case_count?: number | null
+}
+
+/** 计划里的最近一次运行 */
+export interface ReleaseCheckPlanLastRun {
+  run_id: string
+  status: string
+  started_at: string | null
+  finished_at: string | null
+  duration_ms: number | null
+}
+
+/** `GET /sechub/release/check/plan` 响应 */
+export interface ReleaseCheckPlanResponse {
+  product_line: string
+  env: ReleaseCheckPlanEnv | null
+  /** 产品线没有测试环境时的原因，有环境时为 null */
+  env_error: string | null
+  iteration: ReleaseCheckPlanIteration | null
+  scope: ReleaseCheckPlanScope
+  suite: ReleaseCheckPlanSuite
+  items: ReleaseCheckPlanItem[]
+  rules: ReleaseCheckPlanRule[]
+  last_run: ReleaseCheckPlanLastRun | null
+  /** 最近一次成功 / 部分成功运行的耗时（分钟）；首次执行时为 null */
+  estimate_minutes: number | null
+  notes: string[]
 }

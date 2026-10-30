@@ -20,6 +20,7 @@ import { ApiSecRelease } from '@/api/sechubApis'
 import { useDownload } from '@/hooks'
 import { fetchDefects, updateDefectStatus } from '../services/defectDraftService'
 import { defectExportPath, defectQueryOf } from './defectDraftRules'
+import { useDefectVerifyScript } from './useDefectVerifyScript'
 import { useReleaseScope } from './useReleaseScope'
 
 /** 表格上方的明细筛选（范围由 ReleaseScopeBar 提供） */
@@ -34,6 +35,7 @@ export function useDefectDrafts() {
   const pageSize = ref(20)
   const data = ref<DefectListResponse | null>(null)
   const { downloadWithTip } = useDownload()
+  const { scriptDownloading, downloadVerifyScript } = useDefectVerifyScript()
 
   const {
     loading: scopeLoading,
@@ -176,5 +178,7 @@ export function useDefectDrafts() {
     handlePageSizeChange,
     applyAction,
     exportMarkdown,
+    scriptDownloading,
+    downloadVerifyScript,
   }
 }

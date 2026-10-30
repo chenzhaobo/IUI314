@@ -1,10 +1,11 @@
 <script setup lang="ts">
 /**
- * 缺陷草稿详情抽屉：标题 + Markdown 原文 + 元信息，抽屉内同样可复制标题 / 内容。
+ * 缺陷草稿详情抽屉：缺陷内容 / 请求与响应 / 自测脚本三个 Tab。
+ *
+ * 列表行先展示；打开后按 id 拉详情，补齐实际请求证据、完整地址与 curl。
  */
 import type { ReleaseDefect } from '@/types/sechub-release'
-import { MdPreview } from 'md-editor-v3'
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { formatTime } from '@/hooks'
 
 import { copyDefectText } from '../../../composables/defectClipboard'
@@ -17,81 +18,111 @@ import {
   defectStatusLabel,
   defectTitleText,
 } from '../../../composables/defectDraftRules'
+import { evidenceUrl } from '../../../composables/defectEvidenceRules'
+import { useDefectDetail } from '../../../composables/useDefectDetail'
 
-import 'md-editor-v3/lib/style.css'
+import DefectContentTab from './DefectContentTab.vue'
+import DefectRequestTab from './DefectRequestTab.vue'
+import DefectVerifyScriptTab from './DefectVerifyScriptTab.vue'
 
-const props = defineProps<{ defect: ReleaseDefect | null }>()
+const props = defineProps<{
+  defect: ReleaseDefect | null
+  scriptDownloading?: boolean
+}>()
+const emit = defineEmits<{ (e: 'downloadScript'): void }>()
 const visible = defineModel<boolean>('visible', { default: false })
 
-const title = computed(() => (props.defect ? defectTitleText(props.defect) : ''))
-const content = computed(() => (props.defect ? defectContentText(props.defect) : ''))
+const { loading, detail, load, reset } = useDefectDetail()
+
+const current = computed<ReleaseDefect | null>(() => detail.value ?? props.defect)
+const title = computed(() => (current.value ? defectTitleText(current.value) : ''))
+const content = computed(() => (current.value ? defectContentText(current.value) : ''))
+const request = computed(() => detail.value?.request ?? null)
+const fullUrl = computed(() => evidenceUrl(detail.value))
+const curl = computed(() => detail.value?.curl ?? '')
+
+watch(
+  () => [visible.value, props.defect?.id] as const,
+  ([open, id]) => {
+    if (open && id)
+      void load(id)
+    else
+      reset()
+  },
+)
 
 function copyTitle() {
   void copyDefectText(title.value, '标题')
-}
-
-function copyContent() {
-  void copyDefectText(content.value, '内容')
 }
 </script>
 
 <template>
   <a-drawer
     v-model:visible="visible"
-    :width="820"
+    :width="900"
     :footer="false"
     title="缺陷草稿详情"
     unmount-on-close
   >
-    <template v-if="defect">
+    <template v-if="current">
       <div class="title-row">
-        <span class="defect-title">{{ defect.title }}</span>
-        <a-space>
-          <a-button size="mini" @click="copyTitle">
-            复制标题
-          </a-button>
-          <a-button size="mini" type="primary" @click="copyContent">
-            复制内容
-          </a-button>
-        </a-space>
+        <span class="defect-title">{{ current.title }}</span>
+        <a-button size="mini" @click="copyTitle">
+          复制标题
+        </a-button>
       </div>
 
       <a-descriptions :column="3" bordered size="small" style="margin-bottom: 12px">
         <a-descriptions-item label="编号">
-          {{ defect.defect_code }}
+          {{ current.defect_code }}
         </a-descriptions-item>
         <a-descriptions-item label="状态">
-          <a-tag :color="defectStatusColor(defect.status)" size="small">
-            {{ defectStatusLabel(defect.status) }}
+          <a-tag :color="defectStatusColor(current.status)" size="small">
+            {{ defectStatusLabel(current.status) }}
           </a-tag>
         </a-descriptions-item>
         <a-descriptions-item label="级别">
-          <a-tag :color="defectPriorityColor(defect.priority)" size="small">
-            {{ defectPriorityLabel(defect.priority) }}
+          <a-tag :color="defectPriorityColor(current.priority)" size="small">
+            {{ defectPriorityLabel(current.priority) }}
           </a-tag>
         </a-descriptions-item>
         <a-descriptions-item label="项目组">
-          {{ defect.project_group_name || '-' }}
+          {{ current.project_group_name || '-' }}
         </a-descriptions-item>
         <a-descriptions-item label="应用">
-          {{ defect.app_name || '-' }}
+          {{ current.app_name || '-' }}
         </a-descriptions-item>
         <a-descriptions-item label="来源">
-          {{ defectSourceLabel(defect.source) }}
+          {{ defectSourceLabel(current.source) }}
         </a-descriptions-item>
         <a-descriptions-item label="迭代">
-          {{ defect.iteration_code || '-' }}
+          {{ current.iteration_code || '-' }}
         </a-descriptions-item>
         <a-descriptions-item label="外部编号">
-          {{ defect.external_no || '-' }}
+          {{ current.external_no || '-' }}
         </a-descriptions-item>
         <a-descriptions-item label="发现时间">
-          {{ formatTime(defect.discovered_at) }}
+          {{ formatTime(current.discovered_at) }}
         </a-descriptions-item>
       </a-descriptions>
 
-      <MdPreview v-if="content" :model-value="content" />
-      <a-empty v-else description="该缺陷没有 Markdown 内容" />
+      <a-spin :loading="loading" style="width: 100%">
+        <a-tabs default-active-key="content">
+          <a-tab-pane key="content" title="缺陷内容">
+            <DefectContentTab :content="content" />
+          </a-tab-pane>
+          <a-tab-pane key="request" title="请求与响应">
+            <DefectRequestTab :request="request" :url="fullUrl" :curl="curl" />
+          </a-tab-pane>
+          <a-tab-pane key="script" title="自测脚本">
+            <DefectVerifyScriptTab
+              :defect-code="current.defect_code"
+              :downloading="Boolean(scriptDownloading)"
+              @download="emit('downloadScript')"
+            />
+          </a-tab-pane>
+        </a-tabs>
+      </a-spin>
     </template>
   </a-drawer>
 </template>
