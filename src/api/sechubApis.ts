@@ -300,6 +300,8 @@ export enum ApiSecPrescan {
   issueRun = '/sechub/prescan/issue-run',
   issueDmpCode = '/sechub/prescan/issue-dmp-code',
   blameCompensate = '/sechub/prescan/blame-compensate',
+  // 批量补偿引入时间：只入队，按 run 逐个由任务队列消费
+  blameCompensateBatch = '/sechub/prescan/blame-compensate-batch',
   agentStatus = '/sechub/prescan/agent-status',
   confirmCompare = '/sechub/prescan/confirm-compare',
   crossRunCompare = '/sechub/prescan/cross-run-compare',

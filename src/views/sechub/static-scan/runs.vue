@@ -89,6 +89,7 @@ const queueKindLabels: Record<string, string> = {
   static_scan_confirm: '平台编排确认',
   static_scan_agent: '自主审计分片',
   static_scan_verify: '自动复核',
+  static_scan_blame: '引入时间补偿',
 }
 const queueStatusLabels: Record<string, { label: string, color: string }> = {
   pending: { label: '待领取', color: 'gray' },
@@ -904,6 +905,74 @@ async function doBatchDeleteRuns(runIds: string[]): Promise<void> {
   }
 }
 
+// ===== 批量补偿引入时间（逐个排队）=====
+// 补偿会为每条缺失候选启动 git blame，万级候选耗时很长。批量入口只入队，
+// 由统一任务队列按并发上限逐个执行，避免同步请求超时和 git 进程风暴。
+interface BlameCompensateBatchResult {
+  requested: number
+  queued: number
+  already_queued: number
+  invalid: number
+  message?: string
+}
+
+const blameCompensating = ref(false)
+
+/** 勾选的行（勾选可能来自已翻页，按全量行反查） */
+const selectedRows = computed(() =>
+  crossTableRows.value.filter(row => selectedRunKeys.value.includes(row.run_id)),
+)
+
+/** 扫描中的运行不参与：候选还在写入，此时补偿只能拿到半批数据 */
+const blameTargets = computed(() =>
+  selectedRows.value.filter(row => !isRunningStatus(row) && row.status !== 'skipped'),
+)
+
+const blameDisabledReason = computed(() => {
+  if (selectedRunKeys.value.length === 0)
+    return '请先勾选要补偿引入时间的运行'
+  if (blameTargets.value.length === 0)
+    return '选中的运行都在扫描中或已跳过，没有可补偿的运行'
+  return ''
+})
+
+function confirmBlameCompensate(): void {
+  const targets = blameTargets.value
+  if (targets.length === 0) {
+    Message.warning(blameDisabledReason.value)
+    return
+  }
+  const skippedRunning = selectedRows.value.filter(row => isRunningStatus(row)).length
+  const skippedOther = selectedRows.value.length - targets.length - skippedRunning
+  const extra = [
+    skippedRunning ? `${skippedRunning} 个扫描中的运行已跳过` : '',
+    skippedOther ? `${skippedOther} 个已跳过的运行已跳过` : '',
+  ].filter(Boolean).join('，')
+  Modal.confirm({
+    title: '确认批量补偿引入时间？',
+    content: `将为选中的 ${targets.length} 个运行逐个排队补偿。\n\n补偿只回填候选与关联缺陷缺失的引入信息，不覆盖已有值；任务进入「任务队列」后按队列顺序执行，可在下方查看进度。${extra ? `\n\n${extra}。` : ''}`,
+    okText: '提交补偿',
+    cancelText: '取消',
+    onOk: async () => {
+      blameCompensating.value = true
+      try {
+        const resp = await postAction<BlameCompensateBatchResult>(
+          ApiSecPrescan.blameCompensateBatch,
+          { run_ids: targets.map(row => row.run_id) },
+        )
+        if (resp) {
+          Message.success(resp.message || '已提交引入时间补偿')
+          selectedRunKeys.value = []
+          await loadQueue()
+        }
+      }
+      finally {
+        blameCompensating.value = false
+      }
+    },
+  })
+}
+
 // ===== 标签映射 =====
 const modeLabels: Record<string, { label: string, color: string }> = {
   batch: { label: '平台编排', color: 'blue' },
@@ -1106,6 +1175,19 @@ function toggleRunChecked(runId: string, checked: boolean) {
               >
                 批量重扫未完成{{ bulkRetryTargets.length ? `(${bulkRetryTargets.length})` : '' }}
               </a-button>
+              <a-tooltip :content="blameDisabledReason" :disabled="!blameDisabledReason">
+                <span>
+                  <a-button
+                    type="primary"
+                    status="success"
+                    :loading="blameCompensating"
+                    :disabled="blameTargets.length === 0"
+                    @click="confirmBlameCompensate"
+                  >
+                    一键补偿引入时间{{ blameTargets.length ? `(${blameTargets.length})` : '' }}
+                  </a-button>
+                </span>
+              </a-tooltip>
               <a-button
                 status="danger"
                 :loading="batchDeleting"
