@@ -14,6 +14,7 @@ import {
   buildProductLineQuery,
   buildScopeQuery,
   businessAreaOptionsOf,
+  cascadeDomainOf,
   defaultIterationIdOf,
   domainOptionsOf,
   iterationOptionsOf,
@@ -97,6 +98,17 @@ test('领域级联：产品领域 → 业务领域 → 项目组只列上级子�
   assert.deepEqual(businessAreaOptionsOf(options, ''), [], '未选产品领域时业务领域为空')
   assert.deepEqual(projectGroupOptionsOf(options, '集团财务', ''), [], '未选业务领域时项目组为空')
   assert.deepEqual(projectGroupOptionsOf(options, '未知', '共享'), [])
+})
+
+test('级联领域：显式选择优先；唯一默认领域视为已选；多个默认领域或未知领域返回空', () => {
+  const options = fixture()
+  assert.equal(cascadeDomainOf(options, '供应链', ['集团财务']), '供应链')
+  assert.equal(cascadeDomainOf(options, '', ['集团财务']), '集团财务')
+  assert.equal(cascadeDomainOf(options, '', ['集团财务', '供应链']), '')
+  assert.equal(cascadeDomainOf(options, '', ['不存在']), '')
+  assert.equal(cascadeDomainOf(options, '', []), '')
+  const single = { ...options, domains: options.domains.slice(0, 1) }
+  assert.equal(cascadeDomainOf(single, '', []), '集团财务')
 })
 
 test('缺省迭代取 current_id，没有当前迭代取首项', () => {

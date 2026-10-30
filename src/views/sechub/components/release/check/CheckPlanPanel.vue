@@ -63,10 +63,11 @@ const footerHint = computed(() => {
 
     <a-alert
       v-if="plan?.env_error"
-      :content="plan.env_error"
       show-icon
       type="warning"
-    />
+    >
+      {{ plan.env_error }}
+    </a-alert>
 
     <template v-if="plan">
       <div class="plan-range">
@@ -155,10 +156,11 @@ const footerHint = computed(() => {
       <a-alert
         v-for="(note, index) in plan.notes"
         :key="index"
-        :content="note"
         class="plan-note"
         type="info"
-      />
+      >
+        {{ note }}
+      </a-alert>
     </template>
 
     <a-empty

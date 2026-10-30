@@ -50,6 +50,29 @@ export function domainOptionsOf(options: ReleaseScopeOptions | null): ScopeOptio
   return (options?.domains ?? []).map(item => ({ value: item.name, label: item.name }))
 }
 
+/**
+ * 业务领域 / 项目组级联所依据的产品领域。
+ *
+ * 显式选择优先；未选择时，后端生效的默认领域（或选项树里唯一的领域）只有一个，
+ * 就把它当作已选，避免「默认：集团财务」状态下业务领域下拉被禁用。
+ * 默认领域有多个时无法确定级联来源，返回空串。
+ */
+export function cascadeDomainOf(
+  options: ReleaseScopeOptions | null,
+  productDomain: string,
+  effectiveDomains: string[],
+): string {
+  if (productDomain)
+    return productDomain
+  const candidates = effectiveDomains.length
+    ? effectiveDomains
+    : (options?.domains ?? []).map(item => item.name)
+  if (candidates.length !== 1)
+    return ''
+  const only = candidates[0] ?? ''
+  return (options?.domains ?? []).some(item => item.name === only) ? only : ''
+}
+
 export function businessAreaOptionsOf(
   options: ReleaseScopeOptions | null,
   productDomain: string,

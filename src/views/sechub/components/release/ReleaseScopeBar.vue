@@ -11,6 +11,7 @@ import { computed } from 'vue'
 
 import {
   businessAreaOptionsOf,
+  cascadeDomainOf,
   domainOptionsOf,
   iterationOptionsOf,
   productLineOptionsOf,
@@ -40,8 +41,10 @@ type SelectChangeValue = string | number | boolean | Record<string, unknown> | (
 const productLineOptions = computed(() => productLineOptionsOf(props.options))
 const iterationOptions = computed(() => iterationOptionsOf(props.options))
 const domainOptions = computed(() => domainOptionsOf(props.options))
-const businessAreaOptions = computed(() => businessAreaOptionsOf(props.options, props.productDomain))
-const projectGroupOptions = computed(() => projectGroupOptionsOf(props.options, props.productDomain, props.businessArea))
+/** 未显式选择领域时，用唯一的默认领域驱动业务领域 / 项目组级联 */
+const cascadeDomain = computed(() => cascadeDomainOf(props.options, props.productDomain, props.effectiveDomains))
+const businessAreaOptions = computed(() => businessAreaOptionsOf(props.options, cascadeDomain.value))
+const projectGroupOptions = computed(() => projectGroupOptionsOf(props.options, cascadeDomain.value, props.businessArea))
 
 /** 未显式选择产品领域时，下拉占位显示后端生效的默认领域 */
 const domainPlaceholder = computed(() => {
@@ -90,7 +93,7 @@ function onChange(field: ReleaseScopeField, value: SelectChangeValue) {
         @change="onChange('productDomain', $event)"
       />
       <a-select
-        :disabled="!productDomain"
+        :disabled="!cascadeDomain"
         :model-value="businessArea"
         :options="businessAreaOptions"
         allow-clear

@@ -65,7 +65,7 @@ function canCreate(item: ConfigItem): boolean {
     :data="list"
     :loading="loading"
     :pagination="pagination"
-    :scroll="{ minWidth: 1340 }"
+    :scroll="{ minWidth: 1540 }"
     row-key="id"
     size="small"
     @page-change="(page: number) => emit('pageChange', page)"
@@ -99,24 +99,6 @@ function canCreate(item: ConfigItem): boolean {
         </template>
       </a-table-column>
 
-      <a-table-column :width="140" ellipsis>
-        <template #title>
-          <ConfigFieldTitle :defs="fieldDefs" fallback="应用" field="app" />
-        </template>
-        <template #cell="{ record }">
-          {{ appText(asItem(record)) }}
-        </template>
-      </a-table-column>
-
-      <a-table-column :width="140" ellipsis>
-        <template #title>
-          <ConfigFieldTitle :defs="fieldDefs" fallback="项目组" field="project_group" />
-        </template>
-        <template #cell="{ record }">
-          {{ groupText(asItem(record)) }}
-        </template>
-      </a-table-column>
-
       <a-table-column :width="80">
         <template #title>
           <ConfigFieldTitle :defs="fieldDefs" fallback="级别" field="severity" />
@@ -143,6 +125,24 @@ function canCreate(item: ConfigItem): boolean {
           >
             {{ record.defect.defect_code }}
           </router-link>
+        </template>
+      </a-table-column>
+
+      <a-table-column :width="140" ellipsis>
+        <template #title>
+          <ConfigFieldTitle :defs="fieldDefs" fallback="应用" field="app" />
+        </template>
+        <template #cell="{ record }">
+          {{ appText(asItem(record)) }}
+        </template>
+      </a-table-column>
+
+      <a-table-column :width="140" ellipsis>
+        <template #title>
+          <ConfigFieldTitle :defs="fieldDefs" fallback="项目组" field="project_group" />
+        </template>
+        <template #cell="{ record }">
+          {{ groupText(asItem(record)) }}
         </template>
       </a-table-column>
 

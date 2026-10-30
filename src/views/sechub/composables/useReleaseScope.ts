@@ -14,6 +14,7 @@ import { fetchScopeOptions } from '../services/releaseScopeService'
 import {
   buildScopeQuery,
   businessAreaOptionsOf,
+  cascadeDomainOf,
   defaultIterationIdOf,
   domainOptionsOf,
   iterationOptionsOf,
@@ -54,8 +55,9 @@ export function useReleaseScope() {
   const productLineOptions = computed(() => productLineOptionsOf(options.value))
   const iterationOptions = computed(() => iterationOptionsOf(options.value))
   const domainOptions = computed(() => domainOptionsOf(options.value))
-  const businessAreaOptions = computed(() => businessAreaOptionsOf(options.value, productDomain.value))
-  const projectGroupOptions = computed(() => projectGroupOptionsOf(options.value, productDomain.value, businessArea.value))
+  const cascadeDomain = computed(() => cascadeDomainOf(options.value, productDomain.value, effectiveDomains.value))
+  const businessAreaOptions = computed(() => businessAreaOptionsOf(options.value, cascadeDomain.value))
+  const projectGroupOptions = computed(() => projectGroupOptionsOf(options.value, cascadeDomain.value, businessArea.value))
   const summaryText = computed(() => scopeSummaryText(selection.value, options.value, effectiveDomains.value))
 
   function setField(field: ReleaseScopeField, value: string) {
@@ -151,6 +153,9 @@ export function useReleaseScope() {
       version.value += 1
       return
     }
+    // 在默认领域下选业务领域：把默认领域落成显式选择，保证 query 与级联校验一致
+    if (field === 'businessArea' && value && !productDomain.value)
+      productDomain.value = cascadeDomain.value
     setField(field, value)
     applyReset(resetOnFieldChange(field, options.value))
     version.value += 1
