@@ -368,6 +368,8 @@ export enum ApiSecDecompile {
   reassociate = '/sechub/decompile/reassociate',
   importExisting = '/sechub/decompile/import-existing',
   rebuildIndex = '/sechub/decompile/rebuild-index',
+  // multipart 上传，走裸 fetch（useRequest 只封装 JSON）
+  upload = '/sechub/decompile/upload',
 }
 
 // ── 安全自动化回归（安全扫描） ──────────────────────
