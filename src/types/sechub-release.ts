@@ -145,7 +145,16 @@ export interface CoverageGroupRow extends CoverageCounts {
 export interface CoverageResponse {
   iteration: ReleaseIterationScope
   env: ReleaseEnv
+  /** 环境所属产品线（字典 perf_product_line） */
+  product_line: string
+  /** 实际生效的产品领域（未指定时为后端配置的默认领域） */
   product_domains: string[]
+  /** 实际生效的范围条件（loader::ReleaseScope） */
+  scope: {
+    product_domains: string[]
+    business_areas: string[]
+    project_groups: string[]
+  }
   summary: CoverageCounts
   /** 本迭代下线的接口数 */
   removed_total: number
@@ -158,14 +167,84 @@ export interface CoverageResponse {
 
 /** 覆盖看板查询参数（空值不下发） */
 export interface CoverageQuery {
+  product_line?: string
   iteration_id?: string
   env_id?: string
+  /** 产品领域，逗号分隔 */
+  product_domains?: string
+  /** 业务领域，逗号分隔；`__none__` 表示未分业务领域 */
+  business_area?: string
+  /** 项目组编码，逗号分隔（范围条件） */
   project_group?: string
   status?: CoverageStatusFilter
   tag?: CoverageTagFilter
   keyword?: string
   page_num?: number
   page_size?: number
+}
+
+// ── 发版范围筛选（scope-options，供各发版页面复用） ─────────
+
+/** 产品线字典项（perf_product_line） */
+export interface ReleaseScopeProductLine {
+  value: string
+  label: string
+  is_default: boolean
+}
+
+/** 产品线下的测试环境 */
+export interface ReleaseScopeEnv {
+  id: string
+  name: string
+  /** 该环境未删除的清单接口数 */
+  api_total: number
+}
+
+/** 范围树中的项目组 */
+export interface ReleaseScopeGroup {
+  code: string
+  name: string
+}
+
+/** 范围树中的业务领域（value = `__none__` 表示未分业务领域） */
+export interface ReleaseScopeBusinessArea {
+  value: string
+  label: string
+  project_groups: ReleaseScopeGroup[]
+}
+
+/** 范围树中的产品领域 */
+export interface ReleaseScopeDomain {
+  name: string
+  business_areas: ReleaseScopeBusinessArea[]
+}
+
+/** `GET /sechub/release/scope-options` */
+export interface ReleaseScopeOptions {
+  product_lines: ReleaseScopeProductLine[]
+  /** 解析后的产品线（缺省为字典 is_default 项） */
+  product_line: string
+  envs: ReleaseScopeEnv[]
+  /** 产品线没有测试环境时为 null */
+  env_id: string | null
+  /** 环境缺失原因；有测试环境时为 null */
+  env_error: string | null
+  iterations: ReleaseIteration[]
+  /** 当前进行中的迭代；没有则为 null */
+  current_id: string | null
+  domains: ReleaseScopeDomain[]
+}
+
+/** 范围筛选查询参数（空值不下发） */
+export interface ReleaseScopeQuery {
+  product_line?: string
+  iteration_id?: string
+  /** 产品领域，逗号分隔 */
+  product_domains?: string
+  /** 业务领域，逗号分隔 */
+  business_area?: string
+  /** 项目组编码，逗号分隔 */
+  project_group?: string
 }
 
 /** 安全测试环境下拉项（sec_test_env） */

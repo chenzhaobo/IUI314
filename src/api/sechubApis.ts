@@ -590,11 +590,13 @@ export enum ApiSecFormAssetSync {
   status = '/sechub/form-assets/sync/{task_id}',
 }
 
-// ── 发版质量：接口覆盖 / 缺陷草稿 ──────────────────────────────
-// 迭代下拉（默认当前迭代）、覆盖看板（summary / groups / 分页 list）、
-// 缺陷草稿列表 / 状态流转 / Markdown 导出、结果确认缺陷。
+// ── 发版质量：范围选项 / 接口覆盖 / 缺陷草稿 ────────────────────
+// 范围选项（产品线 / 环境 / 迭代 / 领域树）、迭代下拉（默认当前迭代）、
+// 覆盖看板（summary / groups / 分页 list）、缺陷草稿列表 / 状态流转 /
+// Markdown 导出、结果确认缺陷。
 export enum ApiSecRelease {
   iterations = '/sechub/release/iterations',
+  scopeOptions = '/sechub/release/scope-options',
   coverage = '/sechub/release/coverage',
   defects = '/sechub/release/defects',
   defectStatus = '/sechub/release/defects/{id}/status',

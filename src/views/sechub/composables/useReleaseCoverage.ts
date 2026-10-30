@@ -1,26 +1,29 @@
 /**
- * 发版质量「接口覆盖」页状态：迭代选择、筛选、分页与勾选。
+ * 发版质量「接口覆盖」页状态：范围（产品线 / 迭代 / 领域 / 项目组）、
+ * 明细筛选（覆盖状态 / 标签 / 关键字）、分页与勾选。
  *
- * 勾选跨页保留（Map key = api_path|METHOD）；改筛选条件会清空勾选，
- * 避免把用户已经看不见的接口一并派发。
+ * 范围 query 与明细筛选分开：范围变化影响汇总与项目组统计，明细筛选只影响接口列表。
+ * 两者任一变化都回到第 1 页并清空勾选。
  */
 import type {
+  CoverageCounts,
   CoverageGroupRow,
   CoverageQuery,
   CoverageResponse,
   CoverageStatusFilter,
   CoverageTagFilter,
   ReleaseApi,
-  ReleaseIteration,
+  ReleaseIterationScope,
 } from '@/types/sechub-release'
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { fetchCoverage, fetchIterations } from '../services/releaseService'
-import { apiSelectionKey, COVERAGE_STATUS_OPTIONS, groupSelectedApis, isSelectable } from './releaseCoverageRules'
+import { fetchCoverage } from '../services/releaseService'
+import { COVERAGE_STATUS_OPTIONS } from './releaseCoverageRules'
+import { useCoverageSelection } from './useCoverageSelection'
+import { useReleaseScope } from './useReleaseScope'
 
 export interface ReleaseFilters {
-  projectGroup: string
   status: '' | CoverageStatusFilter
   tag: '' | CoverageTagFilter
   keyword: string
@@ -33,18 +36,38 @@ function isCoverageStatusFilter(value: string): value is CoverageStatusFilter {
 
 export function useReleaseCoverage() {
   const route = useRoute()
+  const scope = useReleaseScope()
+  const selection = useCoverageSelection()
   const loading = ref(false)
-  const iterations = ref<ReleaseIteration[]>([])
-  const iterationId = ref('')
-  const filters = reactive<ReleaseFilters>({ projectGroup: '', status: '', tag: '', keyword: '' })
+  const filters = reactive<ReleaseFilters>({ status: '', tag: '', keyword: '' })
   const pageNum = ref(1)
   const pageSize = ref(20)
   const data = ref<CoverageResponse | null>(null)
-  /** 勾选：key → 接口；跨页保留，避免翻页丢选择 */
-  const selected = ref(new Map<string, ReleaseApi>())
+
+  const {
+    loading: scopeLoading,
+    options: scopeOptions,
+    productLine,
+    iterationId,
+    productDomain,
+    businessArea,
+    projectGroup,
+    effectiveDomains,
+    envError,
+    summaryText,
+    version: scopeVersion,
+    syncEffectiveDomains,
+    selectProjectGroup,
+    init: initScope,
+    handleChange: handleScopeChange,
+  } = scope
 
   const list = computed<ReleaseApi[]>(() => data.value?.list ?? [])
   const groups = computed<CoverageGroupRow[]>(() => data.value?.groups ?? [])
+  const summary = computed<CoverageCounts | null>(() => data.value?.summary ?? null)
+  const iterationScope = computed<ReleaseIterationScope | null>(() => data.value?.iteration ?? null)
+  const removedTotal = computed(() => data.value?.removed_total ?? 0)
+  const envUnavailable = computed(() => Boolean(envError.value))
   const total = computed(() => data.value?.total ?? 0)
   const pagination = computed(() => ({
     current: pageNum.value,
@@ -53,35 +76,15 @@ export function useReleaseCoverage() {
     showTotal: true,
     showPageSize: true,
   }))
-
-  const selectedApis = computed<ReleaseApi[]>(() => [...selected.value.values()])
-  const selectedCount = computed(() => selected.value.size)
-  /** 勾选键列表（供表格受控渲染） */
-  const selectedKeys = computed(() => [...selected.value.keys()])
-  /** 项目组编码 → api_path 列表（一键测试按组逐次派发） */
-  const selectedByGroup = computed(() => groupSelectedApis(selectedApis.value))
-  const selectedGroupCount = computed(() => Object.keys(selectedByGroup.value).length)
-  /** 项目组编码 → 名称（弹窗展示用） */
-  const selectedGroupNames = computed<Record<string, string>>(() => {
-    const names: Record<string, string> = {}
-    for (const api of selectedApis.value)
-      names[api.project_group_code.trim()] = api.project_group_name
-    return names
-  })
-
-  const pageSelectableApis = computed(() => list.value.filter(api => isSelectable(api.coverage)))
-  const pageAllSelected = computed(() => pageSelectableApis.value.length > 0
-    && pageSelectableApis.value.every(api => selected.value.has(apiSelectionKey(api.api_path, api.http_method))))
+  const pageAllSelected = computed(() => selection.pageAllSelected(list.value))
+  const hasPageSelectable = computed(() => selection.hasPageSelectable(list.value))
 
   function buildQuery(): CoverageQuery {
     const query: CoverageQuery = {
+      ...scope.toQuery(),
       page_num: pageNum.value,
       page_size: pageSize.value,
     }
-    if (iterationId.value)
-      query.iteration_id = iterationId.value
-    if (filters.projectGroup)
-      query.project_group = filters.projectGroup
     if (filters.status)
       query.status = filters.status
     if (filters.tag)
@@ -93,77 +96,62 @@ export function useReleaseCoverage() {
   }
 
   async function loadCoverage() {
+    if (envError.value) {
+      data.value = null
+      syncEffectiveDomains([])
+      return
+    }
     loading.value = true
     try {
       const result = await fetchCoverage(buildQuery())
-      if (result)
+      if (result) {
         data.value = result
+        syncEffectiveDomains(result.scope.product_domains)
+      }
     }
     finally {
       loading.value = false
     }
   }
 
-  /** 迭代下拉：默认选后端 current_id；没有当前迭代时保留首项 */
-  async function loadIterations() {
-    const result = await fetchIterations()
-    if (!result)
-      return
-    iterations.value = result.list
-    const preferred = result.current_id || result.list[0]?.id || ''
-    const exists = result.list.some(item => item.id === iterationId.value)
-    if (!exists)
-      iterationId.value = preferred
-  }
-
-  async function init() {
-    applyRouteFilters()
-    await loadIterations()
-    await loadCoverage()
-  }
-
-  /**
-   * 从路由 query 预填筛选（质量看板的「新增未覆盖」「项目组」跳转会带过来）。
-   *
-   * 只在 init 读一次：进入页面时覆盖筛选，之后用户在本页的修改不受地址栏影响。
-   */
+  /** 路由 query 预填明细筛选（质量看板的「新增未覆盖」跳转会带 tag / status） */
   function applyRouteFilters() {
-    const { tag, status, project_group: projectGroup } = route.query
+    const { tag, status } = route.query
     if (tag === 'new' || tag === 'changed')
       filters.tag = tag
     if (typeof status === 'string' && isCoverageStatusFilter(status))
       filters.status = status
-    if (typeof projectGroup === 'string' && projectGroup.trim())
-      filters.projectGroup = projectGroup.trim()
   }
 
-  function clearSelection() {
-    selected.value = new Map()
+  async function init() {
+    applyRouteFilters()
+    await initScope()
+    await loadCoverage()
   }
 
-  /** 筛选条件变化：回到第 1 页并清空勾选 */
+  /** 范围变化：回到第 1 页、清空勾选、重新取数 */
+  watch(scopeVersion, () => {
+    pageNum.value = 1
+    selection.clearSelection()
+    void loadCoverage()
+  })
+
+  /** 明细筛选变化：回到第 1 页、清空勾选 */
   function handleSearch() {
     pageNum.value = 1
-    clearSelection()
+    selection.clearSelection()
     void loadCoverage()
   }
 
   function handleReset() {
-    filters.projectGroup = ''
     filters.status = ''
     filters.tag = ''
     filters.keyword = ''
     handleSearch()
   }
 
-  function handleIterationChange() {
-    handleSearch()
-  }
-
-  /** 项目组统计行点击：按该组过滤（再点同一行取消过滤） */
   function selectGroup(code: string) {
-    filters.projectGroup = filters.projectGroup === code ? '' : code
-    handleSearch()
+    selectProjectGroup(code)
   }
 
   function handlePageChange(page: number) {
@@ -177,66 +165,45 @@ export function useReleaseCoverage() {
     void loadCoverage()
   }
 
-  function isApiSelected(api: ReleaseApi): boolean {
-    return selected.value.has(apiSelectionKey(api.api_path, api.http_method))
-  }
-
-  function toggleApi(api: ReleaseApi) {
-    if (!isSelectable(api.coverage))
-      return
-    const key = apiSelectionKey(api.api_path, api.http_method)
-    const next = new Map(selected.value)
-    if (next.has(key))
-      next.delete(key)
-    else
-      next.set(key, api)
-    selected.value = next
-  }
-
-  /** 表头全选：本页可勾选行全选 / 取消 */
   function togglePageSelection() {
-    const next = new Map(selected.value)
-    if (pageAllSelected.value) {
-      for (const api of pageSelectableApis.value)
-        next.delete(apiSelectionKey(api.api_path, api.http_method))
-    }
-    else {
-      for (const api of pageSelectableApis.value)
-        next.set(apiSelectionKey(api.api_path, api.http_method), api)
-    }
-    selected.value = next
+    selection.togglePageSelection(list.value)
   }
 
   return {
     loading,
-    iterations,
+    scopeLoading,
+    scopeOptions,
+    productLine,
     iterationId,
+    productDomain,
+    businessArea,
+    projectGroup,
+    effectiveDomains,
+    envError,
+    envUnavailable,
+    summaryText,
     filters,
-    pageNum,
-    pageSize,
-    data,
     list,
     groups,
-    total,
+    summary,
+    iterationScope,
+    removedTotal,
     pagination,
-    selectedCount,
-    selectedKeys,
-    selectedByGroup,
-    selectedGroupCount,
-    selectedGroupNames,
     pageAllSelected,
-    hasPageSelectable: computed(() => pageSelectableApis.value.length > 0),
+    hasPageSelectable,
+    selectedCount: selection.selectedCount,
+    selectedKeys: selection.selectedKeys,
+    selectedByGroup: selection.selectedByGroup,
+    selectedGroupCount: selection.selectedGroupCount,
+    selectedGroupNames: selection.selectedGroupNames,
     init,
-    loadCoverage,
     handleSearch,
     handleReset,
-    handleIterationChange,
+    handleScopeChange,
     selectGroup,
     handlePageChange,
     handlePageSizeChange,
-    isApiSelected,
-    toggleApi,
+    toggleApi: selection.toggleApi,
     togglePageSelection,
-    clearSelection,
   }
 }
