@@ -28,6 +28,7 @@ defineOptions({ name: 'scan-cases' })
 const CASE_TYPE_OPTIONS = [
   { value: 'form_perm', label: '表单权限' },
   { value: 'form_inject', label: '表单注入' },
+  { value: 'form_url', label: '表单URL直达' },
   { value: 'meta_perm_check', label: '静态权限检查' },
   { value: 'meta_log_check', label: '静态日志检查' },
   { value: 'meta_anon_check', label: '静态匿名访问' },
@@ -44,6 +45,7 @@ const TEST_TYPE_LABELS: Record<string, string> = {
   idor: '越权(IDOR)',
   base: '正向基线',
   robustness: '健壮性',
+  form_url: '表单URL直达',
   meta_perm: '静态权限',
   meta_log: '静态日志',
   meta_anon: '静态匿名',

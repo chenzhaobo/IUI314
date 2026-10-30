@@ -556,6 +556,15 @@ export enum ApiSecFormTest {
   typeDelete = '/sechub/form-test/types/delete',
 }
 
+// ── 测试结果按接口 / 按表单（api/src/sechub/test_results.rs）──
+// 只读聚合视图：接口维度以 sec_api_test_status 为主键，表单维度按表单编码分组。
+export enum ApiSecTestResults {
+  apis = '/sechub/test-results/apis',
+  apiDetail = '/sechub/test-results/apis/detail',
+  forms = '/sechub/test-results/forms',
+  formDetail = '/sechub/test-results/forms/detail',
+}
+
 // ── 领域资产（表单 / 微服务统一资产，AS-03 真实契约） ──
 // 列表 / 详情 / 文件 / 候选 / 问题（三者各自独立服务端分页）/ 同步历史（sync-runs）。
 // 动态段（{id}）统一由 resolveStaticScanApi 拼装。

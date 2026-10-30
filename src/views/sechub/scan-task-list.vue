@@ -30,6 +30,7 @@ defineOptions({ name: 'scan-task-list' })
 // 与 sec_sec_task.test_types 的 JSON 数组取值一一对应（设计文档 §3.1）
 const TEST_TYPE_OPTIONS = [
   { value: 'form_perm', label: '表单权限测试' },
+  { value: 'form_url', label: '表单URL直达' },
   { value: 'xss', label: 'XSS注入' },
   { value: 'sqli', label: 'SQL注入' },
   { value: 'java_reflect', label: 'Java反射注入' },

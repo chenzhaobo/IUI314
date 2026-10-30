@@ -80,6 +80,7 @@ const TEST_TYPE_LABELS: Record<string, string> = {
   idor: '越权(IDOR)',
   base: '正向基线',
   robustness: '健壮性',
+  form_url: '表单URL直达',
   // 静态扫描（meta_collect）产出的用例类型
   meta_perm: '元数据-权限配置',
   meta_anon: '元数据-匿名访问',
@@ -96,6 +97,7 @@ const RESULT_TEST_TYPE_OPTIONS = [
   { value: 'xss', label: 'XSS注入' },
   { value: 'sqli', label: 'SQL注入' },
   { value: 'java_reflect', label: 'Java反射' },
+  { value: 'form_url', label: '表单URL直达' },
   { value: 'meta_perm', label: '元数据-权限配置' },
   { value: 'meta_anon', label: '元数据-匿名访问' },
   { value: 'meta_log', label: '元数据-操作日志' },

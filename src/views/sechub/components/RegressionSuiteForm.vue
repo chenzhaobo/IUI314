@@ -28,6 +28,7 @@ const emit = defineEmits<{
 const TEST_TYPE_OPTIONS = [
   { value: 'api', label: 'API 接口测试' },
   { value: 'form_perm', label: '表单权限测试' },
+  { value: 'form_url', label: '表单URL直达' },
   { value: 'xss', label: 'XSS注入' },
   { value: 'sqli', label: 'SQL注入' },
   { value: 'java_reflect', label: 'Java反射注入' },

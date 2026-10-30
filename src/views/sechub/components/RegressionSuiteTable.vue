@@ -47,6 +47,7 @@ const RUN_STATUS: Record<string, { label: string, color: string }> = {
 const TYPE_LABEL: Record<string, string> = {
   api: 'API',
   form_perm: '表单权限',
+  form_url: '表单URL直达',
   xss: 'XSS',
   sqli: 'SQL注入',
   java_reflect: '反射注入',

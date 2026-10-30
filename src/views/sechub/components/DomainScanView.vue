@@ -49,6 +49,7 @@ const TEST_TYPE_LABELS: Record<string, string> = {
   sqli: 'SQL注入',
   java_reflect: 'Java反射',
   base: '正向基线',
+  form_url: '表单URL直达',
 }
 
 const VERDICT: Record<string, { color: string }> = {

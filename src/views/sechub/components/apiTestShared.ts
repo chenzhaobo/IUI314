@@ -43,6 +43,7 @@ export function caseIdText(record: any): string {
 export const CASE_TYPE_LABELS: Record<string, string> = {
   form_perm: '表单权限',
   form_inject: '表单注入',
+  form_url: '表单URL直达',
   openapi_perm: 'OpenAPI权限',
   openapi_inject: 'OpenAPI注入',
   script: 'Python脚本',
@@ -68,6 +69,7 @@ export const TEST_TYPE_LABELS: Record<string, string> = {
   callback: '回调/签名',
   signature: '签名',
   diag: '诊断',
+  form_url: '表单URL直达',
   meta_perm: '元数据权限',
   meta_log: '元数据日志',
   meta_anon: '元数据匿名',
