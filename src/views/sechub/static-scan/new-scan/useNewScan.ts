@@ -3,13 +3,14 @@
  *
  * 20261008（契约 C/D/E）：过渡期旧轨（整仓差量向导 / 表单资产 / 微服务资产）已移除，只剩
  * - 统一扫描：分支 + 目标 commit + 扫描方式（全量 / 增量，基线自动取）+ 规则目录 + 规则范围（全部 / 自选 = 部分扫描）；
- * - 反编译源码库（local-test:）：没有 Git 维度与资产，仍走整仓全量（/prescan/trigger）。
+ * - 反编译源码库（local-test:）：没有 Git 维度与资产，走整仓扫描（/prescan/trigger）；
+ *   规则目录 + 规则范围与统一扫描一致，「自选」= 部分扫描（领域证据分组不提供）。
  *
  * "扫描来源"在 ./useScanSource，"扫描方式与预览"在 ./useUnifiedScan，"规则范围"在 ./useRuleScope，
  * 这里只做组合、打开/换仓库编排与触发。run 建立后回调 `onCreated(runId)`（运行页刷新列表）。
  */
 import type { InjectionKey, UnwrapNestedRefs } from 'vue'
-import type { NewScanOpenOptions, RuleScopeMode, UnifiedTriggerRequest, UnifiedTriggerResponse } from './types'
+import type { FullTriggerRequest, NewScanOpenOptions, RuleScopeMode, UnifiedTriggerRequest, UnifiedTriggerResponse } from './types'
 import { Message } from '@arco-design/web-vue'
 import { computed, inject, ref } from 'vue'
 import { isCommitSha } from './labels'
@@ -35,8 +36,10 @@ function unifiedCreatedMessage(result: UnifiedTriggerResponse): string {
 export function useNewScan(options: UseNewScanOptions = {}) {
   const source = useScanSource()
   const unified = useUnifiedScan()
-  const scope = useRuleScope()
   const { repository, branch, commit, ruleSetId } = source
+  /** 反编译源码库不是 Git 仓库：整仓扫描，不读分支/commit/基线（可自选扫描项做部分扫描） */
+  const isLocalRepository = computed(() => repository.value?.git_url.startsWith('local-test:') ?? false)
+  const scope = useRuleScope({ hideDomainEvidence: () => isLocalRepository.value })
 
   const visible = ref(false)
   const executingFull = ref(false)
@@ -44,8 +47,6 @@ export function useNewScan(options: UseNewScanOptions = {}) {
   const lockedRepositoryId = ref('')
   const repositoryLocked = computed(() => lockedRepositoryId.value !== '')
 
-  /** 反编译源码库不是 Git 仓库：只能整仓全量扫描，不读分支/commit/基线 */
-  const isLocalRepository = computed(() => repository.value?.git_url.startsWith('local-test:') ?? false)
   const runCount = computed(() => (repository.value ? options.runCountOf?.(repository.value.repository_id) ?? 0 : 0))
   /** 留空时的默认目录名：get_all 的 is_default 优先，其次默认目录树自带的名称（不再前端写死） */
   const defaultRuleSetName = computed(() => {
@@ -148,6 +149,25 @@ export function useNewScan(options: UseNewScanOptions = {}) {
     await options.onCreated?.(runId)
   }
 
+  /**
+   * 把「规则范围」写进请求体（统一扫描与反编译整仓扫描共用，字段名一致）。
+   * 全部规则时不带这两个键；自选但一项没勾返回 false（已提示）。
+   */
+  function applyRuleScope(body: { scan_point_ids?: string[], rule_version_ids?: string[] }): boolean {
+    const rulePayload = scope.buildRuleScopePayload()
+    if (!rulePayload)
+      return true
+    if (rulePayload.scan_point_ids.length === 0 && rulePayload.rule_version_ids.length === 0) {
+      Message.warning('「自选」规则范围至少要勾选一个扫描点或一条规则')
+      return false
+    }
+    if (rulePayload.scan_point_ids.length)
+      body.scan_point_ids = rulePayload.scan_point_ids
+    if (rulePayload.rule_version_ids.length)
+      body.rule_version_ids = rulePayload.rule_version_ids
+    return true
+  }
+
   /** 组装统一触发请求体；校验不过返回 null（已提示） */
   function buildUnifiedBody(repositoryId: string): UnifiedTriggerRequest | null {
     const targetCommit = commit.value.trim()
@@ -169,18 +189,7 @@ export function useNewScan(options: UseNewScanOptions = {}) {
       body.branch = branch.value
     if (targetCommit)
       body.target_commit = targetCommit
-    const rulePayload = scope.buildRuleScopePayload()
-    if (rulePayload) {
-      if (rulePayload.scan_point_ids.length === 0 && rulePayload.rule_version_ids.length === 0) {
-        Message.warning('「自选」规则范围至少要勾选一个扫描点或一条规则')
-        return null
-      }
-      if (rulePayload.scan_point_ids.length)
-        body.scan_point_ids = rulePayload.scan_point_ids
-      if (rulePayload.rule_version_ids.length)
-        body.rule_version_ids = rulePayload.rule_version_ids
-    }
-    return body
+    return applyRuleScope(body) ? body : null
   }
 
   /** 统一扫描提交：预览阻断时不发请求（按钮已禁用，这里兜底） */
@@ -196,21 +205,25 @@ export function useNewScan(options: UseNewScanOptions = {}) {
       await acceptCreated(result.run_id, unifiedCreatedMessage(result))
   }
 
-  /** 反编译源码库：整仓全量（没有可预览的冻结计划，直接触发） */
+  /** 反编译源码库：整仓扫描（没有可预览的冻结计划，直接触发）；规则范围「自选」时为部分扫描 */
   async function submitLocalFull() {
     const repo = repository.value
     if (!repo)
       return
+    const body: FullTriggerRequest = {
+      repository_id: repo.repository_id,
+      scan_mode: 'full',
+      rule_set_id: ruleSetId.value || undefined,
+      force: false,
+    }
+    if (!applyRuleScope(body))
+      return
+    const partial = Boolean(body.scan_point_ids?.length || body.rule_version_ids?.length)
     executingFull.value = true
     try {
-      const result = await triggerFull({
-        repository_id: repo.repository_id,
-        scan_mode: 'full',
-        rule_set_id: ruleSetId.value || undefined,
-        force: false,
-      })
+      const result = await triggerFull(body)
       if (result)
-        await acceptCreated(result.run_id, '已启动反编译源码全量扫描')
+        await acceptCreated(result.run_id, partial ? `已启动反编译源码部分扫描（已选 ${scope.selectedRuleCount.value} 条规则）` : '已启动反编译源码全量扫描')
     }
     finally {
       executingFull.value = false

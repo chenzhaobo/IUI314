@@ -56,6 +56,20 @@
             <a-button type="primary" :disabled="!!runningRun(item)" @click="startSync(item, false)">一键更新</a-button>
             <a-button :disabled="!!runningRun(item)" @click="startSync(item, true)">强制重做</a-button>
             <a-button :disabled="!!runningRun(item)" @click="importExisting(item)">导入已有产物</a-button>
+            <!-- 用 change 的第二个参数取本次选中的文件：隐藏列表不会清空，files[0] 会一直是第一次选的那个 -->
+            <a-upload
+              :auto-upload="false"
+              :show-file-list="false"
+              accept=".zip"
+              :disabled="!!runningRun(item) || !!uploadingSourceId"
+              @change="(_: any, fileItem: any) => { if (fileItem?.file) confirmUploadZip(item, fileItem.file) }"
+            >
+              <template #upload-button>
+                <a-button :loading="uploadingSourceId === String(item.source.id).trim()" :disabled="!!runningRun(item) || !!uploadingSourceId">
+                  导入 zip 测试
+                </a-button>
+              </template>
+            </a-upload>
             <a-button @click="reassociate(item)">重新关联应用</a-button>
             <a-button @click="rebuildIndex(item)">重建索引文件</a-button>
             <a-button @click="openRegister(item)">登记扫描仓库</a-button>
@@ -218,7 +232,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { Message, Modal } from '@arco-design/web-vue'
 import { ApiSecDecompile } from '@/api/sechubApis'
-import { useGet, usePost, useTableAutoHeight } from '@/hooks'
+import { useGet, usePost, useTableAutoHeight, useToken } from '@/hooks'
 
 defineOptions({ name: 'decompile-library' })
 
@@ -433,6 +447,80 @@ const showPackageDetail = (record: any) => {
   packageDrawerVisible.value = true
 }
 
+// ── 导入单个 zip 测试 ──────────────────────────────────────
+// 先拿一个包验证反编译效果，不必跑一键更新。后端后台执行，这里记下 run_id 轮询结果。
+// 放在包清单之后：结束时要用 packageQuery / fetchPackages 定位到这个包。
+const uploadingSourceId = ref('')
+const pendingUpload = ref<{ runId: string, packageName: string } | null>(null)
+
+// multipart 必须用裸 fetch：useRequest 只封装了 JSON 请求体（与 views/mc/artifact.vue 一致）
+async function uploadZip(sourceId: string, file: File) {
+  uploadingSourceId.value = sourceId
+  try {
+    const { token } = useToken()
+    const formData = new FormData()
+    formData.append('source_id', sourceId)
+    formData.append('file', file)
+    const resp = await fetch(import.meta.env.VITE_API_BASE_URL + ApiSecDecompile.upload, {
+      method: 'POST',
+      body: formData,
+      headers: { Authorization: token },
+    })
+    // 超过请求体上限时可能直接回 413 纯文本，不是 JSON
+    const data = await resp.json().catch(() => null)
+    if (data?.code === 200) {
+      pendingUpload.value = { runId: String(data.data.run_id).trim(), packageName: data.data.package_name }
+      Message.success(`已开始反编译 ${data.data.package_name}，完成后自动刷新包清单`)
+      fetchSources()
+    }
+    else {
+      Message.error({ content: data?.msg || `上传失败（HTTP ${resp.status}）`, duration: 8000 })
+    }
+  }
+  catch (e: any) {
+    Message.error(e?.message || '上传失败')
+  }
+  finally {
+    uploadingSourceId.value = ''
+  }
+}
+
+function confirmUploadZip(item: any, file: File) {
+  const sourceId = String(item.source.id).trim()
+  Modal.confirm({
+    title: '导入 zip 测试',
+    content: `上传 ${file.name}（${(file.size / 1024 / 1024).toFixed(1)} MB），解出其中的 jar 用 CFR 反编译（只保留 ${item.source.jar_filter || '全部'} 匹配的类），结果进入「${item.source.name}」的包清单。同名包已有的产物会被覆盖。`,
+    okText: '开始反编译',
+    cancelText: '取消',
+    onOk: () => uploadZip(sourceId, file),
+  })
+}
+
+const runGetParams = ref<any>({})
+const { data: runGetData, execute: loadRun } = useGet<any>(ApiSecDecompile.runGet, runGetParams, { immediate: false })
+
+// 由轮询调用：上传任务结束后提示结果，并把包清单定位到这个包
+async function settleUpload() {
+  const pending = pendingUpload.value
+  if (!pending)
+    return
+  runGetParams.value = { id: pending.runId }
+  await loadRun()
+  const run = runGetData.value
+  if (!run || run.status === 'running')
+    return
+  pendingUpload.value = null
+  if (run.status === 'success')
+    Message.success({ content: run.summary || `${pending.packageName} 反编译完成`, duration: 8000 })
+  else if (run.status === 'cancelled')
+    Message.info(`${pending.packageName} 已取消`)
+  else
+    Message.error({ content: run.error_message || `${pending.packageName} 反编译失败`, duration: 10000 })
+  Object.assign(packageQuery, { keyword: pending.packageName, page_num: 1 })
+  fetchSources()
+  fetchPackages()
+}
+
 // ── 登记扫描仓库 ──────────────────────────────────────
 const registerModalVisible = ref(false)
 const registerPackagesText = ref('')
@@ -490,6 +578,7 @@ onMounted(() => {
   fetchPackages()
   timer = setInterval(() => {
     if (sources.value.some(item => runningRun(item))) fetchSources()
+    settleUpload()
   }, 5000)
 })
 onUnmounted(() => {

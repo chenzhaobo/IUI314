@@ -370,6 +370,21 @@ export enum ApiSecDecompile {
   reassociate = '/sechub/decompile/reassociate',
   importExisting = '/sechub/decompile/import-existing',
   rebuildIndex = '/sechub/decompile/rebuild-index',
+  // multipart 上传，走裸 fetch（useRequest 只封装 JSON）
+  upload = '/sechub/decompile/upload',
+}
+
+// ── 自定义API测试（粘贴调用路径 → 匹配 API 资产 → 任务） ──
+export enum ApiSecCustomApiTask {
+  import = '/sechub/custom-api-task/import',
+  list = '/sechub/custom-api-task/list',
+  /** 任务内 API 的归属维度树（结构同 ApiMetadataInventory.tree?depth=api） */
+  tree = '/sechub/custom-api-task/tree',
+  /** 运行：定位 API 实现代码 → AI 扫描 → Markdown 报告（后台执行，轮询 list 看状态） */
+  run = '/sechub/custom-api-task/run',
+  /** 任务详情：报告 + 逐条定位/结论 + 默认代码库 */
+  detail = '/sechub/custom-api-task/detail',
+  delete = '/sechub/custom-api-task/delete',
 }
 
 // ── 安全自动化回归（安全扫描） ──────────────────────

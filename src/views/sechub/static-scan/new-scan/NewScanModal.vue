@@ -2,7 +2,8 @@
 /**
  * 新建扫描弹窗（壳）：仓库选择 + 统一扫描表单（分支 / 目标 commit / 扫描方式与基线 / 规则目录 / 规则范围）。
  *
- * 20261008：过渡期旧轨（整仓差量向导 / 表单资产 / 微服务资产）已移除；反编译源码库仍只能整仓全量。
+ * 20261008：过渡期旧轨（整仓差量向导 / 表单资产 / 微服务资产）已移除；反编译源码库整仓扫描，
+ * 但同样可选规则目录 + 规则范围（自选 = 部分扫描）。
  * 状态机在 useNewScan，各字段拆成子组件，通过 provide/inject 共享同一份 reactive 状态。
  */
 import { provide, reactive } from 'vue'
@@ -59,9 +60,10 @@ defineExpose({ open: ctx.open })
       </a-form-item>
       <template v-if="ctx.isLocalRepository">
         <a-alert type="info" style="margin-bottom: 12px">
-          当前为反编译源码库，将直接全量扫描登记目录；不读取 Git 分支、Commit 或增量基线。
+          当前为反编译源码库，将直接扫描登记目录；不读取 Git 分支、Commit 或增量基线。可在「规则范围」中自选扫描项做部分扫描。
         </a-alert>
         <NewScanRuleSetField />
+        <NewScanRuleScopeField />
       </template>
       <template v-else-if="ctx.repository">
         <NewScanUnifiedSummary />
@@ -75,7 +77,7 @@ defineExpose({ open: ctx.open })
           取消
         </a-button>
         <a-button v-if="ctx.isLocalRepository" type="primary" :loading="ctx.executingFull" @click="ctx.submitLocalFull">
-          开始全量扫描
+          {{ ctx.isPartialScope ? '开始部分扫描' : '开始全量扫描' }}
         </a-button>
         <a-button
           v-else
