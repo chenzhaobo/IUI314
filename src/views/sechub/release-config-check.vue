@@ -2,9 +2,9 @@
 /**
  * 发版质量 → 配置检查（菜单 sys_menu.component = 'sechub/release-config-check'）。
  *
- * 布局：范围筛选 + 手动检查 → 汇总条 → 左栏规则列表 / 右栏明细；
- * 项目组只是范围条件（ReleaseScopeBar），右下「按项目组分布」点击写回范围，不是第二重过滤。
- * 取数按关注点拆在 useConfigCheckSummary / Items / Actions，本页只组装。
+ * 布局：范围筛选 + 手动检查 → 汇总条 → 左树（维度）/ 右栏明细；
+ * 左树点选写回范围与规则筛选，项目组不再是面板里的第二条分布条。
+ * 取数按关注点拆在 useConfigCheckSummary / Items / Actions / 左树接线，本页只组装。
  */
 import type { WaiverFormInput } from './composables/configCheckRules'
 import { onMounted } from 'vue'
@@ -12,11 +12,11 @@ import { onMounted } from 'vue'
 import ConfigBatchDefectModal from './components/release/config/ConfigBatchDefectModal.vue'
 import ConfigEventsDrawer from './components/release/config/ConfigEventsDrawer.vue'
 import ConfigItemPanel from './components/release/config/ConfigItemPanel.vue'
-import ConfigRuleList from './components/release/config/ConfigRuleList.vue'
 import ConfigToolbar from './components/release/config/ConfigToolbar.vue'
 import ConfigTotalsBar from './components/release/config/ConfigTotalsBar.vue'
 import ConfigWaiverModal from './components/release/config/ConfigWaiverModal.vue'
 import ReleaseScopeBar from './components/release/ReleaseScopeBar.vue'
+import ReleaseScopeTree from './components/release/ReleaseScopeTree.vue'
 import { useConfigCheck } from './composables/useConfigCheck'
 
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
@@ -31,14 +31,24 @@ const {
   productDomain,
   businessArea,
   projectGroup,
+  appNumber,
+  projectGroupLabel,
+  appLabel,
+  handler,
+  mine,
   effectiveDomains,
   summaryText,
   handleScopeChange,
-  selectGroup,
-  summaryLoading,
+  toggleMine,
+  scopeTreeRef,
+  treeFetcher,
+  treeModes,
+  treeQuery,
+  treeSelectedScope,
+  handleTreeSelect,
   totals,
+  ruleRows,
   ruleRowByCode,
-  ruleGroups,
   groupDistribution,
   lastScanText,
   itemsLoading,
@@ -47,7 +57,6 @@ const {
   list,
   pagination,
   activeSummaryCell,
-  selectRule,
   handleSummarySelect,
   handleSearch,
   handleReset,
@@ -100,16 +109,23 @@ onMounted(() => {
     <div class="top-row">
       <ReleaseScopeBar
         class="scope-bar"
+        all-domains-by-default
+        :app-label="appLabel"
+        :app-number="appNumber"
         :business-area="businessArea"
         :effective-domains="effectiveDomains"
+        :handler="handler"
         :iteration-id="iterationId"
         :loading="scopeLoading"
+        :mine="mine"
         :options="scopeOptions"
         :product-domain="productDomain"
         :product-line="productLine"
         :project-group="projectGroup"
+        :project-group-label="projectGroupLabel"
         :summary-text="summaryText"
         @change="handleScopeChange"
+        @toggle-mine="toggleMine"
       />
       <ConfigToolbar
         v-model:family="family"
@@ -126,26 +142,29 @@ onMounted(() => {
     />
 
     <div class="main-row">
-      <ConfigRuleList
-        :active-rule="filters.ruleCode"
-        :groups="ruleGroups"
-        :loading="summaryLoading"
-        @select="selectRule"
+      <ReleaseScopeTree
+        ref="scopeTreeRef"
+        class="scope-tree"
+        :fetcher="treeFetcher"
+        :modes="treeModes"
+        :query="treeQuery"
+        :selected-scope="treeSelectedScope"
+        persist-key="release-config-check-tree"
+        @select="handleTreeSelect"
       />
       <ConfigItemPanel
         v-model:handling="filters.handling"
         v-model:keyword="filters.keyword"
         v-model:new-only="filters.newOnly"
+        v-model:rule-code="filters.ruleCode"
         v-model:severity="filters.severity"
-        :active-group="projectGroup"
         :defect-loading-id="rowDefectLoadingId"
         :field-defs="fieldDefs"
-        :group-rows="groupDistribution"
         :list="list"
         :loading="itemsLoading"
         :pagination="pagination"
         :product-line="productLine"
-        :selected-rule-code="filters.ruleCode"
+        :rule-rows="ruleRows"
         @add-waiver="openWaiver"
         @create-defect="createRowDefect"
         @generate-batch="handleGenerateBatch"
@@ -153,7 +172,6 @@ onMounted(() => {
         @page-size-change="handlePageSizeChange"
         @reset="handleReset"
         @search="handleSearch"
-        @select-group="selectGroup"
         @view-defect="openDefect"
         @view-events="openEvents"
       />
@@ -199,7 +217,12 @@ onMounted(() => {
 }
 .main-row {
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 12px;
+}
+.scope-tree {
+  width: 300px;
+  flex: 0 0 300px;
+  min-width: 0;
 }
 </style>

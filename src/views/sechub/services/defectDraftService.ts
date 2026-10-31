@@ -11,6 +11,7 @@ import type {
   DefectStatusPayload,
   DefectStatusResult,
   ReleaseDefectDetail,
+  ReleaseScopeTreeResponse,
 } from '@/types/sechub-release'
 import { ApiSecRelease, resolveStaticScanApi } from '@/api/sechubApis'
 import { getAction, postAction } from '@/hooks'
@@ -18,6 +19,13 @@ import { getAction, postAction } from '@/hooks'
 /** 缺陷列表（分页 + 筛选）；失败返回 null */
 export function fetchDefects(query: DefectQuery): Promise<DefectListResponse | null> {
   return getAction<DefectListResponse>(ApiSecRelease.defects, query)
+}
+
+/** 缺陷左树（维度由 query.mode 决定）；失败返回 null */
+export function fetchDefectScopeTree(
+  query: Record<string, string | number | boolean>,
+): Promise<ReleaseScopeTreeResponse | null> {
+  return getAction<ReleaseScopeTreeResponse>(ApiSecRelease.defectScopeTree, query)
 }
 
 /** 缺陷详情（列表字段 + 请求证据 / 完整地址 / curl）；失败返回 null */

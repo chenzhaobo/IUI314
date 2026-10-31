@@ -56,6 +56,14 @@ export function useReleaseCoverage() {
     envError,
     summaryText,
     version: scopeVersion,
+    appNumber,
+    handler,
+    mine,
+    structuralScope,
+    projectGroupLabel,
+    appLabel,
+    toggleMine,
+    applyTreeScope,
     syncEffectiveDomains,
     selectProjectGroup,
     init: initScope,
@@ -94,6 +102,9 @@ export function useReleaseCoverage() {
       query.keyword = keyword
     return query
   }
+
+  /** 当前列表 query：左树剔除结构键与分页键后即树请求参数 */
+  const listQuery = computed<CoverageQuery>(buildQuery)
 
   async function loadCoverage() {
     if (envError.value) {
@@ -181,6 +192,15 @@ export function useReleaseCoverage() {
     effectiveDomains,
     envError,
     envUnavailable,
+    appNumber,
+    handler,
+    mine,
+    structuralScope,
+    projectGroupLabel,
+    appLabel,
+    toggleMine,
+    applyTreeScope,
+    listQuery,
     summaryText,
     filters,
     list,

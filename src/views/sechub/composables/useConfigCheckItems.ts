@@ -22,7 +22,7 @@ function emptyFilters(): ConfigItemFilters {
 }
 
 /**
- * 配置检查右栏明细：处理状态 / 级别 / 关键词 / 只看新增、左栏规则单选、分页与列头说明。
+ * 配置检查右栏明细：处理状态 / 级别 / 关键词 / 只看新增、规则筛选（筛选条与左树共用）、分页与列头说明。
  *
  * 任一筛选变化都回到第 1 页；汇总条点击通过 `applySummaryPreset` 写入筛选。
  */
@@ -71,11 +71,9 @@ export function useConfigCheckItems(scope: ReturnType<typeof useReleaseScope>) {
     void load()
   }
 
-  /** 左栏单选：点已选规则或「全部规则」都取消 */
-  function selectRule(ruleCode: string) {
-    const next = ruleCode.trim()
-    filters.ruleCode = next && next !== filters.ruleCode ? next : ''
-    reloadFromFirstPage()
+  /** 左树点规则节点：只写回筛选，取数由范围 version 统一触发一次 */
+  function setRuleCode(ruleCode: string) {
+    filters.ruleCode = ruleCode.trim()
   }
 
   /** 汇总条点击：写入明细筛选；传 null 回到默认「未关闭」 */
@@ -126,7 +124,7 @@ export function useConfigCheckItems(scope: ReturnType<typeof useReleaseScope>) {
     activeSummaryCell,
     load,
     loadFields,
-    selectRule,
+    setRuleCode,
     applySummaryPreset,
     handleSummarySelect,
     handleSearch,

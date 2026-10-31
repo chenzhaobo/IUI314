@@ -203,6 +203,7 @@ test('明细查询：范围与筛选按后端字段下发，空值不下发', ()
     50,
   )
   assert.deepEqual(query, {
+    scope: 'domain',
     product_line: 'gan',
     iteration_id: 'it-1',
     product_domains: '集团财务',
@@ -226,6 +227,7 @@ test('明细查询：空范围与空筛选不下发', () => {
     20,
   )
   assert.deepEqual(query, {
+    scope: 'all',
     handling: 'pending',
     severity: 'high',
     page_num: 1,
@@ -233,12 +235,26 @@ test('明细查询：空范围与空筛选不下发', () => {
   })
 })
 
-test('汇总查询：domain 口径 + 范围字段', () => {
+test('明细查询：未选产品领域按全部领域，选中（含未归属）按 domain 口径', () => {
+  const filters = { ruleCode: '', handling: 'open' as const, severity: '' as const, keyword: '', newOnly: false }
+  assert.equal(configItemsQueryOf(filters, {}, 1, 20).scope, 'all')
+  assert.equal(configItemsQueryOf(filters, { product_domains: '__none__' }, 1, 20).scope, 'domain')
+})
+
+test('汇总查询：未选产品领域全部口径，选中（含未归属）按 domain 口径', () => {
   assert.deepEqual(
     configSummaryQueryOf({ product_line: 'gan', iteration_id: 'it-1' }),
-    { scope: 'domain', product_line: 'gan', iteration_id: 'it-1' },
+    { scope: 'all', product_line: 'gan', iteration_id: 'it-1' },
   )
-  assert.deepEqual(configSummaryQueryOf({}), { scope: 'domain' })
+  assert.deepEqual(configSummaryQueryOf({}), { scope: 'all' })
+  assert.deepEqual(configSummaryQueryOf({ product_domains: '集团财务' }), {
+    scope: 'domain',
+    product_domains: '集团财务',
+  })
+  assert.deepEqual(configSummaryQueryOf({ product_domains: '__none__' }), {
+    scope: 'domain',
+    product_domains: '__none__',
+  })
 })
 
 test('汇总点击映射明细筛选：新增=未关闭+只看新增，修复=已修复', () => {

@@ -10,6 +10,7 @@ import type {
   DefectSource,
   DefectStatus,
   ReleaseDefect,
+  ReleaseScopeQuery,
 } from '@/types/sechub-release'
 
 export interface DefectStatusMeta {
@@ -111,9 +112,19 @@ export function defectActions(status: DefectStatus): DefectAction[] {
   }
 }
 
-/** 页面筛选 → 查询参数：空值不下发，项目组与关键词 trim */
-export function defectQueryOf(filters: DefectFilters, pageNum: number, pageSize: number): DefectQuery {
-  const query: DefectQuery = { page_num: pageNum, page_size: pageSize }
+/**
+ * 页面筛选 → 查询参数：空值不下发，项目组与关键词 trim。
+ *
+ * `scopeQuery` 是 `buildScopeQuery` 的产物（产品领域 / 业务领域 / 应用 / 处理人 / 只看我的），
+ * 直接并入查询；同名项目组以页面筛选条为准（trim 后非空才覆盖）。
+ */
+export function defectQueryOf(
+  filters: DefectFilters,
+  pageNum: number,
+  pageSize: number,
+  scopeQuery: ReleaseScopeQuery = {},
+): DefectQuery {
+  const query: DefectQuery = { ...scopeQuery, page_num: pageNum, page_size: pageSize }
   if (filters.productLine)
     query.product_line = filters.productLine
   if (filters.iterationId)

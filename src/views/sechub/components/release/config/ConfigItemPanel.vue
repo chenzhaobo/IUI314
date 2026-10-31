@@ -1,27 +1,24 @@
 <script setup lang="ts">
 /**
- * 右栏明细：按项目组分布 + 批量生成缺陷入口 + 明细筛选 + 明细表 + 分页。
+ * 右栏明细：批量生成缺陷入口 + 明细筛选 + 规则说明 + 明细表 + 分页。
  *
- * 项目组分布只是范围条件的快捷入口（写回 ReleaseScopeBar），不是第二个过滤维度；
- * 批量生成缺陷要求先在左栏选中规则。
+ * 项目组维度由左侧树承担；批量生成缺陷要求先选中规则（筛选条或左树规则节点）。
  */
 import type { PaginationProps } from '@arco-design/web-vue'
-import type { ConfigGroupDistRow } from '../../../composables/configCheckRules'
+import type { ConfigRuleRow } from '../../../composables/configCheckRules'
 import type {
   ConfigFieldDef,
   ConfigHandlingFilter,
   ConfigItem,
   ConfigSeverity,
 } from '@/types/sechub-release'
+import { computed } from 'vue'
 
-import ConfigGroupDistribution from './ConfigGroupDistribution.vue'
 import ConfigItemFilters from './ConfigItemFilters.vue'
 import ConfigItemTable from './ConfigItemTable.vue'
 
-defineProps<{
-  groupRows: ConfigGroupDistRow[]
-  activeGroup: string
-  selectedRuleCode: string
+const props = defineProps<{
+  ruleRows: ConfigRuleRow[]
   list: ConfigItem[]
   loading: boolean
   pagination: PaginationProps
@@ -31,7 +28,6 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'selectGroup', code: string): void
   (e: 'generateBatch'): void
   (e: 'createDefect', item: ConfigItem): void
   (e: 'viewDefect', item: ConfigItem): void
@@ -43,24 +39,25 @@ const emit = defineEmits<{
   (e: 'pageSizeChange', size: number): void
 }>()
 
+const ruleCode = defineModel<string>('ruleCode', { required: true })
 const handling = defineModel<ConfigHandlingFilter>('handling', { required: true })
 const severity = defineModel<'' | ConfigSeverity>('severity', { required: true })
 const keyword = defineModel<string>('keyword', { required: true })
 const newOnly = defineModel<boolean>('newOnly', { required: true })
+
+/** 选中规则时在明细上方展示说明与修复建议 */
+const activeRuleRow = computed<ConfigRuleRow | null>(
+  () => props.ruleRows.find(row => row.code === ruleCode.value) ?? null,
+)
 </script>
 
 <template>
   <a-card :bordered="false" class="item-panel">
     <div class="panel-head">
-      <ConfigGroupDistribution
-        :active-group="activeGroup"
-        :rows="groupRows"
-        @select="code => emit('selectGroup', code)"
-      />
       <div class="batch">
-        <span v-if="selectedRuleCode" class="hint">规则 {{ selectedRuleCode }}</span>
+        <span v-if="ruleCode" class="hint">规则 {{ ruleCode }}</span>
         <a-button
-          :disabled="!selectedRuleCode"
+          :disabled="!ruleCode"
           type="primary"
           @click="emit('generateBatch')"
         >
@@ -73,11 +70,25 @@ const newOnly = defineModel<boolean>('newOnly', { required: true })
       v-model:handling="handling"
       v-model:keyword="keyword"
       v-model:new-only="newOnly"
+      v-model:rule-code="ruleCode"
       v-model:severity="severity"
+      :rule-rows="ruleRows"
       class="filters"
       @reset="emit('reset')"
       @search="emit('search')"
     />
+
+    <div v-if="activeRuleRow" class="rule-detail">
+      <div class="rule-detail-title">
+        {{ activeRuleRow.code }} · {{ activeRuleRow.title }}
+      </div>
+      <p class="rule-description">
+        {{ activeRuleRow.description }}
+      </p>
+      <p class="rule-fix">
+        修复建议：{{ activeRuleRow.fix_hint }}
+      </p>
+    </div>
 
     <ConfigItemTable
       :defect-loading-id="defectLoadingId"
@@ -103,7 +114,6 @@ const newOnly = defineModel<boolean>('newOnly', { required: true })
 }
 .panel-head {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   margin-bottom: 10px;
@@ -120,5 +130,26 @@ const newOnly = defineModel<boolean>('newOnly', { required: true })
 }
 .filters {
   margin-bottom: 10px;
+}
+.rule-detail {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: var(--color-fill-1);
+}
+.rule-detail-title {
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.rule-detail p {
+  margin: 0 0 4px;
+  color: var(--color-text-2);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.rule-detail .rule-fix {
+  margin-bottom: 0;
+  color: var(--color-text-3);
 }
 </style>

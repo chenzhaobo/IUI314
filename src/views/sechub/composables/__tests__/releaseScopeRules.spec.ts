@@ -66,6 +66,9 @@ function selection(overrides: Partial<ReleaseScopeSelection> = {}): ReleaseScope
     productDomain: '',
     businessArea: '',
     projectGroup: '',
+    appNumber: '',
+    handler: '',
+    mine: false,
     ...overrides,
   }
 }
@@ -123,14 +126,19 @@ test('联动清空：产品线清全部并重置迭代；领域清业务领域�
     productDomain: '',
     businessArea: '',
     projectGroup: '',
+    appNumber: '',
+    handler: '',
   })
   assert.deepEqual(resetOnFieldChange('productDomain', fixture()), {
     businessArea: '',
     projectGroup: '',
+    appNumber: '',
   })
-  assert.deepEqual(resetOnFieldChange('businessArea', fixture()), { projectGroup: '' })
+  assert.deepEqual(resetOnFieldChange('businessArea', fixture()), { projectGroup: '', appNumber: '' })
+  assert.deepEqual(resetOnFieldChange('projectGroup', fixture()), { appNumber: '' })
   assert.deepEqual(resetOnFieldChange('iterationId', fixture()), {})
-  assert.deepEqual(resetOnFieldChange('projectGroup', fixture()), {})
+  assert.deepEqual(resetOnFieldChange('appNumber', fixture()), {})
+  assert.deepEqual(resetOnFieldChange('handler', fixture()), {})
 })
 
 test('范围 query：空值不下发，其余按后端字段名输出', () => {
@@ -148,6 +156,24 @@ test('范围 query：空值不下发，其余按后端字段名输出', () => {
     product_domains: '集团财务',
     business_area: '__none__',
     project_group: 'PM1111',
+  })
+})
+
+test('范围 query：应用 / 处理人下发，mine 只在 true 时下发', () => {
+  assert.deepEqual(buildScopeQuery(selection({
+    appNumber: 'XYZ',
+    handler: 'alice',
+    mine: true,
+  })), {
+    product_line: 'gan',
+    iteration_id: 'it-2',
+    app_number: 'XYZ',
+    handler: 'alice',
+    mine: true,
+  })
+  assert.deepEqual(buildScopeQuery(selection({ mine: false })), {
+    product_line: 'gan',
+    iteration_id: 'it-2',
   })
 })
 
@@ -197,6 +223,48 @@ test('路由预填校正：无效领域 / 迭代 / 项目组回退或清空', ()
   const unknownGroup = normalizeScopeSelection(selection({ projectGroup: 'NOPE' }), fixture())
   assert.equal(unknownGroup.projectGroup, '')
   assert.equal(unknownGroup.productDomain, '')
+})
+
+test('路由预填校正：`__none__` 产品领域 / 项目组视为合法，不清空', () => {
+  const noneDomain = normalizeScopeSelection(selection({ productDomain: '__none__' }), fixture())
+  assert.equal(noneDomain.productDomain, '__none__')
+  assert.equal(noneDomain.projectGroup, '')
+
+  const noneGroup = normalizeScopeSelection(selection({ iterationId: '', projectGroup: '__none__' }), fixture())
+  assert.equal(noneGroup.projectGroup, '__none__')
+  assert.equal(noneGroup.businessArea, '')
+  assert.equal(noneGroup.iterationId, 'it-2')
+
+  const withExtra = normalizeScopeSelection(selection({
+    productDomain: '__none__',
+    projectGroup: '__none__',
+    appNumber: 'XYZ',
+    handler: 'alice',
+    mine: true,
+  }), fixture())
+  assert.equal(withExtra.productDomain, '__none__')
+  assert.equal(withExtra.projectGroup, '__none__')
+  assert.equal(withExtra.appNumber, 'XYZ')
+  assert.equal(withExtra.handler, 'alice')
+  assert.equal(withExtra.mine, true)
+
+  const allNone = normalizeScopeSelection(selection({
+    productDomain: '__none__',
+    businessArea: '__none__',
+    projectGroup: '__none__',
+  }), fixture())
+  assert.equal(allNone.productDomain, '__none__')
+  assert.equal(allNone.businessArea, '__none__')
+  assert.equal(allNone.projectGroup, '__none__')
+})
+
+test('范围说明：`__none__` 显示「未归属」', () => {
+  const text = scopeSummaryText(selection({
+    productDomain: '__none__',
+    projectGroup: '__none__',
+  }), fixture(), [])
+  assert.match(text, /产品领域：未归属/)
+  assert.match(text, /项目组：未归属/)
 })
 
 test('范围说明：未选领域时回显后端生效领域，选中时展示各级名称', () => {

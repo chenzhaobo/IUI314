@@ -98,6 +98,8 @@ export interface ReleaseApi {
   name: string | null
   app_number: string
   app_name: string | null
+  /** 处理人 */
+  handler?: string | null
   project_group_code: string
   project_group_name: string
   product_domain: string
@@ -176,6 +178,12 @@ export interface CoverageQuery {
   business_area?: string
   /** 项目组编码，逗号分隔（范围条件） */
   project_group?: string
+  /** 应用编码，逗号分隔（`__none__` 表示未关联应用） */
+  app_number?: string
+  /** 处理人（`__none__` 表示未指定处理人） */
+  handler?: string
+  /** 只看处理人是我 */
+  mine?: boolean
   status?: CoverageStatusFilter
   tag?: CoverageTagFilter
   keyword?: string
@@ -239,12 +247,58 @@ export interface ReleaseScopeOptions {
 export interface ReleaseScopeQuery {
   product_line?: string
   iteration_id?: string
-  /** 产品领域，逗号分隔 */
+  /** 产品领域，逗号分隔（`__none__` 表示未归属） */
   product_domains?: string
   /** 业务领域，逗号分隔 */
   business_area?: string
-  /** 项目组编码，逗号分隔 */
+  /** 项目组编码，逗号分隔（`__none__` 表示未归属） */
   project_group?: string
+  /** 应用编码，逗号分隔（`__none__` 表示未关联应用） */
+  app_number?: string
+  /** 处理人（`__none__` 表示未指定处理人） */
+  handler?: string
+  /** 只看处理人是我 */
+  mine?: boolean
+}
+
+/** 发版左树节点计数 */
+export interface ReleaseTreeCounts {
+  total: number
+  focus: number
+}
+
+/** 节点点击后要写回筛选的字段；没有的字段 = 不限；值可能是哨兵 `__none__` */
+export interface ReleaseTreeScope {
+  product_domain?: string
+  business_area?: string
+  project_group?: string
+  app_number?: string
+  handler?: string
+  rule_code?: string
+  /** 树点选时附带的显示名（不参与筛选与比较）：项目组 / 应用在选项树里可能查不到名称 */
+  labels?: ReleaseTreeLabels
+}
+
+/** 左树带出的显示名 */
+export interface ReleaseTreeLabels {
+  project_group?: string
+  app_number?: string
+}
+
+/** 发版左树节点（key 为路径式唯一值，如 root、pg:fc_007/app:xyz） */
+export interface ReleaseScopeTreeNode {
+  key: string
+  title: string
+  level: 'root' | 'product_domain' | 'business_area' | 'project_group' | 'app' | 'handler' | 'rule'
+  counts: ReleaseTreeCounts
+  scope: ReleaseTreeScope
+  children: ReleaseScopeTreeNode[]
+}
+
+/** `GET /sechub/release/{config-check,coverage,defects}/scope-tree` */
+export interface ReleaseScopeTreeResponse {
+  root: ReleaseScopeTreeNode
+  labels: { total: string, focus: string }
 }
 
 /** 安全测试环境下拉项（sec_test_env） */
@@ -276,6 +330,8 @@ export interface ReleaseDefect {
   priority: string | null
   project_group_name: string | null
   app_name: string | null
+  /** 处理人 */
+  handler?: string | null
   source: DefectSource | null
   iteration_code: string | null
   /** RFC3339 */
@@ -317,6 +373,16 @@ export interface DefectQuery {
   product_line?: string
   iteration_id?: string
   project_group?: string
+  /** 产品领域，逗号分隔（`__none__` 表示未归属） */
+  product_domains?: string
+  /** 业务领域，逗号分隔 */
+  business_area?: string
+  /** 应用编码，逗号分隔（`__none__` 表示未关联应用） */
+  app_number?: string
+  /** 处理人（`__none__` 表示未指定处理人） */
+  handler?: string
+  /** 只看处理人是我 */
+  mine?: boolean
   status?: DefectStatus
   source?: DefectSource
   keyword?: string
@@ -494,6 +560,8 @@ export interface ConfigItem {
   object_name: string | null
   app_number: string | null
   app_name: string | null
+  /** 处理人 */
+  handler?: string | null
   project_group_code: string | null
   project_group_name: string | null
   product_domain: string | null

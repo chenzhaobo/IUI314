@@ -49,6 +49,15 @@ export function useDefectDrafts() {
     envError,
     summaryText,
     version: scopeVersion,
+    appNumber,
+    handler,
+    mine,
+    structuralScope,
+    projectGroupLabel,
+    appLabel,
+    toggleMine,
+    applyTreeScope,
+    toQuery,
     init: initScope,
     handleChange: handleScopeChange,
   } = scope
@@ -70,8 +79,11 @@ export function useDefectDrafts() {
       iterationId: iterationId.value,
       projectGroup: projectGroup.value,
       ...filters,
-    }, pageNum.value, pageSize.value)
+    }, pageNum.value, pageSize.value, toQuery())
   }
+
+  /** 当前列表 query：左树剔除结构键与分页键后即树请求参数 */
+  const listQuery = computed<DefectQuery>(buildQuery)
 
   async function loadDefects() {
     if (envUnavailable.value) {
@@ -162,6 +174,15 @@ export function useDefectDrafts() {
     effectiveDomains,
     summaryText,
     envUnavailable,
+    appNumber,
+    handler,
+    mine,
+    structuralScope,
+    projectGroupLabel,
+    appLabel,
+    toggleMine,
+    applyTreeScope,
+    listQuery,
     filters,
     pageNum,
     pageSize,

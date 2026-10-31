@@ -16,6 +16,7 @@ import type {
   ConfigRunResult,
   ConfigSummaryQuery,
   ConfigSummaryResponse,
+  ReleaseScopeTreeResponse,
   WaiverAddReq,
   WaiverAddResult,
   WaiverListResponse,
@@ -34,6 +35,13 @@ export function fetchConfigSummary(query: ConfigSummaryQuery): Promise<ConfigSum
 /** 检查项明细（服务端分页） */
 export function fetchConfigItems(query: ConfigItemQuery): Promise<ConfigItemListResponse | null> {
   return getAction<ConfigItemListResponse>(ApiSecRelease.configItems, query)
+}
+
+/** 配置检查左树（维度由 query.mode 决定）；失败返回 null */
+export function fetchConfigScopeTree(
+  query: Record<string, string | number | boolean>,
+): Promise<ReleaseScopeTreeResponse | null> {
+  return getAction<ReleaseScopeTreeResponse>(ApiSecRelease.configScopeTree, query)
 }
 
 /** 单个检查项的时间倒序变更记录（最多 200 条） */

@@ -1,16 +1,17 @@
 import type { ReleaseScopeField, ReleaseScopeSelection } from './releaseScopeRules'
 /**
- * 发版范围筛选状态：产品线 / 迭代 / 产品领域 / 业务领域 / 项目组 + 联动。
+ * 发版范围筛选状态：产品线 / 迭代 / 产品领域 / 业务领域 / 项目组 / 应用 / 处理人 + 联动。
  *
  * 范围是各发版页面的公共前置条件：`toQuery()` 产出接口 query，`version` 在用户
  * 改动范围后自增，页面据此回到第 1 页重新取数。选项全部来自
  * `GET /sechub/release/scope-options`，组件不自行请求。
  */
-import type { ReleaseScopeOptions, ReleaseScopeQuery } from '@/types/sechub-release'
+import type { ReleaseScopeOptions, ReleaseScopeQuery, ReleaseTreeLabels, ReleaseTreeScope } from '@/types/sechub-release'
 import { computed, ref } from 'vue'
 
 import { useRoute } from 'vue-router'
 import { fetchScopeOptions } from '../services/releaseScopeService'
+import { emptyScopeSelection, mergeSelection, selectionFromRoute } from './releaseScopeRoute'
 import {
   buildScopeQuery,
   businessAreaOptionsOf,
@@ -24,10 +25,15 @@ import {
   projectGroupOptionsOf,
   resetOnFieldChange,
   scopeSummaryText,
+  structuralScopeOf,
 } from './releaseScopeRules'
 
-function routeString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : ''
+function labelFor(entry: [string, string] | undefined, code: string): string {
+  return entry && code && entry[0] === code ? entry[1] : ''
+}
+
+function labelEntry(code: string | undefined, label: string | undefined): [string, string] | undefined {
+  return code && label ? [code, label] : undefined
 }
 
 export function useReleaseScope() {
@@ -39,6 +45,9 @@ export function useReleaseScope() {
   const productDomain = ref('')
   const businessArea = ref('')
   const projectGroup = ref('')
+  const appNumber = ref('')
+  const handler = ref('')
+  const mine = ref(false)
   /** 用户改动范围后自增 */
   const version = ref(0)
   /** 后端实际生效的产品领域（coverage 回传），未选领域时用于回显默认值 */
@@ -50,6 +59,9 @@ export function useReleaseScope() {
     productDomain: productDomain.value,
     businessArea: businessArea.value,
     projectGroup: projectGroup.value,
+    appNumber: appNumber.value,
+    handler: handler.value,
+    mine: mine.value,
   }))
   const envError = computed(() => options.value?.env_error ?? '')
   const productLineOptions = computed(() => productLineOptionsOf(options.value))
@@ -58,7 +70,13 @@ export function useReleaseScope() {
   const cascadeDomain = computed(() => cascadeDomainOf(options.value, productDomain.value, effectiveDomains.value))
   const businessAreaOptions = computed(() => businessAreaOptionsOf(options.value, cascadeDomain.value))
   const projectGroupOptions = computed(() => projectGroupOptionsOf(options.value, cascadeDomain.value, businessArea.value))
-  const summaryText = computed(() => scopeSummaryText(selection.value, options.value, effectiveDomains.value))
+  /** 左树点选时记下的显示名（编码 → 名称）；当前值换掉后自然失效 */
+  const treeLabels = ref<{ projectGroup?: [string, string], appNumber?: [string, string] }>({})
+  const projectGroupLabel = computed(() => labelFor(treeLabels.value.projectGroup, projectGroup.value))
+  const appLabel = computed(() => labelFor(treeLabels.value.appNumber, appNumber.value))
+  const summaryText = computed(() => scopeSummaryText(selection.value, options.value, effectiveDomains.value, projectGroupLabel.value))
+  /** 左树高亮：当前选择对应的范围（规则由页面自己管） */
+  const structuralScope = computed<ReleaseTreeScope>(() => structuralScopeOf(selection.value))
 
   function setField(field: ReleaseScopeField, value: string) {
     if (field === 'iterationId')
@@ -69,6 +87,10 @@ export function useReleaseScope() {
       businessArea.value = value
     else if (field === 'projectGroup')
       projectGroup.value = value
+    else if (field === 'appNumber')
+      appNumber.value = value
+    else if (field === 'handler')
+      handler.value = value
   }
 
   function applyReset(reset: Partial<ReleaseScopeSelection>) {
@@ -80,6 +102,17 @@ export function useReleaseScope() {
       businessArea.value = reset.businessArea
     if (reset.projectGroup !== undefined)
       projectGroup.value = reset.projectGroup
+    if (reset.appNumber !== undefined)
+      appNumber.value = reset.appNumber
+    if (reset.handler !== undefined)
+      handler.value = reset.handler
+    if (reset.mine !== undefined)
+      mine.value = reset.mine
+  }
+
+  function assignSelection(next: ReleaseScopeSelection) {
+    productLine.value = next.productLine
+    applyReset(next)
   }
 
   async function loadOptions(requested: string): Promise<ReleaseScopeOptions | null> {
@@ -103,27 +136,13 @@ export function useReleaseScope() {
   }
 
   function applyRouteSelection() {
-    const query = route.query
-    productLine.value = routeString(query.product_line)
-    iterationId.value = routeString(query.iteration_id)
-    productDomain.value = routeString(query.product_domain)
-    businessArea.value = routeString(query.business_area)
-    projectGroup.value = routeString(query.project_group)
+    assignSelection(mergeSelection(emptyScopeSelection(), selectionFromRoute(route.query)))
   }
 
   function applyInitial(initial?: Partial<ReleaseScopeSelection>) {
     if (!initial)
       return
-    if (initial.productLine !== undefined)
-      productLine.value = initial.productLine
-    if (initial.iterationId !== undefined)
-      iterationId.value = initial.iterationId
-    if (initial.productDomain !== undefined)
-      productDomain.value = initial.productDomain
-    if (initial.businessArea !== undefined)
-      businessArea.value = initial.businessArea
-    if (initial.projectGroup !== undefined)
-      projectGroup.value = initial.projectGroup
+    assignSelection(mergeSelection(selection.value, initial))
   }
 
   /** 读路由 query 预填 → 拉选项 → 校正缺省值（产品线 is_default / 迭代 current_id） */
@@ -142,7 +161,14 @@ export function useReleaseScope() {
         return
       const previous = selection.value
       productLine.value = value
-      applyReset({ iterationId: '', productDomain: '', businessArea: '', projectGroup: '' })
+      applyReset({
+        iterationId: '',
+        productDomain: '',
+        businessArea: '',
+        projectGroup: '',
+        appNumber: '',
+        handler: '',
+      })
       const result = await loadOptions(value)
       if (!result) {
         productLine.value = previous.productLine
@@ -177,6 +203,27 @@ export function useReleaseScope() {
     version.value += 1
   }
 
+  /** 「只看我的」开关：独立于字符串字段 */
+  function toggleMine(value: boolean) {
+    mine.value = value
+    version.value += 1
+  }
+
+  /** 左树点选：节点 scope 写回范围；scope 未包含的字段清空；不处理 rule_code */
+  function applyTreeScope(scope: ReleaseTreeScope) {
+    productDomain.value = scope.product_domain ?? ''
+    businessArea.value = scope.business_area ?? ''
+    projectGroup.value = scope.project_group ?? ''
+    appNumber.value = scope.app_number ?? ''
+    handler.value = scope.handler ?? ''
+    const labels: ReleaseTreeLabels = scope.labels ?? {}
+    treeLabels.value = {
+      projectGroup: labelEntry(scope.project_group, labels.project_group),
+      appNumber: labelEntry(scope.app_number, labels.app_number),
+    }
+    version.value += 1
+  }
+
   function syncEffectiveDomains(domains: string[]) {
     effectiveDomains.value = [...new Set(domains.filter(Boolean))]
   }
@@ -193,9 +240,15 @@ export function useReleaseScope() {
     productDomain,
     businessArea,
     projectGroup,
+    appNumber,
+    handler,
+    mine,
     version,
     effectiveDomains,
     selection,
+    structuralScope,
+    projectGroupLabel,
+    appLabel,
     envError,
     productLineOptions,
     iterationOptions,
@@ -205,6 +258,8 @@ export function useReleaseScope() {
     summaryText,
     init,
     handleChange,
+    toggleMine,
+    applyTreeScope,
     selectProjectGroup,
     syncEffectiveDomains,
     toQuery,

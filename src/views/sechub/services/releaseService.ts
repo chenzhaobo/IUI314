@@ -8,6 +8,7 @@ import type {
   CoverageQuery,
   CoverageResponse,
   ReleaseIterationsResponse,
+  ReleaseScopeTreeResponse,
   ReleaseSecEnv,
 } from '@/types/sechub-release'
 import { ApiSecRelease, ApiSecScan, ApiSecTestEnv } from '@/api/sechubApis'
@@ -26,6 +27,13 @@ export function fetchIterations(): Promise<ReleaseIterationsResponse | null> {
 /** 覆盖看板（汇总 / 项目组 / 分页列表）；失败返回 null */
 export function fetchCoverage(query: CoverageQuery): Promise<CoverageResponse | null> {
   return getAction<CoverageResponse>(ApiSecRelease.coverage, query)
+}
+
+/** 接口覆盖左树（维度由 query.mode 决定）；失败返回 null */
+export function fetchCoverageScopeTree(
+  query: Record<string, string | number | boolean>,
+): Promise<ReleaseScopeTreeResponse | null> {
+  return getAction<ReleaseScopeTreeResponse>(ApiSecRelease.coverageScopeTree, query)
 }
 
 /** 安全测试环境下拉；失败返回空数组 */

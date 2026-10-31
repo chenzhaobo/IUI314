@@ -62,7 +62,7 @@ function isChecked(record: { api_path: string, http_method: string | null }): bo
     :loading="loading"
     :pagination="pagination"
     row-key="row_key"
-    :scroll="{ minWidth: 1560 }"
+    :scroll="{ minWidth: 1660 }"
     size="small"
     @page-change="emit('pageChange', $event)"
     @page-size-change="emit('pageSizeChange', $event)"
@@ -121,6 +121,11 @@ function isChecked(record: { api_path: string, http_method: string | null }): bo
           <div class="sub-text">
             {{ record.app_number || '-' }}
           </div>
+        </template>
+      </a-table-column>
+      <a-table-column title="处理人" :width="100" ellipsis tooltip>
+        <template #cell="{ record }">
+          {{ record.handler || '--' }}
         </template>
       </a-table-column>
       <a-table-column title="项目组" :width="150" ellipsis tooltip>

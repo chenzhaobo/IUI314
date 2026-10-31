@@ -8,7 +8,11 @@ import type {
   ReleaseScopeGroup,
   ReleaseScopeOptions,
   ReleaseScopeQuery,
+  ReleaseTreeScope,
 } from '@/types/sechub-release'
+
+/** 未归属哨兵（产品领域 / 业务领域 / 项目组 / 应用 / 处理人通用） */
+export const SCOPE_NONE = '__none__'
 
 /** 范围筛选项（产品线 / 迭代 / 产品领域 / 业务领域 / 项目组） */
 export interface ScopeOptionItem {
@@ -23,10 +27,21 @@ export interface ReleaseScopeSelection {
   productDomain: string
   businessArea: string
   projectGroup: string
+  appNumber: string
+  handler: string
+  /** 只看处理人是我；用 `toggleMine` 单独切换 */
+  mine: boolean
 }
 
-/** 可被用户切换的范围字段 */
-export type ReleaseScopeField = keyof ReleaseScopeSelection
+/** 可被用户切换的字符串范围字段（mine 不在其中） */
+export type ReleaseScopeField
+  = | 'productLine'
+    | 'iterationId'
+    | 'productDomain'
+    | 'businessArea'
+    | 'projectGroup'
+    | 'appNumber'
+    | 'handler'
 
 /** 按项目组反查到的上级范围 */
 export interface LocatedProjectGroup {
@@ -114,10 +129,11 @@ export function locateProjectGroup(
 /**
  * 切换上级后需要清空的下级字段。
  *
- * - 产品线：迭代重置为新产品线的 current_id，领域 / 业务领域 / 项目组清空；
- * - 产品领域：业务领域 / 项目组清空；
- * - 业务领域：项目组清空；
- * - 迭代 / 项目组：不改动其他字段。
+ * - 产品线：迭代重置为新产品线的 current_id，领域 / 业务领域 / 项目组 / 应用 / 处理人清空；
+ * - 产品领域：业务领域 / 项目组 / 应用清空；
+ * - 业务领域：项目组 / 应用清空；
+ * - 项目组：应用清空；
+ * - 迭代 / 应用 / 处理人：不改动其他字段。
  */
 export function resetOnFieldChange(
   field: ReleaseScopeField,
@@ -129,18 +145,23 @@ export function resetOnFieldChange(
       productDomain: '',
       businessArea: '',
       projectGroup: '',
+      appNumber: '',
+      handler: '',
     }
   }
   if (field === 'productDomain')
-    return { businessArea: '', projectGroup: '' }
+    return { businessArea: '', projectGroup: '', appNumber: '' }
   if (field === 'businessArea')
-    return { projectGroup: '' }
+    return { projectGroup: '', appNumber: '' }
+  if (field === 'projectGroup')
+    return { appNumber: '' }
   return {}
 }
 
 /**
  * 校正来自路由 query 的选择：项目组先反查补齐上级，再校验领域 / 业务领域 / 项目组
  * 是否仍在选项树里，无效值清空；迭代无效或为空时回退 current_id。
+ * `__none__`（未归属）没有选项项，但它是合法选择，不能清掉。
  */
 export function normalizeScopeSelection(
   selection: ReleaseScopeSelection,
@@ -149,11 +170,15 @@ export function normalizeScopeSelection(
   let { iterationId, productDomain, businessArea, projectGroup } = selection
 
   const domains = options?.domains ?? []
-  if (productDomain && !domains.some(item => item.name === productDomain)) {
+  if (
+    productDomain
+    && productDomain !== SCOPE_NONE
+    && !domains.some(item => item.name === productDomain)
+  ) {
     productDomain = ''
     businessArea = ''
   }
-  if (projectGroup) {
+  if (projectGroup && projectGroup !== SCOPE_NONE) {
     const located = locateProjectGroup(options, projectGroup)
     if (!located) {
       projectGroup = ''
@@ -165,18 +190,36 @@ export function normalizeScopeSelection(
         businessArea = located.businessArea
     }
   }
-  if (businessArea && !businessAreaOptionsOf(options, productDomain).some(item => item.value === businessArea)) {
+  if (
+    businessArea
+    && productDomain !== SCOPE_NONE
+    && !businessAreaOptionsOf(options, productDomain).some(item => item.value === businessArea)
+  ) {
     businessArea = ''
     projectGroup = ''
   }
-  if (projectGroup && !projectGroupOptionsOf(options, productDomain, businessArea).some(item => item.value === projectGroup))
+  if (
+    projectGroup
+    && projectGroup !== SCOPE_NONE
+    && !projectGroupOptionsOf(options, productDomain, businessArea).some(item => item.value === projectGroup)
+  ) {
     projectGroup = ''
+  }
 
   const iterationExists = (options?.iterations ?? []).some(item => item.id === iterationId)
   if (!iterationId || !iterationExists)
     iterationId = defaultIterationIdOf(options)
 
-  return { productLine: selection.productLine, iterationId, productDomain, businessArea, projectGroup }
+  return {
+    productLine: selection.productLine,
+    iterationId,
+    productDomain,
+    businessArea,
+    projectGroup,
+    appNumber: selection.appNumber,
+    handler: selection.handler,
+    mine: selection.mine,
+  }
 }
 
 /** 范围 query（空值不下发） */
@@ -192,7 +235,29 @@ export function buildScopeQuery(selection: ReleaseScopeSelection): ReleaseScopeQ
     query.business_area = selection.businessArea
   if (selection.projectGroup)
     query.project_group = selection.projectGroup
+  if (selection.appNumber)
+    query.app_number = selection.appNumber
+  if (selection.handler)
+    query.handler = selection.handler
+  if (selection.mine)
+    query.mine = true
   return query
+}
+
+/** 当前选择对应的左树范围（只含非空字段，用于树高亮；规则由页面自己管） */
+export function structuralScopeOf(selection: ReleaseScopeSelection): ReleaseTreeScope {
+  const scope: ReleaseTreeScope = {}
+  if (selection.productDomain)
+    scope.product_domain = selection.productDomain
+  if (selection.businessArea)
+    scope.business_area = selection.businessArea
+  if (selection.projectGroup)
+    scope.project_group = selection.projectGroup
+  if (selection.appNumber)
+    scope.app_number = selection.appNumber
+  if (selection.handler)
+    scope.handler = selection.handler
+  return scope
 }
 
 /** 只需要产品线的页面（发版报告 / 白名单 / 发版检查）的 query */
@@ -211,6 +276,8 @@ export function scopeSummaryText(
   selection: ReleaseScopeSelection,
   options: ReleaseScopeOptions | null,
   effectiveDomains: string[],
+  /** 选项树里查不到项目组时的显示名（来自左树节点） */
+  groupLabel = '',
 ): string {
   const parts: string[] = []
   const line = productLineOptionsOf(options).find(item => item.value === selection.productLine)
@@ -221,8 +288,10 @@ export function scopeSummaryText(
   if (iteration)
     parts.push(`迭代：${iteration.name}（${iteration.code}）`)
 
-  const domainText = selection.productDomain
-    || (effectiveDomains.length ? `${effectiveDomains.join('、')}（默认）` : '')
+  const domainText = selection.productDomain === SCOPE_NONE
+    ? '未归属'
+    : selection.productDomain
+      || (effectiveDomains.length ? `${effectiveDomains.join('、')}（默认）` : '')
   if (domainText)
     parts.push(`产品领域：${domainText}`)
 
@@ -230,12 +299,16 @@ export function scopeSummaryText(
     const area = (options?.domains ?? [])
       .flatMap(domain => domain.business_areas)
       .find(item => item.value === selection.businessArea)
-    parts.push(`业务领域：${area?.label ?? selection.businessArea}`)
+    const label = area?.label ?? (selection.businessArea === SCOPE_NONE ? '未归属' : selection.businessArea)
+    parts.push(`业务领域：${label}`)
   }
 
   if (selection.projectGroup) {
     const located = locateProjectGroup(options, selection.projectGroup)
-    parts.push(`项目组：${located?.group.name ?? selection.projectGroup}`)
+    const name = selection.projectGroup === SCOPE_NONE
+      ? '未归属'
+      : (located?.group.name || groupLabel || selection.projectGroup)
+    parts.push(`项目组：${name}`)
   }
 
   return parts.length ? parts.join(' · ') : '全部范围'

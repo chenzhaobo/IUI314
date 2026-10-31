@@ -89,6 +89,38 @@ test('查询参数带产品线：空值不下发', () => {
   assert.equal('product_line' in noLine, false)
 })
 
+test('缺陷查询带上左树范围扩展：领域 / 业务领域 / 应用 / 处理人 / 只看我的', () => {
+  const base: DefectFilters = { status: '', source: '', keyword: '' }
+  assert.deepEqual(
+    defectQueryOf(base, 3, 10, {
+      product_domains: '__none__',
+      business_area: 'BA1',
+      app_number: 'A1,A2',
+      handler: 'alice',
+      mine: true,
+    }),
+    {
+      product_domains: '__none__',
+      business_area: 'BA1',
+      app_number: 'A1,A2',
+      handler: 'alice',
+      mine: true,
+      page_num: 3,
+      page_size: 10,
+    },
+  )
+
+  const withGroup = defectQueryOf(
+    { ...base, projectGroup: ' PG1 ' },
+    1,
+    20,
+    { project_group: 'FROM_SCOPE', mine: true },
+  )
+  assert.equal(withGroup.project_group, 'PG1')
+  assert.equal(withGroup.mine, true)
+  assert.equal(defectQueryOf(base, 1, 20).page_num, 1)
+})
+
 test('导出路径保留筛选条件并做 URL 编码，翻页参数不下发', () => {
   const base = '/sechub/release/defects/export.md'
   assert.equal(defectExportPath(base, { page_num: 1, page_size: 20 }), base)

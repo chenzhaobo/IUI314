@@ -613,7 +613,9 @@ export enum ApiSecRelease {
   iterations = '/sechub/release/iterations',
   scopeOptions = '/sechub/release/scope-options',
   coverage = '/sechub/release/coverage',
+  coverageScopeTree = '/sechub/release/coverage/scope-tree',
   defects = '/sechub/release/defects',
+  defectScopeTree = '/sechub/release/defects/scope-tree',
   defectDetail = '/sechub/release/defects/{id}',
   defectStatus = '/sechub/release/defects/{id}/status',
   defectVerifyScript = '/sechub/release/defects/{id}/verify-script',
@@ -621,6 +623,7 @@ export enum ApiSecRelease {
   confirmDefect = '/sechub/release/results/{result_id}/confirm-defect',
   // 配置检查：汇总 / 明细 / 变更记录 / 字段说明 / 手动执行 / 生成缺陷（单个 / 批量）
   configSummary = '/sechub/release/config-check/summary',
+  configScopeTree = '/sechub/release/config-check/scope-tree',
   configItems = '/sechub/release/config-check/items',
   configItemEvents = '/sechub/release/config-check/items/{id}/events',
   configFields = '/sechub/release/config-check/fields',

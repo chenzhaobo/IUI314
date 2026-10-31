@@ -17,6 +17,7 @@ import type {
   ConfigRuleDef,
   ConfigRuleFamily,
   ConfigRuleStat,
+  ConfigScope,
   ConfigSeverity,
   ConfigSummaryQuery,
   ReleaseScopeQuery,
@@ -200,6 +201,11 @@ export function groupDistributionOf(groups: ConfigGroupStat[]): ConfigGroupDistR
     }))
 }
 
+/** 范围口径：未选产品领域看全部领域，选了（含未归属）才按领域过滤 */
+export function configScopeOf(scope: Pick<ReleaseScopeQuery, 'product_domains'>): ConfigScope {
+  return scope.product_domains ? 'domain' : 'all'
+}
+
 /** 明细查询：范围 + 处理状态 + 级别 / 关键词 / 只看新增；空值不下发 */
 export function configItemsQueryOf(
   filters: ConfigItemFilterInput,
@@ -209,6 +215,7 @@ export function configItemsQueryOf(
 ): ConfigItemQuery {
   const query: ConfigItemQuery = {
     ...scope,
+    scope: configScopeOf(scope),
     handling: filters.handling,
     page_num: pageNum,
     page_size: pageSize,
@@ -226,9 +233,9 @@ export function configItemsQueryOf(
   return query
 }
 
-/** 汇总查询：只带范围（domain 口径），列表筛选不参与统计 */
+/** 汇总查询：只带范围（未选领域看全部，选了按 domain），列表筛选不参与统计 */
 export function configSummaryQueryOf(scope: ReleaseScopeQuery): ConfigSummaryQuery {
-  return { ...scope, scope: 'domain' }
+  return { ...scope, scope: configScopeOf(scope) }
 }
 
 /** 汇总条的五项（点击联动明细处理状态） */

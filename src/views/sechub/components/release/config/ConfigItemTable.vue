@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 配置检查明细表：对象（含类型）/ 规则 / 应用 / 项目组 / 级别 / 处理状态 / 时间 / 新增标记 + 行操作。
+ * 配置检查明细表：对象（含类型）/ 规则 / 级别 / 处理状态 / 处理人 / 应用 / 项目组 / 时间 / 新增标记 + 行操作。
  *
  * 列头说明来自 `GET /config-check/fields`；行操作为生成缺陷（已提缺陷时改为查看）、
  * 加白名单、历史（变更记录抽屉）。未归属项目组的检查项无法生成缺陷。
@@ -65,7 +65,7 @@ function canCreate(item: ConfigItem): boolean {
     :data="list"
     :loading="loading"
     :pagination="pagination"
-    :scroll="{ minWidth: 1540 }"
+    :scroll="{ minWidth: 1640 }"
     row-key="id"
     size="small"
     @page-change="(page: number) => emit('pageChange', page)"
@@ -125,6 +125,12 @@ function canCreate(item: ConfigItem): boolean {
           >
             {{ record.defect.defect_code }}
           </router-link>
+        </template>
+      </a-table-column>
+
+      <a-table-column :width="100" ellipsis title="处理人">
+        <template #cell="{ record }">
+          {{ asItem(record).handler || '--' }}
         </template>
       </a-table-column>
 

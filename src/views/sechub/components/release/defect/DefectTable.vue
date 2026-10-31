@@ -54,7 +54,7 @@ function onActionSelect(defect: ReleaseDefect, value: unknown) {
     :data="list"
     :loading="loading"
     :pagination="pagination"
-    :scroll="{ minWidth: 1420 }"
+    :scroll="{ minWidth: 1520 }"
     row-key="id"
     size="small"
     @page-change="emit('pageChange', $event)"
@@ -82,6 +82,11 @@ function onActionSelect(defect: ReleaseDefect, value: unknown) {
           <div class="sub-text">
             {{ defectSourceLabel(record.source) }}
           </div>
+        </template>
+      </a-table-column>
+      <a-table-column title="处理人" :width="100" ellipsis tooltip>
+        <template #cell="{ record }">
+          {{ record.handler || '--' }}
         </template>
       </a-table-column>
       <a-table-column title="级别" :width="80">

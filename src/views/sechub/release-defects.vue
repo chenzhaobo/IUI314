@@ -6,13 +6,15 @@
  * 详情抽屉 + 状态流转弹窗。取数、分页、状态变更、导出在 `useDefectDrafts`。
  */
 import type { DefectAction } from './composables/defectDraftRules'
-import type { ReleaseDefect } from '@/types/sechub-release'
+import type { TreeModeOption } from './composables/useReleaseScopeTree'
+import type { ReleaseDefect, ReleaseTreeScope } from '@/types/sechub-release'
 import { onMounted, ref } from 'vue'
 
 import DefectDetailDrawer from './components/release/defect/DefectDetailDrawer.vue'
 import DefectStatusModal from './components/release/defect/DefectStatusModal.vue'
 import DefectTable from './components/release/defect/DefectTable.vue'
 import ReleaseScopeBar from './components/release/ReleaseScopeBar.vue'
+import ReleaseScopeTree from './components/release/ReleaseScopeTree.vue'
 import { copyDefectText } from './composables/defectClipboard'
 import {
   DEFECT_SOURCE_OPTIONS,
@@ -21,10 +23,18 @@ import {
   defectTitleText,
 } from './composables/defectDraftRules'
 import { useDefectDrafts } from './composables/useDefectDrafts'
+import { fetchDefectScopeTree } from './services/defectDraftService'
 
 // 组件名必须与路由 name（= sys_menu.path）一致，keep-alive :include 按它对上缓存
 // eslint-disable-next-line vue/component-definition-name-casing
 defineOptions({ name: 'release-defects' })
+
+const TREE_MODES: TreeModeOption[] = [
+  { value: 'project_group', label: '项目组' },
+  { value: 'business_area', label: '业务领域' },
+  { value: 'product_domain', label: '产品领域' },
+  { value: 'handler', label: '处理人' },
+]
 
 const {
   loading,
@@ -39,6 +49,15 @@ const {
   effectiveDomains,
   summaryText,
   envUnavailable,
+  appNumber,
+  handler,
+  mine,
+  structuralScope,
+  projectGroupLabel,
+  appLabel,
+  toggleMine,
+  applyTreeScope,
+  listQuery,
   filters,
   list,
   pagination,
@@ -54,12 +73,18 @@ const {
   downloadVerifyScript,
 } = useDefectDrafts()
 
+const scopeTreeRef = ref<InstanceType<typeof ReleaseScopeTree>>()
 const detailVisible = ref(false)
 const detailDefect = ref<ReleaseDefect | null>(null)
 const statusVisible = ref(false)
 const statusDefect = ref<ReleaseDefect | null>(null)
 const statusAction = ref<DefectAction | null>(null)
 const statusLoading = ref(false)
+
+/** 点树写回范围；scopeVersion 自增后由 composable 重载列表 */
+function onTreeSelect(scope: ReleaseTreeScope) {
+  applyTreeScope(scope)
+}
 
 function openDetail(defect: ReleaseDefect) {
   detailDefect.value = defect
@@ -95,8 +120,10 @@ async function confirmAction(externalNo: string) {
   statusLoading.value = true
   try {
     const ok = await applyAction(statusDefect.value, statusAction.value, externalNo)
-    if (ok)
+    if (ok) {
       statusVisible.value = false
+      scopeTreeRef.value?.reload()
+    }
   }
   finally {
     statusLoading.value = false
@@ -111,75 +138,94 @@ onMounted(() => {
 <template>
   <div class="release-defects">
     <ReleaseScopeBar
+      :app-label="appLabel"
+      :app-number="appNumber"
       :business-area="businessArea"
       :effective-domains="effectiveDomains"
+      :handler="handler"
       :iteration-id="iterationId"
       :loading="scopeLoading"
+      :mine="mine"
       :options="scopeOptions"
       :product-domain="productDomain"
       :product-line="productLine"
       :project-group="projectGroup"
+      :project-group-label="projectGroupLabel"
       :summary-text="summaryText"
       @change="handleScopeChange"
+      @toggle-mine="toggleMine"
     />
 
     <a-card v-if="envUnavailable" :bordered="false">
       <a-empty description="该产品线暂无测试环境，暂无发版数据" />
     </a-card>
 
-    <a-card v-else :bordered="false">
-      <div class="toolbar">
-        <div>
-          <div class="section-title">
-            缺陷草稿
-          </div>
-          <span class="hint">共 {{ pagination.total }} 条；复制标题 / 内容可直接粘贴到外部缺陷系统</span>
-        </div>
-        <a-space wrap :size="8">
-          <a-select
-            v-model="filters.status"
-            :options="DEFECT_STATUS_OPTIONS"
-            allow-clear
-            placeholder="状态"
-            style="width: 140px"
-            @change="handleSearch"
-          />
-          <a-select
-            v-model="filters.source"
-            :options="DEFECT_SOURCE_OPTIONS"
-            allow-clear
-            placeholder="来源"
-            style="width: 140px"
-            @change="handleSearch"
-          />
-          <a-input-search
-            v-model="filters.keyword"
-            allow-clear
-            placeholder="编号 / 标题"
-            style="width: 220px"
-            @search="handleSearch"
-          />
-          <a-button @click="handleReset">
-            重置
-          </a-button>
-          <a-button :loading="exporting" @click="exportMarkdown">
-            导出 Markdown
-          </a-button>
-        </a-space>
-      </div>
-      <DefectTable
-        :loading="loading"
-        :list="list"
-        :pagination="pagination"
-        @action="openAction"
-        @copy-content="copyContent"
-        @copy-title="copyTitle"
-        @download-script="downloadScript"
-        @page-change="handlePageChange"
-        @page-size-change="handlePageSizeChange"
-        @view="openDetail"
+    <div v-else class="release-layout">
+      <ReleaseScopeTree
+        ref="scopeTreeRef"
+        class="release-scope-tree"
+        :fetcher="fetchDefectScopeTree"
+        :modes="TREE_MODES"
+        :query="listQuery"
+        :selected-scope="structuralScope"
+        persist-key="release-defects-tree"
+        @select="onTreeSelect"
       />
-    </a-card>
+
+      <a-card class="release-main" :bordered="false">
+        <div class="toolbar">
+          <div>
+            <div class="section-title">
+              缺陷草稿
+            </div>
+            <span class="hint">共 {{ pagination.total }} 条；复制标题 / 内容可直接粘贴到外部缺陷系统</span>
+          </div>
+          <a-space wrap :size="8">
+            <a-select
+              v-model="filters.status"
+              :options="DEFECT_STATUS_OPTIONS"
+              allow-clear
+              placeholder="状态"
+              style="width: 140px"
+              @change="handleSearch"
+            />
+            <a-select
+              v-model="filters.source"
+              :options="DEFECT_SOURCE_OPTIONS"
+              allow-clear
+              placeholder="来源"
+              style="width: 140px"
+              @change="handleSearch"
+            />
+            <a-input-search
+              v-model="filters.keyword"
+              allow-clear
+              placeholder="编号 / 标题"
+              style="width: 220px"
+              @search="handleSearch"
+            />
+            <a-button @click="handleReset">
+              重置
+            </a-button>
+            <a-button :loading="exporting" @click="exportMarkdown">
+              导出 Markdown
+            </a-button>
+          </a-space>
+        </div>
+        <DefectTable
+          :loading="loading"
+          :list="list"
+          :pagination="pagination"
+          @action="openAction"
+          @copy-content="copyContent"
+          @copy-title="copyTitle"
+          @download-script="downloadScript"
+          @page-change="handlePageChange"
+          @page-size-change="handlePageSizeChange"
+          @view="openDetail"
+        />
+      </a-card>
+    </div>
 
     <DefectDetailDrawer
       v-model:visible="detailVisible"
@@ -202,6 +248,22 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+/* 左树定宽，右栏占满剩余空间；两栏等高，树内部自行滚动 */
+.release-layout {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+}
+.release-scope-tree {
+  flex: 0 0 300px;
+  width: 300px;
+}
+.release-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
 }
 .toolbar {
   display: flex;
