@@ -65,6 +65,14 @@
           </a-select>
         </a-col>
         <a-col :span="3">
+          <a-select v-model="searchForm.report_status" placeholder="报告状态" allow-clear>
+            <a-option value="missing">缺报告</a-option>
+            <a-option value="stale">报告待更新</a-option>
+            <a-option value="current">报告当前</a-option>
+            <a-option value="referenced">引用同族</a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="3">
           <!-- 二开口径与表格「二开」列、报告二开占比同一列 is_custom；
                「非二开」包含历史上未标记（NULL）的行。 -->
           <a-select v-model="searchForm.is_custom" placeholder="是否二开" allow-clear>
@@ -152,6 +160,12 @@
             </a-button>
           </span>
         </a-tooltip>
+        <a-button type="outline" :loading="supplementing" :disabled="selectedKeys.length === 0" @click="openSupplementSelected">
+          补报告{{ countSuffix(selectedKeys.length) }}
+        </a-button>
+        <a-button :loading="supplementing" @click="openSupplementFiltered">
+          按筛选补报告
+        </a-button>
         <a-button status="warning" :loading="impactRecomputing" @click="handleRecomputeImpact">
           重算影响面
         </a-button>
@@ -272,6 +286,13 @@
                 </template>
               </a-table-column>
               <!-- 缺陷进度：台账是结论、缺陷是承诺，不合并；这里只带出关联缺陷的处理人 / 计划日期 / 逾期 -->
+              <a-table-column title="报告" data-index="report_status" :width="100">
+                <template #cell="{ record }">
+                  <a-tag :color="reportStatusColor(record.report_status)" size="small">
+                    {{ reportStatusText(record.report_status) }}
+                  </a-tag>
+                </template>
+              </a-table-column>
               <a-table-column title="缺陷进度" :width="170">
                 <template #cell="{ record }">
                   <IssueProgressCell :progress="record.issue_progress" @open="gotoIssue" />
@@ -341,6 +362,9 @@
                         <a-doption v-if="canLedgerAction('wontFix', record)" value="wontFix">标记不处理…</a-doption>
                         <a-doption v-if="canLedgerAction('observe', record)" value="observing">标记观察</a-doption>
                         <a-doption v-if="canLedgerAction('restore', record)" value="restore">撤回待处置</a-doption>
+                        <a-doption v-if="canLedgerAction('supplement', record)" value="supplement">
+                          补报告 / 追加复核报告…
+                        </a-doption>
                         <a-doption value="flow">流转记录</a-doption>
                         <a-doption value="logs" :disabled="!hasBundle(record)">
                           <a-tooltip :content="bundleTip(record)">
@@ -458,6 +482,14 @@
         </a-descriptions-item>
         <a-descriptions-item label="维度">{{ dimensionTypeText(currentRecord?.dimension_type) }} / {{ currentRecord?.dimension_value }}</a-descriptions-item>
         <a-descriptions-item label="产品线">{{ currentRecord?.product_line || '--' }}</a-descriptions-item>
+        <a-descriptions-item label="报告状态">
+          <a-tag :color="reportStatusColor(currentRecord?.report_status)" size="small">
+            {{ reportStatusText(currentRecord?.report_status) }}
+          </a-tag>
+          <span v-if="currentRecord?.report_run_date" style="margin-left: 6px; color: #86909c; font-size: 12px">
+            {{ currentRecord.report_run_date }}
+          </span>
+        </a-descriptions-item>
         <a-descriptions-item label="首次出现">{{ currentRecord?.first_found_week || '--' }}</a-descriptions-item>
         <a-descriptions-item label="最近出现">{{ currentRecord?.last_found_week || '--' }}</a-descriptions-item>
         <a-descriptions-item label="是否二开">
@@ -548,6 +580,7 @@
       <template #footer>
         <a-space>
           <a-button @click="drawerVisible = false">关闭</a-button>
+          <a-checkbox v-model="includeContrast">含同桶对照样本</a-checkbox>
           <!-- tooltip 必须包在 span 上：Arco 的 disabled 按钮不派发鼠标事件，
                直接把 a-tooltip 套在 a-button 外面时，禁用态下浮动提示不会弹 ——
                而"为什么不能点"恰恰是禁用态最需要说明的。 -->
@@ -689,7 +722,7 @@
 import type { LedgerAction } from '@/views/perf/analysis-report/ledgerActions'
 import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Message } from '@arco-design/web-vue'
+import { Message, Modal } from '@arco-design/web-vue'
 import { useDebounceFn } from '@vueuse/core'
 import { ApiPerfApp, ApiPerfIssue, ApiPerfPatternLedger } from '@/api/perfApis'
 import { ApiSecProjectGroup } from '@/api/sechubApis'
@@ -735,6 +768,7 @@ const searchForm = reactive({
   // 60 条从来没人下过判断。默认列全部等于把待办埋在已处置的行里 ——
   // 筛选框会显示「待处置」，想看全部清掉它即可。
   status: 'new',
+  report_status: '',
   project_group_code: '',
   cloud_number: '',
   business_area: '',
@@ -836,6 +870,8 @@ const currentRecord = ref<any>(null)
 const { mdDownloading, downloadReportMd } = useReportMdDownload()
 const detailExporting = ref(false)
 const logsDownloading = ref(false)
+/** 下载 zip 是否带同桶对照样本：thin_log 台账默认带上，否则只有一个坏样本。 */
+const includeContrast = ref(true)
 
 // 表格高度自适应：滚动条落在表格内，表头固定。容器必须是原生 div。
 const tableWrap = ref<HTMLElement>()
@@ -970,6 +1006,15 @@ const statusColorMap: Record<string, string> = {
   exempted: 'gray',
 }
 const statusColor = (s: string | undefined) => statusColorMap[s || ''] || 'gray'
+const reportStatusMap: Record<string, string> = {
+  missing: '缺报告',
+  referenced: '引用同族',
+  current: '当前',
+  stale: '待更新',
+  superseded: '已替代',
+}
+const reportStatusText = (s: string | undefined) => reportStatusMap[s || ''] || s || '--'
+const reportStatusColor = (s: string | undefined) => ({ missing: 'red', stale: 'orange', referenced: 'arcoblue', current: 'green' }[s || ''] || 'gray')
 function dimensionTypeText(t: string | undefined) {
   const labels: Record<string, string> = {
     product_domain: '产品领域',
@@ -1316,6 +1361,55 @@ function handleObserveSelected() {
   openTriageBatch('observing')
 }
 
+// ── 补报告：只走手动入口，不做定时任务 ──────────────────────────────
+const supplementing = ref(false)
+const supplementPayload = ref<any>({})
+const { data: supplementRes, execute: doSupplement } = usePost<any>(
+  ApiPerfPatternLedger.supplement,
+  supplementPayload,
+  { immediate: false },
+)
+
+function openSupplementSelected() {
+  const rows = actionableRows('supplement')
+  if (!rows.length) {
+    Message.warning(batchHint('supplement'))
+    return
+  }
+  openSupplement(rows.map((r: any) => r.id), `为选中的 ${rows.length} 条台账补报告？`)
+}
+
+function openSupplementFiltered() {
+  openSupplement([], '按当前「待补报告」范围创建补报告批次？A/B 类会自动重绑/引用，C/D 类进入 AI 队列。')
+}
+
+function openSupplement(ids: string[], content: string) {
+  Modal.confirm({
+    title: '补报告',
+    content,
+    okText: '开始',
+    cancelText: '取消',
+    onOk: () => submitSupplement(ids),
+  })
+}
+
+async function submitSupplement(ids: string[]) {
+  supplementPayload.value = { pattern_ids: ids, missing_only: true, limit: 5000 }
+  supplementing.value = true
+  try {
+    await doSupplement()
+    if (isRequestFailed(supplementRes.value))
+      return
+    const d = supplementRes.value?.data || supplementRes.value || {}
+    Message.success(`批次 ${d.batch_no || ''} 已创建：入队 ${d.queued ?? 0}，重绑 ${d.rebound ?? 0}，引用 ${d.referenced ?? 0}，失败 ${d.failed ?? 0}`)
+    selectedKeys.value = []
+    await fetchData()
+  }
+  finally {
+    supplementing.value = false
+  }
+}
+
 /** 批量撤回待处置：回到待处置队列，处置人一并清掉；撤回原因进流转记录。 */
 function handleRestoreSelected() {
   openTriageBatch('new')
@@ -1481,7 +1575,7 @@ const handleLogsDownload = async (target?: any) => {
   logsDownloading.value = true
   try {
     await downloadWithTip(
-      `${ApiPerfPatternLedger.logs}?id=${encodeURIComponent(record.id)}`,
+      `${ApiPerfPatternLedger.logs}?id=${encodeURIComponent(record.id)}&include_contrast=${includeContrast.value ? 'true' : 'false'}`,
       `${record.pattern_no || '问题台账'}-关联文件.zip`,
       '打包失败：日志可能已过留存期被清理，或任务工作目录已变更',
     )
@@ -1543,6 +1637,9 @@ const handleMoreAction = (key: string, record: any) => {
       break
     case 'reportMd':
       void downloadReportMd({ pattern: record.id }, record.pattern_no)
+      break
+    case 'supplement':
+      openSupplement([record.id], `为 ${record.pattern_no || '该台账'} 补报告？`)
       break
     case 'wontFix':
       openTriage(record)
@@ -1611,6 +1708,7 @@ const handleReset = () => {
   Object.assign(searchForm, {
     // status 回到 'new' 而不是空：与初始状态一致，否则"重置"会变成"看全部"
     keyword: '', product_line: '星瀚', dimension_type: '', dimension_value: '', attribution_tag: '', status: 'new',
+    report_status: '',
     project_group_code: '',
     cloud_number: '',
     business_area: '',

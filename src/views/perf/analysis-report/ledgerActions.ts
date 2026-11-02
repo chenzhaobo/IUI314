@@ -16,7 +16,7 @@
  */
 
 /** 台账行上出现的人工动作。 */
-export type LedgerAction = 'convert' | 'link' | 'wontFix' | 'observe' | 'restore' | 'discard' | 'edit' | 'reanalyze'
+export type LedgerAction = 'convert' | 'link' | 'wontFix' | 'observe' | 'restore' | 'discard' | 'edit' | 'reanalyze' | 'supplement'
 
 /** 行的人工可视状态。 */
 export type LedgerState = 'issued' | 'new' | 'observing' | 'wont_fix' | 'legacy'
@@ -42,6 +42,8 @@ const ALLOWED_FROM: Record<LedgerAction, LedgerState[]> = {
   edit: ['new', 'observing', 'wont_fix', 'legacy'],
   // 再次分析不改状态，已提单的也能复核（结论可能要更新）
   reanalyze: ['issued', 'new', 'observing', 'wont_fix', 'legacy'],
+  // 补报告/追加复核报告同样不改状态；缺报告的已提单台账也要能补
+  supplement: ['issued', 'new', 'observing', 'wont_fix', 'legacy'],
 }
 
 /** 动作的显示名，用于按钮与提示文案。 */
@@ -54,6 +56,7 @@ const ACTION_LABEL: Record<LedgerAction, string> = {
   discard: '废弃',
   edit: '修改归属',
   reanalyze: '再次分析',
+  supplement: '补报告',
 }
 
 /** 把行归到人工可视状态。`issue_id` 非空即已提单（status 可能是脏的，以关联为准）。 */

@@ -356,6 +356,8 @@ export enum ApiPerfReportV2 {
   artifacts = '/perf/report-v2/artifacts',
   artifact = '/perf/report-v2/artifact',
   artifactDownload = '/perf/report-v2/artifact/download',
+  /** 月度达标率变化报告图表版文件（HTML/PNG/SVG/JSON） */
+  monthlyDeltaDownload = '/perf/periodic-report/monthly-delta/download',
 }
 
 // ── 分析任务定义 ────────────────────────────────────
@@ -454,6 +456,12 @@ export enum ApiPerfPatternLedger {
   markDuplicate = '/perf/periodic-report/pattern/mark-duplicate',
   /** 流转记录：台账事件 + 关联缺陷流转（pattern_id 或 issue 给其一） */
   flow = '/perf/periodic-report/pattern/flow',
+  /** 补报告：只读分类（A 可重绑 / B 同族引用 / C 路径失效 / D 真缺失） */
+  supplementClassify = '/perf/periodic-report/pattern/supplement/classify',
+  /** 补报告：创建手动批次（不做定时任务） */
+  supplement = '/perf/periodic-report/pattern/supplement',
+  supplementProgress = '/perf/periodic-report/pattern/supplement/progress',
+  supplementCancel = '/perf/periodic-report/pattern/supplement/cancel',
 }
 
 // ── 达标治理（项目组治理看板 / 方案初稿 / 周报推送） ──────────────

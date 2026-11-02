@@ -5,8 +5,8 @@
  * AI 重新读原始日志与报告后给出三种结论之一，见 {@link ReanalysisDecision}。
  */
 
-/** 复核任务状态。running 期间前端轮询。 */
-export type ReanalysisStatus = 'running' | 'succeeded' | 'failed'
+/** 复核任务状态。pending/running 期间前端轮询；done/failed/canceled 为终态。 */
+export type ReanalysisStatus = 'pending' | 'running' | 'done' | 'succeeded' | 'failed' | 'canceled'
 
 /**
  * AI 复核结论。
@@ -37,6 +37,10 @@ export interface ReanalysisRecord {
   agent_code?: string
   /** 本次复核用的模型（空 = 该 Agent 的默认模型） */
   model?: string
+  /** 本次复核产出的缺陷报告相对路径；空 = 未产出 */
+  report_file?: string
+  /** 批量补报告批次 id；单条再次分析为空 */
+  batch_id?: string
   created_at?: string
 }
 

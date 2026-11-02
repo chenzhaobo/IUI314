@@ -37,8 +37,10 @@ const { challengeText, submitting, records, loading, load, reset, submit, agentC
 function dotColor(status?: string): string {
   if (status === 'failed')
     return '#f53f3f'
-  if (status === 'running')
+  if (status === 'pending' || status === 'running')
     return '#ff7d00'
+  if (status === 'canceled')
+    return '#86909c'
   return '#00b42a'
 }
 
@@ -132,8 +134,14 @@ onUnmounted(reset)
                 <a-tag v-if="r.agent_code || r.model" size="small" color="gray">
                   {{ [r.agent_code, r.model].filter(Boolean).join(' · ') }}
                 </a-tag>
-                <a-tag v-if="r.status === 'running'" color="orange" size="small">
+                <a-tag v-if="r.status === 'pending'" color="arcoblue" size="small">
+                  排队中
+                </a-tag>
+                <a-tag v-else-if="r.status === 'running'" color="orange" size="small">
                   复核中
+                </a-tag>
+                <a-tag v-else-if="r.status === 'canceled'" color="gray" size="small">
+                  已取消
                 </a-tag>
                 <a-tag v-else-if="r.status === 'failed'" color="red" size="small">
                   失败
@@ -159,6 +167,9 @@ onUnmounted(reset)
               </a-alert>
               <div v-if="r.input_log_files?.length || r.input_report_md" style="margin-top: 4px; color: #86909c; font-size: 12px">
                 送检证据：{{ r.input_log_files?.length || 0 }} 份原始日志{{ r.input_report_md ? ' + 报告全文' : '' }}
+              </div>
+              <div v-if="r.report_file" style="margin-top: 4px; color: #00b42a; font-size: 12px">
+                已产出报告：{{ r.report_file }}
               </div>
             </a-timeline-item>
           </a-timeline>

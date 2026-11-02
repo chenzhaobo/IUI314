@@ -50,6 +50,7 @@ export function changeKindMeta(kind: string): TagMeta {
     split: { text: '拆分', color: 'purple' },
     duplicate: { text: '重复标记', color: 'gray' },
     trend: { text: '耗时趋势', color: 'gold' },
+    sampling_gap: { text: '日志截断样本并入', color: 'gold' },
     regression: { text: '修复后复发', color: 'red' },
   }
   return map[kind] || { text: kind || '--', color: 'gray' }

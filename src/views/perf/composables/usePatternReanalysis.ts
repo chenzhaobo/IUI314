@@ -137,7 +137,7 @@ export function usePatternReanalysis() {
       // 定位键在排程时取快照 —— 切到别的记录时 load() 会先 stopPoll，
       // 所以不存在拿旧快照打错记录的情况。
       stopPoll()
-      if (records.value.some(item => item.status === 'running'))
+      if (records.value.some(item => item.status === 'running' || item.status === 'pending'))
         timer = setTimeout(load, POLL_INTERVAL_MS, { ...target.value })
     },
   })
