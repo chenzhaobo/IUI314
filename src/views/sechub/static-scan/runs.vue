@@ -394,7 +394,7 @@ function onSearch() {
  */
 const tableWrap = ref<HTMLElement>()
 const { tableHeight } = useTableAutoHeight(tableWrap)
-const crossScroll = computed(() => ({ x: 1700, y: tableHeight.value }))
+const crossScroll = computed(() => ({ x: 1800, y: tableHeight.value }))
 
 // 筛选条件持久化：切到别的页签再回来、或点进详情再返回时，保持上次的筛选。
 // 这个页面没有"带参数跳转进入"的场景（它是入口页），所以不需要 skipRestore。
@@ -995,6 +995,108 @@ function confirmBlameCompensate(): void {
   })
 }
 
+// ===== 人工复核批量确认缺陷 =====
+// 「需人工复核」候选（review_needed）原来只能在结果详情一个个裁定；
+// 这里按运行批量把选定 run 的全部 review_needed 结论确认为缺陷。
+const manualReviewBusy = ref(false)
+const manualReviewTargets = computed(() =>
+  selectedRows.value.filter(row => !isRunningStatus(row) && (row.review_needed ?? 0) > 0),
+)
+
+function confirmManualReviewBatch() {
+  const targets = manualReviewTargets.value
+  if (targets.length === 0) {
+    Message.warning('请先勾选存在「需人工复核」候选的运行')
+    return
+  }
+  const total = targets.reduce((sum, row) => sum + (row.review_needed ?? 0), 0)
+  Modal.confirm({
+    title: '确认批量确认人工复核候选？',
+    content: `将对 ${targets.length} 个运行共 ${total} 条「需人工复核」候选确认为缺陷。\n\n结论会立即落库（人工裁定），缺陷由后台生成；已确认/已排除的候选不会被覆盖。`,
+    okText: '确认并生成缺陷',
+    cancelText: '取消',
+    onOk: async () => {
+      manualReviewBusy.value = true
+      let ok = 0
+      let fail = 0
+      try {
+        for (const row of targets) {
+          const resp = await postAction<{ confirmed?: number, message?: string }>(ApiSecPrescan.manualConfirmBatch, {
+            run_id: row.run_id,
+            include_all_review_needed: true,
+            reason: '扫描运行页批量确认：人工复核后确认问题',
+          })
+          if (resp)
+            ok += resp.confirmed ?? 0
+          else
+            fail += 1
+        }
+        Message.success(`人工复核确认完成：已确认 ${ok} 条候选${fail ? `，${fail} 个运行失败` : ''}`)
+        selectedRunKeys.value = []
+        setTimeout(() => void loadCrossRows(), 1500)
+      }
+      finally {
+        manualReviewBusy.value = false
+      }
+    },
+  })
+}
+
+// ===== 未生成缺陷：确认了但回写失败/未执行的候选 =====
+const compensatingRunId = ref('')
+const compensatingBatch = ref(false)
+const compensateTargets = computed(() =>
+  selectedRows.value.filter(row => !isRunningStatus(row) && (row.missing_writeback ?? 0) > 0),
+)
+
+async function compensateRunIssues(row: CrossRunAggRow) {
+  compensatingRunId.value = row.run_id
+  try {
+    const resp = await postAction<{ message?: string }>(ApiSecPrescan.compensateIssues, { run_id: row.run_id })
+    if (resp) {
+      Message.success(resp.message || '补偿生成缺陷已提交')
+      await loadCrossRows()
+    }
+  }
+  finally {
+    compensatingRunId.value = ''
+  }
+}
+
+function confirmCompensateBatch() {
+  const targets = compensateTargets.value
+  if (targets.length === 0) {
+    Message.warning('请先勾选存在未生成缺陷的运行')
+    return
+  }
+  Modal.confirm({
+    title: '确认补偿生成缺陷？',
+    content: `将对 ${targets.length} 个运行逐个补偿已确认但尚未生成缺陷的候选。\n\n补偿只新增缺失的缺陷，不会重复创建已有缺陷。`,
+    okText: '开始补偿',
+    cancelText: '取消',
+    onOk: async () => {
+      compensatingBatch.value = true
+      let ok = 0
+      let fail = 0
+      try {
+        for (const row of targets) {
+          const resp = await postAction<{ message?: string }>(ApiSecPrescan.compensateIssues, { run_id: row.run_id })
+          if (resp)
+            ok += 1
+          else
+            fail += 1
+        }
+        Message.success(`补偿完成：成功 ${ok} 个运行${fail ? `，失败 ${fail} 个` : ''}`)
+        selectedRunKeys.value = []
+        await loadCrossRows()
+      }
+      finally {
+        compensatingBatch.value = false
+      }
+    },
+  })
+}
+
 // ===== 标签映射 =====
 const modeLabels: Record<string, { label: string, color: string }> = {
   batch: { label: '平台编排', color: 'blue' },
@@ -1061,6 +1163,8 @@ const crossColumns = computed(() => [
   { title: '总数', dataIndex: 'total', width: 70, resizable: true, filterable: filterableOf('total') },
   { title: '确认进度', dataIndex: 'progress', slotName: 'crProgress', width: 90, resizable: true },
   { title: '确认问题', dataIndex: 'confirmed', width: 85, resizable: true, filterable: filterableOf('confirmed') },
+  // AI 已确认但尚未生成缺陷的候选数：>0 说明回写缺失，可点「补偿生成缺陷」
+  { title: '未生成缺陷', dataIndex: 'missing_writeback', slotName: 'crMissing', width: 100, resizable: true },
   { title: '已排除', dataIndex: 'rejected', width: 80, resizable: true, filterable: filterableOf('rejected') },
   { title: '错误', dataIndex: 'error', width: 70, resizable: true, filterable: filterableOf('error') },
   { title: '状态', dataIndex: 'pending', slotName: 'crPending', width: 190, resizable: true },
@@ -1196,6 +1300,23 @@ function toggleRunChecked(runId: string, checked: boolean) {
                 @click="bulkRetry"
               >
                 批量重扫未完成{{ bulkRetryTargets.length ? `(${bulkRetryTargets.length})` : '' }}
+              </a-button>
+              <a-button
+                type="primary"
+                status="warning"
+                :loading="manualReviewBusy"
+                :disabled="manualReviewTargets.length === 0"
+                @click="confirmManualReviewBatch"
+              >
+                人工复核确认{{ manualReviewTargets.length ? `(${manualReviewTargets.length})` : '' }}
+              </a-button>
+              <a-button
+                status="warning"
+                :loading="compensatingBatch"
+                :disabled="compensateTargets.length === 0"
+                @click="confirmCompensateBatch"
+              >
+                补偿生成缺陷{{ compensateTargets.length ? `(${compensateTargets.length})` : '' }}
               </a-button>
               <a-tooltip :content="blameDisabledReason" :disabled="!blameDisabledReason">
                 <span>
@@ -1339,6 +1460,15 @@ function toggleRunChecked(runId: string, checked: boolean) {
                 {{ record.avg_confidence != null ? Number(record.avg_confidence).toFixed(2) : '-' }}
               </template>
 
+              <template #crMissing="{ record }">
+                <a-tooltip :content="record.missing_writeback > 0 ? `AI 已确认但尚未生成缺陷 ${record.missing_writeback} 条，可在“更多”里补偿` : '已确认候选都有对应缺陷'" mini>
+                  <a-tag v-if="record.missing_writeback > 0" color="red" size="small">
+                    {{ record.missing_writeback }}
+                  </a-tag>
+                  <span v-else class="text-placeholder">0</span>
+                </a-tooltip>
+              </template>
+
               <!-- 待确认列：先表达 AI 确认的「是否触发 / 排队中 / 执行中」，再表达候选结果分布 -->
               <template #crPending="{ record }">
                 <a-tooltip :content="confirmStateTooltip(record)" position="top">
@@ -1383,6 +1513,16 @@ function toggleRunChecked(runId: string, checked: boolean) {
                         @click="() => openAiConfirm(record)"
                       >
                         AI 确认
+                      </a-doption>
+                      <!-- 补偿生成缺陷：AI 已确认但检出链接缺失 -->
+                      <a-doption
+                        v-if="record.missing_writeback > 0"
+                        :disabled="compensatingRunId === record.run_id"
+                        title="给已确认但尚未生成缺陷的候选补写缺陷"
+                        @click="() => compensateRunIssues(record)"
+                      >
+                        <a-spin v-if="compensatingRunId === record.run_id" :size="12" />
+                        补偿生成缺陷({{ record.missing_writeback }})
                       </a-doption>
                       <!-- 补定稿：候选已判完、仅因上一次流水线异常停在 finalize_failed -->
                       <a-doption

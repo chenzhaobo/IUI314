@@ -1190,6 +1190,8 @@ export interface CrossRunAggRow {
   ai_mode?: string | null
   total: number
   confirmed: number
+  /** AI 已确认但尚未生成缺陷（缺检出链接）的候选数 */
+  missing_writeback?: number
   rejected: number
   error: number
   pending: number
