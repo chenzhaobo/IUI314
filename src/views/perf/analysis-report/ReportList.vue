@@ -1,228 +1,13 @@
-<template>
-  <div class="page-container">
-    <a-card :bordered="false">
-      <a-row :gutter="16" style="margin-bottom: 16px">
-        <a-col :span="4">
-          <a-input v-model="searchForm.keyword" placeholder="报告标题" allow-clear @press-enter="handleSearch" />
-        </a-col>
-        <a-col :span="4">
-          <a-select v-model="searchForm.analysis_type" placeholder="类型" allow-clear>
-            <a-option v-for="option in reportTypeOptions" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </a-option>
-          </a-select>
-        </a-col>
-        <a-col :span="3">
-          <a-select v-model="searchForm.dimension_type" placeholder="维度" allow-clear>
-            <a-option value="product_domain">产品领域</a-option>
-            <a-option value="business_area">业务领域</a-option>
-            <a-option value="project_group">项目组</a-option>
-          </a-select>
-        </a-col>
-        <a-col :span="4">
-          <a-input v-model="searchForm.dimension_value" placeholder="维度值（如 集团财务）" allow-clear @press-enter="handleSearch" />
-        </a-col>
-        <a-col :span="3">
-          <a-select v-model="searchForm.status" placeholder="状态" allow-clear>
-            <a-option value="draft">草稿</a-option>
-            <a-option value="published">已发布</a-option>
-            <a-option value="archived">已归档</a-option>
-          </a-select>
-        </a-col>
-        <a-col :span="6">
-          <a-space>
-            <a-button type="primary" @click="handleSearch">查询</a-button>
-            <a-button @click="handleReset">重置</a-button>
-            <a-button type="primary" status="success" @click="handleAdd">新增</a-button>
-          </a-space>
-        </a-col>
-      </a-row>
-
-      <div ref="tableWrap">
-      <a-table :data="tableData" :loading="loading" :pagination="pagination" column-resizable :scroll="{ y: tableHeight }" @page-change="handlePageChange"
- @page-size-change="handlePageSizeChange">
-        <template #columns>
-          <a-table-column title="标题" data-index="title" :width="250" ellipsis tooltip />
-          <a-table-column title="类型" data-index="analysis_type" :width="80">
-            <template #cell="{ record }">{{ typeText(record.analysis_type) }}</template>
-          </a-table-column>
-          <a-table-column title="维度" :width="120">
-            <template #cell="{ record }">
-              <span v-if="record.dimension_type">{{ dimensionTypeText(record.dimension_type) }} / {{ record.dimension_value }}</span>
-              <span v-else>--</span>
-            </template>
-          </a-table-column>
-          <a-table-column title="周期" :width="180">
-            <template #cell="{ record }">{{ record.period_start }} ~ {{ record.period_end }}</template>
-          </a-table-column>
-          <a-table-column title="问题数" data-index="issue_count" :width="80" ellipsis tooltip />
-          <a-table-column title="应用数" data-index="app_count" :width="80" ellipsis tooltip />
-          <a-table-column title="状态" data-index="status" :width="90">
-            <template #cell="{ record }">
-              <a-tag :color="statusColor(record.status)">{{ statusText(record.status) }}</a-tag>
-            </template>
-          </a-table-column>
-          <a-table-column title="创建时间" :width="180" ellipsis tooltip>
-            <template #cell="{ record }">{{ formatTime(record.created_at) }}</template>
-          </a-table-column>
-          <a-table-column title="操作" :width="180" fixed="right">
-            <template #cell="{ record }">
-              <a-space>
-                <a-link @click="handleDetail(record)">详情</a-link>
-                <a-link :disabled="record.status !== 'draft'" @click="handleEdit(record)">编辑</a-link>
-                <a-dropdown @select="(key: any) => handleMoreAction(String(key), record)">
-                  <a-link>更多<icon-down /></a-link>
-                  <template #content>
-                    <a-doption value="preview">HTML预览</a-doption>
-                    <a-doption value="downloadHtml">下载 HTML（可打印PDF）</a-doption>
-                    <a-doption v-if="record.analysis_type === 'daily_report'" value="artifacts">过程文件</a-doption>
-                    <a-doption v-if="record.analysis_type === 'daily_report'" value="export">导出 Excel</a-doption>
-                    <a-doption v-if="record.status === 'draft'" value="publish">发布</a-doption>
-                    <a-doption value="delete" class="danger-option">删除</a-doption>
-                  </template>
-                </a-dropdown>
-              </a-space>
-            </template>
-          </a-table-column>
-        </template>
-      </a-table>
-      </div>
-    </a-card>
-
-    <!-- 详情抽屉 -->
-    <a-drawer
-      v-model:visible="drawerVisible"
-      :width="'88vw'"
-      :title="currentRecord?.title"
-      :body-style="{ maxHeight: 'calc(100vh - 120px)', overflow: 'auto' }"
-    >
-      <a-spin :loading="detailLoading" style="display: block">
-        <a-descriptions :column="2" bordered size="small" style="margin-bottom: 16px">
-          <a-descriptions-item label="类型">{{ typeText(currentRecord?.analysis_type) }}</a-descriptions-item>
-          <a-descriptions-item label="状态">{{ statusText(currentRecord?.status) }}</a-descriptions-item>
-          <a-descriptions-item label="周期">{{ currentRecord?.period_start }} ~ {{ currentRecord?.period_end }}</a-descriptions-item>
-          <a-descriptions-item label="问题数">{{ currentRecord?.issue_count }}</a-descriptions-item>
-        </a-descriptions>
-        <a-divider>摘要</a-divider>
-        <div class="content">{{ currentRecord?.summary || '暂无' }}</div>
-        <a-divider>报告内容</a-divider>
-        <!-- 必须走 MdPreview。原来是 <div class="content markdown">{{ content }}</div>，
-             pre-wrap 纯文本 —— 所有标题、表格、加粗都按字面显示，
-             报告在这个抽屉里完全看不出结构。 -->
-        <MdPreview v-if="currentRecord?.content" :modelValue="currentRecord.content" />
-        <div v-else class="content">暂无</div>
-        <a-divider>结论</a-divider>
-        <div class="content">{{ currentRecord?.conclusion || '暂无' }}</div>
-      </a-spin>
-      <template #footer>
-        <a-space>
-          <a-button @click="drawerVisible = false">关闭</a-button>
-          <a-button
-            v-if="currentRecord?.analysis_type === 'daily_report'"
-            type="primary"
-            status="success"
-            @click="handleDailyExport(currentRecord)"
-          >下载关联 Excel</a-button>
-        </a-space>
-      </template>
-    </a-drawer>
-
-    <!-- 报告预览弹窗（富文本渲染） -->
-    <a-modal v-model:visible="previewVisible" :title="`报告预览 — ${previewTitle}`" :width="'92vw'" :footer="false" :body-style="{ padding: '0', height: '82vh', overflow: 'auto' }">
-      <a-spin v-if="previewLoading" style="display: block; text-align: center; padding-top: 200px" />
-      <MdPreview v-else-if="previewContent" :modelValue="previewContent" style="min-height: 82vh" />
-      <a-empty v-else description="暂无内容" style="padding-top: 200px" />
-    </a-modal>
-
-    <!-- 后台周期任务过程文件：原始 Markdown 与关键 JSON 均按需加载 -->
-    <a-modal
-      v-model:visible="artifactsVisible"
-      :title="`过程文件 — ${artifactsReport?.title || ''}`"
-      width="94vw"
-      :footer="false"
-      :body-style="{ padding: '16px', height: '82vh', overflow: 'hidden' }"
-    >
-      <a-spin :loading="artifactsLoading" style="display: block; height: 100%">
-        <a-alert type="info" style="margin-bottom: 12px">
-          本次任务实际生成 {{ defectReportCount }} 份缺陷报告；Markdown 以原文返回并在浏览器中渲染。
-        </a-alert>
-        <div class="artifact-layout">
-          <div class="artifact-list">
-            <a-list :data="artifactItems" :bordered="false">
-              <template #item="{ item }">
-                <a-list-item :class="{ active: selectedArtifact?.path === item.path }" @click="selectArtifact(item)">
-                  <a-list-item-meta :title="item.name" :description="artifactDescription(item)" />
-                  <template #actions>
-                    <a-link @click.stop="downloadArtifact(item)">
-                      下载
-                    </a-link>
-                  </template>
-                </a-list-item>
-              </template>
-            </a-list>
-          </div>
-          <div class="artifact-preview">
-            <a-spin v-if="artifactPreviewLoading" style="display: block; text-align: center; padding-top: 200px" />
-            <MdPreview
-              v-else-if="selectedArtifact?.render_type === 'markdown' && artifactContent"
-              :model-value="artifactContent"
-              style="min-height: 100%"
-            />
-            <pre v-else-if="selectedArtifact?.render_type === 'json' && artifactContent" class="json-preview">{{ prettyArtifactJson }}</pre>
-            <a-empty v-else description="请选择过程文件" style="padding-top: 200px" />
-          </div>
-        </div>
-      </a-spin>
-    </a-modal>
-
-    <!-- 新增弹窗 -->
-    <a-modal v-model:visible="modalVisible" title="新增报告" :width="700" @ok="handleSubmit">
-      <a-form :model="formData" layout="vertical">
-        <a-form-item label="标题" required>
-          <a-input v-model="formData.title" />
-        </a-form-item>
-        <a-row :gutter="16">
-          <a-col :span="8">
-            <a-form-item label="类型">
-              <a-select v-model="formData.analysis_type">
-                <a-option value="monthly">月度</a-option>
-                <a-option value="weekly">周度</a-option>
-                <a-option value="adhoc">专项</a-option>
-              </a-select>
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
-            <a-form-item label="开始日期">
-              <a-date-picker v-model="formData.period_start" value-format="YYYY-MM-DD" style="width: 100%" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
-            <a-form-item label="结束日期">
-              <a-date-picker v-model="formData.period_end" value-format="YYYY-MM-DD" style="width: 100%" />
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-form-item label="摘要">
-          <a-textarea v-model="formData.summary" :auto-size="{ minRows: 2 }" />
-        </a-form-item>
-        <a-form-item label="内容">
-          <MdEditor v-model="formData.content" :style="{ height: '300px' }" />
-        </a-form-item>
-      </a-form>
-    </a-modal>
-  </div>
-</template>
-
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
 import { Message, Modal } from '@arco-design/web-vue'
 import { MdEditor, MdPreview } from 'md-editor-v3'
-import 'md-editor-v3/lib/style.css'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ApiPerfReportV2 } from '@/api/perfApis'
 import { formatTime, useDelete, useDownload, useGet, usePost, usePut, useTableAutoHeight } from '@/hooks'
+import 'md-editor-v3/lib/style.css'
 
-defineOptions({ name: 'report-list' })
+defineOptions({ name: 'ReportList' })
 
 const pageNum = ref(1)
 const pageSize = ref(20)
@@ -244,6 +29,7 @@ const reportTypeOptions = [
   { value: 'treatment_plan', label: '治理排序' },
   { value: 'weekly_report', label: '周报' },
   { value: 'monthly_report', label: '月报' },
+  { value: 'monthly_delta_report', label: '达标率变化月报' },
   { value: 'monthly', label: '月度' },
   { value: 'weekly', label: '周度' },
   { value: 'adhoc', label: '专项' },
@@ -262,12 +48,25 @@ const { isFetching: loading, data: rawData, execute: fetchData } = useGet<any>(A
 const tableData = computed(() => rawData.value?.list || [])
 const pagination = computed(() => ({ current: pageNum.value, pageSize: pageSize.value, total: rawData.value?.total || 0, showTotal: true, showPageSize: true }))
 
-const handleSearch = () => { pageNum.value = 1; fetchData() }
-const handleReset = () => { Object.assign(searchForm, { keyword: '', analysis_type: '', status: '', dimension_type: '', dimension_value: '' }); handleSearch() }
-const handlePageChange = (page: number) => { pageNum.value = page; fetchData() }
+function handleSearch() {
+  pageNum.value = 1
+  fetchData()
+}
+function handleReset() {
+  Object.assign(searchForm, { keyword: '', analysis_type: '', status: '', dimension_type: '', dimension_value: '' })
+  handleSearch()
+}
+function handlePageChange(page: number) {
+  pageNum.value = page
+  fetchData()
+}
 // 改每页条数必须同时回到第 1 页：原本停在第 5 页、条数改大后该页往往已超出总页数，
 // 后端返回空列表，看起来像"数据没了"。
-const handlePageSizeChange = (size: number) => { pageSize.value = size; pageNum.value = 1; fetchData() }
+function handlePageSizeChange(size: number) {
+  pageSize.value = size
+  pageNum.value = 1
+  fetchData()
+}
 
 async function fetchReportDetail(id: string) {
   const { data, execute } = useGet<any>(ApiPerfReportV2.getById, { id }, { immediate: false })
@@ -291,13 +90,19 @@ async function handleEdit(record: any) {
   Object.assign(formData, detail)
   modalVisible.value = true
 }
-const handleAdd = () => { Object.assign(formData, { title: '', analysis_type: 'monthly', period_start: '', period_end: '', summary: '', content: '' }); modalVisible.value = true }
+function handleAdd() {
+  Object.assign(formData, { title: '', analysis_type: 'monthly', period_start: '', period_end: '', summary: '', content: '' })
+  modalVisible.value = true
+}
 
 // 新增
 const addPayload = ref<any>({})
 const { execute: doAdd } = usePost<any>(ApiPerfReportV2.add, addPayload, { immediate: false })
-const handleSubmit = async () => {
-  if (!formData.title) { Message.warning('请填写标题'); return }
+async function handleSubmit() {
+  if (!formData.title) {
+    Message.warning('请填写标题')
+    return
+  }
   addPayload.value = { ...formData }
   await doAdd()
   Message.success('新增成功')
@@ -308,7 +113,7 @@ const handleSubmit = async () => {
 // 发布
 const publishPayload = ref<any>({})
 const { execute: doPublish } = usePut<any>(ApiPerfReportV2.publish, publishPayload, { immediate: false })
-const handlePublish = async (record: any) => {
+async function handlePublish(record: any) {
   publishPayload.value = { id: record.id }
   await doPublish()
   Message.success('发布成功')
@@ -332,6 +137,36 @@ async function handleDownloadHtml(record: any) {
     `${ApiPerfReportV2.reportHtml}?id=${encodeURIComponent(record.id)}`,
     name,
     '报告下载失败',
+  )
+}
+
+const monthlyDeltaVisible = ref(false)
+const monthlyDeltaRecord = ref<any>(null)
+const monthlyDeltaPeriod = computed(() => String(monthlyDeltaRecord.value?.period_start || '').slice(0, 7))
+
+async function handleDownloadMonthlyDelta(record: any) {
+  monthlyDeltaRecord.value = record
+  await downloadMonthlyDeltaFile('report.html', '图表版报告.html')
+}
+
+function openMonthlyDeltaFiles(record: any) {
+  monthlyDeltaRecord.value = record
+  monthlyDeltaVisible.value = true
+}
+
+async function downloadMonthlyDeltaFile(file: string, name: string) {
+  const record = monthlyDeltaRecord.value
+  const period = monthlyDeltaPeriod.value
+  if (!record || !/^\d{4}-\d{2}$/.test(period)) {
+    Message.warning('该报告缺少月份信息，无法定位图表文件')
+    return
+  }
+  const { downloadWithTip } = useDownload()
+  const params = new URLSearchParams({ period, file })
+  await downloadWithTip(
+    `${ApiPerfReportV2.monthlyDeltaDownload}?${params.toString()}`,
+    `${record.title || '月度达标率变化报告'}_${name}`,
+    '附件下载失败',
   )
 }
 
@@ -438,14 +273,15 @@ async function downloadArtifact(item: any) {
 const route = useRoute()
 onMounted(async () => {
   const id = route.query.id as string
-  if (!id) return
+  if (!id)
+    return
   await handleHtmlPreview({ id })
 })
 
 // 删除
 const deletePayload = ref<any>({})
 const { execute: doDelete } = useDelete<any>(ApiPerfReportV2.delete, deletePayload, { immediate: false })
-const handleDelete = async (record: any) => {
+async function handleDelete(record: any) {
   deletePayload.value = { ids: [record.id] }
   await doDelete()
   Message.success('删除成功')
@@ -454,13 +290,19 @@ const handleDelete = async (record: any) => {
 
 // 操作列只保留 详情/编辑/更多，其余动作收进下拉。
 // 原来的发布/删除挂在 a-popconfirm 上，改成下拉后由 Modal.confirm 承接二次确认。
-const handleMoreAction = (key: string, record: any) => {
+function handleMoreAction(key: string, record: any) {
   switch (key) {
     case 'preview':
       void handleHtmlPreview(record)
       break
     case 'downloadHtml':
       void handleDownloadHtml(record)
+      break
+    case 'monthlyDelta':
+      void handleDownloadMonthlyDelta(record)
+      break
+    case 'monthlyDeltaFiles':
+      openMonthlyDeltaFiles(record)
       break
     case 'artifacts':
       void handleArtifacts(record)
@@ -501,6 +343,330 @@ async function handleDailyExport(record: any) {
   )
 }
 </script>
+
+<template>
+  <div class="page-container">
+    <a-card :bordered="false">
+      <a-row :gutter="16" style="margin-bottom: 16px">
+        <a-col :span="4">
+          <a-input v-model="searchForm.keyword" placeholder="报告标题" allow-clear @press-enter="handleSearch" />
+        </a-col>
+        <a-col :span="4">
+          <a-select v-model="searchForm.analysis_type" placeholder="类型" allow-clear>
+            <a-option v-for="option in reportTypeOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="3">
+          <a-select v-model="searchForm.dimension_type" placeholder="维度" allow-clear>
+            <a-option value="product_domain">
+              产品领域
+            </a-option>
+            <a-option value="business_area">
+              业务领域
+            </a-option>
+            <a-option value="project_group">
+              项目组
+            </a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="4">
+          <a-input v-model="searchForm.dimension_value" placeholder="维度值（如 集团财务）" allow-clear @press-enter="handleSearch" />
+        </a-col>
+        <a-col :span="3">
+          <a-select v-model="searchForm.status" placeholder="状态" allow-clear>
+            <a-option value="draft">
+              草稿
+            </a-option>
+            <a-option value="published">
+              已发布
+            </a-option>
+            <a-option value="archived">
+              已归档
+            </a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="6">
+          <a-space>
+            <a-button type="primary" @click="handleSearch">
+              查询
+            </a-button>
+            <a-button @click="handleReset">
+              重置
+            </a-button>
+            <a-button type="primary" status="success" @click="handleAdd">
+              新增
+            </a-button>
+          </a-space>
+        </a-col>
+      </a-row>
+
+      <div ref="tableWrap">
+        <a-table
+          :data="tableData" :loading="loading" :pagination="pagination" column-resizable :scroll="{ y: tableHeight }" @page-change="handlePageChange"
+          @page-size-change="handlePageSizeChange"
+        >
+          <template #columns>
+            <a-table-column title="标题" data-index="title" :width="250" ellipsis tooltip />
+            <a-table-column title="类型" data-index="analysis_type" :width="80">
+              <template #cell="{ record }">
+                {{ typeText(record.analysis_type) }}
+              </template>
+            </a-table-column>
+            <a-table-column title="维度" :width="120">
+              <template #cell="{ record }">
+                <span v-if="record.dimension_type">{{ dimensionTypeText(record.dimension_type) }} / {{ record.dimension_value }}</span>
+                <span v-else>--</span>
+              </template>
+            </a-table-column>
+            <a-table-column title="周期" :width="180">
+              <template #cell="{ record }">
+                {{ record.period_start }} ~ {{ record.period_end }}
+              </template>
+            </a-table-column>
+            <a-table-column title="问题数" data-index="issue_count" :width="80" ellipsis tooltip />
+            <a-table-column title="应用数" data-index="app_count" :width="80" ellipsis tooltip />
+            <a-table-column title="状态" data-index="status" :width="90">
+              <template #cell="{ record }">
+                <a-tag :color="statusColor(record.status)">
+                  {{ statusText(record.status) }}
+                </a-tag>
+              </template>
+            </a-table-column>
+            <a-table-column title="创建时间" :width="180" ellipsis tooltip>
+              <template #cell="{ record }">
+                {{ formatTime(record.created_at) }}
+              </template>
+            </a-table-column>
+            <a-table-column title="操作" :width="230" fixed="right">
+              <template #cell="{ record }">
+                <a-space>
+                  <a-link @click="handleDetail(record)">
+                    详情
+                  </a-link>
+                  <a-link :disabled="record.status !== 'draft'" @click="handleEdit(record)">
+                    编辑
+                  </a-link>
+                  <a-link v-if="record.analysis_type === 'monthly_delta_report'" @click="openMonthlyDeltaFiles(record)">
+                    图表附件
+                  </a-link>
+                  <a-dropdown @select="(key: any) => handleMoreAction(String(key), record)">
+                    <a-link>更多<icon-down /></a-link>
+                    <template #content>
+                      <a-doption value="preview">
+                        HTML预览
+                      </a-doption>
+                      <a-doption value="downloadHtml">
+                        下载 HTML（可打印PDF）
+                      </a-doption>
+                      <a-doption v-if="record.analysis_type === 'monthly_delta_report'" value="monthlyDeltaFiles">
+                        图表附件
+                      </a-doption>
+                      <a-doption v-if="record.analysis_type === 'monthly_delta_report'" value="monthlyDelta">
+                        下载图表版 HTML
+                      </a-doption>
+                      <a-doption v-if="record.analysis_type === 'daily_report'" value="artifacts">
+                        过程文件
+                      </a-doption>
+                      <a-doption v-if="record.analysis_type === 'daily_report'" value="export">
+                        导出 Excel
+                      </a-doption>
+                      <a-doption v-if="record.status === 'draft'" value="publish">
+                        发布
+                      </a-doption>
+                      <a-doption value="delete" class="danger-option">
+                        删除
+                      </a-doption>
+                    </template>
+                  </a-dropdown>
+                </a-space>
+              </template>
+            </a-table-column>
+          </template>
+        </a-table>
+      </div>
+    </a-card>
+
+    <!-- 详情抽屉 -->
+    <a-drawer
+      v-model:visible="drawerVisible"
+      width="88vw"
+      :title="currentRecord?.title"
+      :body-style="{ maxHeight: 'calc(100vh - 120px)', overflow: 'auto' }"
+    >
+      <a-spin :loading="detailLoading" style="display: block">
+        <a-descriptions :column="2" bordered size="small" style="margin-bottom: 16px">
+          <a-descriptions-item label="类型">
+            {{ typeText(currentRecord?.analysis_type) }}
+          </a-descriptions-item>
+          <a-descriptions-item label="状态">
+            {{ statusText(currentRecord?.status) }}
+          </a-descriptions-item>
+          <a-descriptions-item label="周期">
+            {{ currentRecord?.period_start }} ~ {{ currentRecord?.period_end }}
+          </a-descriptions-item>
+          <a-descriptions-item label="问题数">
+            {{ currentRecord?.issue_count }}
+          </a-descriptions-item>
+        </a-descriptions>
+        <a-divider>摘要</a-divider>
+        <div class="content">
+          {{ currentRecord?.summary || '暂无' }}
+        </div>
+        <a-divider>报告内容</a-divider>
+        <!-- 必须走 MdPreview。原来是 <div class="content markdown">{{ content }}</div>，
+             pre-wrap 纯文本 —— 所有标题、表格、加粗都按字面显示，
+             报告在这个抽屉里完全看不出结构。 -->
+        <MdPreview v-if="currentRecord?.content" :model-value="currentRecord.content" />
+        <div v-else class="content">
+          暂无
+        </div>
+        <a-divider>结论</a-divider>
+        <div class="content">
+          {{ currentRecord?.conclusion || '暂无' }}
+        </div>
+      </a-spin>
+      <template #footer>
+        <a-space>
+          <a-button @click="drawerVisible = false">
+            关闭
+          </a-button>
+          <a-button
+            v-if="currentRecord?.analysis_type === 'daily_report'"
+            type="primary"
+            status="success"
+            @click="handleDailyExport(currentRecord)"
+          >
+            下载关联 Excel
+          </a-button>
+        </a-space>
+      </template>
+    </a-drawer>
+
+    <!-- 月度达标率变化报告附件：HTML/SVG/JSON/Markdown 均可直接下载 -->
+    <a-modal v-model:visible="monthlyDeltaVisible" title="月度达标率变化报告附件" :width="560" :footer="false">
+      <a-descriptions :column="1" size="small">
+        <a-descriptions-item label="报告">
+          {{ monthlyDeltaRecord?.title || '--' }}
+        </a-descriptions-item>
+        <a-descriptions-item label="周期">
+          {{ monthlyDeltaPeriod }}
+        </a-descriptions-item>
+      </a-descriptions>
+      <a-space direction="vertical" fill style="margin-top: 12px">
+        <a-link @click="downloadMonthlyDeltaFile('report.html', '图表版报告.html')">
+          图表版 HTML（可打印/截图）
+        </a-link>
+        <a-link @click="downloadMonthlyDeltaFile('top_decline.svg', '下降Top.svg')">
+          下降 Top 图表（SVG，可插 PPT）
+        </a-link>
+        <a-link @click="downloadMonthlyDeltaFile('top_improve.svg', '提升Top.svg')">
+          提升 Top 图表（SVG，可插 PPT）
+        </a-link>
+        <a-link @click="downloadMonthlyDeltaFile('delta_top.json', '图表数据.json')">
+          图表数据（JSON）
+        </a-link>
+        <a-link @click="downloadMonthlyDeltaFile('report.md', '报告文本.md')">
+          报告文本（Markdown）
+        </a-link>
+      </a-space>
+      <div style="color: #86909c; font-size: 12px; margin-top: 12px">
+        HTML 内已内嵌图表，浏览器打开后可直接截图或 Ctrl+P 存 PDF；SVG 可直接插入 PPT。
+      </div>
+    </a-modal>
+
+    <!-- 报告预览弹窗（富文本渲染） -->
+    <a-modal v-model:visible="previewVisible" :title="`报告预览 — ${previewTitle}`" width="92vw" :footer="false" :body-style="{ padding: '0', height: '82vh', overflow: 'auto' }">
+      <a-spin v-if="previewLoading" style="display: block; text-align: center; padding-top: 200px" />
+      <MdPreview v-else-if="previewContent" :model-value="previewContent" style="min-height: 82vh" />
+      <a-empty v-else description="暂无内容" style="padding-top: 200px" />
+    </a-modal>
+
+    <!-- 后台周期任务过程文件：原始 Markdown 与关键 JSON 均按需加载 -->
+    <a-modal
+      v-model:visible="artifactsVisible"
+      :title="`过程文件 — ${artifactsReport?.title || ''}`"
+      width="94vw"
+      :footer="false"
+      :body-style="{ padding: '16px', height: '82vh', overflow: 'hidden' }"
+    >
+      <a-spin :loading="artifactsLoading" style="display: block; height: 100%">
+        <a-alert type="info" style="margin-bottom: 12px">
+          本次任务实际生成 {{ defectReportCount }} 份缺陷报告；Markdown 以原文返回并在浏览器中渲染。
+        </a-alert>
+        <div class="artifact-layout">
+          <div class="artifact-list">
+            <a-list :data="artifactItems" :bordered="false">
+              <template #item="{ item }">
+                <a-list-item :class="{ active: selectedArtifact?.path === item.path }" @click="selectArtifact(item)">
+                  <a-list-item-meta :title="item.name" :description="artifactDescription(item)" />
+                  <template #actions>
+                    <a-link @click.stop="downloadArtifact(item)">
+                      下载
+                    </a-link>
+                  </template>
+                </a-list-item>
+              </template>
+            </a-list>
+          </div>
+          <div class="artifact-preview">
+            <a-spin v-if="artifactPreviewLoading" style="display: block; text-align: center; padding-top: 200px" />
+            <MdPreview
+              v-else-if="selectedArtifact?.render_type === 'markdown' && artifactContent"
+              :model-value="artifactContent"
+              style="min-height: 100%"
+            />
+            <pre v-else-if="selectedArtifact?.render_type === 'json' && artifactContent" class="json-preview">{{ prettyArtifactJson }}</pre>
+            <a-empty v-else description="请选择过程文件" style="padding-top: 200px" />
+          </div>
+        </div>
+      </a-spin>
+    </a-modal>
+
+    <!-- 新增弹窗 -->
+    <a-modal v-model:visible="modalVisible" title="新增报告" :width="700" @ok="handleSubmit">
+      <a-form :model="formData" layout="vertical">
+        <a-form-item label="标题" required>
+          <a-input v-model="formData.title" />
+        </a-form-item>
+        <a-row :gutter="16">
+          <a-col :span="8">
+            <a-form-item label="类型">
+              <a-select v-model="formData.analysis_type">
+                <a-option value="monthly">
+                  月度
+                </a-option>
+                <a-option value="weekly">
+                  周度
+                </a-option>
+                <a-option value="adhoc">
+                  专项
+                </a-option>
+              </a-select>
+            </a-form-item>
+          </a-col>
+          <a-col :span="8">
+            <a-form-item label="开始日期">
+              <a-date-picker v-model="formData.period_start" value-format="YYYY-MM-DD" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="8">
+            <a-form-item label="结束日期">
+              <a-date-picker v-model="formData.period_end" value-format="YYYY-MM-DD" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+        <a-form-item label="摘要">
+          <a-textarea v-model="formData.summary" :auto-size="{ minRows: 2 }" />
+        </a-form-item>
+        <a-form-item label="内容">
+          <MdEditor v-model="formData.content" :style="{ height: '300px' }" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+  </div>
+</template>
 
 <style scoped>
 .content { white-space: pre-wrap; background: var(--color-fill-1); padding: 12px; border-radius: 4px; }
