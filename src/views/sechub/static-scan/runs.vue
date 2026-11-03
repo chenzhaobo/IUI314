@@ -784,6 +784,28 @@ async function retryErrors(row: CrossRunAggRow) {
   }
 }
 
+// ===== 补定稿（候选已判完但停在 finalize_failed）=====
+const settlingRunId = ref('')
+
+/**
+ * 只补做问题回写与定稿，不重新派发 AI。
+ * 典型场景：上一次确认链路异常把 run 留在 finalize_failed，但候选其实已全部判完；
+ * 此时「AI 确认」会被前端门控拦住，需要一个独立的收敛入口。
+ */
+async function settleRunRecord(row: CrossRunAggRow) {
+  settlingRunId.value = row.run_id
+  try {
+    const resp = await postAction<{ finalized: boolean, message?: string }>(ApiSecPrescan.settleRun, { run_id: row.run_id })
+    if (resp) {
+      Message.success(resp.message || '已补定稿')
+      await loadCrossRows()
+    }
+  }
+  finally {
+    settlingRunId.value = ''
+  }
+}
+
 // ===== 删除运行 =====
 
 /** 后端 run-delete 响应 */
@@ -1361,6 +1383,16 @@ function toggleRunChecked(runId: string, checked: boolean) {
                         @click="() => openAiConfirm(record)"
                       >
                         AI 确认
+                      </a-doption>
+                      <!-- 补定稿：候选已判完、仅因上一次流水线异常停在 finalize_failed -->
+                      <a-doption
+                        v-if="record.confirm_state === 'finalize_failed'"
+                        :disabled="settlingRunId === record.run_id"
+                        title="候选已判完时补做问题回写与定稿，不重新调用 AI"
+                        @click="() => settleRunRecord(record)"
+                      >
+                        <a-spin v-if="settlingRunId === record.run_id" :size="12" />
+                        补定稿
                       </a-doption>
                       <!-- 删除运行：preparing/running 也允许（崩溃会留下卡住的僵尸运行），
                      确认框里明确告知风险并按强制删除提交 -->
