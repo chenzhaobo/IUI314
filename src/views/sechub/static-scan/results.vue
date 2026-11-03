@@ -333,7 +333,7 @@ const columnFilters = ref<Record<string, ColumnFilterState>>({
   introduced_author: emptyFilter('text'),
 })
 
-// 候选明细排序（目前只有「更新时间」一列可排）。必须走后端全量排序：
+// 候选明细排序（「更新时间」「引入时间」可排）。必须走后端全量排序：
 // 表格自带的 sortable 只排当前页，翻页后"最近更新"就不是真的最近。
 const candidateSort = ref<{ by: string, order: string }>({ by: '', order: '' })
 function onCandidateSorterChange(dataIndex: string, direction: string) {
@@ -399,7 +399,7 @@ async function loadCandidates(silent = false) {
     const filters = toServerFilters(columnFilters.value)
     if (filters)
       params.set('filters', filters)
-    // 排序同样交后端全量排（sort_by 目前只有 updated_at）
+    // 排序同样交后端全量排（updated_at / introduced_at）
     if (candidateSort.value.by)
       params.set('sort_by', candidateSort.value.by)
     if (candidateSort.value.order)
@@ -996,7 +996,7 @@ const allCandidateColumns = computed(() => [
   // 表格自带的 sortable 只排当前页，翻页后"最近更新"就不是真的最近（与 perf 台账页同一做法）。
   { key: 'updated_at', title: '更新时间', dataIndex: 'updated_at', slotName: 'updatedAt', width: 170, ellipsis: true, tooltip: true, resizable: true, sortable: { sortDirections: ['descend', 'ascend'] as ('ascend' | 'descend')[] } },
   // 时间列给足宽度：'YYYY-MM-DD HH:MM:SS' 是 19 字符，宽度不够会折行把整行撑高
-  { key: 'introduced_at', title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 170, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('introduced_at') },
+  { key: 'introduced_at', title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 170, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('introduced_at'), sortable: { sortDirections: ['descend', 'ascend'] as ('ascend' | 'descend')[] } },
   { key: 'introduced_author', title: '引入人', dataIndex: 'introduced_author', width: 110, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('introduced_author') },
   { key: 'ai_rationale', title: 'AI理由', dataIndex: 'ai_rationale', width: 220, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('ai_rationale') },
   { key: 'ops', title: '操作', slotName: 'ops', width: 120, fixed: 'right' as const },

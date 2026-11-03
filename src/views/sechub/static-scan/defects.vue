@@ -103,6 +103,9 @@ const queryParams = ref({
   exclude_status: DEFAULT_EXCLUDE_STATUS,
   // 负责人过滤（「我负责的」开关；值=登录名,展示名，后端按并集匹配）
   assignee: mineAssigneeValue(),
+  // 引入时间范围：下界含，上界半开（与候选明细同口径）
+  introduced_from: '',
+  introduced_to: '',
   // 表头排序：后端白名单只认 introduced_at / updated_at，空值=默认「更新时间倒序」
   sort_by: '',
   sort_order: '',
@@ -110,6 +113,7 @@ const queryParams = ref({
 
 // Arco 的 multiple 要求数组，后端接受逗号分隔字符串，这里做转换
 const riskLevels = ref<string[]>([])
+const introducedRange = ref<string[]>([])
 
 // 状态多选：项目组常一次看「待修复 + 修复中 + 验证不通过」（即「处理中」），
 // 单选来回切换太别扭；同样是数组 → 逗号分隔字符串发给后端
@@ -132,6 +136,14 @@ for (const key of ['governance_status', 'plan_finish', 'domain', 'project_group_
 const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<ScanIssuePage>(ApiSecPrescan.issues, queryParams, { immediate: true })
 const dataList = computed(() => rawListData.value?.list ?? [])
 const total = computed(() => rawListData.value?.total ?? 0)
+
+function onIntroducedRangeChange(value: unknown) {
+  const range = Array.isArray(value) ? value : []
+  queryParams.value.introduced_from = typeof range[0] === 'string' ? range[0] : ''
+  queryParams.value.introduced_to = typeof range[1] === 'string' ? range[1] : ''
+  queryParams.value.page_num = 1
+  void getList()
+}
 
 /** 表头点击排序 → 转成后端参数重新查询。
  *
@@ -1732,6 +1744,12 @@ function shortSha(sha: string | null | undefined): string {
             style="width: 150px"
             @press-enter="refresh"
             @clear="refresh"
+          />
+          <a-range-picker
+            v-model="introducedRange"
+            style="width: 250px"
+            value-format="YYYY-MM-DD"
+            @change="onIntroducedRangeChange"
           />
           <a-select v-model="queryParams.source" allow-clear placeholder="来源" style="width: 110px" @change="refresh">
             <a-option v-for="opt in ISSUE_SOURCE_OPTIONS" :key="opt.value" :value="opt.value">
