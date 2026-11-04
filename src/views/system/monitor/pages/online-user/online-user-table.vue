@@ -93,6 +93,18 @@ const columns = computed<TableColumnData[]>(() => [
     render: ({ record }) => parseTime(record.login_time),
   },
   {
+    title: '最后活跃',
+    width: 180,
+    align: 'center',
+    render: ({ record }) => record.last_access_time ? parseTime(record.last_access_time) : '未知',
+  },
+  {
+    title: '活跃状态',
+    slotName: 'activity',
+    width: 120,
+    align: 'center',
+  },
+  {
     title: '操作',
     slotName: 'operation',
     width: 100,
@@ -100,6 +112,19 @@ const columns = computed<TableColumnData[]>(() => [
     align: 'center',
   },
 ])
+
+/** 按最后活跃时间给出粗略状态，方便一眼区分「在用」和「挂着」 */
+function activityTag(record: onlineUser) {
+  const ts = record.last_access_time ? new Date(record.last_access_time).getTime() : Number.NaN
+  if (Number.isNaN(ts))
+    return { text: '未知', color: 'gray' }
+  const idleMinutes = (Date.now() - ts) / 60000
+  if (idleMinutes <= 5)
+    return { text: '活跃', color: 'green' }
+  if (idleMinutes <= 60)
+    return { text: '空闲', color: 'orange' }
+  return { text: '长时间未操作', color: 'red' }
+}
 
 function handleForceLogout(row?: onlineUser) {
   if (row) {
@@ -137,6 +162,11 @@ function handleForceLogout(row?: onlineUser) {
     :scroll="{ minWidth: 800, y: tableHeight }"
     :pagination="false"
   >
+    <template #activity="{ record }">
+      <a-tag :color="activityTag(record).color" size="small">
+        {{ activityTag(record).text }}
+      </a-tag>
+    </template>
     <template #operation="{ record }">
       <a-button
         v-if="hasPermission(ApiSysOnlineUser.delete)"

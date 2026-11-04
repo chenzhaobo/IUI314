@@ -13,6 +13,7 @@ export interface onlineUser extends operateInfo {
   token_id?: string
   token_exp?: number
   login_time?: string
+  last_access_time?: string
   user_name?: string
   dept_name?: string
   net?: string
