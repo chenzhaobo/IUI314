@@ -26,6 +26,9 @@ const AI_TUNING_NUMERIC_CONFIGS: Record<string, { min: number, max: number, plac
   static_scan_blame_max_candidates: { min: 0, max: 1000000, placeholder: '如 2000，0 表示不限' },
   static_scan_prescan_stall_secs: { min: 60, max: 86400, placeholder: '如 300', unit: '秒' },
   static_scan_prescan_queue_timeout_secs: { min: 60, max: 604800, placeholder: '如 86400', unit: '秒' },
+  ai_agent_queue_lane_scan_reserved: { min: 0, max: 32, placeholder: '如 1，0 = 不保底', unit: '个' },
+  ai_agent_queue_lane_attribution_reserved: { min: 0, max: 32, placeholder: '如 1，0 = 不保底', unit: '个' },
+  ai_agent_queue_lane_verify_reserved: { min: 0, max: 32, placeholder: '如 1，0 = 不保底', unit: '个' },
 }
 
 const WINDOWS_DRIVE_RE = /^[a-zA-Z]:[/\\]/
