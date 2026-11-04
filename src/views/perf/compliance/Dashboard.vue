@@ -3,19 +3,19 @@
     <a-card :bordered="false" :body-style="{ padding: '16px' }">
       <!-- 顶部选择器 -->
       <a-row :gutter="12" style="margin-bottom: 12px" align="center">
-        <a-col :span="2">
+        <a-col :span="3">
           <a-select v-model="productLine" @change="onProductLineChange">
             <a-option value="星瀚">星瀚</a-option>
             <a-option value="星空">星空</a-option>
           </a-select>
         </a-col>
-        <a-col :span="2">
+        <a-col :span="3">
           <a-select v-model="periodType" @change="onPeriodTypeChange">
             <a-option value="monthly">按月</a-option>
             <a-option value="weekly">按周</a-option>
           </a-select>
         </a-col>
-        <a-col :span="4">
+        <a-col :span="5">
           <a-select v-model="selectedPeriod" placeholder="选择周期" @change="onPeriodChange">
             <a-option v-for="p in periodOptions" :key="p.period" :value="p.period">{{ p.label }}</a-option>
           </a-select>
@@ -34,23 +34,7 @@
             <a-option value="custom_only">仅二开</a-option>
           </a-select>
         </a-col>
-        <!-- 维度过滤：产品领域/业务领域/项目组，级联收窄选项 -->
-        <a-col :span="4">
-          <a-select v-model="productDomain" placeholder="产品领域" allow-clear allow-search @change="onProductDomainFilterChange">
-            <a-option v-for="o in productDomainOptions" :key="o.code" :value="o.code">{{ o.name }}</a-option>
-          </a-select>
-        </a-col>
-        <a-col :span="3">
-          <a-select v-model="businessArea" placeholder="业务领域" allow-clear allow-search @change="onBusinessAreaFilterChange">
-            <a-option v-for="o in businessAreaOptions" :key="o.code" :value="o.code">{{ o.name }}</a-option>
-          </a-select>
-        </a-col>
-        <a-col :span="3">
-          <a-select v-model="projectGroupCode" placeholder="项目组" allow-clear allow-search @change="onDimFilterChange">
-            <a-option v-for="o in projectGroupOptions" :key="o.code" :value="o.code">{{ o.name }}</a-option>
-          </a-select>
-        </a-col>
-              <a-col :span="3">
+        <a-col :span="7">
           <!-- 「未分类」节点只能看出有多少量没归类，看不出是哪些应用。
                导出的列格式与模块管理导入模板一致，填好项目组编码就能直接导回去 -->
           <a-space :size="8">
@@ -66,6 +50,66 @@
           </a-space>
         </a-col>
       </a-row>
+      <!-- 维度过滤：产品领域/业务领域/项目组/客户/版本，客户与版本支持远程搜索 -->
+      <a-row :gutter="12" style="margin-bottom: 12px" align="center">
+        <a-col :span="4">
+          <a-select v-model="productDomain" placeholder="产品领域" allow-clear allow-search @change="onProductDomainFilterChange">
+            <a-option v-for="o in productDomainOptions" :key="o.code" :value="o.code">{{ o.name }}</a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="3">
+          <a-select v-model="businessArea" placeholder="业务领域" allow-clear allow-search @change="onBusinessAreaFilterChange">
+            <a-option v-for="o in businessAreaOptions" :key="o.code" :value="o.code">{{ o.name }}</a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="3">
+          <a-select v-model="projectGroupCode" placeholder="项目组" allow-clear allow-search @change="onDimFilterChange">
+            <a-option v-for="o in projectGroupOptions" :key="o.code" :value="o.code">{{ o.name }}</a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="4">
+          <a-select
+            v-model="customer"
+            placeholder="客户"
+            allow-clear
+            allow-search
+            :loading="customerLoading"
+            @search="searchCustomerOptions"
+            @change="onCustomerFilterChange"
+          >
+            <a-option v-for="o in customerOptions" :key="o.code" :value="o.code">{{ o.name }}</a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="3">
+          <a-select
+            v-model="productVersion"
+            placeholder="产品版本"
+            allow-clear
+            allow-search
+            :loading="versionLoading"
+            @search="searchProductVersionOptions"
+            @change="onVersionFilterChange"
+          >
+            <a-option v-for="o in productVersionOptions" :key="o.code" :value="o.code">{{ o.name }}</a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="3">
+          <a-select
+            v-model="cosmicVersion"
+            placeholder="苍穹版本"
+            allow-clear
+            allow-search
+            :loading="versionLoading"
+            @search="searchCosmicVersionOptions"
+            @change="onVersionFilterChange"
+          >
+            <a-option v-for="o in cosmicVersionOptions" :key="o.code" :value="o.code">{{ o.name }}</a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="4">
+          <a-button size="small" @click="handleResetFilters">重置过滤</a-button>
+        </a-col>
+      </a-row>
       <a-row :gutter="16" style="margin-bottom: 12px" align="center">
         <a-col :span="24">
           <a-radio-group v-model="dimension" type="button" @change="onDimensionChange">
@@ -73,6 +117,9 @@
             <a-radio value="project_group">项目组</a-radio>
             <a-radio value="business_area">业务领域</a-radio>
             <a-radio value="product_domain">产品领域</a-radio>
+            <a-radio value="customer">客户</a-radio>
+            <a-radio value="product_version">产品版本</a-radio>
+            <a-radio value="cosmic_version">苍穹版本</a-radio>
           </a-radio-group>
         </a-col>
       </a-row>
@@ -93,7 +140,7 @@
                 v-if="displayTree.length"
                 :data="displayTree"
                 :field-names="{ key: 'key', title: 'title', children: 'children', isLeaf: 'is_leaf' }"
-                :load-more="onLoadMore"
+                :load-more="handleLoadMore"
                 show-line
                 block-node
                 :selected-keys="selectedKeys"
@@ -174,6 +221,11 @@
               <a-table-column title="最大耗时(秒)" data-index="max_cost" :width="90" align="right" :sortable="{ sortDirections: ['descend', 'ascend'], sorter: numSorter('max_cost') }">
                 <template #cell="{ record }">{{ (record.max_cost / 1000).toFixed(3) }}</template>
               </a-table-column>
+              <template v-if="showCustomerScope">
+                <a-table-column title="客户" data-index="customer" :width="160" ellipsis />
+                <a-table-column title="产品版本" data-index="product_version" :width="110" ellipsis />
+                <a-table-column title="苍穹版本" data-index="cosmic_version" :width="110" ellipsis />
+              </template>
               <a-table-column title="操作" :width="90">
                 <template #cell="{ record }">
                   <a-dropdown v-if="rowActionable(record)" trigger="click" @select="(key: unknown) => handleRowAction(String(key), record)">
@@ -198,9 +250,11 @@
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
-import { ApiPerfCompliance } from '@/api/perfApis'
+import { ApiPerfCompliance, type ComplianceDrillItem, type ComplianceTreeNode } from '@/api/perfApis'
 import { rateColor, useAutoHeight, useDownload, useGet, useTableAutoHeight } from '@/hooks'
 import { ComplianceSlowLogsRouteName } from '@/router/constant'
+import { useComplianceFilters } from '@/views/perf/composables/useComplianceFilters'
+import { useComplianceTree } from '@/views/perf/composables/useComplianceTree'
 
 defineOptions({ name: 'compliance-dashboard' })
 
@@ -249,17 +303,15 @@ const onPeriodTypeChange = (value: ArcoSelectValue) => {
   fetchPeriodOptions()
 }
 
-// 切换产品线：重置周期/树/表，按新产品线重载可选周期（onSuccess 会自动选中首个周期并联动加载）
+// 切换产品线：重置周期/树/表与全部维度过滤，按新产品线重载可选周期
+// （onSuccess 会自动选中首个周期并联动加载）
 const onProductLineChange = () => {
   selectedPeriod.value = ''
   periodOptions.value = []
   treeData.value = []
   tableData.value = []
   selectedKeys.value = []
-  productDomain.value = ''
-  businessArea.value = ''
-  projectGroupCode.value = ''
-  reloadDimensionOptions()
+  resetFilters()
   periodOptionsPayload.value = { period_type: periodType.value, product_line: productLine.value }
   fetchPeriodOptions()
 }
@@ -278,76 +330,71 @@ const onPeriodChange = (value: ArcoSelectValue) => {
   }
 }
 
-// ── 维度切换 ──────────────────────────────────
+// ── 维度与过滤 ──────────────────────────────────
 const dimension = ref('menu')
+// 达标状态过滤：''=全部 | pass=达标(≥99%) | fail=不达标(<99%)
+const complianceFilter = ref('')
+// 二开过滤：''=全部 | standard_only=仅标品 | custom_only=仅二开
+const customFilter = ref('')
+
+const {
+  productDomain,
+  businessArea,
+  projectGroupCode,
+  customer,
+  productVersion,
+  cosmicVersion,
+  productDomainOptions,
+  businessAreaOptions,
+  projectGroupOptions,
+  customerOptions,
+  productVersionOptions,
+  cosmicVersionOptions,
+  customerLoading,
+  versionLoading,
+  onProductDomainFilterChange,
+  onBusinessAreaFilterChange,
+  onCustomerFilterChange,
+  onVersionFilterChange,
+  searchCustomerOptions,
+  searchProductVersionOptions,
+  searchCosmicVersionOptions,
+  dimFilterParams,
+  resetFilters,
+} = useComplianceFilters(productLine, { onChange: onDimFilterChange })
+
+const {
+  treeData,
+  treeLoading,
+  treeSearch,
+  selectedKeys,
+  showCode,
+  wrappedTree,
+  displayTree,
+  displayTitle,
+  findTreeNode,
+  findTreePath,
+  reloadTree,
+  onLoadMore,
+  onTreeSelect,
+  buildDrillParams,
+} = useComplianceTree({
+  productLine,
+  periodType,
+  selectedPeriod,
+  dimension,
+  complianceFilter,
+  customFilter,
+  dimFilterParams,
+})
+
 const onDimensionChange = () => {
   selectedKeys.value = []
   reloadTree()
 }
 
-// ── 树数据 ──────────────────────────────────
-const treeData = ref<any[]>([])
-const treeLoading = ref(false)
-const treeSearch = ref('')
-const selectedKeys = ref<string[]>([])
-const treePayload = ref<any>({})
-const { execute: fetchTree } = useGet<any>(ApiPerfCompliance.tree, treePayload, {
-  immediate: false,
-  onSuccess(data: any) { treeData.value = Array.isArray(data) ? data : [] },
-})
-
-// ── 维度过滤（产品领域/业务领域/项目组）：级联收窄选项，树/总览/明细同步过滤 ──
-const productDomain = ref('')
-const businessArea = ref('')
-const projectGroupCode = ref('')
-const productDomainOptions = ref<any[]>([])
-const businessAreaOptions = ref<any[]>([])
-const projectGroupOptions = ref<any[]>([])
-const productDomainPayload = ref<any>({ level: 'product_domain', product_line: productLine.value })
-const { execute: fetchProductDomains } = useGet<any>(ApiPerfCompliance.dimensionOptions, productDomainPayload, {
-  immediate: true,
-  onSuccess(d: any) { productDomainOptions.value = Array.isArray(d) ? d : [] },
-})
-const businessAreaPayload = ref<any>({ level: 'business_area', product_line: productLine.value })
-const { execute: fetchBusinessAreas } = useGet<any>(ApiPerfCompliance.dimensionOptions, businessAreaPayload, {
-  immediate: true,
-  onSuccess(d: any) { businessAreaOptions.value = Array.isArray(d) ? d : [] },
-})
-const projectGroupPayload = ref<any>({ level: 'project_group', product_line: productLine.value })
-const { execute: fetchProjectGroups } = useGet<any>(ApiPerfCompliance.dimensionOptions, projectGroupPayload, {
-  immediate: true,
-  onSuccess(d: any) { projectGroupOptions.value = Array.isArray(d) ? d : [] },
-})
-
-// 产品线变化：三个维度选项必须整体按新线重载，否则会沿用上一条产品线的项目组/领域
-function reloadDimensionOptions() {
-  productDomainPayload.value = { level: 'product_domain', product_line: productLine.value }
-  fetchProductDomains()
-  businessAreaPayload.value = { level: 'business_area', product_line: productLine.value }
-  fetchBusinessAreas()
-  projectGroupPayload.value = { level: 'project_group', product_line: productLine.value }
-  fetchProjectGroups()
-}
-
-// 维度过滤请求参数（空值不带）
-const dimFilterParams = () => {
-  const p: any = {}
-  if (productDomain.value) p.product_domain = productDomain.value
-  if (businessArea.value) p.business_area = businessArea.value
-  if (projectGroupCode.value) p.project_group_code = projectGroupCode.value
-  return p
-}
-
-// 重载左树（带达标状态/二开/维度过滤）
-const reloadTree = () => {
-  if (!selectedPeriod.value) return
-  treePayload.value = { period_type: periodType.value, period: selectedPeriod.value, product_line: productLine.value, dimension: dimension.value, ...(complianceFilter.value ? { compliance_filter: complianceFilter.value } : {}), ...(customFilter.value ? { custom_filter: customFilter.value } : {}), ...dimFilterParams() }
-  treeLoading.value = true
-  fetchTree().finally(() => { treeLoading.value = false })
-}
-
 // 过滤条件变化 → 重载树 + 明细 + 总览（清空选中节点，过滤后原节点可能不存在）
-const reloadFiltered = () => {
+function reloadFiltered() {
   if (!selectedPeriod.value) return
   reloadTree()
   drillPayload.value = buildDrillParams()
@@ -357,143 +404,21 @@ const reloadFiltered = () => {
   fetchOverview()
 }
 
-const onDimFilterChange = () => {
+function onDimFilterChange() {
   selectedKeys.value = []
   reloadFiltered()
 }
-// 级联：产品领域变化 → 清空下级并收窄业务领域/项目组选项
-const onProductDomainFilterChange = () => {
-  businessArea.value = ''
-  projectGroupCode.value = ''
-  businessAreaPayload.value = { level: 'business_area', product_line: productLine.value, ...(productDomain.value ? { product_domain: productDomain.value } : {}) }
-  fetchBusinessAreas()
-  projectGroupPayload.value = { level: 'project_group', product_line: productLine.value, ...(productDomain.value ? { product_domain: productDomain.value } : {}) }
-  fetchProjectGroups()
-  onDimFilterChange()
-}
-// 级联：业务领域变化 → 清空项目组并收窄其选项
-const onBusinessAreaFilterChange = () => {
-  projectGroupCode.value = ''
-  projectGroupPayload.value = { level: 'project_group', product_line: productLine.value, ...(productDomain.value ? { product_domain: productDomain.value } : {}), ...(businessArea.value ? { business_area: businessArea.value } : {}) }
-  fetchProjectGroups()
+
+const handleResetFilters = () => {
+  resetFilters()
   onDimFilterChange()
 }
 
-// 包装“全部”根节点（聚合顶层节点统计量），便于总览全局并逐层穿透
-const wrappedTree = computed(() => {
-  if (!treeData.value.length) return []
-  const tc = treeData.value.reduce((s: number, n: any) => s + (n.total_count || 0), 0)
-  const oc = treeData.value.reduce((s: number, n: any) => s + (n.over_3s_count || 0), 0)
-  return [{
-    key: 'root:all',
-    code: 'all',
-    title: '全部',
-    level: 'root',
-    total_count: tc,
-    over_3s_count: oc,
-    compliance_rate: tc > 0 ? ((tc - oc) / tc) * 100 : 100,
-    is_leaf: false,
-    children: treeData.value,
-  }]
-})
-
-// 树节点编码显示开关：默认显示名称；开启后显示“名称 (编码)”，无名称时直接显示编码
-const showCode = ref(false)
-const displayTitle = (node: any) => {
-  if (!showCode.value) return node.title
-  return node.title && node.title !== node.code ? `${node.title} (${node.code})` : node.code
-}
-
-// 树子节点懒加载：展开时复用 drill 接口逐级加载（app→form、form→button、维度顶层→app）
-const lazyDrillPayload = ref<any>({})
-const lazyDrill = useGet<any>(ApiPerfCompliance.drill, lazyDrillPayload, { immediate: false })
-
-// 递归查找树节点
-const findTreeNode = (nodes: any[], key: string): any => {
-  for (const n of nodes) {
-    if (n.key === key) return n
-    if (n.children?.length) {
-      const found = findTreeNode(n.children, key)
-      if (found) return found
-    }
-  }
-  return null
-}
-
-// 展开非叶子节点时懒加载子节点
-const onLoadMore = async (node: any) => {
-  const params: any = { period_type: periodType.value, period: selectedPeriod.value, product_line: productLine.value, ...dimFilterParams() }
-  if (complianceFilter.value) params.compliance_filter = complianceFilter.value
-  if (customFilter.value) params.custom_filter = customFilter.value
-  if (node.level === 'app') {
-    params.level = 'form'
-    params.app_number = node.code
-  } else if (node.level === 'form') {
-    params.level = 'button'
-    params.form_id = node.code
-  } else if (node.level === 'project_group') {
-    params.level = 'app'
-    params.project_group_code = node.code
-  } else if (node.level === 'business_area') {
-    params.level = 'app'
-    params.business_area = node.code
-  } else if (node.level === 'product_domain') {
-    params.level = 'app'
-    params.product_domain = node.code
-  } else {
-    return
-  }
-  lazyDrillPayload.value = params
-  await lazyDrill.execute()
-  const items = Array.isArray(lazyDrill.data.value) ? lazyDrill.data.value : []
-  const childIsLeaf = params.level === 'button' // button 为叶子；form 可继续展开按钮
-  const children = items
-    .map((it: any) => ({
-      key: `${it.level}:${it.code}`,
-      code: it.code,
-      title: it.name,
-      level: it.level,
-      total_count: it.total_count,
-      over_3s_count: it.over_3s_count,
-      compliance_rate: it.compliance_rate,
-      is_leaf: childIsLeaf,
-      children: [],
-    }))
-    .sort((a: any, b: any) => b.total_count - a.total_count)
-  node.children = children
-  if (!children.length) node.is_leaf = true
-  // 搜索过滤模式下 node 为拷贝对象，需把子节点同步回原始树
-  const origin = findTreeNode(treeData.value, node.key)
-  if (origin && origin !== node) {
-    origin.children = children
-    if (!children.length) origin.is_leaf = true
-  }
-}
-
-const onTreeSelect = (keys: (string | number)[]) => {
-  selectedKeys.value = keys.map(String)
-  // watch(selectedKeys) 会自动联动更新 drill 明细与总览
-}
-
-// 搜索过滤树（仅影响渲染视图，treeData 始终保持完整树，懒加载子节点可正常回写）
-const displayTree = computed(() => {
-  if (!treeSearch.value) return wrappedTree.value
-  const kw = treeSearch.value.toLowerCase()
-  const filterNodes = (nodes: any[]): any[] => {
-    return nodes.reduce((acc: any[], node) => {
-      const children = node.children?.length ? filterNodes(node.children) : []
-      if (node.title?.toLowerCase().includes(kw) || children.length) {
-        acc.push({ ...node, children })
-      }
-      return acc
-    }, [])
-  }
-  return filterNodes(wrappedTree.value)
-})
+const handleLoadMore = (node: unknown) => onLoadMore(node as ComplianceTreeNode)
 
 // ── 总览 ──────────────────────────────────
 const overview = ref<any>({ total_count: 0, over_3s_count: 0, compliance_rate: 100, period_start: '', period_end: '' })
-const overviewPayload = ref<any>({})
+const overviewPayload = ref<Record<string, unknown>>({})
 const { execute: fetchOverview } = useGet<any>(ApiPerfCompliance.overview, overviewPayload, {
   immediate: false,
   onSuccess(data: any) { if (data && typeof data === 'object') overview.value = data },
@@ -504,56 +429,20 @@ const periodText = computed(() => {
   return s ? `${s} ~ ${e}` : '--'
 })
 
+// 客户/版本列只在相关过滤或维度激活时展示，平时不占列宽
+const showCustomerScope = computed(() => Boolean(
+  customer.value || productVersion.value || cosmicVersion.value
+  || ['customer', 'product_version', 'cosmic_version'].includes(dimension.value),
+))
+
 // ── 明细表格（drill） ──────────────────────────────────
-const tableData = ref<any[]>([])
+const tableData = ref<ComplianceDrillItem[]>([])
 const tableLoading = ref(false)
-const drillPayload = ref<any>({})
-const { execute: fetchDrill } = useGet<any>(ApiPerfCompliance.drill, drillPayload, {
+const drillPayload = ref<Record<string, unknown>>({})
+const { execute: fetchDrill } = useGet<ComplianceDrillItem[]>(ApiPerfCompliance.drill, drillPayload, {
   immediate: false,
-  onSuccess(data: any) { tableData.value = Array.isArray(data) ? data : [] },
+  onSuccess(data) { tableData.value = Array.isArray(data) ? data : [] },
 })
-
-// 达标状态过滤：''=全部 | pass=达标(≥99%) | fail=不达标(<99%)
-const complianceFilter = ref('')
-// 二开过滤：''=全部 | standard_only=仅标品 | custom_only=仅二开
-const customFilter = ref('')
-
-// 构建树节点选中后的 drill 请求参数
-const buildDrillParams = () => {
-  const params: any = { period_type: periodType.value, period: selectedPeriod.value, product_line: productLine.value, level: 'cloud', ...dimFilterParams() }
-  if (complianceFilter.value) params.compliance_filter = complianceFilter.value
-  if (customFilter.value) params.custom_filter = customFilter.value
-  if (!selectedKeys.value.length) return params
-
-  const nodeKey = selectedKeys.value[0]
-  // “全部”根节点 → 不加过滤，展示整体云级汇总
-  if (nodeKey === 'root:all') return params
-  // 在树中找到选中节点，确定其 level 和过滤条件
-  const node = findTreeNode(treeData.value, nodeKey)
-  if (!node) return params
-
-  // 根据维度和层级设置过滤参数
-  const dim = dimension.value
-  if (dim === 'menu') {
-    if (node.level === 'cloud') { params.level = 'app'; params.cloud_number = node.code }
-    else if (node.level === 'app') { params.level = 'form'; params.app_number = node.code }
-    else if (node.level === 'form') { params.level = 'button'; params.form_id = node.code }
-    else { params.level = 'cloud' }
-  } else {
-    // 维度树: 顶层节点 → 展示其下 app 级
-    if (node.level === dim) {
-      params.level = 'app'
-      if (dim === 'project_group') params.project_group_code = node.code
-      else if (dim === 'business_area') params.business_area = node.code
-      else if (dim === 'product_domain') params.product_domain = node.code
-    } else if (node.level === 'app') {
-      params.level = 'form'; params.app_number = node.code
-    } else if (node.level === 'form') {
-      params.level = 'button'; params.form_id = node.code
-    }
-  }
-  return params
-}
 
 watch(selectedKeys, () => {
   if (selectedPeriod.value) {
@@ -618,26 +507,6 @@ interface RowScope {
   control_name?: string
 }
 
-/** 树里从根到目标节点的路径（含目标），找不到返回空 */
-interface TreeNodeLike {
-  key: string
-  code: string
-  title?: string
-  level: string
-  children?: TreeNodeLike[]
-}
-const findTreePath = (nodes: TreeNodeLike[], key: string, trail: TreeNodeLike[] = []): TreeNodeLike[] => {
-  for (const n of nodes) {
-    const path = [...trail, n]
-    if (n.key === key) return path
-    if (n.children?.length) {
-      const found = findTreePath(n.children, key, path)
-      if (found.length) return found
-    }
-  }
-  return []
-}
-
 const UNATTRIBUTED_CONTROL = '__unattributed__'
 
 const rowScope = (record: DrillRow): RowScope => {
@@ -677,7 +546,11 @@ const gotoIssues = (record: DrillRow) => {
 const gotoSlowLogs = (record: DrillRow) => {
   const scope = rowScope(record)
   if (!scope.form_id) return
-  const formRowName = record.level === 'form' ? record.name : (findTreeNode(treeData.value, `form:${scope.form_id}`)?.title || '')
+  // 维度树里的表单 key 带维度前缀（如 customer:xx/app:yy/form:zz），
+  // 按选中节点的祖先链取表单名，不能再按全局 form:xx 查找。
+  const selectedPath = selectedKeys.value[0] ? findTreePath(treeData.value, selectedKeys.value[0]) : []
+  const formNode = selectedPath.find(n => n.level === 'form') || findTreeNode(treeData.value, `form:${scope.form_id}`)
+  const formRowName = record.level === 'form' ? record.name : (formNode?.title || '')
   const label = periodOptions.value.find((p: { period: string }) => p.period === selectedPeriod.value)?.label || selectedPeriod.value
   router.push({
     name: ComplianceSlowLogsRouteName,
@@ -723,7 +596,7 @@ const handleExportUnclassified = async () => {
 }
 
 const handleExport = async () => {
-  const params = new URLSearchParams(drillPayload.value).toString()
+  const params = new URLSearchParams(drillPayload.value as Record<string, string>).toString()
   await downloadWithTip(`/perf/compliance/export?${params}`, '达标率明细.csv', '达标率明细导出失败')
 }
 </script>

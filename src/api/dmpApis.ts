@@ -60,6 +60,10 @@ export interface DmpCrawlTask {
   sync_type: string
   filter_config: Record<string, unknown> | null
   retention_days: number | null
+  /** 单次爬取最多写入行数（源端更多时会被截断） */
+  max_rows: number
+  /** 翻页大小 */
+  page_size: number
 }
 
 /** 爬取批次 */
@@ -69,6 +73,8 @@ export interface DmpCrawlBatch {
   menu_path: string | null
   status: string
   total_count: number
+  /** 源端报告的总行数；大于 total_count 说明本次写入被截断 */
+  source_total: number | null
   error_msg: string | null
   create_by: string
   created_at: string | null
@@ -80,6 +86,7 @@ export interface DmpBatchBrief {
   id: string
   status: string
   total_count: number
+  source_total: number | null
   error_msg: string | null
 }
 

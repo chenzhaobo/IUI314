@@ -27,6 +27,8 @@ interface DmpTaskEditForm {
   upsert_key: string
   field_mapping: string
   filter_config: string
+  max_rows: number
+  page_size: number
 }
 
 interface DmpTaskAddForm {
@@ -40,6 +42,8 @@ interface DmpTaskAddForm {
   target_table: string
   upsert_key: string
   field_mapping: string
+  max_rows: number
+  page_size: number
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -135,6 +139,8 @@ const editPayload = ref<DmpTaskEditForm>({
   upsert_key: '',
   field_mapping: '',
   filter_config: '',
+  max_rows: 200,
+  page_size: 50,
 })
 const editRequestPayload = ref<Record<string, unknown>>({})
 const { isFetching: editSaving, execute: editExec, data: editData, error: editError } = usePut(ApiDmp.taskEdit, editRequestPayload)
@@ -150,6 +156,8 @@ function openEditModal(task: DmpCrawlTask) {
     upsert_key: task.upsert_key || '',
     field_mapping: task.field_mapping ? JSON.stringify(task.field_mapping, null, 2) : '',
     filter_config: task.filter_config ? JSON.stringify(task.filter_config, null, 2) : '',
+    max_rows: task.max_rows || 200,
+    page_size: task.page_size || 50,
   }
   editModalVisible.value = true
 }
@@ -185,6 +193,8 @@ const addPayload = ref<DmpTaskAddForm>({
   target_table: '',
   upsert_key: '',
   field_mapping: '',
+  max_rows: 200,
+  page_size: 50,
 })
 const addRequestPayload = ref<Record<string, unknown>>({})
 const { isFetching: addSaving, execute: addExec, data: addData, error: addError } = usePost(ApiDmp.taskAdd, addRequestPayload)
@@ -193,6 +203,7 @@ function openAddModal() {
   addPayload.value = {
     target_key: '', name: '', cloud: '', app: '', menu1: '', menu2: '',
     sync_mode: 'full', target_table: '', upsert_key: '', field_mapping: '',
+    max_rows: 200, page_size: 50,
   }
   addModalVisible.value = true
 }
@@ -261,7 +272,8 @@ const batchColumns = withTableDefaults([
   { title: '批次ID', dataIndex: 'id', width: 180 },
   { title: '菜单路径', dataIndex: 'menu_path', width: 240 },
   { title: '状态', dataIndex: 'status', width: 90, slotName: 'status' },
-  { title: '数据量', dataIndex: 'total_count', width: 80, align: 'right' as const },
+  { title: '源端总数', dataIndex: 'source_total', width: 100, align: 'right' as const, slotName: 'source_total' },
+  { title: '写入量', dataIndex: 'total_count', width: 120, align: 'right' as const, slotName: 'write_count' },
   { title: '错误信息', dataIndex: 'error_msg', width: 200 },
   { title: '创建时间', dataIndex: 'created_at', width: 160, slotName: 'created_at' },
   { title: '操作', dataIndex: 'operations', slotName: 'operations', width: 90, fixed: 'right' as const },
@@ -302,7 +314,10 @@ function startPolling(batchId: string) {
       stopPolling()
       getBatches()
       if (brief.status === 'success') {
-        Message.success(`爬取完成，共 ${brief.total_count} 条数据`)
+        const truncated = brief.source_total != null && brief.source_total > brief.total_count
+        Message.success(
+          `爬取完成，共 ${brief.total_count} 条数据${truncated ? `（源端 ${brief.source_total} 条，已截断）` : ''}`,
+        )
       } else {
         Message.error(`爬取失败：${brief.error_msg || '未知错误'}`)
       }
@@ -467,6 +482,19 @@ function formatCell(val: unknown): string {
               {{ statusMap[record.status]?.label || record.status }}
             </a-tag>
           </template>
+          <template #source_total="{ record }">
+            {{ record.source_total == null ? '-' : record.source_total.toLocaleString() }}
+          </template>
+          <template #write_count="{ record }">
+            <span>{{ (record.total_count || 0).toLocaleString() }}</span>
+            <a-tooltip
+              v-if="record.source_total != null && record.source_total > record.total_count"
+              content="源端行数大于实际写入，本次爬取被截断；请调大任务的 max_rows / page_size 后重新触发"
+              mini
+            >
+              <a-tag color="orange" size="small" style="margin-left: 4px">截断</a-tag>
+            </a-tooltip>
+          </template>
           <template #created_at="{ record }">{{ formatTime(record.created_at) }}</template>
           <template #operations="{ record }">
             <a-button type="text" size="small" :disabled="record.status !== 'success'" @click="handleViewData(record)">
@@ -519,6 +547,18 @@ function formatCell(val: unknown): string {
           <a-col :span="12">
             <a-form-item label="去重键 (upsert_key)">
               <a-input v-model="editPayload.upsert_key" placeholder="如 code" allow-clear />
+            </a-form-item>
+          </a-col>
+        </a-row>
+        <a-row :gutter="16">
+          <a-col :span="12">
+            <a-form-item label="最大行数 (max_rows)">
+              <a-input-number v-model="editPayload.max_rows" :min="1" :step="1000" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-item label="分页大小 (page_size)">
+              <a-input-number v-model="editPayload.page_size" :min="1" :step="100" style="width: 100%" />
             </a-form-item>
           </a-col>
         </a-row>
@@ -580,11 +620,23 @@ function formatCell(val: unknown): string {
             </a-form-item>
           </a-col>
           <a-col :span="8">
+            <a-form-item label="最大行数">
+              <a-input-number v-model="addPayload.max_rows" :min="1" :step="1000" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="8">
+            <a-form-item label="分页大小">
+              <a-input-number v-model="addPayload.page_size" :min="1" :step="100" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+        <a-row :gutter="16">
+          <a-col :span="12">
             <a-form-item label="目标表">
               <a-input v-model="addPayload.target_table" placeholder="可选" />
             </a-form-item>
           </a-col>
-          <a-col :span="8">
+          <a-col :span="12">
             <a-form-item label="去重键">
               <a-input v-model="addPayload.upsert_key" placeholder="可选" />
             </a-form-item>

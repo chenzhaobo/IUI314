@@ -3,19 +3,25 @@
     <a-card :bordered="false">
       <!-- 搜索栏 -->
       <a-row :gutter="16" style="margin-bottom: 16px">
-        <a-col :span="6">
-          <a-input v-model="searchForm.keyword" placeholder="客户名称/租户编码/域名" allow-clear @press-enter="handleSearch" />
-        </a-col>
         <a-col :span="4">
+          <a-input v-model="searchForm.keyword" placeholder="客户名称/DMP客户编号/域名" allow-clear @press-enter="handleSearch" />
+        </a-col>
+        <a-col :span="2">
           <a-select v-model="searchForm.cloud_type" placeholder="云类型" allow-clear :options="cloudTypeOptions" />
         </a-col>
-        <a-col :span="4">
+        <a-col :span="2">
           <a-select v-model="searchForm.status" placeholder="状态" allow-clear>
             <a-option value="1">启用</a-option>
             <a-option value="0">禁用</a-option>
           </a-select>
         </a-col>
-        <a-col :span="6">
+        <a-col :span="3">
+          <a-input v-model="searchForm.product_version" placeholder="产品版本（精确）" allow-clear @press-enter="handleSearch" />
+        </a-col>
+        <a-col :span="3">
+          <a-input v-model="searchForm.cosmic_version" placeholder="苍穹版本（精确）" allow-clear @press-enter="handleSearch" />
+        </a-col>
+        <a-col :span="10">
           <a-space>
             <a-button type="primary" @click="handleSearch">查询</a-button>
             <a-button @click="handleReset">重置</a-button>
@@ -28,10 +34,10 @@
       <!-- 原生 div 挂 ref：组件 ref 拿到的是实例、没有 getBoundingClientRect -->
       <div ref="tableWrap">
       <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange"
- @page-size-change="handlePageSizeChange" :scroll="{ y: tableHeight }">
+ @page-size-change="handlePageSizeChange" :scroll="{ y: tableHeight, x: 2200 }">
         <template #columns>
-          <a-table-column title="客户名称" data-index="customer_name" :width="200" />
-          <a-table-column title="租户编码" data-index="tenant_code" :width="120" />
+          <a-table-column title="客户名称" data-index="customer_name" :width="200" fixed="left" />
+          <a-table-column title="DMP 客户编号" data-index="tenant_code" :width="120" />
           <a-table-column title="租户ID" data-index="tenant_id" :width="150" ellipsis />
           <a-table-column title="云类型" data-index="cloud_type" :width="80">
             <template #cell="{ record }">
@@ -39,6 +45,17 @@
                 {{ getDictLabel(cloudTypeOptions, record.cloud_type) }}
               </a-tag>
             </template>
+          </a-table-column>
+          <a-table-column title="产品名称" data-index="product_name" :width="160" ellipsis />
+          <a-table-column title="产品版本" data-index="product_version" :width="120" ellipsis />
+          <a-table-column title="苍穹版本" data-index="cosmic_version" :width="120" ellipsis />
+          <a-table-column title="组织" data-index="org_name" :width="140" ellipsis />
+          <a-table-column title="行业" data-index="industry" :width="120" ellipsis />
+          <a-table-column title="点击量" data-index="click_count" :width="90" align="right">
+            <template #cell="{ record }">{{ record.click_count == null ? '-' : record.click_count.toLocaleString() }}</template>
+          </a-table-column>
+          <a-table-column title="上报时间" data-index="report_time" :width="170">
+            <template #cell="{ record }">{{ formatTime(record.report_time) }}</template>
           </a-table-column>
           <a-table-column title="域名" data-index="domain" :width="180" ellipsis />
           <a-table-column title="联系人" data-index="contact" :width="100" />
@@ -65,15 +82,25 @@
     <!-- 新增/编辑弹窗 -->
     <a-modal v-model:visible="modalVisible" :title="modalTitle" @ok="handleSubmit" @cancel="modalVisible = false">
       <a-form :model="formData" layout="vertical">
+        <!-- DMP 同步字段：编辑时只读，避免覆盖同步结果 -->
         <a-form-item label="客户名称" required>
-          <a-input v-model="formData.customer_name" placeholder="请输入客户名称" />
+          <a-input v-model="formData.customer_name" placeholder="请输入客户名称" :disabled="isEdit" />
         </a-form-item>
-        <a-form-item label="租户编码" required>
-          <a-input v-model="formData.tenant_code" placeholder="如: sxswfzjt" />
+        <a-form-item label="DMP 客户编号" required>
+          <a-input v-model="formData.tenant_code" placeholder="DMP 客户查询工具中的 number" :disabled="isEdit" />
         </a-form-item>
         <a-form-item label="租户ID">
-          <a-input v-model="formData.tenant_id" placeholder="Ops UUID" />
+          <a-input v-model="formData.tenant_id" placeholder="Ops UUID" :disabled="isEdit" />
         </a-form-item>
+        <a-descriptions v-if="isEdit" :column="2" size="small" bordered class="m-b-16px">
+          <a-descriptions-item label="产品名称">{{ formData.product_name || '-' }}</a-descriptions-item>
+          <a-descriptions-item label="产品版本">{{ formData.product_version || '-' }}</a-descriptions-item>
+          <a-descriptions-item label="苍穹版本">{{ formData.cosmic_version || '-' }}</a-descriptions-item>
+          <a-descriptions-item label="组织">{{ formData.org_name || '-' }}</a-descriptions-item>
+          <a-descriptions-item label="行业">{{ formData.industry || '-' }}</a-descriptions-item>
+          <a-descriptions-item label="点击量">{{ formData.click_count ?? '-' }}</a-descriptions-item>
+          <a-descriptions-item label="上报时间">{{ formatTime(formData.report_time) }}</a-descriptions-item>
+        </a-descriptions>
         <a-form-item label="云类型">
           <a-select v-model="formData.cloud_type" :options="cloudTypeOptions" />
         </a-form-item>
@@ -102,7 +129,7 @@ import { ref, reactive, computed } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { ApiPerfCustomer } from '@/api/perfApis'
 import { ApiSysDictData } from '@/api/apis'
-import { useGet, usePost, usePut, useDelete, useTableAutoHeight } from '@/hooks'
+import { formatTime, useGet, usePost, usePut, useDelete, useTableAutoHeight } from '@/hooks'
 
 defineOptions({ name: 'customer-list' })
 
@@ -122,7 +149,7 @@ function getDictLabel(options: { label: string, value: string }[], value: string
 
 const pageNum = ref(1)
 const pageSize = ref(20)
-const searchForm = reactive({ keyword: '', cloud_type: '', status: '' })
+const searchForm = reactive({ keyword: '', cloud_type: '', product_version: '', cosmic_version: '', status: '' })
 
 const modalVisible = ref(false)
 const modalTitle = ref('新增客户')
@@ -149,6 +176,8 @@ const handleSearch = () => { pageNum.value = 1; fetchData() }
 const handleReset = () => {
   searchForm.keyword = ''
   searchForm.cloud_type = ''
+  searchForm.product_version = ''
+  searchForm.cosmic_version = ''
   searchForm.status = ''
   handleSearch()
 }
@@ -160,7 +189,12 @@ const handlePageSizeChange = (size: number) => { pageSize.value = size; pageNum.
 const handleAdd = () => {
   isEdit.value = false
   modalTitle.value = '新增客户'
-  Object.assign(formData, { id: '', customer_name: '', tenant_code: '', tenant_id: '', cloud_type: 'public', runtime_type: 'production', domain: '', contact: '', remark: '', status: '1' })
+  Object.assign(formData, {
+    id: '', customer_name: '', tenant_code: '', tenant_id: '',
+    cloud_type: 'public', runtime_type: 'production', domain: '', contact: '', remark: '', status: '1',
+    product_name: null, product_version: null, cosmic_version: null,
+    org_name: null, industry: null, click_count: null, report_time: null,
+  })
   modalVisible.value = true
 }
 

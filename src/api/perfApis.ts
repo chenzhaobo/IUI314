@@ -272,6 +272,61 @@ export enum ApiPerfCompliance {
   slowLogZip = '/perf/compliance/slow-logs/zip',
 }
 
+/** 维度选项（产品领域/客户/版本等下拉） */
+export interface DimensionOption {
+  code: string
+  name: string
+}
+
+/**
+ * 达标率树节点。
+ *
+ * `context_key` / `context_value` 只在客户/版本维度树的 app 节点上出现：
+ * 同一应用可能出现在多个客户分支，展开表单、穿透明细时必须把这层过滤带上，
+ * 否则会把其他客户的数据一起算进来。
+ */
+export interface ComplianceTreeNode {
+  key: string
+  code: string
+  title: string
+  level: string
+  total_count: number
+  over_3s_count: number
+  compliance_rate: number
+  is_leaf: boolean
+  context_key?: string
+  context_value?: string
+  children?: ComplianceTreeNode[]
+}
+
+/** 达标率穿透明细行（客户/版本列展示当前过滤值，不是行上真实分组） */
+export interface ComplianceDrillItem {
+  code: string
+  name: string
+  level: string
+  total_count: number
+  over_3s_count: number
+  compliance_rate: number
+  over_1s_count?: number | null
+  over_2s_count?: number | null
+  over_10s_count?: number | null
+  rate_1s?: number | null
+  rate_2s?: number | null
+  rate_10s?: number | null
+  avg_cost: number
+  max_cost: number
+  project_group_code?: string | null
+  customer?: string | null
+  product_version?: string | null
+  cosmic_version?: string | null
+}
+
+/** 分页请求参数 */
+export interface PageParams {
+  page_num: number
+  page_size: number
+}
+
 // ── 同步任务管理 ──────────────────────────────────────
 export enum ApiPerfSyncTask {
   list = '/perf/sync-task/list',

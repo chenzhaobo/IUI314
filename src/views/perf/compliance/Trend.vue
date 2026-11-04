@@ -28,33 +28,81 @@
           </a-select>
         </a-col>
         <!-- 维度过滤：产品领域/业务领域/项目组，级联收窄选项 -->
-        <a-col :span="5">
+        <a-col :span="4">
           <a-select v-model="productDomain" placeholder="产品领域" allow-clear allow-search @change="onProductDomainFilterChange">
             <a-option v-for="o in productDomainOptions" :key="o.code" :value="o.code">{{ o.name }}</a-option>
           </a-select>
         </a-col>
-        <a-col :span="4">
+        <a-col :span="3">
           <a-select v-model="businessArea" placeholder="业务领域" allow-clear allow-search @change="onBusinessAreaFilterChange">
             <a-option v-for="o in businessAreaOptions" :key="o.code" :value="o.code">{{ o.name }}</a-option>
           </a-select>
         </a-col>
-        <a-col :span="4">
+        <a-col :span="3">
           <a-select v-model="projectGroupCode" placeholder="项目组" allow-clear allow-search @change="onDimFilterChange">
             <a-option v-for="o in projectGroupOptions" :key="o.code" :value="o.code">{{ o.name }}</a-option>
           </a-select>
         </a-col>
+        <a-col :span="3" style="text-align: right">
+          <a-button size="small" @click="handleExport">导出CSV</a-button>
+        </a-col>
+      </a-row>
+      <!-- 客户/版本过滤：客户与版本走远程搜索，版本按已选客户级联 -->
+      <a-row :gutter="12" style="margin-bottom: 12px" align="center">
+        <a-col :span="5">
+          <a-select
+            v-model="customer"
+            placeholder="客户"
+            allow-clear
+            allow-search
+            :loading="customerLoading"
+            @search="searchCustomerOptions"
+            @change="onCustomerFilterChange"
+          >
+            <a-option v-for="o in customerOptions" :key="o.code" :value="o.code">{{ o.name }}</a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="4">
+          <a-select
+            v-model="productVersion"
+            placeholder="产品版本"
+            allow-clear
+            allow-search
+            :loading="versionLoading"
+            @search="searchProductVersionOptions"
+            @change="onVersionFilterChange"
+          >
+            <a-option v-for="o in productVersionOptions" :key="o.code" :value="o.code">{{ o.name }}</a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="4">
+          <a-select
+            v-model="cosmicVersion"
+            placeholder="苍穹版本"
+            allow-clear
+            allow-search
+            :loading="versionLoading"
+            @search="searchCosmicVersionOptions"
+            @change="onVersionFilterChange"
+          >
+            <a-option v-for="o in cosmicVersionOptions" :key="o.code" :value="o.code">{{ o.name }}</a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="3">
+          <a-button size="small" @click="handleResetFilters">重置过滤</a-button>
+        </a-col>
       </a-row>
       <a-row :gutter="16" style="margin-bottom: 12px" align="center">
-        <a-col :span="20">
+        <a-col :span="24">
           <a-radio-group v-model="dimension" type="button" @change="onDimensionChange">
             <a-radio value="menu">菜单</a-radio>
             <a-radio value="project_group">项目组</a-radio>
             <a-radio value="business_area">业务领域</a-radio>
             <a-radio value="product_domain">产品领域</a-radio>
+            <a-radio value="customer">客户</a-radio>
+            <a-radio value="product_version">产品版本</a-radio>
+            <a-radio value="cosmic_version">苍穹版本</a-radio>
           </a-radio-group>
-        </a-col>
-        <a-col :span="4" style="text-align: right">
-          <a-button size="small" @click="handleExport">导出CSV</a-button>
         </a-col>
       </a-row>
 
@@ -80,7 +128,7 @@
                 v-if="displayTree.length"
                 :data="displayTree"
                 :field-names="{ key: 'key', title: 'title', children: 'children', isLeaf: 'is_leaf' }"
-                :load-more="onLoadMore"
+                :load-more="handleLoadMore"
                 show-line
                 block-node
                 :selected-keys="selectedKeys"
@@ -126,8 +174,10 @@
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
-import { ApiPerfCompliance } from '@/api/perfApis'
+import { ApiPerfCompliance, type ComplianceTreeNode } from '@/api/perfApis'
 import { getQueryUrl, rateColor, useAutoHeight, useDownload, useGet, useRequest } from '@/hooks'
+import { useComplianceFilters } from '@/views/perf/composables/useComplianceFilters'
+import { DIMENSION_PARAM, contextParams, useComplianceTree } from '@/views/perf/composables/useComplianceTree'
 
 defineOptions({ name: 'compliance-trend' })
 
@@ -164,24 +214,20 @@ const onPeriodTypeChange = (pt: ArcoSelectionValue) => {
   if (typeof pt !== 'string') return
   selectedPeriod.value = ''
   periodOptions.value = []
+  // 清空树后新周期加载完成会自动重选「全部」，趋势随之重绘
   treeData.value = []
   periodOptionsPayload.value = { period_type: pt, product_line: productLine.value }
   fetchPeriodOptions()
-  // 趋势图粒度随周期类型变化
-  fetchChildTrends()
 }
 
-// 切换产品线：重置周期/树，按新产品线重载可选周期（onSuccess 会自动选中首个周期并联动加载）
+// 切换产品线：重置周期/树与全部维度过滤，按新产品线重载可选周期
+// （onSuccess 会自动选中首个周期并联动加载）
 const onProductLineChange = () => {
   selectedPeriod.value = ''
   periodOptions.value = []
   treeData.value = []
   selectedKeys.value = []
-  selectedNode.value = null
-  productDomain.value = ''
-  businessArea.value = ''
-  projectGroupCode.value = ''
-  reloadDimensionOptions()
+  resetFilters()
   periodOptionsPayload.value = { period_type: periodType.value, product_line: productLine.value }
   fetchPeriodOptions()
 }
@@ -189,287 +235,124 @@ const onProductLineChange = () => {
 const onPeriodChange = (period: ArcoSelectionValue) => {
   if (typeof period !== 'string') return
   selectedKeys.value = []
-  selectedNode.value = null
-  if (period) {
-    reloadTree()
-    // 必须显式拉一次趋势：`watch(selectedNode)` 只在**值发生变化**时触发，
-    // 而进页面时 selectedNode 本来就是 null、上面又赋成 null，watch 不会响应 ——
-    // 结果是进来一片空白，必须先点一个树节点才出图。
-    // 未选节点时 buildTrendParams 返回根级参数，正是「整体趋势」，语义正确。
-    fetchChildTrends()
-  }
+  if (period) reloadTree()
 }
 
 const onDimensionChange = () => {
   selectedKeys.value = []
-  selectedNode.value = null
-  reloadTree()
-  // 选中节点变化会触发 watch 自动重拉趋势，此处不重复调用
-}
-
-// ── 树数据（来自所选周期） ──────────────────────────────────
-const treeData = ref<any[]>([])
-const treeLoading = ref(false)
-const treeSearch = ref('')
-const selectedKeys = ref<string[]>([])
-const selectedNode = ref<any>(null)
-
-const treePayload = ref<any>({})
-const { execute: fetchTree } = useGet<any>(ApiPerfCompliance.tree, treePayload, {
-  immediate: false,
-  onSuccess(data: any) {
-    treeData.value = Array.isArray(data) ? data : []
-    // 自动选中“全部”根节点，触发整体趋势拉取（点全部展示其下所有汇总趋势）
-    if (wrappedTree.value.length) {
-      selectedKeys.value = ['root:all']
-      selectedNode.value = wrappedTree.value[0]
-    } else {
-      selectedKeys.value = []
-      selectedNode.value = null
-    }
-  },
-})
-
-// 包装“全部”根节点（聚合顶层节点统计量），点全部展示其下所有汇总趋势
-const wrappedTree = computed(() => {
-  if (!treeData.value.length) return []
-  const tc = treeData.value.reduce((s: number, n: any) => s + (n.total_count || 0), 0)
-  const oc = treeData.value.reduce((s: number, n: any) => s + (n.over_3s_count || 0), 0)
-  return [{
-    key: 'root:all',
-    code: 'all',
-    title: '全部',
-    level: 'root',
-    total_count: tc,
-    over_3s_count: oc,
-    compliance_rate: tc > 0 ? ((tc - oc) / tc) * 100 : 100,
-    is_leaf: false,
-    children: treeData.value,
-  }]
-})
-
-// ── 维度过滤（产品领域/业务领域/项目组）：级联收窄选项，树与趋势图同步过滤 ──
-const productDomain = ref('')
-const businessArea = ref('')
-const projectGroupCode = ref('')
-const productDomainOptions = ref<any[]>([])
-const businessAreaOptions = ref<any[]>([])
-const projectGroupOptions = ref<any[]>([])
-const productDomainPayload = ref<any>({ level: 'product_domain', product_line: productLine.value })
-const { execute: fetchProductDomains } = useGet<any>(ApiPerfCompliance.dimensionOptions, productDomainPayload, {
-  immediate: true,
-  onSuccess(d: any) { productDomainOptions.value = Array.isArray(d) ? d : [] },
-})
-const businessAreaPayload = ref<any>({ level: 'business_area', product_line: productLine.value })
-const { execute: fetchBusinessAreas } = useGet<any>(ApiPerfCompliance.dimensionOptions, businessAreaPayload, {
-  immediate: true,
-  onSuccess(d: any) { businessAreaOptions.value = Array.isArray(d) ? d : [] },
-})
-const projectGroupPayload = ref<any>({ level: 'project_group', product_line: productLine.value })
-const { execute: fetchProjectGroups } = useGet<any>(ApiPerfCompliance.dimensionOptions, projectGroupPayload, {
-  immediate: true,
-  onSuccess(d: any) { projectGroupOptions.value = Array.isArray(d) ? d : [] },
-})
-
-// 产品线变化：三个维度选项整体按新线重载
-function reloadDimensionOptions() {
-  productDomainPayload.value = { level: 'product_domain', product_line: productLine.value }
-  fetchProductDomains()
-  businessAreaPayload.value = { level: 'business_area', product_line: productLine.value }
-  fetchBusinessAreas()
-  projectGroupPayload.value = { level: 'project_group', product_line: productLine.value }
-  fetchProjectGroups()
-}
-
-// 维度过滤请求参数（空值不带）
-const dimFilterParams = () => {
-  const p: any = {}
-  if (productDomain.value) p.product_domain = productDomain.value
-  if (businessArea.value) p.business_area = businessArea.value
-  if (projectGroupCode.value) p.project_group_code = projectGroupCode.value
-  return p
-}
-
-// 重载左树（带维度+二开过滤）；树加载成功后自动重选根节点并联动趋势
-const reloadTree = () => {
-  if (!selectedPeriod.value) return
-  treePayload.value = { period_type: periodType.value, period: selectedPeriod.value, product_line: productLine.value, dimension: dimension.value, ...(customFilter.value ? { custom_filter: customFilter.value } : {}), ...dimFilterParams() }
-  treeLoading.value = true
-  fetchTree().finally(() => { treeLoading.value = false })
-}
-
-// 维度过滤变化 → 重载树（树 onSuccess 自动重选根节点并联动趋势图）
-const onDimFilterChange = () => {
   reloadTree()
 }
-// 级联：产品领域变化 → 清空下级并收窄业务领域/项目组选项
-const onProductDomainFilterChange = () => {
-  businessArea.value = ''
-  projectGroupCode.value = ''
-  businessAreaPayload.value = { level: 'business_area', product_line: productLine.value, ...(productDomain.value ? { product_domain: productDomain.value } : {}) }
-  fetchBusinessAreas()
-  projectGroupPayload.value = { level: 'project_group', product_line: productLine.value, ...(productDomain.value ? { product_domain: productDomain.value } : {}) }
-  fetchProjectGroups()
-  onDimFilterChange()
+
+// ── 维度过滤（与达标率看板共用）：产品领域/业务领域/项目组/客户/版本 ──
+const {
+  productDomain,
+  businessArea,
+  projectGroupCode,
+  customer,
+  productVersion,
+  cosmicVersion,
+  productDomainOptions,
+  businessAreaOptions,
+  projectGroupOptions,
+  customerOptions,
+  productVersionOptions,
+  cosmicVersionOptions,
+  customerLoading,
+  versionLoading,
+  onProductDomainFilterChange,
+  onBusinessAreaFilterChange,
+  onCustomerFilterChange,
+  onVersionFilterChange,
+  searchCustomerOptions,
+  searchProductVersionOptions,
+  searchCosmicVersionOptions,
+  dimFilterParams,
+  resetFilters,
+} = useComplianceFilters(productLine, { onChange: onDimFilterChange })
+
+// ── 左树（与达标率看板共用）：树加载、懒加载与维度作用域 key ──
+const {
+  treeData,
+  treeLoading,
+  treeSearch,
+  selectedKeys,
+  showCode,
+  wrappedTree,
+  displayTree,
+  displayTitle,
+  findTreeNode,
+  reloadTree,
+  onLoadMore,
+  onTreeSelect,
+} = useComplianceTree({
+  productLine,
+  periodType,
+  selectedPeriod,
+  dimension,
+  customFilter,
+  dimFilterParams,
+})
+
+// 维度过滤变化 → 重载左树（树加载成功后自动重选「全部」并重拉趋势）
+function onDimFilterChange() {
+  reloadTree()
 }
-// 级联：业务领域变化 → 清空项目组并收窄其选项
-const onBusinessAreaFilterChange = () => {
-  projectGroupCode.value = ''
-  projectGroupPayload.value = { level: 'project_group', product_line: productLine.value, ...(productDomain.value ? { product_domain: productDomain.value } : {}), ...(businessArea.value ? { business_area: businessArea.value } : {}) }
-  fetchProjectGroups()
+
+const handleResetFilters = () => {
+  resetFilters()
   onDimFilterChange()
 }
 
-// 树节点编码显示开关：默认显示名称；开启后显示“名称 (编码)”，无名称时直接显示编码
-const showCode = ref(false)
-const displayTitle = (node: any) => {
-  if (!showCode.value) return node.title
-  return node.title && node.title !== node.code ? `${node.title} (${node.code})` : node.code
-}
+const handleLoadMore = (node: unknown) => onLoadMore(node as ComplianceTreeNode)
 
-// 树子节点懒加载：展开时复用 drill 接口逐级加载（app→form、维度顶层→app）；趋势视图 form 即为叶子
-const lazyDrillPayload = ref<any>({})
-const lazyDrill = useGet<any>(ApiPerfCompliance.drill, lazyDrillPayload, { immediate: false })
-
-// 递归查找树节点
-const findTreeNode = (nodes: any[], key: string): any => {
-  for (const n of nodes) {
-    if (n.key === key) return n
-    if (n.children?.length) {
-      const found = findTreeNode(n.children, key)
-      if (found) return found
-    }
-  }
-  return null
-}
-
-// 展开非叶子节点时懒加载子节点
-const onLoadMore = async (node: any) => {
-  const params: any = { period_type: periodType.value, period: selectedPeriod.value, product_line: productLine.value, ...dimFilterParams() }
-  if (customFilter.value) params.custom_filter = customFilter.value
-  if (node.level === 'app') {
-    params.level = 'form'
-    params.app_number = node.code
-  } else if (node.level === 'project_group') {
-    params.level = 'app'
-    params.project_group_code = node.code
-  } else if (node.level === 'business_area') {
-    params.level = 'app'
-    params.business_area = node.code
-  } else if (node.level === 'product_domain') {
-    params.level = 'app'
-    params.product_domain = node.code
-  } else {
-    return
-  }
-  lazyDrillPayload.value = params
-  await lazyDrill.execute()
-  const items = Array.isArray(lazyDrill.data.value) ? lazyDrill.data.value : []
-  const children = items
-    .map((it: any) => ({
-      key: `${it.level}:${it.code}`,
-      code: it.code,
-      title: it.name,
-      level: it.level,
-      total_count: it.total_count,
-      over_3s_count: it.over_3s_count,
-      compliance_rate: it.compliance_rate,
-      is_leaf: it.level === 'form', // 趋势仅支持到 form 级，form 为叶子
-      children: [],
-    }))
-    .sort((a: any, b: any) => b.total_count - a.total_count)
-  node.children = children
-  if (!children.length) node.is_leaf = true
-  // 搜索过滤模式下 node 为拷贝对象，需把子节点同步回原始树
-  const origin = findTreeNode(treeData.value, node.key)
-  if (origin && origin !== node) {
-    origin.children = children
-    if (!children.length) origin.is_leaf = true
-  }
-}
-
-// 搜索过滤树（仅影响渲染视图，treeData 始终保持完整树）
-const displayTree = computed(() => {
-  if (!treeSearch.value) return wrappedTree.value
-  const kw = treeSearch.value.toLowerCase()
-  const filterNodes = (nodes: any[]): any[] => {
-    return nodes.reduce((acc: any[], node) => {
-      const children = node.children?.length ? filterNodes(node.children) : []
-      if (node.title?.toLowerCase().includes(kw) || children.length) {
-        acc.push({ ...node, children })
-      }
-      return acc
-    }, [])
-  }
-  return filterNodes(wrappedTree.value)
+// 选中节点对象（「全部」用包装节点，保证统计量为整体汇总）
+const selectedNode = computed<ComplianceTreeNode | null>(() => {
+  const key = selectedKeys.value[0]
+  if (!key || key === 'root:all') return wrappedTree.value[0] || null
+  return findTreeNode(treeData.value, key)
 })
 
-const onTreeSelect = (keys: (string | number)[]) => {
-  selectedKeys.value = keys.map(String)
-  // 从包含“全部”根节点的完整树中查找，保证 root 节点也能正确定位
-  selectedNode.value = keys.length ? findTreeNode(wrappedTree.value, String(keys[0])) : null
-  // 选中节点变化会触发 watch 自动重拉趋势
-}
+// 树每次重载后自动选中「全部」，触发整体趋势拉取
+watch(treeData, () => {
+  selectedKeys.value = wrappedTree.value.length ? ['root:all'] : []
+})
+
+watch(selectedKeys, () => {
+  fetchChildTrends()
+})
 
 // ── 趋势数据（按选中节点的下一层级拆分多系列趋势线） ──────────────────────────────────
 const chartLoading = ref(false)
 // 单图最多展示的趋势线条数（按请求量取 Top N，避免应用/表单级数百条线不可读）
 const MAX_TREND_SERIES = 12
 
-// 节点 → trend 接口过滤参数（与 buildTrendParams 同套映射）
-const childFilter = (c: any) => {
-  switch (c.level) {
-    case 'cloud': return { cloud_number: c.code }
-    case 'app': return { app_number: c.code }
-    case 'form': return { form_id: c.code }
-    case 'project_group': return { project_group_code: c.code }
-    case 'business_area': return { business_area: c.code }
-    case 'product_domain': return { product_domain: c.code }
-    default: return {}
-  }
+// 节点 → trend 接口过滤参数：维度节点用自身值，app/form 额外带上所属客户/版本上下文
+const childFilter = (c: ComplianceTreeNode): Record<string, string> => {
+  const params: Record<string, string> = {}
+  const dimensionParam = DIMENSION_PARAM[c.level]
+  if (dimensionParam) params[dimensionParam] = c.code
+  else if (c.level === 'cloud') params.cloud_number = c.code
+  else if (c.level === 'app') params.app_number = c.code
+  else if (c.level === 'form') params.form_id = c.code
+  Object.assign(params, contextParams(c))
+  return params
 }
 
-// drill 返回项 → 树节点（与 onLoadMore 同一映射）
-const mapDrillItems = (items: any[]) =>
-  items
-    .map((it: any) => ({
-      key: `${it.level}:${it.code}`,
-      code: it.code,
-      title: it.name,
-      level: it.level,
-      total_count: it.total_count,
-      over_3s_count: it.over_3s_count,
-      compliance_rate: it.compliance_rate,
-      is_leaf: it.level === 'form',
-      children: [],
-    }))
-    .sort((a: any, b: any) => b.total_count - a.total_count)
-
-// 解析选中节点的直接子级：root=树顶层；cloud=树自带应用子级；维度节点/应用=drill 懒加载（顺带回填树）；form=自身
-const resolveChildren = async (node: any): Promise<any[]> => {
+// 解析选中节点的直接子级：root=树顶层；cloud=树自带应用子级；
+// 维度节点/应用=drill 懒加载（顺带回填树）；form=自身（趋势到 form 为止）
+const resolveChildren = async (node: ComplianceTreeNode): Promise<ComplianceTreeNode[]> => {
   if (node.level === 'root') return treeData.value
   if (node.level === 'form') return [node]
   if (node.level === 'cloud') return node.children || []
   if (node.children?.length) return node.children
-  const params: any = { period_type: periodType.value, period: selectedPeriod.value, product_line: productLine.value, ...dimFilterParams() }
-  if (customFilter.value) params.custom_filter = customFilter.value
-  if (node.level === 'app') { params.level = 'form'; params.app_number = node.code }
-  else if (node.level === 'project_group') { params.level = 'app'; params.project_group_code = node.code }
-  else if (node.level === 'business_area') { params.level = 'app'; params.business_area = node.code }
-  else if (node.level === 'product_domain') { params.level = 'app'; params.product_domain = node.code }
-  else return []
-  lazyDrillPayload.value = params
-  await lazyDrill.execute()
-  const items = Array.isArray(lazyDrill.data.value) ? lazyDrill.data.value : []
-  const children = mapDrillItems(items)
-  node.children = children
-  if (!children.length) node.is_leaf = true
-  const origin = findTreeNode(treeData.value, node.key)
-  if (origin && origin !== node) {
-    origin.children = children
-    if (!children.length) origin.is_leaf = true
+  if (node.level === 'app' || DIMENSION_PARAM[node.level]) {
+    await onLoadMore(node)
+    const children = node.children || []
+    // 趋势视图只到 form 级，表单节点强制标叶子，避免树里出现无法展开的箭头
+    if (node.level === 'app') children.forEach(c => { c.is_leaf = true })
+    return children
   }
-  return children
+  return []
 }
 
 // 拉取并渲染下级多系列趋势：选中「全部」显示顶层各维度/云趋势，选中维度节点显示其下应用趋势，依次类推
@@ -481,10 +364,10 @@ const fetchChildTrends = async () => {
     let children = await resolveChildren(node)
     // 无子级时显示自身单线（叶子或空节点）
     if (!children.length) children = node.level === 'root' ? [] : [node]
-    const top = [...children].sort((a: any, b: any) => (b.total_count || 0) - (a.total_count || 0)).slice(0, MAX_TREND_SERIES)
-    const base: any = { period_type: periodType.value, product_line: productLine.value, ...dimFilterParams() }
+    const top = [...children].sort((a, b) => (b.total_count || 0) - (a.total_count || 0)).slice(0, MAX_TREND_SERIES)
+    const base: Record<string, string> = { period_type: periodType.value, product_line: productLine.value, ...dimFilterParams() }
     if (customFilter.value) base.custom_filter = customFilter.value
-    const results = await Promise.all(top.map(async (c: any) => {
+    const results = await Promise.all(top.map(async (c) => {
       const url = getQueryUrl(ApiPerfCompliance.trend, { ...base, ...childFilter(c) }).value
       const res = await useRequest(url, { immediate: true }).get().json()
       return { name: c.title || c.code, points: Array.isArray(res.data.value) ? res.data.value : [] }
@@ -495,43 +378,17 @@ const fetchChildTrends = async () => {
   }
 }
 
-// 构建树节点选中后的趋势过滤参数
-const buildTrendParams = () => {
-  const params: any = { period_type: periodType.value, product_line: productLine.value, ...dimFilterParams() }
+// 构建树节点选中后的趋势过滤参数（图表与导出共用同一套映射）
+const buildTrendParams = (): Record<string, string> => {
+  const params: Record<string, string> = { period_type: periodType.value, product_line: productLine.value, ...dimFilterParams() }
   if (customFilter.value) params.custom_filter = customFilter.value
-
-  if (!selectedNode.value) return params
-
-  const node = selectedNode.value
-  const dim = dimension.value
-  if (dim === 'menu') {
-    if (node.level === 'cloud') params.cloud_number = node.code
-    else if (node.level === 'app') params.app_number = node.code
-    else if (node.level === 'form') params.form_id = node.code
-  } else {
-    if (node.level === dim) {
-      if (dim === 'project_group') params.project_group_code = node.code
-      else if (dim === 'business_area') params.business_area = node.code
-      else if (dim === 'product_domain') params.product_domain = node.code
-    } else if (node.level === 'app') {
-      params.app_number = node.code
-    } else if (node.level === 'form') {
-      params.form_id = node.code
-    }
-  }
+  if (selectedNode.value) Object.assign(params, childFilter(selectedNode.value))
   return params
 }
 
-watch(selectedNode, () => {
-  fetchChildTrends()
-})
-
-// 二开过滤变化 → 重载左树 + 趋势图
+// 二开过滤变化 → 重载左树（树加载完成后自动重选「全部」并重拉趋势）
 watch(customFilter, () => {
-  if (selectedPeriod.value) {
-    reloadTree()
-    fetchChildTrends()
-  }
+  if (selectedPeriod.value) reloadTree()
 })
 
 // ── 图表渲染 ──────────────────────────────────
