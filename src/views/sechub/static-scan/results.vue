@@ -1286,6 +1286,10 @@ watch(() => route.query, (newQ, oldQ) => {
             <a-option value="evidence">
               证据（已并入）
             </a-option>
+            <!-- 伪状态：已确认但尚未生成缺陷（本 run 没有检出链接），后端按 missing_writeback 特判 -->
+            <a-option value="missing_writeback">
+              未生成缺陷
+            </a-option>
             <a-option :value="STATUS_FILTER_CHANGED">
               结论变更
             </a-option>
