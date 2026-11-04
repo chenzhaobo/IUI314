@@ -1078,15 +1078,19 @@ function confirmCompensateBatch() {
       compensatingBatch.value = true
       let ok = 0
       let fail = 0
+      let skipped = 0
       try {
         for (const row of targets) {
-          const resp = await postAction<{ message?: string }>(ApiSecPrescan.compensateIssues, { run_id: row.run_id })
-          if (resp)
+          const resp = await postAction<{ message?: string; skipped?: number }>(ApiSecPrescan.compensateIssues, { run_id: row.run_id })
+          if (resp) {
             ok += 1
-          else
+            skipped += resp.skipped ?? 0
+          }
+          else {
             fail += 1
+          }
         }
-        Message.success(`补偿完成：成功 ${ok} 个运行${fail ? `，失败 ${fail} 个` : ''}`)
+        Message.success(`补偿完成：成功 ${ok} 个运行${fail ? `，失败 ${fail} 个` : ''}${skipped ? `，跳过 ${skipped} 条候选（已保留）` : ''}`)
         selectedRunKeys.value = []
         await loadCrossRows()
       }

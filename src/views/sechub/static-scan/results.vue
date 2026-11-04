@@ -510,10 +510,10 @@ async function compensateIssues() {
   }
   bulkBusy.value = true
   try {
-    const resp = await postAction<{ message?: string; checked?: number; created?: number; remaining?: number }>(ApiSecPrescan.compensateIssues, body)
+    const resp = await postAction<{ message?: string; checked?: number; created?: number; remaining?: number; skipped?: number; skipped_details?: string[] }>(ApiSecPrescan.compensateIssues, body)
     if (resp) {
       const fallback = typeof resp.checked === 'number'
-        ? `补偿完成：检查 ${resp.checked} 个已确认候选，新增 ${resp.created ?? 0} 条缺陷${resp.remaining ? `，仍有 ${resp.remaining} 个未生成` : ''}`
+        ? `补偿完成：检查 ${resp.checked} 个已确认候选，新增 ${resp.created ?? 0} 条缺陷${resp.remaining ? `，仍有 ${resp.remaining} 个未生成` : ''}${resp.skipped ? `，跳过 ${resp.skipped} 条（已保留）` : ''}`
         : '补偿完成'
       Message.success(resp.message || fallback)
     }
