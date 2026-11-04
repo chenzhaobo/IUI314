@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { AiAgent } from '@/api/aiApis'
 import type { BranchesControlResponse, IssueImportSummary, IssueTransitionSummary, ModuleWithRepository, RepositoryBranch, RepositoryCommit, RepositoryCommitListResponse, ScanIssueEventRow, ScanIssuePage, ScanIssueRow } from '@/types/static-scan'
-import { Message } from '@arco-design/web-vue'
+import { Message, Modal } from '@arco-design/web-vue'
 import { MdPreview } from 'md-editor-v3'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -419,6 +419,45 @@ function exportIssues() {
     ? new URLSearchParams({ ids: selectedIds.value.join(',') }).toString()
     : filterQueryString()
   void downloadWithTip(`${ApiSecPrescan.issuesExport}${qs ? `?${qs}` : ''}`, 'defects_export.xlsx', '导出失败')
+}
+
+// ===== 删除缺陷（仅 config.toml [system] super_user 配置的用户）=====
+const canDeleteIssues = computed(() => userStore.user.isSuperUser)
+const deleting = ref(false)
+
+function confirmDeleteIssues(ids: string[], label: string) {
+  if (!canDeleteIssues.value || deleting.value)
+    return
+  if (!ids.length) {
+    Message.warning('请先勾选缺陷')
+    return
+  }
+  Modal.warning({
+    title: '确认删除缺陷？',
+    content: `将永久删除${label}缺陷（共 ${ids.length} 条），并连带清理检出记录、流转事件、资产关系、白名单与审批关联。此操作不可恢复。`,
+    okText: '确认删除',
+    cancelText: '取消',
+    okButtonProps: { status: 'danger' },
+    onOk: async () => {
+      deleting.value = true
+      try {
+        const resp = await postAction<{ deleted?: number, message?: string }>(ApiSecPrescan.issuesDelete, { ids })
+        if (resp) {
+          Message.success(resp.message || `已删除 ${resp.deleted ?? ids.length} 条缺陷`)
+          clearSelection()
+          await getList()
+          scopeTreeRef.value?.reload()
+        }
+      }
+      finally {
+        deleting.value = false
+      }
+    },
+  })
+}
+
+function deleteSelectedIssues() {
+  confirmDeleteIssues(selectedIds.value, '所选')
 }
 
 // ===== 状态能力判断 =====
@@ -1419,6 +1458,8 @@ function onOpsSelect(value: unknown, row: ScanIssueRow) {
     void withdrawApproval(row)
   else if (value === 'approve')
     openApprovalForRow(row)
+  else if (value === 'delete')
+    confirmDeleteIssues([row.id], '该')
 }
 
 // 下载 AI 生成的原始 md 报告。
@@ -1856,6 +1897,16 @@ function shortSha(sha: string | null | undefined): string {
                       补偿匹配白名单
                     </a-button>
                   </a-tooltip>
+                  <!-- 删除：仅 config.toml [system] super_user 配置的用户可见/可用 -->
+                  <a-button
+                    v-if="canDeleteIssues"
+                    status="danger"
+                    :disabled="!selectedIds.length"
+                    :loading="deleting"
+                    @click="deleteSelectedIssues"
+                  >
+                    删除
+                  </a-button>
                   <span v-if="selectedIds.length" class="selected-hint">已选 {{ selectedIds.length }} 条</span>
                 </a-space>
                 <!-- 最右：只看我负责的（默认开）。负责人是认领/转交记下的名字 -->
@@ -2048,6 +2099,9 @@ function shortSha(sha: string | null | undefined): string {
                         </a-doption>
                         <a-doption v-if="canConfirmRepro(record)" value="confirmRepro">
                           确认复现
+                        </a-doption>
+                        <a-doption v-if="canDeleteIssues" value="delete">
+                          删除
                         </a-doption>
                       </template>
                     </a-dropdown>

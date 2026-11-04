@@ -91,6 +91,8 @@ export interface FullUserInfo {
   roles: string[]
   depts: string[]
   permissions: string[]
+  /** 配置级超级管理员（config.toml [system] super_user），与角色体系的超管无关 */
+  is_super_user: boolean
 }
 
 export interface User {

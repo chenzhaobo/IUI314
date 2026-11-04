@@ -312,6 +312,7 @@ export enum ApiSecPrescan {
   /** 缺陷页左树：按维度（规则/项目组/业务领域/产品领域）返回节点与分桶计数 */
   issueScopeTree = '/sechub/prescan/issue-scope-tree',
   issues = '/sechub/prescan/issues',
+  issuesDelete = '/sechub/prescan/issues/delete',
   issueEvents = '/sechub/prescan/issue-events',
   issueWontFix = '/sechub/prescan/issue-wont-fix',
   issueSimilar = '/sechub/prescan/issue-similar',

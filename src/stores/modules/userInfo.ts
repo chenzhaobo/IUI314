@@ -52,6 +52,8 @@ export const useUserStore = defineStore('userInfo', {
       dept: '',
       uid: '',
       permissions: Array<string>(),
+      // 配置级超级管理员（config.toml [system] super_user），控制危险操作入口显隐
+      isSuperUser: false,
       // 用户时区（IANA 名），前端所有时间按此渲染；后端默认 Asia/Shanghai
       timezone: 'Asia/Shanghai',
     },
@@ -158,6 +160,7 @@ export const useUserStore = defineStore('userInfo', {
           dept: user.user.dept_id,
           uid: user.user.id,
           permissions: user.permissions,
+          isSuperUser: Boolean(user.is_super_user),
           timezone: user.user.timezone || 'Asia/Shanghai',
         }
         return true
