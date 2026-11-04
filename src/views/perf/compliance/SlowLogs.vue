@@ -16,7 +16,7 @@ const router = useRouter()
 const tableWrap = ref<HTMLElement>()
 const { tableHeight } = useTableAutoHeight(tableWrap)
 
-const { loading, zipping, result, filters, filteredFiles, dateOptions, controlOptions, allHaveRequestControl, tenantOptions, load, downloadFile, downloadZip } = useFormSlowLogs()
+const { loading, zipping, result, filters, filteredFiles, dateOptions, controlOptions, allHaveRequestControl, tenantOptions, productVersionOptions, cosmicVersionOptions, load, downloadFile, downloadZip } = useFormSlowLogs()
 
 function queryText(key: string): string {
   const v = route.query[key]
@@ -63,6 +63,8 @@ function resetQuery() {
   filters.date = ''
   filters.control = ''
   filters.tenant = ''
+  filters.productVersion = ''
+  filters.cosmicVersion = ''
   filters.trace = ''
 }
 
@@ -220,6 +222,23 @@ watch(() => route.query, () => {
               </a-button>
             </a-tooltip>
           </a-space>
+        </a-col>
+      </a-row>
+
+      <a-row v-if="productVersionOptions.length || cosmicVersionOptions.length" :gutter="12" align="center" style="margin-bottom: 12px">
+        <a-col :span="4">
+          <a-select v-model="filters.productVersion" placeholder="产品版本" allow-clear allow-search>
+            <a-option v-for="o in productVersionOptions" :key="o.value" :value="o.value">
+              {{ o.label }}
+            </a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="4">
+          <a-select v-model="filters.cosmicVersion" placeholder="苍穹版本" allow-clear allow-search>
+            <a-option v-for="o in cosmicVersionOptions" :key="o.value" :value="o.value">
+              {{ o.label }}
+            </a-option>
+          </a-select>
         </a-col>
       </a-row>
 

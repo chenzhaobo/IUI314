@@ -289,6 +289,8 @@ export interface ComplianceTreeNode {
   key: string
   code: string
   title: string
+  /** 次要信息：客户维度显示该客户的产品版本 */
+  subtitle?: string
   level: string
   total_count: number
   over_3s_count: number

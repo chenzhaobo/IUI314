@@ -14,6 +14,8 @@ export interface SlowLogFilters {
   date: string
   control: string
   tenant: string
+  productVersion: string
+  cosmicVersion: string
   /** trace id 过滤（支持报告里的缩写形态，见 traceIdMatches） */
   trace: string
 }
@@ -25,6 +27,9 @@ interface Option {
 
 /** 看板「未归因操作」行：请求本身没有按钮名。与后端 form_slow_logs::UNATTRIBUTED_LABEL 一致 */
 export const UNATTRIBUTED_LABEL = '未归因操作'
+/** 客户清单里匹配不到版本时的筛选值（与后端 UNKNOWN_VERSION_CODE 一致） */
+export const UNKNOWN_VERSION_CODE = '__unknown_version__'
+export const UNKNOWN_VERSION_LABEL = '未匹配版本'
 
 /** 是否记录了这条请求自己的按钮名（旧日志只有分组级的按钮名） */
 export function hasRequestControl(file: SlowLogFile): boolean {
@@ -85,6 +90,19 @@ export function traceIdMatches(wanted: string, actual: string): boolean {
   return a.toLowerCase().endsWith(tail) || head.length >= 4
 }
 
+function versionOption(value: string | null | undefined): Option {
+  const v = (value ?? '').trim()
+  return v ? { value: v, label: v } : { value: UNKNOWN_VERSION_CODE, label: UNKNOWN_VERSION_LABEL }
+}
+
+function versionMatches(actual: string | null | undefined, wanted: string): boolean {
+  if (!wanted)
+    return true
+  if (wanted === UNKNOWN_VERSION_CODE)
+    return !(actual ?? '').trim()
+  return actual === wanted
+}
+
 function distinctOptions(files: SlowLogFile[], pick: (f: SlowLogFile) => Option): Option[] {
   const seen = new Map<string, Option>()
   for (const f of files) {
@@ -100,7 +118,7 @@ export function useFormSlowLogs() {
   const zipping = ref(false)
   const result = ref<SlowLogList | null>(null)
   const query = ref<SlowLogQuery | null>(null)
-  const filters = reactive<SlowLogFilters>({ date: '', control: '', tenant: '', trace: '' })
+  const filters = reactive<SlowLogFilters>({ date: '', control: '', tenant: '', productVersion: '', cosmicVersion: '', trace: '' })
   const { downloadWithTip } = useDownload()
 
   const files = computed<SlowLogFile[]>(() => result.value?.files ?? [])
@@ -109,6 +127,8 @@ export function useFormSlowLogs() {
     (!filters.date || f.date === filters.date)
     && (!filters.control || operationKey(f) === filters.control)
     && (!filters.tenant || f.tenant_key === filters.tenant)
+    && versionMatches(f.product_version, filters.productVersion)
+    && versionMatches(f.cosmic_version, filters.cosmicVersion)
     && (!filters.trace.trim() || traceIdMatches(filters.trace, f.trace_id)),
   ))
 
@@ -120,10 +140,12 @@ export function useFormSlowLogs() {
     value: f.tenant_key,
     label: f.customer_name ? `${f.customer_name}（${f.tenant_key}）` : f.tenant_key,
   })))
+  const productVersionOptions = computed(() => distinctOptions(files.value, f => versionOption(f.product_version)))
+  const cosmicVersionOptions = computed(() => distinctOptions(files.value, f => versionOption(f.cosmic_version)))
 
   async function load(next: SlowLogQuery) {
     query.value = next
-    Object.assign(filters, { date: '', control: '', tenant: '', trace: '' })
+    Object.assign(filters, { date: '', control: '', tenant: '', productVersion: '', cosmicVersion: '', trace: '' })
     loading.value = true
     try {
       result.value = await fetchSlowLogs(next)
@@ -146,6 +168,8 @@ export function useFormSlowLogs() {
       date: filters.date,
       control_name: filters.control,
       tenant_key: filters.tenant,
+      product_version: filters.productVersion,
+      cosmic_version: filters.cosmicVersion,
       trace_id: filters.trace.trim(),
     }
     const suffix = filters.date || `${result.value?.period_start ?? ''}~${result.value?.period_end ?? ''}`
@@ -168,6 +192,8 @@ export function useFormSlowLogs() {
     controlOptions,
     allHaveRequestControl,
     tenantOptions,
+    productVersionOptions,
+    cosmicVersionOptions,
     load,
     downloadFile,
     downloadZip,

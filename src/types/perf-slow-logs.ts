@@ -12,6 +12,9 @@ export interface SlowLogQuery {
   date?: string
   control_name?: string
   tenant_key?: string
+  /** 版本筛选；`__unknown_version__` 表示未匹配版本 */
+  product_version?: string
+  cosmic_version?: string
   /** trace id 过滤：项目组从缺陷报告里抄 id 来找日志，支持 `3eab…6028` 缩写形态 */
   trace_id?: string
 }
@@ -30,6 +33,9 @@ export interface SlowLogFile {
   request_control: string | null
   tenant_key: string
   customer_name: string
+  /** 客户清单里该客户的产品/苍穹版本（按客户名关联，未匹配为空） */
+  product_version: string | null
+  cosmic_version: string | null
   trace_id: string
   /** 请求耗时（毫秒）；缺 manifest 时为空 */
   cost: number | null
