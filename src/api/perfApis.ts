@@ -323,6 +323,8 @@ export interface ComplianceDrillItem {
   customer?: string | null
   product_version?: string | null
   cosmic_version?: string | null
+  /** 名称 tooltip：客户维度行显示该客户的产品/苍穹版本 */
+  subtitle?: string | null
 }
 
 /** 分页请求参数 */

@@ -162,11 +162,14 @@
               >
                 <template #title="node">
                   <a-tooltip :content="node.subtitle ? `产品版本：${node.subtitle}` : ''" :disabled="!node.subtitle" mini>
-                    <span>{{ displayTitle(node) }}</span>
+                    <span>
+                      <span>{{ displayTitle(node) }}</span>
+                      <span v-if="node.subtitle" style="margin-left: 6px; font-size: 12px; color: #86909c">{{ node.subtitle }}</span>
+                      <span style="margin-left: 6px; font-size: 12px" :style="{ color: rateColor(node.compliance_rate) }">
+                        {{ node.compliance_rate?.toFixed(2) }}%
+                      </span>
+                    </span>
                   </a-tooltip>
-                  <span style="margin-left: 6px; font-size: 12px" :style="{ color: rateColor(node.compliance_rate) }">
-                    {{ node.compliance_rate?.toFixed(2) }}%
-                  </span>
                 </template>
               </a-tree>
               <a-empty v-else description="暂无树数据" />
@@ -195,7 +198,13 @@
           <div ref="tableWrap" style="flex: 1; min-height: 0">
           <a-table :data="tableData" :loading="tableLoading" :pagination="false" size="small" row-key="code" :scroll="{ y: tableHeight }" style="flex: 1; min-height: 0">
             <template #columns>
-              <a-table-column title="名称" data-index="name" :width="180" ellipsis :sortable="{ sortDirections: ['ascend', 'descend'], sorter: nameSorter }" />
+              <a-table-column title="名称" data-index="name" :width="180" :sortable="{ sortDirections: ['ascend', 'descend'], sorter: nameSorter }">
+                <template #cell="{ record }">
+                  <a-tooltip :content="nameTip(record)" :disabled="!nameTip(record)" mini>
+                    <span style="display: inline-block; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle">{{ record.name }}</span>
+                  </a-tooltip>
+                </template>
+              </a-table-column>
               <a-table-column title="3秒达标率" data-index="compliance_rate" :width="90" :sortable="{ sortDirections: ['descend', 'ascend'], sorter: numSorter('compliance_rate') }">
                 <template #cell="{ record }">
                   <span :style="{ color: rateColor(record.compliance_rate) }">{{ record.compliance_rate?.toFixed(2) }}%</span>
@@ -630,6 +639,14 @@ const handleExportUnclassified = async () => {
   finally {
     unclsExporting.value = false
   }
+}
+
+function nameTip(record: ComplianceDrillItem) {
+  if (record.subtitle) return record.subtitle
+  const parts: string[] = []
+  if (record.product_version) parts.push(`产品版本：${record.product_version}`)
+  if (record.cosmic_version) parts.push(`苍穹版本：${record.cosmic_version}`)
+  return parts.join('；')
 }
 
 const handleExport = async () => {

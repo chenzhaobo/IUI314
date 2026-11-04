@@ -136,11 +136,14 @@
               >
                 <template #title="node">
                   <a-tooltip :content="node.subtitle ? `产品版本：${node.subtitle}` : ''" :disabled="!node.subtitle" mini>
-                    <span>{{ displayTitle(node) }}</span>
+                    <span>
+                      <span>{{ displayTitle(node) }}</span>
+                      <span v-if="node.subtitle" style="margin-left: 6px; font-size: 12px; color: #86909c">{{ node.subtitle }}</span>
+                      <span style="margin-left: 6px; font-size: 12px" :style="{ color: rateColor(node.compliance_rate) }">
+                        {{ node.compliance_rate?.toFixed(2) }}%
+                      </span>
+                    </span>
                   </a-tooltip>
-                  <span style="margin-left: 6px; font-size: 12px" :style="{ color: rateColor(node.compliance_rate) }">
-                    {{ node.compliance_rate?.toFixed(2) }}%
-                  </span>
                 </template>
               </a-tree>
               <a-empty v-else description="暂无树数据" />
