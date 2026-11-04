@@ -296,6 +296,8 @@ export interface ComplianceTreeNode {
   is_leaf: boolean
   context_key?: string
   context_value?: string
+  /** 表单节点所属应用：同一表单编码可能被多个应用复用，展开按钮时必须带上 */
+  app_number?: string
   children?: ComplianceTreeNode[]
 }
 

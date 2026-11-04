@@ -25,9 +25,9 @@ export function useComplianceFilters(productLine: Ref<string>, options: UseCompl
   const productDomain = ref('')
   const businessArea = ref('')
   const projectGroupCode = ref('')
-  const customer = ref('')
-  const productVersion = ref('')
-  const cosmicVersion = ref('')
+  const customer = ref<string[]>([])
+  const productVersion = ref<string[]>([])
+  const cosmicVersion = ref<string[]>([])
 
   const productDomainOptions = ref<DimensionOption[]>([])
   const businessAreaOptions = ref<DimensionOption[]>([])
@@ -104,7 +104,7 @@ export function useComplianceFilters(productLine: Ref<string>, options: UseCompl
       product_line: productLine.value,
       keyword: keyword.trim(),
       limit: VERSION_OPTION_LIMIT,
-      ...(customer.value ? { customer: customer.value } : {}),
+      ...(customer.value.length ? { customer: customer.value.join(',') } : {}),
     }
   }
 
@@ -155,8 +155,8 @@ export function useComplianceFilters(productLine: Ref<string>, options: UseCompl
   }
 
   function onCustomerFilterChange() {
-    productVersion.value = ''
-    cosmicVersion.value = ''
+    productVersion.value = []
+    cosmicVersion.value = []
     loadVersionOptions('product_version')
     loadVersionOptions('cosmic_version')
     onChange?.()
@@ -202,9 +202,9 @@ export function useComplianceFilters(productLine: Ref<string>, options: UseCompl
     if (productDomain.value) params.product_domain = productDomain.value
     if (businessArea.value) params.business_area = businessArea.value
     if (projectGroupCode.value) params.project_group_code = projectGroupCode.value
-    if (customer.value) params.customer = customer.value
-    if (productVersion.value) params.product_version = productVersion.value
-    if (cosmicVersion.value) params.cosmic_version = cosmicVersion.value
+    if (customer.value.length) params.customer = customer.value.join(',')
+    if (productVersion.value.length) params.product_version = productVersion.value.join(',')
+    if (cosmicVersion.value.length) params.cosmic_version = cosmicVersion.value.join(',')
     return params
   }
 
@@ -213,9 +213,9 @@ export function useComplianceFilters(productLine: Ref<string>, options: UseCompl
     productDomain.value = ''
     businessArea.value = ''
     projectGroupCode.value = ''
-    customer.value = ''
-    productVersion.value = ''
-    cosmicVersion.value = ''
+    customer.value = []
+    productVersion.value = []
+    cosmicVersion.value = []
     reloadDimensionOptions()
   }
 

@@ -2,6 +2,7 @@
   <div class="page-container">
     <a-card :bordered="false" :body-style="{ padding: '16px' }">
       <!-- 顶部选择器 -->
+      <template v-if="!filtersCollapsed">
       <a-row :gutter="12" style="margin-bottom: 12px" align="center">
         <a-col :span="3">
           <a-select v-model="productLine" @change="onProductLineChange">
@@ -9,7 +10,7 @@
             <a-option value="星空">星空</a-option>
           </a-select>
         </a-col>
-        <a-col :span="3">
+        <a-col :span="2">
           <a-select v-model="periodType" @change="onPeriodTypeChange">
             <a-option value="monthly">按月</a-option>
             <a-option value="weekly">按周</a-option>
@@ -34,7 +35,7 @@
             <a-option value="custom_only">仅二开</a-option>
           </a-select>
         </a-col>
-        <a-col :span="7">
+        <a-col :span="6">
           <!-- 「未分类」节点只能看出有多少量没归类，看不出是哪些应用。
                导出的列格式与模块管理导入模板一致，填好项目组编码就能直接导回去 -->
           <a-space :size="8">
@@ -48,6 +49,9 @@
               <a-button size="small" @click="handleExport">导出明细</a-button>
             </a-tooltip>
           </a-space>
+        </a-col>
+        <a-col :span="2" style="text-align: right">
+          <a-link @click="filtersCollapsed = true">收起筛选</a-link>
         </a-col>
       </a-row>
       <!-- 维度过滤：产品领域/业务领域/项目组/客户/版本，客户与版本支持远程搜索 -->
@@ -70,7 +74,9 @@
         <a-col :span="4">
           <a-select
             v-model="customer"
-            placeholder="客户"
+            placeholder="客户（可多选）"
+            multiple
+            :max-tag-count="2"
             allow-clear
             allow-search
             :loading="customerLoading"
@@ -83,7 +89,9 @@
         <a-col :span="3">
           <a-select
             v-model="productVersion"
-            placeholder="产品版本"
+            placeholder="产品版本（可多选）"
+            multiple
+            :max-tag-count="2"
             allow-clear
             allow-search
             :loading="versionLoading"
@@ -96,7 +104,9 @@
         <a-col :span="3">
           <a-select
             v-model="cosmicVersion"
-            placeholder="苍穹版本"
+            placeholder="苍穹版本（可多选）"
+            multiple
+            :max-tag-count="2"
             allow-clear
             allow-search
             :loading="versionLoading"
@@ -110,17 +120,13 @@
           <a-button size="small" @click="handleResetFilters">重置过滤</a-button>
         </a-col>
       </a-row>
-      <a-row :gutter="16" style="margin-bottom: 12px" align="center">
-        <a-col :span="24">
-          <a-radio-group v-model="dimension" type="button" @change="onDimensionChange">
-            <a-radio value="menu">菜单</a-radio>
-            <a-radio value="project_group">项目组</a-radio>
-            <a-radio value="business_area">业务领域</a-radio>
-            <a-radio value="product_domain">产品领域</a-radio>
-            <a-radio value="customer">客户</a-radio>
-            <a-radio value="product_version">产品版本</a-radio>
-            <a-radio value="cosmic_version">苍穹版本</a-radio>
-          </a-radio-group>
+      </template>
+      <a-row v-else :gutter="12" style="margin-bottom: 12px" align="center">
+        <a-col :span="22">
+          <div class="filter-summary" :title="filterSummaryText">{{ filterSummaryText || '未设置查询条件' }}</div>
+        </a-col>
+        <a-col :span="2" style="text-align: right">
+          <a-link @click="filtersCollapsed = false">展开筛选</a-link>
         </a-col>
       </a-row>
 
@@ -129,6 +135,12 @@
       <div ref="layoutRow" :style="{ display: 'flex', gap: '16px', height: layoutRowH + 'px', minHeight: '420px' }">
         <!-- 左树 -->
         <div style="width: 280px; flex-shrink: 0; border-right: 1px solid #e5e6eb; padding-right: 12px; display: flex; flex-direction: column; min-height: 0">
+          <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px">
+            <span style="font-size: 12px; color: #86909c; white-space: nowrap">维度</span>
+            <a-select v-model="dimension" class="dimension-select" size="small" style="flex: 1" @change="onDimensionChange">
+              <a-option v-for="d in DIMENSION_OPTIONS" :key="d.value" :value="d.value">{{ d.label }}</a-option>
+            </a-select>
+          </div>
           <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px">
             <a-input-search v-model="treeSearch" placeholder="搜索节点" allow-clear style="flex: 1" />
             <a-switch v-model="showCode" size="small" />
@@ -221,11 +233,6 @@
               <a-table-column title="最大耗时(秒)" data-index="max_cost" :width="90" align="right" :sortable="{ sortDirections: ['descend', 'ascend'], sorter: numSorter('max_cost') }">
                 <template #cell="{ record }">{{ (record.max_cost / 1000).toFixed(3) }}</template>
               </a-table-column>
-              <template v-if="showCustomerScope">
-                <a-table-column title="客户" data-index="customer" :width="160" ellipsis />
-                <a-table-column title="产品版本" data-index="product_version" :width="110" ellipsis />
-                <a-table-column title="苍穹版本" data-index="cosmic_version" :width="110" ellipsis />
-              </template>
               <a-table-column title="操作" :width="90">
                 <template #cell="{ record }">
                   <a-dropdown v-if="rowActionable(record)" trigger="click" @select="(key: unknown) => handleRowAction(String(key), record)">
@@ -254,7 +261,7 @@ import { ApiPerfCompliance, type ComplianceDrillItem, type ComplianceTreeNode } 
 import { rateColor, useAutoHeight, useDownload, useGet, useTableAutoHeight } from '@/hooks'
 import { ComplianceSlowLogsRouteName } from '@/router/constant'
 import { useComplianceFilters } from '@/views/perf/composables/useComplianceFilters'
-import { useComplianceTree } from '@/views/perf/composables/useComplianceTree'
+import { DIMENSION_OPTIONS, useComplianceTree } from '@/views/perf/composables/useComplianceTree'
 
 defineOptions({ name: 'compliance-dashboard' })
 
@@ -332,6 +339,8 @@ const onPeriodChange = (value: ArcoSelectValue) => {
 
 // ── 维度与过滤 ──────────────────────────────────
 const dimension = ref('menu')
+// 筛选区折叠：展开时显示两行完整条件，折叠时只留一行“字段：值”摘要
+const filtersCollapsed = ref(false)
 // 达标状态过滤：''=全部 | pass=达标(≥99%) | fail=不达标(<99%)
 const complianceFilter = ref('')
 // 二开过滤：''=全部 | standard_only=仅标品 | custom_only=仅二开
@@ -388,18 +397,43 @@ const {
   dimFilterParams,
 })
 
+// 折叠态摘要：只展示“字段：当前值”，一行展示不下时用省略号，title 看全文
+function optionLabel(options: { code: string; name: string }[], code: string) {
+  return options.find(o => o.code === code)?.name || code
+}
+
+const filterSummaryText = computed(() => {
+  const periodLabel = periodOptions.value.find(p => p.period === selectedPeriod.value)?.label || selectedPeriod.value
+  const dimensionLabel = DIMENSION_OPTIONS.find(d => d.value === dimension.value)?.label || dimension.value
+  const parts = [`产品线：${productLine.value}`, `周期：${periodLabel || '--'}`, `维度：${dimensionLabel}`]
+  if (complianceFilter.value) {
+    parts.push(`达标状态：${complianceFilter.value === 'pass' ? '达标(≥99%)' : '不达标(<99%)'}`)
+  }
+  if (customFilter.value) {
+    parts.push(`二开：${customFilter.value === 'standard_only' ? '仅标品' : '仅二开'}`)
+  }
+  if (productDomain.value) parts.push(`产品领域：${optionLabel(productDomainOptions.value, productDomain.value)}`)
+  if (businessArea.value) parts.push(`业务领域：${optionLabel(businessAreaOptions.value, businessArea.value)}`)
+  if (projectGroupCode.value) parts.push(`项目组：${optionLabel(projectGroupOptions.value, projectGroupCode.value)}`)
+  if (customer.value.length) parts.push(`客户：${customer.value.join('、')}`)
+  if (productVersion.value.length) parts.push(`产品版本：${productVersion.value.join('、')}`)
+  if (cosmicVersion.value.length) parts.push(`苍穹版本：${cosmicVersion.value.join('、')}`)
+  return parts.join(' ｜ ')
+})
+
 const onDimensionChange = () => {
+  const hadSelection = selectedKeys.value.length > 0
   selectedKeys.value = []
   reloadTree()
+  // 原来没有选中节点时 watch 不会触发；维度切换后右表也要回到新维度的「全部」汇总
+  if (!hadSelection) refreshDrill()
 }
 
 // 过滤条件变化 → 重载树 + 明细 + 总览（清空选中节点，过滤后原节点可能不存在）
 function reloadFiltered() {
   if (!selectedPeriod.value) return
   reloadTree()
-  drillPayload.value = buildDrillParams()
-  tableLoading.value = true
-  fetchDrill().finally(() => { tableLoading.value = false })
+  refreshDrill()
   overviewPayload.value = { ...buildDrillParams() }
   fetchOverview()
 }
@@ -429,12 +463,6 @@ const periodText = computed(() => {
   return s ? `${s} ~ ${e}` : '--'
 })
 
-// 客户/版本列只在相关过滤或维度激活时展示，平时不占列宽
-const showCustomerScope = computed(() => Boolean(
-  customer.value || productVersion.value || cosmicVersion.value
-  || ['customer', 'product_version', 'cosmic_version'].includes(dimension.value),
-))
-
 // ── 明细表格（drill） ──────────────────────────────────
 const tableData = ref<ComplianceDrillItem[]>([])
 const tableLoading = ref(false)
@@ -444,11 +472,15 @@ const { execute: fetchDrill } = useGet<ComplianceDrillItem[]>(ApiPerfCompliance.
   onSuccess(data) { tableData.value = Array.isArray(data) ? data : [] },
 })
 
+function refreshDrill() {
+  drillPayload.value = buildDrillParams()
+  tableLoading.value = true
+  fetchDrill().finally(() => { tableLoading.value = false })
+}
+
 watch(selectedKeys, () => {
   if (selectedPeriod.value) {
-    drillPayload.value = buildDrillParams()
-    tableLoading.value = true
-    fetchDrill().finally(() => { tableLoading.value = false })
+    refreshDrill()
     // 更新总览（带维度过滤）
     overviewPayload.value = { ...buildDrillParams() }
     fetchOverview()
@@ -600,3 +632,13 @@ const handleExport = async () => {
   await downloadWithTip(`/perf/compliance/export?${params}`, '达标率明细.csv', '达标率明细导出失败')
 }
 </script>
+
+<style scoped>
+.filter-summary {
+  overflow: hidden;
+  color: var(--color-text-2);
+  font-size: 13px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+</style>

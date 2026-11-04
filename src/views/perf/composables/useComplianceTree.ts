@@ -19,6 +19,17 @@ export const DIMENSION_PARAM: Record<string, string> = {
   cosmic_version: 'cosmic_version',
 }
 
+/** 维度切换下拉选项（看板与趋势共用） */
+export const DIMENSION_OPTIONS = [
+  { label: '菜单', value: 'menu' },
+  { label: '项目组', value: 'project_group' },
+  { label: '业务领域', value: 'business_area' },
+  { label: '产品领域', value: 'product_domain' },
+  { label: '客户', value: 'customer' },
+  { label: '产品版本', value: 'product_version' },
+  { label: '苍穹版本', value: 'cosmic_version' },
+] as const
+
 /** 客户/版本树节点上下文列 → 请求参数名 */
 const CONTEXT_PARAM: Record<string, string> = {
   customer_name: 'customer',
@@ -147,6 +158,9 @@ export function useComplianceTree(options: ComplianceTreeOptions) {
     const inheritedContext = parent.context_key && parent.context_value
       ? { context_key: parent.context_key, context_value: parent.context_value }
       : dimensionNodeContext(parent.level, parent.code)
+    // 表单编码可能被多个应用复用（实测 im/sm/vmi 都有 im_saloutbill），
+    // 展开按钮时必须带上所属应用，否则会把其他应用的同名表单算进来。
+    const appNumber = parent.level === 'app' ? parent.code : parent.app_number
     return items
       .map(item => ({
         key: dimension.value === 'menu' ? `${item.level}:${item.code}` : `${parent.key}/${item.level}:${item.code}`,
@@ -158,6 +172,7 @@ export function useComplianceTree(options: ComplianceTreeOptions) {
         compliance_rate: item.compliance_rate,
         is_leaf: item.level === 'button',
         ...inheritedContext,
+        ...(appNumber ? { app_number: appNumber } : {}),
         children: [] as ComplianceTreeNode[],
       }))
       .sort((a, b) => b.total_count - a.total_count)
@@ -172,6 +187,11 @@ export function useComplianceTree(options: ComplianceTreeOptions) {
     if (node.level === 'app') {
       params.level = 'form'
       params.app_number = node.code
+      Object.assign(params, contextParams(node))
+    } else if (node.level === 'form') {
+      params.level = 'button'
+      params.form_id = node.code
+      if (node.app_number) params.app_number = node.app_number
       Object.assign(params, contextParams(node))
     } else if (DIMENSION_PARAM[node.level]) {
       params.level = 'app'
@@ -216,11 +236,12 @@ export function useComplianceTree(options: ComplianceTreeOptions) {
   /** 构建树节点选中后的 drill 请求参数 */
   const buildDrillParams = (): Record<string, unknown> => {
     const params = baseParams()
-    params.level = 'cloud'
+    params.level = dimension.value === 'menu' ? 'cloud' : dimension.value
     if (!selectedKeys.value.length) return params
 
     const nodeKey = selectedKeys.value[0]
-    // 「全部」根节点 → 不加过滤，展示整体云级汇总
+    // 「全部」根节点：菜单维度展示云级汇总；归类/客户/版本维度展示该维度
+    // 下一级（即维度值本身）的汇总，与左树顶层节点一致。
     if (nodeKey === 'root:all') return params
     const node = findTreeNode(treeData.value, nodeKey)
     if (!node) return params
@@ -246,6 +267,7 @@ export function useComplianceTree(options: ComplianceTreeOptions) {
     } else if (node.level === 'form') {
       params.level = 'button'
       params.form_id = node.code
+      if (node.app_number) params.app_number = node.app_number
       Object.assign(params, contextParams(node))
     }
     return params

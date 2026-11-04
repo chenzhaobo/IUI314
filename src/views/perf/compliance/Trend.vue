@@ -15,20 +15,25 @@
             <a-option value="weekly">按周</a-option>
           </a-select>
         </a-col>
-        <a-col :span="4">
+        <a-col :span="5">
           <a-select v-model="selectedPeriod" placeholder="选择周期" @change="onPeriodChange">
             <a-option v-for="p in periodOptions" :key="p.period" :value="p.period">{{ p.label }}</a-option>
           </a-select>
         </a-col>
-        <a-col :span="3">
+        <a-col :span="4">
           <a-select v-model="customFilter" placeholder="二开过滤">
             <a-option value="">全部</a-option>
             <a-option value="standard_only">仅标品</a-option>
             <a-option value="custom_only">仅二开</a-option>
           </a-select>
         </a-col>
-        <!-- 维度过滤：产品领域/业务领域/项目组，级联收窄选项 -->
-        <a-col :span="4">
+        <a-col :span="11" style="text-align: right">
+          <a-button size="small" @click="handleExport">导出CSV</a-button>
+        </a-col>
+      </a-row>
+      <!-- 维度过滤：产品领域/业务领域/项目组/客户/版本，客户与版本走远程搜索 -->
+      <a-row :gutter="12" style="margin-bottom: 12px" align="center">
+        <a-col :span="3">
           <a-select v-model="productDomain" placeholder="产品领域" allow-clear allow-search @change="onProductDomainFilterChange">
             <a-option v-for="o in productDomainOptions" :key="o.code" :value="o.code">{{ o.name }}</a-option>
           </a-select>
@@ -43,16 +48,12 @@
             <a-option v-for="o in projectGroupOptions" :key="o.code" :value="o.code">{{ o.name }}</a-option>
           </a-select>
         </a-col>
-        <a-col :span="3" style="text-align: right">
-          <a-button size="small" @click="handleExport">导出CSV</a-button>
-        </a-col>
-      </a-row>
-      <!-- 客户/版本过滤：客户与版本走远程搜索，版本按已选客户级联 -->
-      <a-row :gutter="12" style="margin-bottom: 12px" align="center">
-        <a-col :span="5">
+        <a-col :span="4">
           <a-select
             v-model="customer"
-            placeholder="客户"
+            placeholder="客户（可多选）"
+            multiple
+            :max-tag-count="2"
             allow-clear
             allow-search
             :loading="customerLoading"
@@ -65,7 +66,9 @@
         <a-col :span="4">
           <a-select
             v-model="productVersion"
-            placeholder="产品版本"
+            placeholder="产品版本（可多选）"
+            multiple
+            :max-tag-count="2"
             allow-clear
             allow-search
             :loading="versionLoading"
@@ -78,7 +81,9 @@
         <a-col :span="4">
           <a-select
             v-model="cosmicVersion"
-            placeholder="苍穹版本"
+            placeholder="苍穹版本（可多选）"
+            multiple
+            :max-tag-count="2"
             allow-clear
             allow-search
             :loading="versionLoading"
@@ -92,19 +97,6 @@
           <a-button size="small" @click="handleResetFilters">重置过滤</a-button>
         </a-col>
       </a-row>
-      <a-row :gutter="16" style="margin-bottom: 12px" align="center">
-        <a-col :span="24">
-          <a-radio-group v-model="dimension" type="button" @change="onDimensionChange">
-            <a-radio value="menu">菜单</a-radio>
-            <a-radio value="project_group">项目组</a-radio>
-            <a-radio value="business_area">业务领域</a-radio>
-            <a-radio value="product_domain">产品领域</a-radio>
-            <a-radio value="customer">客户</a-radio>
-            <a-radio value="product_version">产品版本</a-radio>
-            <a-radio value="cosmic_version">苍穹版本</a-radio>
-          </a-radio-group>
-        </a-col>
-      </a-row>
 
       <!-- 左树右图：高度占满视口剩余空间，利用页面下方空白 -->
       <!-- 外层 flex 行定高：子项靠 flex 派生高度，需父级有确定 height（maxHeight 不算），故用实测 height -->
@@ -116,6 +108,12 @@
           min-height:0 是 flex 子项能被压缩的前提，缺了它内部 overflow 不触发。
         -->
         <div style="width: 280px; flex-shrink: 0; border-right: 1px solid #e5e6eb; padding-right: 12px; display: flex; flex-direction: column; min-height: 0">
+          <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px">
+            <span style="font-size: 12px; color: #86909c; white-space: nowrap">维度</span>
+            <a-select v-model="dimension" class="dimension-select" size="small" style="flex: 1" @change="onDimensionChange">
+              <a-option v-for="d in DIMENSION_OPTIONS" :key="d.value" :value="d.value">{{ d.label }}</a-option>
+            </a-select>
+          </div>
           <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px">
             <a-input-search v-model="treeSearch" placeholder="搜索节点" allow-clear style="flex: 1" />
             <a-switch v-model="showCode" size="small" />
@@ -177,7 +175,7 @@ import * as echarts from 'echarts'
 import { ApiPerfCompliance, type ComplianceTreeNode } from '@/api/perfApis'
 import { getQueryUrl, rateColor, useAutoHeight, useDownload, useGet, useRequest } from '@/hooks'
 import { useComplianceFilters } from '@/views/perf/composables/useComplianceFilters'
-import { DIMENSION_PARAM, contextParams, useComplianceTree } from '@/views/perf/composables/useComplianceTree'
+import { DIMENSION_OPTIONS, DIMENSION_PARAM, contextParams, useComplianceTree } from '@/views/perf/composables/useComplianceTree'
 
 defineOptions({ name: 'compliance-trend' })
 
