@@ -5,7 +5,7 @@
  * `context_key/context_value`，本 composable 负责在展开表单、穿透明细时
  * 把这层上下文一起带上，避免不同客户分支的数据串在一起。
  */
-import { computed, ref, type Ref } from 'vue'
+import { computed, ref, watch, type Ref } from 'vue'
 import { ApiPerfCompliance, type ComplianceDrillItem, type ComplianceTreeNode } from '@/api/perfApis'
 import { useGet } from '@/hooks'
 
@@ -67,6 +67,8 @@ export function useComplianceTree(options: ComplianceTreeOptions) {
   const treeLoading = ref(false)
   const treeSearch = ref('')
   const selectedKeys = ref<string[]>([])
+  // 只默认展开「全部」根节点；其余节点按需展开，避免大树一次性渲染全部 DOM
+  const expandedKeys = ref<string[]>(['root:all'])
   const showCode = ref(false)
 
   const treePayload = ref<Record<string, unknown>>({})
@@ -74,6 +76,7 @@ export function useComplianceTree(options: ComplianceTreeOptions) {
     immediate: false,
     onSuccess(data) {
       treeData.value = Array.isArray(data) ? data : []
+      expandedKeys.value = ['root:all']
     },
   })
 
@@ -233,6 +236,25 @@ export function useComplianceTree(options: ComplianceTreeOptions) {
     return filterNodes(wrappedTree.value)
   })
 
+  // 搜索时自动展开命中的分支，否则匹配节点藏在折叠节点里看不到
+  watch(treeSearch, (keyword) => {
+    if (!keyword) {
+      expandedKeys.value = ['root:all']
+      return
+    }
+    const keys: string[] = []
+    const collect = (nodes: ComplianceTreeNode[]) => {
+      for (const node of nodes) {
+        if (node.children?.length) {
+          keys.push(node.key)
+          collect(node.children)
+        }
+      }
+    }
+    collect(displayTree.value)
+    expandedKeys.value = keys
+  })
+
   /** 构建树节点选中后的 drill 请求参数 */
   const buildDrillParams = (): Record<string, unknown> => {
     const params = baseParams()
@@ -278,6 +300,7 @@ export function useComplianceTree(options: ComplianceTreeOptions) {
     treeLoading,
     treeSearch,
     selectedKeys,
+    expandedKeys,
     showCode,
     wrappedTree,
     displayTree,
