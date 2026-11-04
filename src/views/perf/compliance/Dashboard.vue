@@ -1,6 +1,11 @@
 <template>
   <div class="page-container">
     <a-card :bordered="false" :body-style="{ padding: '16px' }">
+      <!-- 版本口径提示：客户清单只有当前版本，历史周期也按当前版本聚合 -->
+      <a-alert v-if="showVersionTip" type="info" closable class="version-tip" @close="dismissVersionTip">
+        版本号取客户清单中的<b>最新版本</b>，不代表历史周期实际使用的版本。客户可能在周期之间升级，例如 9 月为 8.0.1、10 月升级到 9.0.1，历史周期也会按最新版本展示。
+      </a-alert>
+
       <!-- 顶部选择器 -->
       <template v-if="!filtersCollapsed">
       <a-row :gutter="12" style="margin-bottom: 12px" align="center">
@@ -350,6 +355,14 @@ const onPeriodChange = (value: ArcoSelectValue) => {
   }
 }
 
+// ── 版本口径提示（关闭后记住） ──────────────────────────────
+const VERSION_TIP_KEY = 'ttp:compliance-version-tip-dismissed'
+const showVersionTip = ref(localStorage.getItem(VERSION_TIP_KEY) !== '1')
+const dismissVersionTip = () => {
+  showVersionTip.value = false
+  localStorage.setItem(VERSION_TIP_KEY, '1')
+}
+
 // ── 维度与过滤 ──────────────────────────────────
 const dimension = ref('menu')
 // 筛选区折叠：展开时显示两行完整条件，折叠时只留一行“字段：值”摘要
@@ -656,6 +669,10 @@ const handleExport = async () => {
 </script>
 
 <style scoped>
+.version-tip {
+  margin-bottom: 12px;
+}
+
 .filter-summary {
   overflow: hidden;
   color: var(--color-text-2);
