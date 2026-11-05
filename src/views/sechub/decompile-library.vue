@@ -102,12 +102,25 @@
             <a-button type="primary" @click="fetchPackages()">查询</a-button>
             <a-button @click="resetPackageQuery()">重置</a-button>
             <a-checkbox v-model="packageQuery.unregistered_only" @change="fetchPackages()">只看未登记</a-checkbox>
+            <a-button status="danger" :disabled="!selectedPackageIds.length || anySourceRunning" :loading="deletingPackages" @click="confirmDeleteSelected">
+              删除选中{{ selectedPackageIds.length ? `（${selectedPackageIds.length}）` : '' }}
+            </a-button>
           </a-space>
         </a-col>
       </a-row>
 
       <div ref="packageTableWrap">
-        <a-table :data="packages" :loading="packagesLoading" :pagination="packagePagination" row-key="id" column-resizable :scroll="{ y: packageTableHeight }" @page-change="changePackagePage">
+        <a-table
+          v-model:selected-keys="selectedPackageIds"
+          :data="packages"
+          :loading="packagesLoading"
+          :pagination="packagePagination"
+          :row-selection="{ type: 'checkbox', showCheckedAll: true }"
+          row-key="id"
+          column-resizable
+          :scroll="{ y: packageTableHeight }"
+          @page-change="changePackagePage"
+        >
         <template #columns>
           <a-table-column title="包名" data-index="package_name" :width="200" ellipsis tooltip />
           <a-table-column title="状态" :width="100">
@@ -136,11 +149,18 @@
             </template>
           </a-table-column>
           <a-table-column title="更新时间" data-index="decompiled_at" :width="170" ellipsis tooltip />
-          <a-table-column title="操作" :width="150" fixed="right">
+          <a-table-column title="操作" :width="200" fixed="right">
             <template #cell="{ record }">
               <a-space>
                 <a-link @click="showPackageDetail(record)">详情</a-link>
                 <a-link @click="registerOne(record)">登记扫描</a-link>
+                <a-popconfirm
+                  :content="`删除 ${record.package_name} 的反编译产物与清单记录${record.repository_id ? '，已登记的扫描仓库一并删除' : ''}？不可恢复。`"
+                  type="warning"
+                  @ok="deletePackages([record])"
+                >
+                  <a-link status="danger" :disabled="anySourceRunning || deletingPackages">删除</a-link>
+                </a-popconfirm>
               </a-space>
             </template>
           </a-table-column>
@@ -232,7 +252,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { Message, Modal } from '@arco-design/web-vue'
 import { ApiSecDecompile } from '@/api/sechubApis'
-import { useGet, usePost, useTableAutoHeight, useToken } from '@/hooks'
+import { postAction, useGet, usePost, useTableAutoHeight, useToken } from '@/hooks'
 
 defineOptions({ name: 'decompile-library' })
 
@@ -550,6 +570,68 @@ const registerOne = async (record: any) => {
   Message.success(`已登记 ${record.package_name}`)
   fetchSources()
   fetchPackages()
+}
+
+// ── 删除包 ──────────────────────────────────────────
+// 删磁盘产物 + 清单记录 + 由它登记的扫描仓库；源正在更新/上传时后端会拒绝，这里先禁用按钮
+const selectedPackageIds = ref<string[]>([])
+const deletingPackages = ref(false)
+const anySourceRunning = computed(() => sources.value.some((item: any) => !!runningRun(item)))
+
+function formatSize(bytes: number): string {
+  if (!bytes || bytes <= 0)
+    return '0 MB'
+  return bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(2)} GB` : `${(bytes / 1024 ** 2).toFixed(1)} MB`
+}
+
+async function deletePackages(records: any[]) {
+  if (!records.length)
+    return
+  // 接口按源删除：多个源的包分开提交
+  const bySource = new Map<string, any[]>()
+  for (const record of records) {
+    const sourceId = String(record.source_id).trim()
+    bySource.set(sourceId, [...(bySource.get(sourceId) || []), record])
+  }
+  deletingPackages.value = true
+  try {
+    const deleted: string[] = []
+    let freed = 0
+    let repos = 0
+    for (const [sourceId, list] of bySource) {
+      const res = await postAction<any>(ApiSecDecompile.packageDelete, { source_id: sourceId, package_ids: list.map(r => String(r.id).trim()) })
+      if (res === null)
+        break
+      deleted.push(...(res.deleted || []))
+      freed += res.freed_bytes || 0
+      repos += res.repositories_removed || 0
+      if (res.index_error)
+        Message.warning(`包已删除，但重建索引文件失败：${res.index_error}，可点「重建索引文件」重试`)
+    }
+    if (deleted.length) {
+      Message.success(`已删除 ${deleted.length} 个包（释放约 ${formatSize(freed)}${repos ? `，同时删除 ${repos} 个扫描仓库` : ''}）`)
+      selectedPackageIds.value = selectedPackageIds.value.filter(id => !records.some(r => String(r.id).trim() === id))
+    }
+  }
+  finally {
+    deletingPackages.value = false
+    fetchSources()
+    fetchPackages()
+  }
+}
+
+function confirmDeleteSelected() {
+  const records = packages.value.filter((r: any) => selectedPackageIds.value.includes(String(r.id).trim()))
+  if (!records.length)
+    return
+  const names = records.map((r: any) => r.package_name)
+  Modal.warning({
+    title: `删除 ${records.length} 个包`,
+    content: `将删除 ${names.slice(0, 10).join('、')}${names.length > 10 ? ` 等 ${names.length} 个包` : ''} 的反编译产物与清单记录，已登记的扫描仓库一并删除，不可恢复。包仓库索引里有的包，下次一键更新会重新下载。`,
+    hideCancel: false,
+    okText: '删除',
+    onOk: () => deletePackages(records),
+  })
 }
 
 // ── className 反查 ──────────────────────────────────────

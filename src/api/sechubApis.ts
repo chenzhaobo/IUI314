@@ -368,6 +368,8 @@ export enum ApiSecDecompile {
   runGet = '/sechub/decompile/run/get',
   runCancel = '/sechub/decompile/run/cancel',
   packageList = '/sechub/decompile/package/list',
+  /** 删除包：磁盘产物 + 清单记录 + 由它登记的扫描仓库 */
+  packageDelete = '/sechub/decompile/package/delete',
   lookup = '/sechub/decompile/lookup',
   registerRepositories = '/sechub/decompile/register-repositories',
   reassociate = '/sechub/decompile/reassociate',
