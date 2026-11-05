@@ -7,7 +7,8 @@
  * - 「导入API信息」：粘贴调用路径（每行一个）→ 后端在 API 资产里逐条精确匹配（自动补 /kapi 前缀）→ 生成一个任务；
  * - 左树：初始为空；点选列表中的任务后，按归属维度展示该任务里的 API
  *   （GET /sechub/custom-api-task/tree?task_id=，结构与 API 资产树一致，展开到 API）。
- * - 「运行」：选 Agent / 模型 / 代码库（默认该应用的反编译源码库）→ 后端定位 API 实现代码 → AI 扫描 → Markdown 报告；
+ * - 「运行」：选 Agent / 模型，并按应用各选一个代码库（默认各应用的反编译源码库）→ 后端在各库里定位 API 实现代码
+ *   → 每个代码库调用一次 AI 扫描 → 合并成一份 Markdown 报告；
  *   运行在后台，列表每 5 秒轮询状态；
  * - 「扫描结果」：报告（Markdown）+ 逐条结论（未找到API / 已排除 / 确认问题）；
  * - 「删除」：软删除任务（运行中不可删）。
@@ -86,11 +87,33 @@ interface TaskItem {
   ai_summary?: string | null
 }
 
+/** 任务内的一个应用（运行弹窗按应用选代码库） */
+interface AppRepoOption {
+  /** 空串 = 未归属应用 */
+  app_number: string
+  app_name?: string | null
+  api_count: number
+  /** 上次运行为该应用选的代码库 */
+  selected_repository_id?: string | null
+  /** 该应用的反编译源码库 */
+  suggested_repository_id?: string | null
+}
+
 interface TaskDetail {
   task: any
   items: TaskItem[]
+  repositories: { id: string, name: string, default_branch: string, apps: string[] }[]
   repository_name?: string | null
-  suggested_repository_id?: string | null
+  apps: AppRepoOption[]
+}
+
+/** 运行弹窗里一行：应用 → 代码库（'' = 不选） */
+interface AppRepoRow {
+  appNumber: string
+  label: string
+  apiCount: number
+  suggested: boolean
+  repositoryId: string
 }
 
 // ── 左树：跟随选中的任务 ───────────────────────────
@@ -211,7 +234,10 @@ async function handleImport() {
 const runVisible = ref(false)
 const runSubmitting = ref(false)
 const runTask = ref<any>(null)
-const runForm = reactive({ agentCode: '', model: '', repositoryId: '' })
+const runForm = reactive({ agentCode: '', model: '' })
+const appRepoRows = ref<AppRepoRow[]>([])
+const runDetailLoading = ref(false)
+const unassignedApiCount = computed(() => appRepoRows.value.filter(row => !row.repositoryId).reduce((sum, row) => sum + row.apiCount, 0))
 const agentList = ref<AiAgent[]>([])
 const repoList = ref<ModuleWithRepository[]>([])
 const runLookupsLoading = ref(false)
@@ -250,12 +276,11 @@ watch(() => runForm.agentCode, () => {
     runForm.model = ''
 })
 
+/** Agent 列表缓存；代码库每次打开都重新拉（刚反编译、刚登记的库要能马上选到） */
 async function ensureRunLookups() {
-  if (agentList.value.length && repoList.value.length)
-    return
   runLookupsLoading.value = true
   try {
-    const [agents, repos] = await Promise.all([fetchAgents(), fetchRepositories()])
+    const [agents, repos] = await Promise.all([agentList.value.length ? Promise.resolve(null) : fetchAgents(), fetchRepositories()])
     if (agents)
       agentList.value = agents
     if (repos)
@@ -266,21 +291,46 @@ async function ensureRunLookups() {
   }
 }
 
+function appLabel(app: AppRepoOption): string {
+  if (!app.app_number)
+    return '未归属应用'
+  return app.app_name ? `${app.app_number} ${app.app_name}` : app.app_number
+}
+
 async function openRun(record: any) {
   runTask.value = record
+  appRepoRows.value = []
   runVisible.value = true
-  await ensureRunLookups()
-  const detail = await getAction<TaskDetail>(ApiSecCustomApiTask.detail, { task_id: String(record.id).trim() })
-  const agents = agentList.value.map(a => a.agent_code)
-  runForm.agentCode = [record.agent_code, 'qoder-cli-scan', agents[0]].find(code => code && agents.includes(code)) || ''
-  runForm.model = record.model && modelOptions.value.some(option => option.value === record.model) ? record.model : ''
-  const repoIds = repoOptions.value.map(option => option.value)
-  runForm.repositoryId = [record.repository_id, detail?.suggested_repository_id].map(id => String(id || '').trim()).find(id => id && repoIds.includes(id)) || ''
+  runDetailLoading.value = true
+  try {
+    await ensureRunLookups()
+    const detail = await getAction<TaskDetail>(ApiSecCustomApiTask.detail, { task_id: String(record.id).trim() })
+    const agents = agentList.value.map(a => a.agent_code)
+    runForm.agentCode = [record.agent_code, 'qoder-cli-scan', agents[0]].find(code => code && agents.includes(code)) || ''
+    runForm.model = record.model && modelOptions.value.some(option => option.value === record.model) ? record.model : ''
+    const repoIds = repoOptions.value.map(option => option.value)
+    // 每个应用：上次所选 > 该应用的反编译源码库；都不在可选列表里就留空
+    appRepoRows.value = (detail?.apps || []).map((app) => {
+      const selected = String(app.selected_repository_id || '').trim()
+      const suggested = String(app.suggested_repository_id || '').trim()
+      const repositoryId = [selected, suggested].find(id => id && repoIds.includes(id)) || ''
+      return {
+        appNumber: app.app_number,
+        label: appLabel(app),
+        apiCount: app.api_count,
+        suggested: !!suggested && repositoryId === suggested,
+        repositoryId,
+      }
+    })
+  }
+  finally {
+    runDetailLoading.value = false
+  }
 }
 
 async function handleRun() {
-  if (!runForm.repositoryId) {
-    Message.warning('请选择代码库')
+  if (!appRepoRows.value.some(row => row.repositoryId)) {
+    Message.warning('请至少为一个应用选择代码库')
     return false
   }
   if (!runForm.agentCode) {
@@ -291,7 +341,7 @@ async function handleRun() {
   try {
     const res = await postAction<any>(ApiSecCustomApiTask.run, {
       task_id: String(runTask.value.id).trim(),
-      repository_id: runForm.repositoryId,
+      repositories: appRepoRows.value.map(row => ({ app_number: row.appNumber, repository_id: row.repositoryId || undefined })),
       agent_code: runForm.agentCode,
       model: runForm.model || undefined,
     })
@@ -571,17 +621,33 @@ async function handleDelete(record: any) {
     <a-modal
       v-model:visible="runVisible"
       :title="`运行：${runTask?.name || ''}`"
-      :width="560"
+      :width="680"
       :ok-loading="runSubmitting"
       ok-text="开始运行"
       :on-before-ok="handleRun"
     >
-      <a-spin :loading="runLookupsLoading" style="display: block">
+      <a-spin :loading="runLookupsLoading || runDetailLoading" style="display: block">
         <a-form :model="runForm" layout="vertical">
-          <a-form-item label="代码库" required>
-            <a-select v-model="runForm.repositoryId" :options="repoOptions" placeholder="选择应用对应的代码库" allow-search />
+          <a-form-item label="代码库（按应用选择）" required>
+            <div class="app-repo-list">
+              <div v-for="row in appRepoRows" :key="row.appNumber" class="app-repo-row">
+                <div class="app-repo-label">
+                  <span>{{ row.label }}</span>
+                  <span class="muted">{{ row.apiCount }} 个 API</span>
+                </div>
+                <div class="app-repo-select">
+                  <a-select v-model="row.repositoryId" :options="repoOptions" placeholder="未选择（该应用的 API 判为未找到API）" allow-search allow-clear />
+                </div>
+                <a-tag v-if="row.suggested" size="small" color="green">
+                  反编译源码库
+                </a-tag>
+              </div>
+              <a-empty v-if="!appRepoRows.length && !runDetailLoading" description="任务里没有 API" />
+            </div>
             <template #extra>
-              默认选中任务内 API 所属应用的反编译源码库。平台先按 API 定义里登记的实现类在代码库中定位代码，找不到的直接判为「未找到API」。
+              默认选中各应用的反编译源码库。平台在每个应用的代码库里按 API 定义登记的实现类定位代码，找不到的判为「未找到API」；
+              每个代码库各调用一次 AI，依次执行。
+              <span v-if="unassignedApiCount" class="warn-text">当前有 {{ unassignedApiCount }} 个 API 所属应用未选择代码库。</span>
             </template>
           </a-form-item>
           <a-form-item label="Agent" required>
@@ -649,7 +715,7 @@ async function handleDelete(record: any) {
                         {{ record.http_method }} {{ record.call_path }}
                       </div>
                       <div class="muted">
-                        {{ record.api_name || record.api_number }}
+                        {{ record.app_number || '未归属应用' }} · {{ record.api_name || record.api_number }}
                       </div>
                     </template>
                   </a-table-column>
@@ -776,6 +842,37 @@ async function handleDelete(record: any) {
 
 .target-line {
   line-height: 18px;
+}
+
+.app-repo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.app-repo-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-repo-label {
+  display: flex;
+  flex-direction: column;
+  width: 180px;
+  flex: none;
+  word-break: break-all;
+}
+
+/* 宽度落在包裹 div 上：Arco 的 Select 是 inheritAttrs: false */
+.app-repo-select {
+  flex: 1;
+  min-width: 0;
+}
+
+.warn-text {
+  color: rgb(var(--orangered-6));
 }
 
 .result-desc {
