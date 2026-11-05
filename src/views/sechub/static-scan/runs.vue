@@ -298,7 +298,9 @@ function schedulePollIfNeeded() {
     clearTimeout(pollTimer.value)
     pollTimer.value = null
   }
-  if (hasActiveWork())
+  // 页面在后台时不轮询：浏览器会对隐藏标签页降频，但请求仍会占服务端
+  // 连接与 SQL 时间（慢请求里这个接口长期排第一）。回到前台再补刷。
+  if (hasActiveWork() && document.visibilityState !== 'hidden')
     pollTimer.value = setTimeout(() => void loadCrossRows(true), 15000)
 }
 
@@ -317,8 +319,22 @@ onActivated(() => {
     void loadCrossRows(true)
   void applyNewScanQuery()
 })
-onMounted(() => void applyNewScanQuery())
-onUnmounted(pausePoll)
+function onVisibilityChange() {
+  if (document.visibilityState === 'hidden') {
+    pausePoll()
+    return
+  }
+  if (hasActiveWork())
+    void loadCrossRows(true)
+}
+onMounted(() => {
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  void applyNewScanQuery()
+})
+onUnmounted(() => {
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  pausePoll()
+})
 
 // ===== 新建扫描 / AI 确认（入口从扫描看板迁来）=====
 const newScanRef = ref<InstanceType<typeof NewScanModal>>()
