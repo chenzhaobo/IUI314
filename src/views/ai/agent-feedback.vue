@@ -158,6 +158,30 @@ async function updateStatus(row: AiAgentFeedback, status: string) {
   await load()
 }
 
+// ── 详情抽屉：表格列有省略号，建议/证据这类长文本必须能完整查看 ──
+const detailVisible = ref(false)
+const detailRow = ref<AiAgentFeedback | null>(null)
+
+function openDetail(row: AiAgentFeedback) {
+  detailRow.value = row
+  detailVisible.value = true
+}
+
+function prettyJson(value: unknown): string {
+  if (value === null || value === undefined || value === '')
+    return ''
+  if (typeof value === 'string')
+    return value
+  try {
+    return JSON.stringify(value, null, 2)
+  }
+  catch {
+    return String(value)
+  }
+}
+
+const evidenceText = computed(() => (detailRow.value ? prettyJson(detailRow.value.evidence_json) : ''))
+
 onMounted(load)
 </script>
 
@@ -253,9 +277,9 @@ onMounted(load)
           </a-table-column>
           <a-table-column title="问题 / 建议" ellipsis tooltip>
             <template #cell="{ record }">
-              <div class="title">
+              <a-link class="title" @click="openDetail(record)">
                 {{ record.title }}
-              </div>
+              </a-link>
               <div class="sub">
                 {{ record.detail }}
               </div>
@@ -284,9 +308,12 @@ onMounted(load)
               </a-tag>
             </template>
           </a-table-column>
-          <a-table-column title="处理" :width="220" fixed="right">
+          <a-table-column title="处理" :width="250" fixed="right">
             <template #cell="{ record }">
               <a-space>
+                <a-link @click="openDetail(record)">
+                  详情
+                </a-link>
                 <a-link v-if="record.status === 'open'" @click="updateStatus(record, 'triaged')">
                   分诊
                 </a-link>
@@ -308,6 +335,80 @@ onMounted(load)
         </template>
       </a-table>
     </a-card>
+
+    <a-drawer v-model:visible="detailVisible" title="Agent 反馈详情" :width="720" :footer="false" unmount-on-close>
+      <template v-if="detailRow">
+        <div class="detail-tags">
+          <a-tag :color="severityMeta(detailRow.severity).color">
+            {{ severityMeta(detailRow.severity).label }}
+          </a-tag>
+          <a-tag color="arcoblue">
+            {{ domainLabel(detailRow.domain) }}
+          </a-tag>
+          <a-tag>{{ categoryLabel(detailRow.category) }}</a-tag>
+          <a-tag :color="statusMeta(detailRow.status).color">
+            {{ statusMeta(detailRow.status).label }}
+          </a-tag>
+          <a-tag v-if="detailRow.source === 'runtime'" color="green">
+            运行期上报
+          </a-tag>
+        </div>
+
+        <a-descriptions :column="2" size="small" bordered style="margin-top: 12px">
+          <a-descriptions-item label="调用模块">
+            {{ detailRow.caller_module || '--' }}
+          </a-descriptions-item>
+          <a-descriptions-item label="Agent">
+            {{ detailRow.agent_code || '--' }}
+          </a-descriptions-item>
+          <a-descriptions-item label="模型">
+            {{ detailRow.model || '--' }}
+          </a-descriptions-item>
+          <a-descriptions-item label="出现次数">
+            {{ detailRow.occurrences }}
+          </a-descriptions-item>
+          <a-descriptions-item label="首次出现">
+            {{ formatTime(detailRow.first_seen_at) }}
+          </a-descriptions-item>
+          <a-descriptions-item label="最后出现">
+            {{ formatTime(detailRow.last_seen_at) }}
+          </a-descriptions-item>
+          <a-descriptions-item label="首次执行" :span="2">
+            <a-link v-if="detailRow.first_execution_id" @click="openExecution(detailRow.first_execution_id)">
+              {{ detailRow.first_execution_id }}
+            </a-link>
+            <span v-else>--</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="最后执行" :span="2">
+            <a-link v-if="detailRow.last_execution_id || detailRow.execution_id" @click="openExecution(detailRow.last_execution_id || detailRow.execution_id)">
+              {{ detailRow.last_execution_id || detailRow.execution_id }}
+            </a-link>
+            <span v-else>--</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="fingerprint" :span="2">
+            <code>{{ detailRow.fingerprint }}</code>
+          </a-descriptions-item>
+        </a-descriptions>
+
+        <a-divider orientation="left">
+          问题
+        </a-divider>
+        <h3 class="detail-title">
+          {{ detailRow.title }}
+        </h3>
+        <pre class="detail-pre">{{ detailRow.detail || '（无详情）' }}</pre>
+
+        <a-divider orientation="left">
+          改进建议
+        </a-divider>
+        <pre class="detail-pre suggestion-box">{{ detailRow.suggestion || '（未给出建议）' }}</pre>
+
+        <a-divider orientation="left">
+          证据
+        </a-divider>
+        <pre class="detail-pre evidence-box">{{ evidenceText || '（无证据）' }}</pre>
+      </template>
+    </a-drawer>
   </div>
 </template>
 
@@ -324,4 +425,20 @@ onMounted(load)
 .title { color: var(--color-text-1); font-weight: 600; }
 .sub { color: var(--color-text-3); font-size: 12px; }
 .suggestion { color: var(--color-text-2); }
+.detail-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.detail-title { margin: 0 0 8px; font-size: 16px; font-weight: 600; color: var(--color-text-1); }
+.detail-pre {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 4px;
+  background: var(--color-fill-2);
+  color: var(--color-text-1);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.suggestion-box { border-left: 3px solid rgb(var(--arcoblue-6)); }
+.evidence-box { max-height: 320px; overflow: auto; font-family: var(--font-mono); font-size: 12px; }
 </style>
