@@ -33,6 +33,23 @@ const columns = computed<TableColumnData[]>(() => [
     tooltip: true,
   },
   {
+    title: '登录名称',
+    dataIndex: 'user_name',
+    align: 'center',
+    width: 120,
+    ellipsis: true,
+    tooltip: true,
+  },
+  {
+    title: '用户昵称',
+    dataIndex: 'user_nickname',
+    align: 'center',
+    width: 120,
+    ellipsis: true,
+    tooltip: true,
+    render: ({ record }) => record.user_nickname || '-',
+  },
+  {
     title: '所属部门',
     dataIndex: 'dept_name',
     align: 'center',

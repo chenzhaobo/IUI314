@@ -15,6 +15,7 @@ export interface onlineUser extends operateInfo {
   login_time?: string
   last_access_time?: string
   user_name?: string
+  user_nickname?: string
   dept_name?: string
   net?: string
   ipaddr?: string
