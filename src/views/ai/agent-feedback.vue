@@ -164,8 +164,8 @@ onMounted(load)
 <template>
   <div class="feedback-page">
     <a-alert type="info" style="margin-bottom: 12px">
-      Agent 执行结束后由执行记录页手动发起复盘；平台按 fingerprint 聚合问题与改进建议。
-      反馈是过程改进，不是漏洞结论。优先处理「出现次数高 × 严重度高」的条目。
+      Agent 执行结束后可由执行记录页手动发起复盘；静态扫描 AI 发现的平台侧问题也会在运行期主动上报（source=runtime）。
+      平台按 fingerprint 聚合问题与改进建议。反馈是过程改进，不是漏洞结论。优先处理「出现次数高 × 严重度高」的条目。
     </a-alert>
 
     <a-card :bordered="false">
@@ -235,6 +235,9 @@ onMounted(load)
                 {{ record.agent_code || '--' }}<template v-if="record.model">
                   / {{ record.model }}
                 </template>
+                <a-tag v-if="record.source === 'runtime'" size="small" color="green" style="margin-left: 6px">
+                  运行期上报
+                </a-tag>
               </div>
             </template>
           </a-table-column>
