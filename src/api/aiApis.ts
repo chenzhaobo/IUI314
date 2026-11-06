@@ -59,6 +59,7 @@ export enum ApiAiExecution {
 // ── 通用 Agent 复盘反馈 ──────────────────────────────
 export enum ApiAiFeedback {
   list = '/ai/agent-feedback/list',
+  export = '/ai/agent-feedback/export',
   prompt = '/ai/agent-feedback/prompt',
   collect = '/ai/agent-feedback/collect',
   status = '/ai/agent-feedback/status',

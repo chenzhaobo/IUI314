@@ -10,7 +10,7 @@ import { Message } from '@arco-design/web-vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiAiFeedback } from '@/api/aiApis'
-import { formatTime, getAction, postAction } from '@/hooks'
+import { formatTime, getAction, postAction, useDownload } from '@/hooks'
 
 defineOptions({ name: 'AgentFeedback' })
 
@@ -78,6 +78,8 @@ const pageSize = ref(20)
 const loading = ref(false)
 const rows = ref<AiAgentFeedback[]>([])
 const total = ref(0)
+const selectedIds = ref<string[]>([])
+const { downloadWithTip } = useDownload()
 
 const queryParams = computed(() => ({
   page_num: pageNum.value,
@@ -107,6 +109,7 @@ async function load() {
 
 function search() {
   pageNum.value = 1
+  selectedIds.value = []
   void load()
 }
 
@@ -118,7 +121,34 @@ function reset() {
   filters.severity = ''
   filters.status = ''
   filters.execution_id = ''
+  selectedIds.value = []
   search()
+}
+
+/** 导出：勾选行优先；「全部」按当前筛选导出所有页，不受分页限制 */
+function exportFeedback(scope: 'selected' | 'all') {
+  const qs = new URLSearchParams()
+  if (scope === 'selected') {
+    if (!selectedIds.value.length) {
+      Message.warning('请先勾选要导出的反馈')
+      return
+    }
+    qs.set('ids', selectedIds.value.join(','))
+  }
+  else {
+    for (const key of ['keyword', 'domain', 'caller_module', 'category', 'severity', 'status', 'execution_id'] as const) {
+      const value = filters[key]
+      if (value)
+        qs.set(key, value)
+    }
+  }
+  void downloadWithTip(`${ApiAiFeedback.export}?${qs.toString()}`, 'agent_feedback_export.xlsx', '导出失败')
+}
+
+function onExportSelect(value: unknown) {
+  const scope = String(value ?? '')
+  if (scope === 'selected' || scope === 'all')
+    exportFeedback(scope)
 }
 
 function pageChange(page: number) {
@@ -224,15 +254,33 @@ onMounted(load)
           重置
         </a-button>
         <div class="spacer" />
+        <a-dropdown trigger="click" @select="onExportSelect">
+          <a-button type="outline" status="success">
+            <template #icon>
+              <icon-download />
+            </template>
+            导出
+          </a-button>
+          <template #content>
+            <a-doption value="selected" :disabled="!selectedIds.length">
+              导出选中（{{ selectedIds.length }}）
+            </a-doption>
+            <a-doption value="all">
+              导出全部（当前筛选）
+            </a-doption>
+          </template>
+        </a-dropdown>
         <a-tag color="arcoblue">
           共 {{ total }} 条
         </a-tag>
       </div>
 
       <a-table
+        v-model:selected-keys="selectedIds"
         :data="rows"
         :loading="loading"
         row-key="id"
+        :row-selection="{ type: 'checkbox', showCheckedAll: true }"
         :pagination="{
           current: pageNum,
           pageSize,
