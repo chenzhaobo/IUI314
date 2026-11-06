@@ -903,6 +903,8 @@ export interface ScanIssueRow {
   wont_fix_reason_code?: string | null
   /** 不处理原因说明（自由文本；重开时清空） */
   wont_fix_reason?: string | null
+  /** 暂缓原因（status=deferred 时填写；恢复处理时清空） */
+  defer_reason?: string | null
   /** DMP 缺陷编码：关联到 DMP 系统的缺陷单号 */
   dmp_defect_code?: string | null
   /** 缺陷编号：DEF-YYYYMMDD-NNNN（平台内唯一，导出/导入以它为准） */

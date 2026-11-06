@@ -321,7 +321,8 @@ function onApprovalMineChange(value: string | number | boolean) {
     approvalMine.value = true
     queryParams.value.nofix_approval_state = 'pending'
     queryParams.value.nofix_approval_scope = 'mine'
-  } else {
+  }
+  else {
     approvalMine.value = false
     queryParams.value.nofix_approval_scope = ''
     if (queryParams.value.nofix_approval_state === 'pending')
@@ -464,7 +465,7 @@ function deleteSelectedIssues() {
 // 可申请不处理：状态允许，且当前没有待审批申请（驳回/撤回后可以重新申请）
 function canWontFix(row: ScanIssueRow): boolean {
   const state = row.nofix_approval_state ?? 'none'
-  return ['open', 'reopened', 'verification_failed', 'pending_repro', 'unstable'].includes(row.status) && state !== 'pending'
+  return ['open', 'reopened', 'fixing', 'verification_failed', 'pending_repro', 'unstable'].includes(row.status) && state !== 'pending'
 }
 // 可发起复核的：**任意状态**都能验（内网批量导入的历史缺陷大多没走过人工流程，
 // 却可能早已在代码里修掉了 —— 要求先手工标「已修复」再验证不现实）。
@@ -556,6 +557,8 @@ const PROCESS_ACTIONS = [
   { value: 'fixed', label: '已修复' },
   { value: 'verified', label: '已验证' },
   { value: 'reopen', label: '重开' },
+  { value: 'deferred', label: '暂缓处理' },
+  { value: 'resume', label: '恢复处理' },
   { value: 'wont_fix', label: '申请不处理' },
 ]
 const processLoading = ref(false)
@@ -566,6 +569,11 @@ function onProcessSelect(value: unknown) {
     return
   if (target === 'wont_fix') {
     openWontFixModal()
+    return
+  }
+  // 暂缓原因必填，走弹窗而不是点完就提交
+  if (target === 'deferred') {
+    openDeferModal()
     return
   }
   // 「已修复」要填修复说明（后端强制），走弹窗而不是点完就提交
@@ -614,6 +622,81 @@ async function submitFixed() {
   }
   if (await submitTransition('fixed', remark))
     fixedVisible.value = false
+}
+
+// ===== 暂缓处理（原因必填；状态仍归「处理中」）=====
+const deferVisible = ref(false)
+const deferReason = ref('')
+
+function openDeferModal() {
+  if (!selectedIds.value.length) {
+    Message.warning('请先勾选缺陷')
+    return
+  }
+  deferReason.value = ''
+  deferVisible.value = true
+}
+
+async function submitDefer() {
+  const reason = deferReason.value.trim()
+  if (!reason) {
+    Message.warning('请填写暂缓原因')
+    return
+  }
+  if (await submitTransition('deferred', reason))
+    deferVisible.value = false
+}
+
+// ===== 备注与原因（备注只追加流转事件，不改状态）=====
+const notesVisible = ref(false)
+const notesRow = ref<ScanIssueRow | null>(null)
+const notesList = ref<ScanIssueEventRow[]>([])
+const notesLoading = ref(false)
+const noteText = ref('')
+const noteSubmitting = ref(false)
+const notesStatusLabel = computed(() => notesRow.value ? issueStatusLabel(notesRow.value) : { label: '-', color: 'gray' })
+
+async function loadIssueNotes(row: ScanIssueRow) {
+  notesLoading.value = true
+  notesList.value = []
+  try {
+    const { data, execute } = useGet<ScanIssueEventRow[]>(ApiSecPrescan.issueEvents, { issue_id: row.id }, { immediate: false })
+    await execute()
+    notesList.value = (data.value ?? []).filter(ev => ev.event_type === 'note')
+  }
+  finally {
+    notesLoading.value = false
+  }
+}
+
+async function openIssueNotes(row: ScanIssueRow) {
+  notesRow.value = row
+  notesVisible.value = true
+  noteText.value = ''
+  await loadIssueNotes(row)
+}
+
+async function submitNote() {
+  const content = noteText.value.trim()
+  const row = notesRow.value
+  if (!content) {
+    Message.warning('请填写备注内容')
+    return
+  }
+  if (!row)
+    return
+  noteSubmitting.value = true
+  try {
+    const res = await postAction<string>(ApiSecPrescan.issueNote, { issue_id: row.id, note: content })
+    if (res === null)
+      return
+    noteText.value = ''
+    Message.success('备注已添加')
+    await loadIssueNotes(row)
+  }
+  finally {
+    noteSubmitting.value = false
+  }
 }
 
 // ===== DMP 缺陷编码：批量回填 =====
@@ -828,7 +911,7 @@ function openWontFixModal() {
   }
   const eligible = selectedRows.value.filter(r => canWontFix(r))
   if (!eligible.length) {
-    Message.warning('所选缺陷中没有可申请不处理的（仅「待修复/验证不通过/待复现/不稳定」且无待审批申请的可操作）')
+    Message.warning('所选缺陷中没有可申请不处理的（仅「待修复/修复中/验证不通过/待复现/不稳定」且无待审批申请的可操作）')
     return
   }
   wontFixTargets.value = eligible
@@ -1004,7 +1087,8 @@ function onApprovalClick() {
     const row = selectedRows.value[0]
     if (row?.nofix_approval_state === 'pending' && row.nofix_approval_id) {
       openApprovalForRow(row)
-    } else {
+    }
+    else {
       Message.info('该缺陷没有待审批的不处理申请')
     }
     return
@@ -1033,7 +1117,8 @@ async function openNextApproval() {
     }
     if (capability.value.is_director) {
       next = all.list?.[0]
-    } else {
+    }
+    else {
       const domains: string[] = capability.value.domain_architect_product_domains || []
       next = (all.list || []).find((row: any) => row.product_domain && domains.includes(row.product_domain))
     }
@@ -1343,6 +1428,9 @@ const eventTypeLabels: Record<string, { label: string, color: string }> = {
   no_fix_approved: { label: '不处理审批通过', color: 'green' },
   no_fix_rejected: { label: '不处理审批驳回', color: 'red' },
   no_fix_withdrawn: { label: '撤回不处理申请', color: 'gray' },
+  deferred: { label: '暂缓处理', color: 'gold' },
+  resumed: { label: '恢复处理', color: 'blue' },
+  note: { label: '备注', color: 'arcoblue' },
 }
 
 // ===== 流转事件的结构化上下文（meta_json）=====
@@ -1448,6 +1536,8 @@ function onOpsSelect(value: unknown, row: ScanIssueRow) {
     void viewInResults(row)
   else if (value === 'events')
     void viewEvents(row)
+  else if (value === 'notes' || value === 'addNote')
+    void openIssueNotes(row)
   else if (value === 'confirmRepro')
     confirmRepro(row)
   else if (value === 'approvalHistory')
@@ -1474,6 +1564,12 @@ function downloadReport() {
   downloadText(row.ai_detail_report, `${row.title ?? 'AI报告'}.md`)
 }
 
+/** 报告标题栏的「备注与原因」入口：查看备注历史 + 不处理/暂缓原因，并可直接补备注 */
+function openReportNotes() {
+  if (reportRow.value)
+    void openIssueNotes(reportRow.value)
+}
+
 // ===== 标签映射 =====
 const domainLabels: Record<string, { label: string, color: string }> = {
   security: { label: '安全', color: 'red' },
@@ -1494,6 +1590,8 @@ const statusLabels: Record<string, { label: string, color: string }> = {
   fixed: { label: '已修复', color: 'green' },
   verified: { label: '已验证', color: 'green' },
   wont_fix: { label: '不处理', color: 'gray' },
+  /** 暂缓处理：仍属于「处理中」，原因在状态列悬浮展示 */
+  deferred: { label: '已暂缓', color: 'gold' },
   verification_failed: { label: '验证不通过', color: 'orange' },
   /** 提交后的后台 AI 复核窗口期（完成后按判定回写） */
   verifying: { label: 'AI 复核中', color: 'arcoblue' },
@@ -1728,6 +1826,9 @@ function shortSha(sha: string | null | undefined): string {
             <a-option value="verification_failed">
               验证不通过
             </a-option>
+            <a-option value="deferred">
+              已暂缓
+            </a-option>
             <!-- 004：身份归并的产物行（已并入主行），默认列表不含；选中即显式查它们 -->
             <a-option value="merged">
               已合并
@@ -1925,7 +2026,6 @@ function shortSha(sha: string | null | undefined): string {
                 :loading="isLoading"
                 :data="dataList"
                 :columns="columns"
-                @sorter-change="handleSorterChange"
                 :pagination="{
                   total,
                   current: queryParams.page_num,
@@ -1939,6 +2039,7 @@ function shortSha(sha: string | null | undefined): string {
                 column-resizable
                 :row-selection="{ type: 'checkbox', showCheckedAll: true }"
                 :scroll="{ minWidth: 1480, y: tableHeight }"
+                @sorter-change="handleSorterChange"
                 @page-change="onPageChange"
                 @page-size-change="onPageSizeChange"
                 @filter-change="onTableFilter"
@@ -1973,10 +2074,28 @@ function shortSha(sha: string | null | undefined): string {
                   <span v-else class="text-muted">-</span>
                 </template>
                 <template #status="{ record }">
+                  <!-- 已暂缓：悬浮直接展示暂缓原因（原因必填，状态标签后面无需再点详情） -->
+                  <a-tooltip
+                    v-if="record.status === 'deferred' && record.defer_reason"
+                    position="top"
+                    mini
+                    :content-style="{ maxWidth: '460px' }"
+                  >
+                    <template #content>
+                      <div class="status-tip">
+                        暂缓原因：{{ record.defer_reason }}
+                      </div>
+                    </template>
+                    <span class="status-cell">
+                      <a-tag :color="issueStatusLabel(record).color" size="small">
+                        {{ issueStatusLabel(record).label }}
+                      </a-tag>
+                    </span>
+                  </a-tooltip>
                   <!-- 有复核记录时悬浮展示最近一次复核结果（时间 + 结论与依据）+ 直接打开那一轮报告；
                        AI 直判（复核前未人工标记「已修复」）额外标一枚小徽标，便于和人工流程区分 -->
                   <a-tooltip
-                    v-if="record.last_verify_at"
+                    v-else-if="record.last_verify_at"
                     position="top"
                     mini
                     :content-style="{ maxWidth: '460px' }"
@@ -2082,6 +2201,12 @@ function shortSha(sha: string | null | undefined): string {
                         <a-doption value="events">
                           流转
                         </a-doption>
+                        <a-doption value="notes">
+                          备注与原因
+                        </a-doption>
+                        <a-doption value="addNote">
+                          添加备注
+                        </a-doption>
                         <a-doption value="similar">
                           疑似重复
                         </a-doption>
@@ -2165,7 +2290,9 @@ function shortSha(sha: string | null | undefined): string {
               </template>
             </a-table-column>
             <a-table-column title="依据" :width="240" ellipsis tooltip>
-              <template #cell="{ record }">{{ (record.reasons || []).join('；') }}</template>
+              <template #cell="{ record }">
+                {{ (record.reasons || []).join('；') }}
+              </template>
             </a-table-column>
           </template>
         </a-table>
@@ -2179,54 +2306,78 @@ function shortSha(sha: string | null | undefined): string {
         :footer="false"
         :body-style="{ padding: '12px', flex: '1 1 auto', minHeight: 0, overflow: 'hidden' }"
       >
-        <div v-if="reviewLoading" style="padding: 24px">加载中…</div>
-          <template v-if="reviewRow">
+        <div v-if="reviewLoading" style="padding: 24px">
+          加载中…
+        </div>
+        <template v-if="reviewRow">
           <div style="display: flex; gap: 16px; align-items: stretch; height: 100%; min-height: 0">
-          <div style="flex: 1 1 56%; min-width: 0; height: 100%; overflow-y: auto; overflow-x: hidden; border-right: 1px solid var(--color-border-2); padding-right: 12px">
-            <div style="font-weight: 600; margin-bottom: 8px; position: sticky; top: 0; background: var(--color-bg-2); z-index: 1">缺陷报告（可滚动）</div>
-            <MdPreview v-if="reviewRow.ai_detail_report" :model-value="reviewRow.ai_detail_report" />
-            <a-empty v-else description="该缺陷没有 AI 报告" />
-          </div>
-          <div style="flex: 1 1 44%; min-width: 0; height: 100%; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column">
-            <a-descriptions :column="2" size="small" bordered>
-              <a-descriptions-item label="缺陷编号">{{ reviewRow.defect_code || '-' }}</a-descriptions-item>
-              <a-descriptions-item label="项目组">{{ reviewRow.project_group_name || '-' }}</a-descriptions-item>
-              <a-descriptions-item label="缺陷标题" :span="2">{{ reviewRow.issue_title }}</a-descriptions-item>
-              <a-descriptions-item label="产品领域">{{ reviewRow.product_domain || '-' }}</a-descriptions-item>
-              <a-descriptions-item label="申请人">{{ reviewRow.requester_name }}</a-descriptions-item>
-              <a-descriptions-item label="申请时间">{{ formatTime(reviewRow.created_at) }}</a-descriptions-item>
-              <a-descriptions-item label="当前状态">{{ reviewRow.issue_status }}</a-descriptions-item>
-            </a-descriptions>
-            <a-divider style="margin: 12px 0" />
-            <div class="approval-reason-block">
-              <div><b>原因分类：</b>{{ reviewRow.reason_code ? (wontFixReasonLabelMap[reviewRow.reason_code] ?? reviewRow.reason_code) : '未指定' }}</div>
-              <div class="nofix-long-text"><b>不处理原因：</b>{{ reviewRow.reason }}</div>
-              <div v-if="reviewRow.impact_note" class="nofix-long-text"><b>影响说明：</b>{{ reviewRow.impact_note }}</div>
-              <div v-if="reviewRow.evidence" class="nofix-long-text"><b>补充证据：</b>{{ reviewRow.evidence }}</div>
+            <div style="flex: 1 1 56%; min-width: 0; height: 100%; overflow-y: auto; overflow-x: hidden; border-right: 1px solid var(--color-border-2); padding-right: 12px">
+              <div style="font-weight: 600; margin-bottom: 8px; position: sticky; top: 0; background: var(--color-bg-2); z-index: 1">
+                缺陷报告（可滚动）
+              </div>
+              <MdPreview v-if="reviewRow.ai_detail_report" :model-value="reviewRow.ai_detail_report" />
+              <a-empty v-else description="该缺陷没有 AI 报告" />
             </div>
-            <a-form-item label="审批意见（必填）" style="margin-top: 12px">
-              <a-textarea v-model="reviewComment" :auto-size="{ minRows: 4, maxRows: 10 }" :max-length="500" show-word-limit />
-            </a-form-item>
-            <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px">
-              <a-button @click="reviewVisible = false">
-                关闭
-              </a-button>
-              <a-button status="danger" :loading="reviewSubmitting" @click="submitApproval('rejected', false)">
-                驳回
-              </a-button>
-              <a-button status="danger" type="outline" :loading="reviewSubmitting" @click="submitApproval('rejected', true)">
-                驳回并下一条
-              </a-button>
-              <a-button type="primary" :loading="reviewSubmitting" @click="submitApproval('approved', false)">
-                同意
-              </a-button>
-              <a-button type="primary" status="success" :loading="reviewSubmitting" @click="submitApproval('approved', true)">
-                同意并下一条
-              </a-button>
+            <div style="flex: 1 1 44%; min-width: 0; height: 100%; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column">
+              <a-descriptions :column="2" size="small" bordered>
+                <a-descriptions-item label="缺陷编号">
+                  {{ reviewRow.defect_code || '-' }}
+                </a-descriptions-item>
+                <a-descriptions-item label="项目组">
+                  {{ reviewRow.project_group_name || '-' }}
+                </a-descriptions-item>
+                <a-descriptions-item label="缺陷标题" :span="2">
+                  {{ reviewRow.issue_title }}
+                </a-descriptions-item>
+                <a-descriptions-item label="产品领域">
+                  {{ reviewRow.product_domain || '-' }}
+                </a-descriptions-item>
+                <a-descriptions-item label="申请人">
+                  {{ reviewRow.requester_name }}
+                </a-descriptions-item>
+                <a-descriptions-item label="申请时间">
+                  {{ formatTime(reviewRow.created_at) }}
+                </a-descriptions-item>
+                <a-descriptions-item label="当前状态">
+                  {{ reviewRow.issue_status }}
+                </a-descriptions-item>
+              </a-descriptions>
+              <a-divider style="margin: 12px 0" />
+              <div class="approval-reason-block">
+                <div><b>原因分类：</b>{{ reviewRow.reason_code ? (wontFixReasonLabelMap[reviewRow.reason_code] ?? reviewRow.reason_code) : '未指定' }}</div>
+                <div class="nofix-long-text">
+                  <b>不处理原因：</b>{{ reviewRow.reason }}
+                </div>
+                <div v-if="reviewRow.impact_note" class="nofix-long-text">
+                  <b>影响说明：</b>{{ reviewRow.impact_note }}
+                </div>
+                <div v-if="reviewRow.evidence" class="nofix-long-text">
+                  <b>补充证据：</b>{{ reviewRow.evidence }}
+                </div>
+              </div>
+              <a-form-item label="审批意见（必填）" style="margin-top: 12px">
+                <a-textarea v-model="reviewComment" :auto-size="{ minRows: 4, maxRows: 10 }" :max-length="500" show-word-limit />
+              </a-form-item>
+              <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px">
+                <a-button @click="reviewVisible = false">
+                  关闭
+                </a-button>
+                <a-button status="danger" :loading="reviewSubmitting" @click="submitApproval('rejected', false)">
+                  驳回
+                </a-button>
+                <a-button status="danger" type="outline" :loading="reviewSubmitting" @click="submitApproval('rejected', true)">
+                  驳回并下一条
+                </a-button>
+                <a-button type="primary" :loading="reviewSubmitting" @click="submitApproval('approved', false)">
+                  同意
+                </a-button>
+                <a-button type="primary" status="success" :loading="reviewSubmitting" @click="submitApproval('approved', true)">
+                  同意并下一条
+                </a-button>
+              </div>
             </div>
           </div>
-          </div>
-          </template>
+        </template>
       </a-modal>
 
       <!-- 转交弹窗：处理人从系统用户里选（缺陷本身没有项目组字段，不在此改归属） -->
@@ -2299,7 +2450,7 @@ function shortSha(sha: string | null | undefined): string {
       <a-modal v-model:visible="wontFixVisible" :title="`申请不处理（${wontFixTargets.length} 条）`" width="560px" :ok-loading="wontFixLoading" @ok="submitWontFix" @cancel="wontFixVisible = false">
         <a-form layout="vertical" :model="layoutOnlyModel">
           <a-alert type="warning" class="m-b-12px">
-            将对 {{ wontFixTargets.length }} 条缺陷提交不处理申请：缺陷状态在审批通过前保持「待修复」，需领域架构师或总监审批；驳回后可修改证据重新申请
+            将对 {{ wontFixTargets.length }} 条缺陷提交不处理申请：缺陷状态在审批通过前保持不变，需领域架构师或总监审批；驳回后可修改证据重新申请
           </a-alert>
           <!-- 不处理原因分类（必选，后续统计与过滤的依据） -->
           <a-form-item label="原因分类" required>
@@ -2334,7 +2485,7 @@ function shortSha(sha: string | null | undefined): string {
         </a-form>
       </a-modal>
 
-      <!-- 不处理审批记录（申请/驳回/撤回/通过全部周期）-->
+      <!-- 不处理审批记录（申请/驳回/撤回/通过全部周期） -->
       <a-modal
         v-model:visible="approvalHistoryVisible"
         :title="`审批记录 · ${approvalHistoryTitle}`"
@@ -2349,45 +2500,49 @@ function shortSha(sha: string | null | undefined): string {
           size="small"
         >
           <template #columns>
-          <a-table-column title="申请时间" :width="150">
-            <template #cell="{ record }">{{ formatTime(record.created_at) }}</template>
-          </a-table-column>
-          <a-table-column title="状态" :width="90">
-            <template #cell="{ record }">
-              <a-tag :color="nofixStateLabel(record.status).color" size="small">
-                {{ nofixStateLabel(record.status).label }}
-              </a-tag>
-            </template>
-          </a-table-column>
-          <a-table-column title="申请人" :width="100">
-            <template #cell="{ record }">{{ record.requester_name }}</template>
-          </a-table-column>
-          <a-table-column title="原因" ellipsis tooltip>
-            <template #cell="{ record }">
-              {{ record.reason }}
-            </template>
-          </a-table-column>
-          <a-table-column title="审批人" :width="140">
-            <template #cell="{ record }">
-              <span v-if="record.approver_name">
-                {{ record.approver_name }}
-                <span class="text-muted">（{{ record.approver_role === 'director' ? '总监' : '领域架构师' }}）</span>
-              </span>
-              <span v-else class="text-muted">-</span>
-            </template>
-          </a-table-column>
-          <a-table-column title="审批意见" ellipsis tooltip>
-            <template #cell="{ record }">
-              <span v-if="record.decision_comment">{{ record.decision_comment }}</span>
-              <span v-else class="text-muted">-</span>
-            </template>
-          </a-table-column>
-          <a-table-column title="审批时间" :width="150">
-            <template #cell="{ record }">
-              <span v-if="record.decided_at">{{ formatTime(record.decided_at) }}</span>
-              <span v-else class="text-muted">-</span>
-            </template>
-          </a-table-column>
+            <a-table-column title="申请时间" :width="150">
+              <template #cell="{ record }">
+                {{ formatTime(record.created_at) }}
+              </template>
+            </a-table-column>
+            <a-table-column title="状态" :width="90">
+              <template #cell="{ record }">
+                <a-tag :color="nofixStateLabel(record.status).color" size="small">
+                  {{ nofixStateLabel(record.status).label }}
+                </a-tag>
+              </template>
+            </a-table-column>
+            <a-table-column title="申请人" :width="100">
+              <template #cell="{ record }">
+                {{ record.requester_name }}
+              </template>
+            </a-table-column>
+            <a-table-column title="原因" ellipsis tooltip>
+              <template #cell="{ record }">
+                {{ record.reason }}
+              </template>
+            </a-table-column>
+            <a-table-column title="审批人" :width="140">
+              <template #cell="{ record }">
+                <span v-if="record.approver_name">
+                  {{ record.approver_name }}
+                  <span class="text-muted">（{{ record.approver_role === 'director' ? '总监' : '领域架构师' }}）</span>
+                </span>
+                <span v-else class="text-muted">-</span>
+              </template>
+            </a-table-column>
+            <a-table-column title="审批意见" ellipsis tooltip>
+              <template #cell="{ record }">
+                <span v-if="record.decision_comment">{{ record.decision_comment }}</span>
+                <span v-else class="text-muted">-</span>
+              </template>
+            </a-table-column>
+            <a-table-column title="审批时间" :width="150">
+              <template #cell="{ record }">
+                <span v-if="record.decided_at">{{ formatTime(record.decided_at) }}</span>
+                <span v-else class="text-muted">-</span>
+              </template>
+            </a-table-column>
           </template>
         </a-table>
       </a-modal>
@@ -2497,6 +2652,23 @@ function shortSha(sha: string | null | undefined): string {
         unmount-on-close
         @cancel="reportVisible = false"
       >
+        <!-- 标题栏固定在弹窗顶部：备注入口与下载不随报告正文滚动 -->
+        <template #title>
+          <div class="report-modal-head">
+            <span class="report-modal-title">{{ reportRow?.title ?? 'AI 详细报告' }}</span>
+            <a-space :size="8">
+              <a-button size="small" @click="openReportNotes">
+                备注与原因
+              </a-button>
+              <a-button size="small" :disabled="!reportRow?.ai_detail_report" @click="downloadReport">
+                <template #icon>
+                  <icon-download />
+                </template>
+                下载 md
+              </a-button>
+            </a-space>
+          </div>
+        </template>
         <a-descriptions :column="3" bordered size="small" class="m-b-12px">
           <a-descriptions-item label="领域">
             {{ domainLabels[reportRow?.domain ?? '']?.label ?? reportRow?.domain }}
@@ -2526,15 +2698,6 @@ function shortSha(sha: string | null | undefined): string {
         <!-- 契约 A：主报告 = 代表检出的报告；「检出记录」列出该缺陷历次全部检出，可切换查看各自报告 -->
         <a-tabs v-model:active-key="reportTab" lazy-load>
           <a-tab-pane key="main" title="主报告">
-            <!-- 下载原始 md：内容已在前端手里，本地存盘即可，不必再走后端 -->
-            <div v-if="reportRow?.ai_detail_report" class="report-toolbar">
-              <a-button size="small" @click="downloadReport">
-                <template #icon>
-                  <icon-download />
-                </template>
-                下载 md
-              </a-button>
-            </div>
             <MdPreview v-if="reportRow?.ai_detail_report" :model-value="reportRow.ai_detail_report" />
             <a-empty v-else description="暂无详细报告" />
           </a-tab-pane>
@@ -2544,6 +2707,86 @@ function shortSha(sha: string | null | undefined): string {
         </a-tabs>
       </a-modal>
     </div>
+    <!-- 暂缓处理弹窗（批量；原因必填，状态仍归「处理中」） -->
+    <a-modal
+      v-model:visible="deferVisible"
+      :title="`暂缓处理（${selectedIds.length} 条）`"
+      :ok-loading="processLoading"
+      @ok="submitDefer"
+    >
+      <a-form :model="{ deferReason }" layout="vertical">
+        <a-form-item label="暂缓原因" required>
+          <a-textarea
+            v-model="deferReason"
+            placeholder="说明为什么暂时不修，例如：等待上游组件修复、排入下个版本、需要业务确认复现路径"
+            :auto-size="{ minRows: 3, maxRows: 6 }"
+            allow-clear
+          />
+        </a-form-item>
+      </a-form>
+      <a-alert type="info">
+        暂缓后状态显示「已暂缓」，仍计入「处理中」；在「处理」下拉里选「恢复处理」可回到待修复。
+      </a-alert>
+    </a-modal>
+
+    <!-- 备注与原因：备注历史 + 不处理/暂缓原因，可直接补备注 -->
+    <a-modal
+      v-model:visible="notesVisible"
+      :title="`备注与原因 · ${notesRow?.title ?? ''}`"
+      :footer="false"
+      width="600px"
+    >
+      <template v-if="notesRow">
+        <a-descriptions :column="1" bordered size="small">
+          <a-descriptions-item label="当前状态">
+            <a-tag :color="notesStatusLabel.color" size="small">
+              {{ notesStatusLabel.label }}
+            </a-tag>
+          </a-descriptions-item>
+          <a-descriptions-item v-if="notesRow.wont_fix_reason_code || notesRow.wont_fix_reason" label="不处理原因">
+            <div v-if="notesRow.wont_fix_reason_code">
+              {{ wontFixReasonLabelMap[notesRow.wont_fix_reason_code] ?? notesRow.wont_fix_reason_code }}
+            </div>
+            <div v-if="notesRow.wont_fix_reason">
+              {{ notesRow.wont_fix_reason }}
+            </div>
+          </a-descriptions-item>
+          <a-descriptions-item v-if="notesRow.defer_reason" label="暂缓原因">
+            {{ notesRow.defer_reason }}
+          </a-descriptions-item>
+        </a-descriptions>
+      </template>
+      <div class="notes-title">
+        备注记录
+      </div>
+      <a-spin :loading="notesLoading" style="width: 100%">
+        <a-empty v-if="!notesList.length" description="暂无备注" />
+        <a-timeline v-else>
+          <a-timeline-item v-for="item in notesList" :key="item.id" :label="formatTime(item.created_at)">
+            <div class="note-content">
+              {{ item.reason }}
+            </div>
+            <div class="event-operator">
+              操作人：{{ operatorLabel(item.operator) }}
+            </div>
+          </a-timeline-item>
+        </a-timeline>
+      </a-spin>
+      <div class="notes-title">
+        添加备注
+      </div>
+      <a-textarea
+        v-model="noteText"
+        placeholder="补充说明：沟通结论、暂缓原因、临时绕行方案等；会记录到流转历史"
+        :auto-size="{ minRows: 3, maxRows: 6 }"
+      />
+      <div class="notes-actions">
+        <a-button type="primary" size="small" :loading="noteSubmitting" @click="submitNote">
+          添加备注
+        </a-button>
+      </div>
+    </a-modal>
+
     <!-- 重新验证弹窗：选分支/commit/Agent/模型，提交后由后台 AI 复核 -->
     <a-modal
       v-model:visible="verifyVisible"
@@ -2721,10 +2964,36 @@ function shortSha(sha: string | null | undefined): string {
   white-space: nowrap;
 }
 
-.report-toolbar {
+/* 报告弹窗标题栏：标题左、操作右，固定不随正文滚动 */
+.report-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+}
+
+.report-modal-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 备注与原因弹窗 */
+.notes-title {
+  margin: 14px 0 8px;
+  font-weight: 600;
+}
+
+.notes-actions {
   display: flex;
   justify-content: flex-end;
-  margin-bottom: 8px;
+  margin-top: 8px;
+}
+
+.note-content {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .dmp-empty {

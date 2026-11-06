@@ -321,6 +321,8 @@ export enum ApiSecPrescan {
   issueFixed = '/sechub/prescan/issue-fixed',
   issueTransfer = '/sechub/prescan/issue-transfer',
   issueTransition = '/sechub/prescan/issue-transition',
+  /** 添加缺陷备注（只写流转事件，不改状态） */
+  issueNote = '/sechub/prescan/issue-note',
   /** 批量设置/清除缺陷的计划处理完成时间（项目组标注） */
   issuePlanFinish = '/sechub/prescan/issue-plan-finish',
   /** 差量基线：当前 active 基线查询 / 人工采纳 */
