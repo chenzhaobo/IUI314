@@ -2748,11 +2748,6 @@ function shortSha(sha: string | null | undefined): string {
     >
       <template v-if="notesRow">
         <a-descriptions :column="1" bordered size="small">
-          <a-descriptions-item label="缺陷">
-            <a-tooltip :content="notesRow.title" mini>
-              <span class="notes-defect-title">{{ notesRow.title }}</span>
-            </a-tooltip>
-          </a-descriptions-item>
           <a-descriptions-item label="当前状态">
             <a-tag :color="notesStatusLabel.color" size="small">
               {{ notesStatusLabel.label }}
@@ -3012,14 +3007,6 @@ function shortSha(sha: string | null | undefined): string {
   margin-top: 4px;
   color: var(--color-text-3);
   font-size: 12px;
-}
-
-/* 缺陷标题单行省略，完整内容走 tooltip，避免长标题把弹窗布局撑开 */
-.notes-defect-title {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .notes-actions {
