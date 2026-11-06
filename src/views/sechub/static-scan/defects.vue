@@ -35,7 +35,6 @@ const route = useRoute()
 // 默认只看自己的会让人以为列表漏了数据。
 const userStore = useUserStore()
 const mineOnly = ref(false)
-const approvalMine = ref(false)
 function mineAssigneeValue(): string {
   if (!mineOnly.value)
     return ''
@@ -92,7 +91,7 @@ const queryParams = ref({
   defect_code: '',
   // 来源过滤：scan=扫描检出 / import=Excel 导入
   source: '',
-  // 业务领域 / 产品领域过滤（左树点节点写入；__unclassified__ = 未分类）
+  // 业务领域 / 产品领域过滤（治理看板穿透写入；__unclassified__ = 未分类；左树点选走 treeScope 叠加）
   business_area: '',
   product_domain: '',
   // 「计划完成」过滤：__overdue__ / __due_soon__ / __none__（未标注）/ __planned__，只对处理中生效
@@ -133,7 +132,18 @@ for (const key of ['governance_status', 'plan_finish', 'domain', 'project_group_
     queryParams.value[key] = value.trim()
 }
 
-const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<ScanIssuePage>(ApiSecPrescan.issues, queryParams, { immediate: true })
+/**
+ * 左树点选的范围与查询栏条件分开保存：查询栏负责「过滤」，左树负责「下钻」。
+ *
+ * 两者会写同一批结构字段（项目组/应用/领域/扫描点/规则版本），合在一个对象里会互相覆盖：
+ * 点树时清空查询条件；查询条件又会进入树自身的请求，把树收窄成只剩选中子树。
+ * 因此树只吃 queryParams，列表吃「queryParams + treeScope」。
+ */
+const TREE_SCOPE_KEYS = ['project_group_id', 'repository_id', 'business_area', 'product_domain', 'domain', 'rule_version_id', 'scan_point_id'] as const
+const treeScope = ref<Record<string, string>>({})
+const listParams = computed(() => ({ ...queryParams.value, ...treeScope.value }))
+
+const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<ScanIssuePage>(ApiSecPrescan.issues, listParams, { immediate: true })
 const dataList = computed(() => rawListData.value?.list ?? [])
 const total = computed(() => rawListData.value?.total ?? 0)
 
@@ -176,10 +186,10 @@ function onRiskLevelChange() {
 // ===== 导出 / 导入 / 模板 =====
 const { downloadWithTip } = useDownload()
 
-/** 当前筛选条件 → query string（导出与列表同一套条件，分页字段不参与） */
+/** 当前筛选条件 → query string（导出与列表同一套条件，含左树下钻范围；分页字段不参与） */
 function filterQueryString(): string {
   const params = new URLSearchParams()
-  for (const [key, value] of Object.entries(queryParams.value)) {
+  for (const [key, value] of Object.entries(listParams.value)) {
     if (key === 'page_num' || key === 'page_size')
       continue
     if (value !== '' && value != null)
@@ -238,14 +248,13 @@ async function handleImportUpload(fileList: any[]) {
 }
 
 // ===== 左树：维度树（规则分布 / 项目组 / 业务领域 / 产品领域，组件见 components/IssueScopeTree.vue）=====
-const scopeTreeRef = ref<{ reload: () => void } | null>(null)
+const scopeTreeRef = ref<{ reload: () => void, clearSelection: () => void } | null>(null)
 
 /**
- * 左树的筛选输入：与列表同一套条件，去掉分页/排序（不该因为翻页就重算整棵树）。
+ * 左树的筛选输入：查询栏的全部条件（含项目组/应用/领域等结构维度），去掉分页/排序。
  *
- * 结构维度（项目组/应用/业务领域/产品领域/领域/扫描点/规则版本）虽然也在 queryParams 里，
- * 但由 IssueScopeTree 组件内部剔除：它们不参与左树自身查询，保证树结构稳定 ——
- * 点节点只收窄右侧列表，左树不会塌缩成只剩该节点。
+ * 树点选的范围存在 treeScope 里，不在这里回传 —— 否则「点节点 → 范围进入树请求 →
+ * 树只剩该子集」，其它节点会消失。
  */
 const scopeTreeFilters = computed(() => {
   const out: Record<string, unknown> = {}
@@ -258,21 +267,34 @@ const scopeTreeFilters = computed(() => {
 })
 
 /**
- * 左树点节点 → 写回列表范围。
+ * 左树点节点 → 只替换下钻范围（treeScope），不动查询栏条件。
  *
- * 先清空全部范围字段再套新范围（与性能问题台账同一套语义）：节点只来自当前维度，
- * 跨维度混用会出现「项目组A ∩ 业务领域B」这类空集。
+ * 每次点选重建整个范围（节点只来自当前维度，跨维度混用会出现
+ * 「项目组A ∩ 业务领域B」这类空集）；点根节点「全部」得到空范围。
  */
 function onScopeChange(scope: Record<string, string>) {
-  queryParams.value.project_group_id = scope.project_group_id ?? ''
-  queryParams.value.repository_id = scope.repository_id ?? ''
-  queryParams.value.business_area = scope.business_area ?? ''
-  queryParams.value.product_domain = scope.product_domain ?? ''
-  queryParams.value.domain = scope.domain ?? ''
-  queryParams.value.rule_version_id = scope.rule_version_id ?? ''
-  queryParams.value.scan_point_id = scope.scan_point_id ?? ''
+  const next: Record<string, string> = {}
+  for (const key of TREE_SCOPE_KEYS) {
+    const value = scope[key]
+    if (value)
+      next[key] = value
+  }
+  treeScope.value = next
   queryParams.value.page_num = 1
   void getList()
+}
+
+/** 查询栏的结构条件变了：旧的树选中范围可能已不在新树里，先清掉再查 */
+function clearTreeScope() {
+  treeScope.value = {}
+  scopeTreeRef.value?.clearSelection()
+}
+
+function onStructureFilterChange() {
+  clearTreeScope()
+  queryParams.value.page_num = 1
+  void getList()
+  scopeTreeRef.value?.reload()
 }
 
 // ===== 左树宽度拖拽 =====
@@ -305,31 +327,9 @@ async function fetchJson<T>(url: string): Promise<T | null> {
 
 function refresh() {
   queryParams.value.page_num = 1
-  // 项目组/应用等下拉变更：左树原有的范围选择在新视角下没有意义，回到全量
-  queryParams.value.rule_version_id = ''
-  queryParams.value.scan_point_id = ''
-  queryParams.value.business_area = ''
-  queryParams.value.product_domain = ''
   void getList()
-  // 下拉变了但筛选字段不一定变（如只改了项目组又改回来），显式让树重算一次
+  // 下拉变了但筛选字段不一定变（如改回来），显式让树重算一次；选中范围保留
   scopeTreeRef.value?.reload()
-}
-
-/** 切换「我负责的」：重算负责人过滤值并刷新列表 */
-function onApprovalMineChange(value: string | number | boolean) {
-  if (value) {
-    approvalMine.value = true
-    queryParams.value.nofix_approval_state = 'pending'
-    queryParams.value.nofix_approval_scope = 'mine'
-  }
-  else {
-    approvalMine.value = false
-    queryParams.value.nofix_approval_scope = ''
-    if (queryParams.value.nofix_approval_state === 'pending')
-      queryParams.value.nofix_approval_state = ''
-  }
-  queryParams.value.page_num = 1
-  void getList()
 }
 
 function onMineOnlyChange() {
@@ -337,12 +337,12 @@ function onMineOnlyChange() {
   refresh()
 }
 
-// 领域下拉变更：仅重载列表（领域属结构维度，左树不随之收窄；树只跟状态/风险/来源等查询筛选联动）
+// 领域下拉变更：树跟随该条件重算；旧的树选中范围（规则/扫描点等）可能已不在新树里
 function onDomainSelectChange() {
+  clearTreeScope()
   queryParams.value.page_num = 1
-  queryParams.value.rule_version_id = ''
-  queryParams.value.scan_point_id = ''
   void getList()
+  scopeTreeRef.value?.reload()
 }
 
 // 状态下拉变更（多选）：仅重载列表
@@ -858,7 +858,7 @@ async function compensateWhitelist() {
     const resp = await postAction<{ message?: string }>(
       ApiSecPrescan.compensateWhitelist,
       // 限定当前筛选的仓库，避免一次扫全库
-      { repository_id: queryParams.value.repository_id || undefined },
+      { repository_id: listParams.value.repository_id || undefined },
     )
     if (resp) {
       Message.success(resp.message || '匹配完成')
@@ -1743,7 +1743,7 @@ function shortSha(sha: string | null | undefined): string {
       <!-- 筛选 -->
       <a-card :bordered="false" class="m-b-12px">
         <a-space wrap>
-          <a-select v-model="queryParams.project_group_id" allow-search allow-clear placeholder="项目组" style="width: 200px" @change="refresh">
+          <a-select v-model="queryParams.project_group_id" allow-search allow-clear placeholder="项目组" style="width: 200px" @change="onStructureFilterChange">
             <!-- 未分组：仓库维度上没有归属项目组（模块没挂项目组 / 未绑定模块），
                  与治理看板「未分组」行同一口径 —— 用于排查那些数据的来源 -->
             <a-option value="__none__">
@@ -1767,7 +1767,7 @@ function shortSha(sha: string | null | undefined): string {
               已撤回
             </a-option>
           </a-select>
-          <a-select v-model="queryParams.repository_id" allow-search allow-clear placeholder="应用" style="width: 280px" @change="refresh">
+          <a-select v-model="queryParams.repository_id" allow-search allow-clear placeholder="应用" style="width: 280px" @change="onStructureFilterChange">
             <a-option v-for="repo in repositories" :key="repo.repository_id" :value="repo.repository_id">
               {{ repo.module_name }}（{{ repo.repository_name }}）
             </a-option>

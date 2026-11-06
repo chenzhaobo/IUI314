@@ -3,9 +3,10 @@
 //
 // 口径与取舍（与后端 issue_scope.rs 一致）：
 //   · 计数走**与列表同一套筛选**，所以节点数字 = 点它之后列表的 total（含 Excel 导入行）；
-//   · 参与查询的筛选（状态/风险/来源/负责人/计划…）一变就防抖重算，保证「树上的数字跟列表对得上」；
-//   · 结构维度（项目组/应用/业务领域/产品领域/领域/扫描点/规则版本）不参与左树自身查询：
-//     点节点只收窄右侧列表 —— 左树不重拉、也不塌缩；点根节点「全部」回到全量；
+//   · 查询栏里的全部条件（状态/风险/来源/项目组/应用/领域…）一变就防抖重算，
+//     保证「树上的数字跟列表对得上」；
+//   · 树自己的选中范围由父页面单独保存（treeScope），不回流进 filters：
+//     点节点只收窄右侧列表 —— 左树不重拉、也不塌缩；点根节点「全部」只清选中范围；
 //   · 展开态跨重载保持（仍存在的已展开 key 不收起，选中节点的祖先链自动展开），
 //     默认只展开根 + 第一层，只有切换维度才回到默认展开。
 import type { IssueScopeTreeNode } from './ruleCategoryTree'
@@ -16,7 +17,7 @@ import { fetchIssueScopeTree } from './service'
 import { useScanPointCategories } from './useScanPointCategories'
 
 const props = defineProps<{
-  /** 与右侧列表同一套筛选（分页/排序/勾选 id 不参与） */
+  /** 查询栏的筛选条件（分页/排序/勾选 id 不参与；不含树自身选中范围） */
   filters: Record<string, unknown>
 }>()
 
@@ -28,23 +29,6 @@ const emit = defineEmits<{
 const ROOT_KEY = 'root'
 /** 只在筛选真正变化后重算树，避免连续改动打出一串请求 */
 const RELOAD_DEBOUNCE_MS = 300
-
-/**
- * 结构维度：树自己就是按这些维度聚合出来的。
- *
- * 它们若回流进树自身的查询，就会「点节点 → 该筛选进入树请求 → 树只剩该子集 →
- * 其它节点消失」，所以 buildQuery 一律跳过；这些 key 只由父页面用于收窄右侧列表。
- * 与 scopeOfKey 的前缀映射一一对应。
- */
-const STRUCTURE_DIMENSION_KEYS = new Set([
-  'project_group_id',
-  'repository_id',
-  'business_area',
-  'product_domain',
-  'domain',
-  'scan_point_id',
-  'rule_version_id',
-])
 
 const MODE_OPTIONS = [
   { value: 'project_group', label: '项目组' },
@@ -62,12 +46,10 @@ const selectedKeys = ref<string[]>([])
 const expandedKeys = ref<string[]>([])
 const { scanPointCategories, ensureScanPointCategories } = useScanPointCategories()
 
-/** 树的请求参数：调用方给的筛选 + 维度（分页/排序由调用方剔除，结构维度由组件剔除，保证树结构稳定） */
+/** 树的请求参数：调用方给的查询条件 + 维度（分页/排序由调用方剔除；树自身选中范围不在 filters 里） */
 function buildQuery(): Record<string, string> {
   const query: Record<string, string> = { mode: mode.value }
   for (const [key, value] of Object.entries(props.filters)) {
-    if (STRUCTURE_DIMENSION_KEYS.has(key))
-      continue
     if (value !== '' && value != null)
       query[key] = String(value)
   }
@@ -163,22 +145,19 @@ function reload() {
   void load()
 }
 
-defineExpose({ reload })
+/** 供父页面在查询栏的结构条件变化时清掉选中态（范围由父页面同时清空） */
+function clearSelection() {
+  selectedKeys.value = []
+}
+
+defineExpose({ reload, clearSelection })
 
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
-// 只盯真正参与左树查询的筛选：结构维度（点节点 / 项目组/应用/领域下拉写回的那批）变化不会改变
-// 树的内容，重拉纯属浪费 —— 点节点不再触发任何树请求；其余筛选照常防抖重算。
+// 查询栏的任一条件变化都防抖重算：树要跟随筛选结果收窄，数字才能和列表对得上。
+// 树自身的选中范围由父页面单独保存，不进 filters，所以点节点不会触发重拉。
 // 按序列化结果比对：父页面的筛选对象每次计算都会换新身份（含翻页这类改动），
 // 直接 deep watch 会白刷一次树；筛选字段本身没变就不该重算
-watch(() => {
-  const out: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(props.filters ?? {})) {
-    if (STRUCTURE_DIMENSION_KEYS.has(key))
-      continue
-    out[key] = value
-  }
-  return JSON.stringify(out)
-}, () => {
+watch(() => JSON.stringify(props.filters ?? {}), () => {
   if (debounceTimer)
     clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => void load(), RELOAD_DEBOUNCE_MS)
