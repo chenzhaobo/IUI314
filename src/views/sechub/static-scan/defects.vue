@@ -663,8 +663,6 @@ const notesStatusEvent = computed(() => {
     return null
   return notesAllEvents.value.find(ev => ev.event_type !== 'note' && ev.to_status === status) ?? null
 })
-const notesWontFixEvent = computed(() => notesAllEvents.value.find(ev => ev.event_type === 'wont_fix') ?? null)
-const notesDeferEvent = computed(() => notesAllEvents.value.find(ev => ev.event_type === 'deferred') ?? null)
 
 async function loadIssueNotes(row: ScanIssueRow) {
   notesLoading.value = true
@@ -2744,12 +2742,17 @@ function shortSha(sha: string | null | undefined): string {
     <!-- 备注与原因：备注历史 + 不处理/暂缓原因，可直接补备注 -->
     <a-modal
       v-model:visible="notesVisible"
-      :title="`备注与原因 · ${notesRow?.title ?? ''}`"
+      title="备注与原因"
       :footer="false"
       width="600px"
     >
       <template v-if="notesRow">
         <a-descriptions :column="1" bordered size="small">
+          <a-descriptions-item label="缺陷">
+            <a-tooltip :content="notesRow.title" mini>
+              <span class="notes-defect-title">{{ notesRow.title }}</span>
+            </a-tooltip>
+          </a-descriptions-item>
           <a-descriptions-item label="当前状态">
             <a-tag :color="notesStatusLabel.color" size="small">
               {{ notesStatusLabel.label }}
@@ -2758,9 +2761,6 @@ function shortSha(sha: string | null | undefined): string {
               {{ formatTime(notesStatusEvent.created_at) }} · {{ operatorLabel(notesStatusEvent.operator) }}
             </div>
           </a-descriptions-item>
-          <a-descriptions-item label="处理人">
-            {{ notesRow.assignee || '未指派' }}
-          </a-descriptions-item>
           <a-descriptions-item v-if="notesRow.wont_fix_reason_code || notesRow.wont_fix_reason" label="不处理原因">
             <div v-if="notesRow.wont_fix_reason_code">
               {{ wontFixReasonLabelMap[notesRow.wont_fix_reason_code] ?? notesRow.wont_fix_reason_code }}
@@ -2768,15 +2768,9 @@ function shortSha(sha: string | null | undefined): string {
             <div v-if="notesRow.wont_fix_reason">
               {{ notesRow.wont_fix_reason }}
             </div>
-            <div v-if="notesWontFixEvent" class="notes-meta">
-              {{ formatTime(notesWontFixEvent.created_at) }} · {{ operatorLabel(notesWontFixEvent.operator) }}
-            </div>
           </a-descriptions-item>
           <a-descriptions-item v-if="notesRow.defer_reason" label="暂缓原因">
             {{ notesRow.defer_reason }}
-            <div v-if="notesDeferEvent" class="notes-meta">
-              {{ formatTime(notesDeferEvent.created_at) }} · {{ operatorLabel(notesDeferEvent.operator) }}
-            </div>
           </a-descriptions-item>
         </a-descriptions>
       </template>
@@ -3018,6 +3012,14 @@ function shortSha(sha: string | null | undefined): string {
   margin-top: 4px;
   color: var(--color-text-3);
   font-size: 12px;
+}
+
+/* 缺陷标题单行省略，完整内容走 tooltip，避免长标题把弹窗布局撑开 */
+.notes-defect-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .notes-actions {
