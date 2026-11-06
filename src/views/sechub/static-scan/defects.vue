@@ -2953,7 +2953,20 @@ function shortSha(sha: string | null | undefined): string {
 .split-right { flex: 1; min-width: 0; min-height: 0; }
 .event-item { display: flex; align-items: center; gap: 8px; }
 .event-transition { font-size: 13px; color: var(--color-text-2); }
-.event-reason { margin-top: 4px; font-size: 12px; color: var(--color-text-3); }
+.event-reason {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-text-3);
+  /* 备注可能很长或包含无空格长串：保留换行并强制折行，避免撑出抽屉 */
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* 时间线内容列允许收缩，长文本才能在抽屉宽度内折行 */
+:deep(.arco-timeline-item-content) {
+  min-width: 0;
+}
 .event-report-link { margin-top: 2px; }
 .event-commit { margin-top: 2px; font-size: 12px; color: var(--color-text-4); font-family: monospace; }
 .event-operator { margin-top: 2px; font-size: 12px; color: var(--color-text-4); }
