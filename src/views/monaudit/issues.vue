@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 /**
- * 监控审计 · 问题清单：左树（项目组 / 业务领域 / 产品领域 / 处理人 / 审计类型）+ 右表 + 详情抽屉。
+ * 监控审计 · 问题清单：左树（项目组 / 业务领域 / 产品领域 / 处理人 / 审计类型）+ 右表 + 详情弹窗。
  *
  * 列表 / 范围 / 勾选在 ./issues/useIssueList，批量动作在 useIssueBatch，状态流转在 useIssueTransition；
  * 取数一律经 ./issues/service。
@@ -9,7 +9,7 @@ import type { IssueRow } from './issues/types'
 import { onMounted, ref } from 'vue'
 import ListPage from '@/components/common/ListPage.vue'
 import IssueBatchModals from './issues/components/IssueBatchModals.vue'
-import IssueDetailDrawer from './issues/components/IssueDetailDrawer.vue'
+import IssueDetailModal from './issues/components/IssueDetailModal.vue'
 import IssueFilterBar from './issues/components/IssueFilterBar.vue'
 import IssueReasonModal from './issues/components/IssueReasonModal.vue'
 import IssueScopeTree from './issues/components/IssueScopeTree.vue'
@@ -77,13 +77,13 @@ function onTransitionSelect(value: string | number | Record<string, unknown> | u
     runTransition(hit.value)
 }
 
-// ── 详情抽屉 ──────────────────────────────────────
-const drawerVisible = ref(false)
-const drawerIssueId = ref('')
+// ── 详情弹窗 ──────────────────────────────────────
+const detailVisible = ref(false)
+const detailIssueId = ref('')
 
 function openDetail(row: IssueRow) {
-  drawerIssueId.value = row.id
-  drawerVisible.value = true
+  detailIssueId.value = row.id
+  detailVisible.value = true
 }
 
 onMounted(() => {
@@ -164,7 +164,7 @@ onMounted(() => {
       :on-confirm="confirmReason"
     />
 
-    <IssueDetailDrawer v-model:visible="drawerVisible" :issue-id="drawerIssueId" @changed="refreshAll" />
+    <IssueDetailModal v-model:visible="detailVisible" :issue-id="detailIssueId" @changed="refreshAll" />
   </div>
 </template>
 

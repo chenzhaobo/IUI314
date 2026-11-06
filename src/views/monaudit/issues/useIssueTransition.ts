@@ -1,7 +1,7 @@
 /**
  * 状态流转：关闭 / 不处理 / 误报需先填原因（弹窗），其余动作直接提交。
  *
- * 列表工具栏（批量）与详情抽屉（单条）共用。
+ * 列表工具栏（批量）与详情弹窗（单条）共用。
  */
 import type { TransitionAction } from './types'
 import { Message } from '@arco-design/web-vue'

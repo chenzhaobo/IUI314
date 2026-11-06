@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 详情抽屉 · 变更历史时间线 */
+/** 详情弹窗 · 变更历史时间线 */
 import type { IssueEventRow } from '../types'
 import { formatTime } from '@/hooks'
 import { ISSUE_STATUS, tagMeta } from '../../shared/types'

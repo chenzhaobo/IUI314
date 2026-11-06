@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 问题详情抽屉：基本信息、处理信息编辑（version 乐观锁）、状态流转、
+ * 问题详情弹窗（宽屏，内容区独立滚动）：基本信息、处理信息编辑（version 乐观锁）、状态流转、
  * 出现情况 / 原始记录 / Monitor 日志 / 变更历史。
  *
  * 状态与动作在 useIssueDetail；变更成功后通知父页面刷新列表与左树。
@@ -45,8 +45,15 @@ const { reasonVisible, reasonTitle, reason, submitting: transiting, run: runTran
 </script>
 
 <template>
-  <a-drawer v-model:visible="visible" :width="960" :footer="false" title="问题详情" unmount-on-close>
-    <a-spin :loading="loading" class="drawer-spin">
+  <a-modal
+    v-model:visible="visible"
+    width="92vw"
+    :footer="false"
+    title="问题详情"
+    unmount-on-close
+    :body-style="{ height: '82vh', overflow: 'auto' }"
+  >
+    <a-spin :loading="loading" class="detail-spin">
       <template v-if="detail">
         <IssueDetailInfo :detail="detail" />
 
@@ -104,11 +111,11 @@ const { reasonVisible, reasonTitle, reason, submitting: transiting, run: runTran
       :loading="transiting"
       :on-confirm="confirmReason"
     />
-  </a-drawer>
+  </a-modal>
 </template>
 
 <style scoped>
-.drawer-spin { display: block; width: 100%; }
+.detail-spin { display: block; width: 100%; }
 .section { margin-top: 16px; }
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .section-title { font-weight: 600; }

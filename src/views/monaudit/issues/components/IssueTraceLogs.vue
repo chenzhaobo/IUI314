@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 详情抽屉 · Monitor 日志索引 + 日志内容弹窗 */
+/** 详情弹窗 · Monitor 日志索引 + 日志内容弹窗 */
 import type { TraceLogLine, TraceLogRow } from '../types'
 import { formatTime } from '@/hooks'
 import { tagMeta } from '../../shared/types'

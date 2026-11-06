@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 详情抽屉 · 基本信息（只读） */
+/** 详情弹窗 · 基本信息（只读） */
 import type { IssueDetail } from '../types'
 import { formatTime } from '@/hooks'
 import { ISSUE_LEVEL, ISSUE_STATUS, REPRO_STATE, tagMeta } from '../../shared/types'
@@ -11,7 +11,7 @@ defineProps<{
 
 <template>
   <div class="detail-info">
-    <a-descriptions :column="2" size="small" bordered>
+    <a-descriptions :column="3" size="small" bordered>
       <a-descriptions-item label="标题" :span="2">
         {{ detail.issue.title }}
       </a-descriptions-item>

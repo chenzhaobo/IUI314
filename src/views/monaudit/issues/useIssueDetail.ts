@@ -1,5 +1,5 @@
 /**
- * 问题详情抽屉：加载详情、编辑处理信息（version 乐观锁）、状态流转、日志查看与重新抓取。
+ * 问题详情弹窗：加载详情、编辑处理信息（version 乐观锁）、状态流转、日志查看与重新抓取。
  */
 import type { Ref } from 'vue'
 import type { HandleForm, IssueDetail, TraceLogLine, TraceLogRow, TransitionMeta } from './types'

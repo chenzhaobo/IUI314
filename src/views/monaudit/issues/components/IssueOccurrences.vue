@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 详情抽屉 · 出现情况（轮次 × 同步源）与最近的原始记录 */
+/** 详情弹窗 · 出现情况（轮次 × 同步源）与最近的原始记录 */
 import type { OccurrenceRow, RawSampleRow } from '../types'
 import { computed } from 'vue'
 import { formatTime } from '@/hooks'
@@ -71,7 +71,7 @@ function sampleText(row: OccurrenceRow): string {
 .raw-meta { margin-bottom: 6px; }
 .raw-label { margin: 4px 0; color: var(--color-text-3); font-size: 12px; }
 .raw-pre {
-  max-height: 320px;
+  max-height: 50vh;
   margin: 0;
   padding: 8px;
   overflow: auto;
