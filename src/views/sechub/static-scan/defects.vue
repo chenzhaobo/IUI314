@@ -650,19 +650,31 @@ async function submitDefer() {
 // ===== 备注与原因（备注只追加流转事件，不改状态）=====
 const notesVisible = ref(false)
 const notesRow = ref<ScanIssueRow | null>(null)
+const notesAllEvents = ref<ScanIssueEventRow[]>([])
 const notesList = ref<ScanIssueEventRow[]>([])
 const notesLoading = ref(false)
 const noteText = ref('')
 const noteSubmitting = ref(false)
 const notesStatusLabel = computed(() => notesRow.value ? issueStatusLabel(notesRow.value) : { label: '-', color: 'gray' })
+/** 到达当前状态的那条流转（事件已按时间倒序，取最近一条） */
+const notesStatusEvent = computed(() => {
+  const status = notesRow.value?.status
+  if (!status)
+    return null
+  return notesAllEvents.value.find(ev => ev.event_type !== 'note' && ev.to_status === status) ?? null
+})
+const notesWontFixEvent = computed(() => notesAllEvents.value.find(ev => ev.event_type === 'wont_fix') ?? null)
+const notesDeferEvent = computed(() => notesAllEvents.value.find(ev => ev.event_type === 'deferred') ?? null)
 
 async function loadIssueNotes(row: ScanIssueRow) {
   notesLoading.value = true
+  notesAllEvents.value = []
   notesList.value = []
   try {
     const { data, execute } = useGet<ScanIssueEventRow[]>(ApiSecPrescan.issueEvents, { issue_id: row.id }, { immediate: false })
     await execute()
-    notesList.value = (data.value ?? []).filter(ev => ev.event_type === 'note')
+    notesAllEvents.value = data.value ?? []
+    notesList.value = notesAllEvents.value.filter(ev => ev.event_type === 'note')
   }
   finally {
     notesLoading.value = false
@@ -2656,11 +2668,11 @@ function shortSha(sha: string | null | undefined): string {
         <template #title>
           <div class="report-modal-head">
             <span class="report-modal-title">{{ reportRow?.title ?? 'AI 详细报告' }}</span>
-            <a-space :size="8">
-              <a-button size="small" @click="openReportNotes">
+            <a-space :size="8" class="report-modal-actions">
+              <a-button size="small" type="primary" @click="openReportNotes">
                 备注与原因
               </a-button>
-              <a-button size="small" :disabled="!reportRow?.ai_detail_report" @click="downloadReport">
+              <a-button size="small" type="outline" status="success" :disabled="!reportRow?.ai_detail_report" @click="downloadReport">
                 <template #icon>
                   <icon-download />
                 </template>
@@ -2742,6 +2754,12 @@ function shortSha(sha: string | null | undefined): string {
             <a-tag :color="notesStatusLabel.color" size="small">
               {{ notesStatusLabel.label }}
             </a-tag>
+            <div v-if="notesStatusEvent" class="notes-meta">
+              {{ formatTime(notesStatusEvent.created_at) }} · {{ operatorLabel(notesStatusEvent.operator) }}
+            </div>
+          </a-descriptions-item>
+          <a-descriptions-item label="处理人">
+            {{ notesRow.assignee || '未指派' }}
           </a-descriptions-item>
           <a-descriptions-item v-if="notesRow.wont_fix_reason_code || notesRow.wont_fix_reason" label="不处理原因">
             <div v-if="notesRow.wont_fix_reason_code">
@@ -2750,9 +2768,15 @@ function shortSha(sha: string | null | undefined): string {
             <div v-if="notesRow.wont_fix_reason">
               {{ notesRow.wont_fix_reason }}
             </div>
+            <div v-if="notesWontFixEvent" class="notes-meta">
+              {{ formatTime(notesWontFixEvent.created_at) }} · {{ operatorLabel(notesWontFixEvent.operator) }}
+            </div>
           </a-descriptions-item>
           <a-descriptions-item v-if="notesRow.defer_reason" label="暂缓原因">
             {{ notesRow.defer_reason }}
+            <div v-if="notesDeferEvent" class="notes-meta">
+              {{ formatTime(notesDeferEvent.created_at) }} · {{ operatorLabel(notesDeferEvent.operator) }}
+            </div>
           </a-descriptions-item>
         </a-descriptions>
       </template>
@@ -2979,10 +3003,21 @@ function shortSha(sha: string | null | undefined): string {
   white-space: nowrap;
 }
 
+/* 给右上角关闭按钮留位，避免两个操作按钮与它重叠 */
+.report-modal-actions {
+  margin-right: 36px;
+}
+
 /* 备注与原因弹窗 */
 .notes-title {
   margin: 14px 0 8px;
   font-weight: 600;
+}
+
+.notes-meta {
+  margin-top: 4px;
+  color: var(--color-text-3);
+  font-size: 12px;
 }
 
 .notes-actions {
