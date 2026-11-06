@@ -414,6 +414,11 @@ function clearSelection() {
   selectedIds.value = []
 }
 
+/** 批量入口用勾选行，详情入口传单行；两者共用同一套动作实现 */
+function actionTargets(rows?: ScanIssueRow[]): ScanIssueRow[] {
+  return rows?.length ? rows : selectedRows.value
+}
+
 /** 导出：勾选了就只导出勾选的（跨页累计）；没勾选按当前筛选导出全部 */
 function exportIssues() {
   const qs = selectedIds.value.length
@@ -481,6 +486,9 @@ const transferLoading = ref(false)
 const transferAssignee = ref('')
 const transferRemark = ref('')
 const transferProjectGroup = ref('')
+const transferTargets = ref<ScanIssueRow[]>([])
+/** 本次操作是否来自列表勾选（决定成功后是否清空勾选） */
+const transferBatch = ref(true)
 
 // 处理人下拉：取用户选项接口（/system/user/options），不从项目组成员取 ——
 // 项目组成员表常常是空的（缺陷行上也没有项目组字段），下拉会没有数据；
@@ -511,14 +519,17 @@ async function searchTransferUsers(keyword = '') {
   }, 250)
 }
 
-function openTransferModal() {
-  if (!selectedIds.value.length) {
+function openTransferModal(rows?: ScanIssueRow[]) {
+  const targets = actionTargets(rows)
+  if (!targets.length) {
     Message.warning('请先勾选缺陷')
     return
   }
+  transferTargets.value = targets
+  transferBatch.value = !rows?.length
   transferAssignee.value = ''
   transferRemark.value = ''
-  transferProjectGroup.value = selectedRows.value[0]?.project_group_id || ''
+  transferProjectGroup.value = targets[0]?.project_group_id || ''
   transferVisible.value = true
   void searchTransferUsers('')
 }
@@ -532,7 +543,7 @@ async function submitTransfer() {
   transferLoading.value = true
   try {
     const res = await postAction<IssueTransitionSummary>(ApiSecPrescan.issueTransfer, {
-      ids: selectedIds.value,
+      ids: transferTargets.value.map(row => row.id),
       assignee,
       remark: transferRemark.value.trim() || undefined,
       project_group_id: transferProjectGroup.value || undefined,
@@ -542,8 +553,7 @@ async function submitTransfer() {
     // 后端按行汇总（不处理/已修复等状态会被跳过并说明原因）
     Message.success(res.message)
     transferVisible.value = false
-    clearSelection()
-    void getList()
+    refreshAfterAction(transferBatch.value)
   }
   finally {
     transferLoading.value = false
@@ -563,37 +573,41 @@ const PROCESS_ACTIONS = [
 ]
 const processLoading = ref(false)
 
-function onProcessSelect(value: unknown) {
+function onProcessSelect(value: unknown, rows?: ScanIssueRow[]) {
   const target = String(value ?? '')
   if (!target)
     return
   if (target === 'wont_fix') {
-    openWontFixModal()
+    openWontFixModal(rows)
     return
   }
   // 暂缓原因必填，走弹窗而不是点完就提交
   if (target === 'deferred') {
-    openDeferModal()
+    openDeferModal(rows)
     return
   }
   // 「已修复」要填修复说明（后端强制），走弹窗而不是点完就提交
   if (target === 'fixed') {
-    openFixedModal()
+    openFixedModal(rows)
     return
   }
-  void submitTransition(target)
+  void submitTransition(target, undefined, rows)
 }
 
-async function submitTransition(target: string, remark?: string): Promise<boolean> {
+async function submitTransition(target: string, remark?: string, rows?: ScanIssueRow[], batch = !rows?.length): Promise<boolean> {
+  const targets = actionTargets(rows)
+  if (!targets.length) {
+    Message.warning('请先勾选缺陷')
+    return false
+  }
   processLoading.value = true
   try {
-    const res = await postAction<IssueTransitionSummary>(ApiSecPrescan.issueTransition, { ids: selectedIds.value, target, remark })
+    const res = await postAction<IssueTransitionSummary>(ApiSecPrescan.issueTransition, { ids: targets.map(row => row.id), target, remark })
     if (!res)
       return false
     // 状态不符 / 处理人不是自己的行由后端跳过并在 message 里说明
     Message.success(res.message)
-    clearSelection()
-    void getList()
+    refreshAfterAction(batch)
     return true
   }
   finally {
@@ -604,12 +618,17 @@ async function submitTransition(target: string, remark?: string): Promise<boolea
 // ===== 标记已修复（说明必填；只有当前处理人能标）=====
 const fixedVisible = ref(false)
 const fixedRemark = ref('')
+const fixedTargets = ref<ScanIssueRow[]>([])
+const fixedBatch = ref(true)
 
-function openFixedModal() {
-  if (!selectedIds.value.length) {
+function openFixedModal(rows?: ScanIssueRow[]) {
+  const targets = actionTargets(rows)
+  if (!targets.length) {
     Message.warning('请先勾选缺陷')
     return
   }
+  fixedTargets.value = targets
+  fixedBatch.value = !rows?.length
   fixedRemark.value = ''
   fixedVisible.value = true
 }
@@ -620,19 +639,24 @@ async function submitFixed() {
     Message.warning('请填写修复说明')
     return
   }
-  if (await submitTransition('fixed', remark))
+  if (await submitTransition('fixed', remark, fixedTargets.value, fixedBatch.value))
     fixedVisible.value = false
 }
 
 // ===== 暂缓处理（原因必填；状态仍归「处理中」）=====
 const deferVisible = ref(false)
 const deferReason = ref('')
+const deferTargets = ref<ScanIssueRow[]>([])
+const deferBatch = ref(true)
 
-function openDeferModal() {
-  if (!selectedIds.value.length) {
+function openDeferModal(rows?: ScanIssueRow[]) {
+  const targets = actionTargets(rows)
+  if (!targets.length) {
     Message.warning('请先勾选缺陷')
     return
   }
+  deferTargets.value = targets
+  deferBatch.value = !rows?.length
   deferReason.value = ''
   deferVisible.value = true
 }
@@ -643,7 +667,7 @@ async function submitDefer() {
     Message.warning('请填写暂缓原因')
     return
   }
-  if (await submitTransition('deferred', reason))
+  if (await submitTransition('deferred', reason, deferTargets.value, deferBatch.value))
     deferVisible.value = false
 }
 
@@ -904,6 +928,7 @@ async function viewInResults(row: ScanIssueRow) {
 // ===== 缺陷处理：批量标记不处理（open/reopened → wont_fix，可同步白名单）=====
 const wontFixVisible = ref(false)
 const wontFixTargets = ref<ScanIssueRow[]>([])
+const wontFixBatch = ref(true)
 // reason_code 新增必填字段，reason 文本保持原有必填规则
 const wontFixForm = ref<{
   reason: string
@@ -914,17 +939,19 @@ const wontFixForm = ref<{
 }>({ reason: '', impact_note: '', sync_whitelist: false, expires_at: '', reason_code: '' })
 const wontFixLoading = ref(false)
 
-function openWontFixModal() {
-  if (!selectedIds.value.length) {
+function openWontFixModal(rows?: ScanIssueRow[]) {
+  const candidates = actionTargets(rows)
+  if (!candidates.length) {
     Message.warning('请先勾选缺陷')
     return
   }
-  const eligible = selectedRows.value.filter(r => canWontFix(r))
+  const eligible = candidates.filter(r => canWontFix(r))
   if (!eligible.length) {
     Message.warning('所选缺陷中没有可申请不处理的（仅「待修复/修复中/验证不通过/待复现/不稳定」且无待审批申请的可操作）')
     return
   }
   wontFixTargets.value = eligible
+  wontFixBatch.value = !rows?.length
   wontFixForm.value = { reason: '', impact_note: '', sync_whitelist: false, expires_at: '', reason_code: '' }
   wontFixVisible.value = true
 }
@@ -963,8 +990,7 @@ async function submitWontFix() {
       Message.warning(`${approverMissing} 条所在产品领域未配置领域架构师且无总监，申请会保持待审批，请联系管理员配置审批人`)
     }
     wontFixVisible.value = false
-    clearSelection()
-    void getList()
+    refreshAfterAction(wontFixBatch.value)
   }
   finally {
     wontFixLoading.value = false
@@ -1180,6 +1206,7 @@ async function submitApproval(decision: 'approved' | 'rejected', next: boolean) 
 const batchVerifyLoading = ref(false)
 const verifyVisible = ref(false)
 const verifyTargets = ref<ScanIssueRow[]>([])
+const verifyBatch = ref(true)
 const verifyForm = ref({ branch: '', commit_sha: '', agent_code: '', model: '' })
 
 // 分支/commit 下拉（复用扫描看板同一组接口）
@@ -1315,17 +1342,19 @@ function onVerifyAgentChange() {
   verifyForm.value.model = ''
 }
 
-function openVerifyDialog() {
-  if (!selectedIds.value.length) {
+function openVerifyDialog(rows?: ScanIssueRow[]) {
+  const candidates = actionTargets(rows)
+  if (!candidates.length) {
     Message.warning('请先勾选缺陷')
     return
   }
-  const eligible = selectedRows.value.filter(canVerify)
+  const eligible = candidates.filter(canVerify)
   if (!eligible.length) {
     Message.warning('所选缺陷中没有可重新验证的（失活已自动关闭的不再复核；复核中的请等结果）')
     return
   }
   verifyTargets.value = eligible
+  verifyBatch.value = !rows?.length
   // 分支默认选「该缺陷对应的分支」：所选缺陷分支一致就用它；不一致/为空留空由后端解析
   const branches = [...new Set(eligible.map(r => (r.branch ?? '').trim()).filter(Boolean))]
   verifyForm.value = {
@@ -1380,9 +1409,8 @@ async function batchVerify() {
     const failNote = failed > 0 ? `，${failed} 条未提交（状态不符或复核中，原因见上方提示）` : ''
     Message.success(`已提交 ${submitted} 条复核（后台执行，完成后刷新列表查看结果；流转记录有详情）${failNote}`)
     verifyVisible.value = false
-    clearSelection()
     // 立即刷新一次：列表上会显示「AI 复核中」，复核完成后状态与结果回写
-    void getList()
+    refreshAfterAction(verifyBatch.value)
   }
   finally {
     batchVerifyLoading.value = false
@@ -1536,6 +1564,41 @@ function viewReport(row: ScanIssueRow) {
   reportRow.value = row
   reportTab.value = 'main'
   reportVisible.value = true
+}
+
+/**
+ * 动作完成后的统一收尾：批量才清空勾选；列表刷新后同步详情弹窗里的行，
+ * 避免报告还显示旧状态（行已不存在则关闭详情）。
+ */
+function refreshAfterAction(batch: boolean) {
+  if (batch)
+    clearSelection()
+  void getList().then(() => {
+    const current = reportRow.value
+    if (!current)
+      return
+    const next = dataList.value.find(row => row.id === current.id)
+    if (next)
+      reportRow.value = next
+    else
+      reportVisible.value = false
+  })
+}
+
+/** 报告详情标题栏的三个单行动作：复用列表同一套弹窗/流转逻辑 */
+function openReportTransfer() {
+  if (reportRow.value)
+    openTransferModal([reportRow.value])
+}
+
+function onReportProcessSelect(value: unknown) {
+  if (reportRow.value)
+    onProcessSelect(value, [reportRow.value])
+}
+
+function openReportVerify() {
+  if (reportRow.value)
+    openVerifyDialog([reportRow.value])
 }
 
 // 007a「确认复现」：成功后重拉列表（该行升级为待修复）
@@ -1955,11 +2018,11 @@ function shortSha(sha: string | null | undefined): string {
               <div class="defect-toolbar">
                 <a-space>
                   <!-- 转交：选项目组 → 从该组成员里选处理人（与性能问题列表同形态） -->
-                  <a-button type="primary" :disabled="!selectedIds.length" @click="openTransferModal">
+                  <a-button type="primary" :disabled="!selectedIds.length" @click="openTransferModal()">
                     转交
                   </a-button>
                   <!-- 处理：状态流转统一入口（不处理需填原因，走弹窗） -->
-                  <a-dropdown :disabled="!selectedIds.length" @select="onProcessSelect">
+                  <a-dropdown :disabled="!selectedIds.length" @select="(value: unknown) => onProcessSelect(value)">
                     <a-button type="primary" :disabled="!selectedIds.length" :loading="processLoading">
                       处理
                       <template #icon>
@@ -1977,7 +2040,7 @@ function shortSha(sha: string | null | undefined): string {
                       审批
                     </a-button>
                   </a-tooltip>
-                  <a-button status="warning" :disabled="!selectedIds.length" :loading="batchVerifyLoading" @click="openVerifyDialog">
+                  <a-button status="warning" :disabled="!selectedIds.length" :loading="batchVerifyLoading" @click="openVerifyDialog()">
                     重新验证
                   </a-button>
                   <a-tooltip content="把所选缺陷关联到 DMP 单号，可批量填同一个" mini>
@@ -2394,7 +2457,7 @@ function shortSha(sha: string | null | undefined): string {
       <a-modal v-model:visible="transferVisible" title="转交缺陷" :width="520" :footer="false" unmount-on-close>
         <a-form layout="vertical" :model="layoutOnlyModel">
           <a-alert type="info" class="m-b-12px">
-            将把 {{ selectedIds.length }} 条缺陷转交给指定处理人（「待修复」会同时进入修复中）
+            将把 {{ transferTargets.length }} 条缺陷转交给指定处理人（「待修复」会同时进入修复中）
           </a-alert>
           <a-form-item label="处理人" required>
             <!-- 手输请填登录名：「标记已修复」按登录名判定是不是本人 -->
@@ -2431,7 +2494,7 @@ function shortSha(sha: string | null | undefined): string {
       <!-- 标记已修复弹窗（批量）：说明必填，只有当前处理人的行会被改，别人的行由后端跳过 -->
       <a-modal
         v-model:visible="fixedVisible"
-        :title="`标记已修复（${selectedIds.length} 条）`"
+        :title="`标记已修复（${fixedTargets.length} 条）`"
         width="560px"
         :ok-loading="processLoading"
         @ok="submitFixed"
@@ -2667,6 +2730,25 @@ function shortSha(sha: string | null | undefined): string {
           <div class="report-modal-head">
             <span class="report-modal-title">{{ reportRow?.title ?? 'AI 详细报告' }}</span>
             <a-space :size="8" class="report-modal-actions">
+              <a-button size="small" type="primary" @click="openReportTransfer">
+                转交
+              </a-button>
+              <a-dropdown trigger="click" :disabled="!reportRow" @select="onReportProcessSelect">
+                <a-button size="small" type="primary" :loading="processLoading">
+                  处理
+                  <template #icon>
+                    <icon-down />
+                  </template>
+                </a-button>
+                <template #content>
+                  <a-doption v-for="action in PROCESS_ACTIONS" :key="action.value" :value="action.value">
+                    {{ action.label }}
+                  </a-doption>
+                </template>
+              </a-dropdown>
+              <a-button size="small" status="warning" :disabled="!reportRow || !canVerify(reportRow)" :loading="batchVerifyLoading" @click="openReportVerify">
+                重新验证
+              </a-button>
               <a-button size="small" type="primary" @click="openReportNotes">
                 备注与原因
               </a-button>
@@ -2720,7 +2802,7 @@ function shortSha(sha: string | null | undefined): string {
     <!-- 暂缓处理弹窗（批量；原因必填，状态仍归「处理中」） -->
     <a-modal
       v-model:visible="deferVisible"
-      :title="`暂缓处理（${selectedIds.length} 条）`"
+      :title="`暂缓处理（${deferTargets.length} 条）`"
       :ok-loading="processLoading"
       @ok="submitDefer"
     >
