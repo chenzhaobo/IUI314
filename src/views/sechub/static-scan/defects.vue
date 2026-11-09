@@ -2972,6 +2972,15 @@ function shortSha(sha: string | null | undefined): string {
         </template>
       </a-alert>
       <a-form :model="verifyForm" layout="vertical">
+        <!-- 仓库地址是仓库身份的一部分：这里只读展示，避免单次复核把缺陷验到
+             另一个仓库上（会破坏缺陷归属、权限、凭据与基线口径）。 -->
+        <a-form-item v-if="verifyRepoNames.length <= 1" label="代码仓库">
+          <a-input :model-value="verifyRepo?.git_url || ''" readonly />
+          <template #extra>
+            地址属于仓库配置，单次复核不可修改；换地址请到「代码仓库」页修改并重新验证，
+            该改动会影响这个仓库的所有扫描与复核。
+          </template>
+        </a-form-item>
         <a-form-item label="分支">
           <a-select
             v-model="verifyForm.branch"
