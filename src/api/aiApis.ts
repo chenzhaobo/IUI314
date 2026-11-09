@@ -193,6 +193,9 @@ export interface AiSkill {
 export interface AiExecution {
   id: string
   agent_id: string
+  /** 执行时的 Agent 快照，Agent 改名/下线后仍可读 */
+  agent_code: string | null
+  agent_name: string | null
   skill_id: string | null
   caller_module: string
   caller_id: string | null
@@ -206,6 +209,16 @@ export interface AiExecution {
   output_files_json: string | null
   exit_code: number | null
   duration_ms: number | null
+  /** 本次实际使用的模型 */
+  model: string | null
+  input_tokens: number | null
+  output_tokens: number | null
+  total_tokens: number | null
+  cache_read_input_tokens: number | null
+  /** qoder-cli 的计费单位；token 恒为 0 时以它为准 */
+  credits: number | null
+  cost_usd: number | null
+  num_turns: number | null
   status: string
   error_message: string | null
   feedback_status: string
@@ -248,6 +261,10 @@ export interface AiExecutionStats {
   running: number
   success_rate: number
   avg_duration_ms: number
+  /** 已上报的 token 合计（kiro/灵基/dsh 不上报） */
+  total_tokens: number
+  /** qoder-cli 的积分合计 */
+  total_credits: number
 }
 
 export interface AiListResult<T> {
