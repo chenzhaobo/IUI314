@@ -1167,6 +1167,8 @@ export interface UnifiedScanRunRow {
   commit_sha?: string | null
   trigger_type?: string | null
   status: string
+  /** 本次运行实际拉取的仓库地址（历史运行未记录时为空） */
+  git_url?: string | null
   candidate_count?: number | null
   confirmed_count?: number | null
   started_at?: string | null
@@ -1180,6 +1182,8 @@ export interface CrossRunAggRow {
   branch?: string | null
   commit_sha?: string | null
   commit_time?: string | null
+  /** 本次运行实际拉取的仓库地址（历史运行未记录时为空） */
+  git_url?: string | null
   /** 扫描策略：差量类型（见 deltaKindLabels；空=全量） */
   delta_kind?: string | null
   /** 差量基线 commit（差量运行的比对基准） */

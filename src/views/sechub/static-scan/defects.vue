@@ -1518,6 +1518,8 @@ interface VerifyEventMeta {
   commit_subject?: string | null
   commit_author?: string | null
   commit_time?: string | null
+  /** 本次复核实际拉取的仓库地址（仓库改地址后可回溯） */
+  git_url?: string | null
   agent_code?: string | null
   model?: string | null
   verdict?: string | null
@@ -2726,6 +2728,10 @@ function shortSha(sha: string | null | undefined): string {
                       <span v-if="ev.meta.commit_time" class="event-meta-sub">{{ formatTime(ev.meta.commit_time) }}</span>
                       <span v-if="ev.meta.commit_author" class="event-meta-sub">{{ ev.meta.commit_author }}</span>
                     </span>
+                  </div>
+                  <div v-if="ev.meta.git_url" class="event-meta-row">
+                    <span class="event-meta-label">仓库</span>
+                    <span class="event-meta-value" :title="ev.meta.git_url">{{ ev.meta.git_url }}</span>
                   </div>
                   <div v-if="ev.meta.commit_subject" class="event-commit-subject" :title="ev.meta.commit_subject">
                     {{ ev.meta.commit_subject }}

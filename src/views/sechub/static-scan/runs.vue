@@ -1166,6 +1166,10 @@ function commitTooltip(row: CrossRunAggRow): string {
     parts.push(`完整 SHA：${row.commit_sha}`)
   if (row.commit_time)
     parts.push(`提交时间：${row.commit_time}`)
+  if (row.git_url)
+    parts.push(`仓库地址：${row.git_url}`)
+  else
+    parts.push('仓库地址：未记录（历史运行）')
   return parts.join('\n') || ''
 }
 
