@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { AiAgent } from '@/api/aiApis'
+import type { ColumnFilterState } from '@/hooks'
 import type { BranchesControlResponse, IssueImportSummary, IssueTransitionSummary, ModuleWithRepository, RepositoryBranch, RepositoryCommit, RepositoryCommitListResponse, ScanIssueEventRow, ScanIssuePage, ScanIssueRow } from '@/types/static-scan'
 import { Message, Modal } from '@arco-design/web-vue'
 import { MdPreview } from 'md-editor-v3'
@@ -9,7 +10,8 @@ import { ApiAiAgent } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSecApproval, ApiSecGovernance, ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
 import { ApiSysUser } from '@/api/sysApis'
-import { downloadText, formatTime, getAction, useAutoHeight, useDicts, useDownload, useGet, usePost, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
+import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
+import { downloadText, emptyFilter, formatTime, getAction, isFilterActive, toServerFilters, useAutoHeight, useDicts, useDownload, useGet, usePost, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
 import { useUserStore } from '@/stores'
 import IssueScopeTree from './components/IssueScopeTree.vue'
 import IssueDetectionsPanel from './defects/IssueDetectionsPanel.vue'
@@ -105,6 +107,8 @@ const queryParams = ref({
   // 引入时间范围：下界含，上界半开（与候选明细同口径）
   introduced_from: '',
   introduced_to: '',
+  // 表头列过滤序列化后的 JSON（字段白名单由后端校验）
+  filters: '',
   // 表头排序：后端白名单只认 introduced_at / updated_at，空值=默认「更新时间倒序」
   sort_by: '',
   sort_order: '',
@@ -113,6 +117,21 @@ const queryParams = ref({
 // Arco 的 multiple 要求数组，后端接受逗号分隔字符串，这里做转换
 const riskLevels = ref<string[]>([])
 const introducedRange = ref<string[]>([])
+
+// 表头列过滤：文本用运算符（包含/等于…）、数字用大小比较、日期用区间。
+// 列表是服务端分页，条件必须序列化给后端，前端筛只能筛当前页。
+const columnFilters = ref<Record<string, ColumnFilterState>>({
+  defect_code: emptyFilter('text'),
+  title: emptyFilter('text'),
+  category: emptyFilter('text'),
+  assignee: emptyFilter('text'),
+  file_path: emptyFilter('text'),
+  hit_count: emptyFilter('number'),
+  introduced_at: emptyFilter('date'),
+  plan_finish_date: emptyFilter('date'),
+  dmp_defect_code: emptyFilter('text'),
+  updated_at: emptyFilter('date'),
+})
 
 // 状态多选：项目组常一次看「待修复 + 修复中 + 验证不通过」（即「处理中」），
 // 单选来回切换太别扭；同样是数组 → 逗号分隔字符串发给后端
@@ -146,6 +165,23 @@ const listParams = computed(() => ({ ...queryParams.value, ...treeScope.value })
 const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<ScanIssuePage>(ApiSecPrescan.issues, listParams, { immediate: true })
 const dataList = computed(() => rawListData.value?.list ?? [])
 const total = computed(() => rawListData.value?.total ?? 0)
+
+/** 列过滤变化 → 同步 filters 参数、回第一页并重查 */
+function onColumnFilterChange() {
+  queryParams.value.filters = toServerFilters(columnFilters.value) ?? ''
+  queryParams.value.page_num = 1
+  void getList()
+}
+
+/** 生成列的 filterable 配置；filteredValue 非空让漏斗图标保持高亮 */
+function filterableOf(key: string): { slotName: string, filteredValue: string[], filter: () => boolean, hideButton: boolean } {
+  return {
+    slotName: `filter-${key}`,
+    filteredValue: isFilterActive(columnFilters.value[key]) ? ['1'] : [],
+    filter: () => true,
+    hideButton: true,
+  }
+}
 
 function onIntroducedRangeChange(value: unknown) {
   const range = Array.isArray(value) ? value : []
@@ -1719,12 +1755,12 @@ const wontFixReasonFilters = computed(() =>
 )
 
 const columns = computed(() => withTableDefaults([
-  { title: '缺陷编号', dataIndex: 'defect_code', slotName: 'defectCode', width: 210, ellipsis: true, tooltip: true },
-  { title: '缺陷标题', dataIndex: 'title', width: 240 },
+  { title: '缺陷编号', dataIndex: 'defect_code', slotName: 'defectCode', width: 210, ellipsis: true, tooltip: true, filterable: filterableOf('defect_code') },
+  { title: '缺陷标题', dataIndex: 'title', width: 240, filterable: filterableOf('title') },
   { title: '来源', dataIndex: 'source', slotName: 'source', width: 80 },
   { title: '领域', dataIndex: 'domain', slotName: 'domain', width: 70, ellipsis: true, tooltip: true },
   { title: '项目组', dataIndex: 'project_group_name', width: 130, ellipsis: true, tooltip: true },
-  { title: '分类', dataIndex: 'category', width: 100 },
+  { title: '分类', dataIndex: 'category', width: 100, filterable: filterableOf('category') },
   { title: '风险', dataIndex: 'risk_level', slotName: 'risk', width: 65, ellipsis: true, tooltip: true },
   // 宽度要容下「状态标签 + AI直判徽标」（90 时徽标会被 ellipsis 截掉，看不到）
   { title: '状态', dataIndex: 'status', slotName: 'status', width: 128, ellipsis: true, tooltip: true },
@@ -1733,16 +1769,16 @@ const columns = computed(() => withTableDefaults([
     dataIndex: 'nofix_approval_state',
     slotName: 'nofixApproval',
     width: 100,
-    filterable: { filters: nofixStateFilters, multiple: false, filter: () => true },
+    filterable: { filters: nofixStateFilters, multiple: false, filter: (): boolean => true },
   },
-  { title: '负责人', dataIndex: 'assignee', width: 75 },
+  { title: '负责人', dataIndex: 'assignee', width: 90, filterable: filterableOf('assignee') },
   // 计划完成：点单元格可单条改；表头排序按后端白名单的 plan_finish_date（最早到期在前）
-  { title: '计划完成', dataIndex: 'plan_finish_date', slotName: 'planFinish', width: 124, sortable: { sortDirections: ['ascend', 'descend'] } },
-  { title: '文件', dataIndex: 'file_path', width: 180 },
-  { title: '命中', dataIndex: 'hit_count', slotName: 'hitCount', width: 50 },
-  { title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 140, ellipsis: true, tooltip: true, sortable: { sortDirections: ['descend', 'ascend'] } },
-  { title: 'DMP 编码', dataIndex: 'dmp_defect_code', slotName: 'dmpCode', width: 130, ellipsis: true, tooltip: true },
-  { title: '更新时间', dataIndex: 'updated_at', slotName: 'updatedAt', width: 190, sortable: { sortDirections: ['descend', 'ascend'] } },
+  { title: '计划完成', dataIndex: 'plan_finish_date', slotName: 'planFinish', width: 124, sortable: { sortDirections: ['ascend', 'descend'] }, filterable: filterableOf('plan_finish_date') },
+  { title: '文件', dataIndex: 'file_path', width: 180, filterable: filterableOf('file_path') },
+  { title: '命中', dataIndex: 'hit_count', slotName: 'hitCount', width: 70, filterable: filterableOf('hit_count') },
+  { title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 140, ellipsis: true, tooltip: true, sortable: { sortDirections: ['descend', 'ascend'] }, filterable: filterableOf('introduced_at') },
+  { title: 'DMP 编码', dataIndex: 'dmp_defect_code', slotName: 'dmpCode', width: 130, ellipsis: true, tooltip: true, filterable: filterableOf('dmp_defect_code') },
+  { title: '更新时间', dataIndex: 'updated_at', slotName: 'updatedAt', width: 190, sortable: { sortDirections: ['descend', 'ascend'] }, filterable: filterableOf('updated_at') },
   // 不处理原因列：宽度 130，支持后端过滤，选项来自字典
   // filter 走后端（@filter-change → queryParams.wont_fix_reason_code），本地 filter 函数
   // 固定返回 true，不做客户端行筛选，仅作为 Arco 的必填字段占位。
@@ -1757,7 +1793,7 @@ const columns = computed(() => withTableDefaults([
       filters: wontFixReasonFilters.value,
       multiple: false,
       // Arco TableFilterable.filter 为必填字段；本页走后端过滤，此处返回 true 不做本地筛选
-      filter: () => true,
+      filter: (): boolean => true,
     },
   },
   { title: '操作', slotName: 'ops', width: 120, fixed: 'right' as const },
@@ -2117,6 +2153,36 @@ function shortSha(sha: string | null | undefined): string {
                 @page-size-change="onPageSizeChange"
                 @filter-change="onTableFilter"
               >
+                <template #filter-defect_code>
+                  <ColumnFilterPanel v-model="columnFilters.defect_code" @change="onColumnFilterChange" />
+                </template>
+                <template #filter-title>
+                  <ColumnFilterPanel v-model="columnFilters.title" @change="onColumnFilterChange" />
+                </template>
+                <template #filter-category>
+                  <ColumnFilterPanel v-model="columnFilters.category" @change="onColumnFilterChange" />
+                </template>
+                <template #filter-assignee>
+                  <ColumnFilterPanel v-model="columnFilters.assignee" @change="onColumnFilterChange" />
+                </template>
+                <template #filter-file_path>
+                  <ColumnFilterPanel v-model="columnFilters.file_path" @change="onColumnFilterChange" />
+                </template>
+                <template #filter-hit_count>
+                  <ColumnFilterPanel v-model="columnFilters.hit_count" @change="onColumnFilterChange" />
+                </template>
+                <template #filter-introduced_at>
+                  <ColumnFilterPanel v-model="columnFilters.introduced_at" @change="onColumnFilterChange" />
+                </template>
+                <template #filter-plan_finish_date>
+                  <ColumnFilterPanel v-model="columnFilters.plan_finish_date" @change="onColumnFilterChange" />
+                </template>
+                <template #filter-dmp_defect_code>
+                  <ColumnFilterPanel v-model="columnFilters.dmp_defect_code" @change="onColumnFilterChange" />
+                </template>
+                <template #filter-updated_at>
+                  <ColumnFilterPanel v-model="columnFilters.updated_at" @change="onColumnFilterChange" />
+                </template>
                 <template #defectCode="{ record }">
                   <!-- 编号+复制按钮必须同一行：不设 nowrap 时按钮会把编号挤到第二行 -->
                   <a-typography-text v-if="record.defect_code" copyable :copy-text="record.defect_code" class="cell-nowrap" style="font-size: 12px">
