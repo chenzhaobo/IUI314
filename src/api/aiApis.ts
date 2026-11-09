@@ -226,6 +226,8 @@ export interface AiExecution {
   feedback_finished_at: string | null
   feedback_error: string | null
   created_by: string | null
+  /** 展示用调用人名称；解析不到时后端留空，前端回退 created_by */
+  created_by_name: string | null
   created_at: string
   started_at: string | null
   finished_at: string | null

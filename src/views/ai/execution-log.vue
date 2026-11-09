@@ -167,6 +167,10 @@ function agentLabel(record: AiExecution) {
   return record.agent_name || record.agent_code || record.agent_id || '-'
 }
 
+function createdByLabel(record: AiExecution) {
+  return record.created_by_name || record.created_by || '-'
+}
+
 function fmtNumber(value?: number | null) {
   return value == null ? '-' : value.toLocaleString('zh-CN')
 }
@@ -291,7 +295,7 @@ onMounted(async () => {
 const columns = withTableDefaults([
   { title: 'ID', dataIndex: 'id', width: 200 },
   { title: 'Agent', dataIndex: 'agent_code', width: 150, slotName: 'agent' },
-  { title: '调用人', dataIndex: 'created_by', width: 100 },
+  { title: '调用人', dataIndex: 'created_by', width: 110, slotName: 'created_by' },
   { title: '调用模块', dataIndex: 'caller_module', width: 110 },
   { title: '状态', dataIndex: 'status', width: 90, slotName: 'status' },
   { title: 'Token / 积分', dataIndex: 'total_tokens', width: 140, slotName: 'usage' },
@@ -418,6 +422,11 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
               {{ record.status }}
             </a-tag>
           </template>
+          <template #created_by="{ record }">
+            <a-tooltip :content="record.created_by || ''" :disabled="!record.created_by || record.created_by === record.created_by_name">
+              <span>{{ createdByLabel(record) }}</span>
+            </a-tooltip>
+          </template>
           <template #agent="{ record }">
             <div class="agent-cell">
               <span class="agent-name">{{ agentLabel(record) }}</span>
@@ -523,6 +532,9 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
           <a-descriptions-item label="Agent" :span="2">
             {{ agentLabel(detail) }}
             <span v-if="detail.agent_code" class="detail-muted">（{{ detail.agent_code }}）</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="调用人">
+            {{ createdByLabel(detail) }}
           </a-descriptions-item>
           <a-descriptions-item label="调用模块">
             {{ detail.caller_module }}
