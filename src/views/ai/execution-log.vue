@@ -4,7 +4,7 @@ import { Message, Modal } from '@arco-design/web-vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiAiAgent, ApiAiExecution, ApiAiFeedback } from '@/api/aiApis'
-import { formatTime, getAction, postAction, toApiParam, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
+import { formatTime, getAction, hasPermission, postAction, toApiParam, useGet, useTableAutoHeight, withTableDefaults } from '@/hooks'
 
 defineOptions({ name: 'AiExecutionLog' })
 
@@ -463,7 +463,7 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
                 停止
               </a-button>
               <a-button
-                v-if="record.caller_module !== 'agent_feedback'"
+                v-if="record.caller_module !== 'agent_feedback' && hasPermission(ApiAiFeedback.prompt)"
                 type="text"
                 size="small"
                 :disabled="record.feedback_status === 'running'"
@@ -596,7 +596,7 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
 
         <a-space class="m-b-12px">
           <a-button
-            v-if="detail.caller_module !== 'agent_feedback'"
+            v-if="detail.caller_module !== 'agent_feedback' && hasPermission(ApiAiFeedback.prompt)"
             type="primary"
             size="small"
             :disabled="detail.feedback_status === 'running'"

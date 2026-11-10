@@ -8,7 +8,7 @@ import AboutInfo from './about-info.vue'
 import ChangeCom from './changeCom.vue'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSysDept, ApiSysRole, ApiSysUser } from '@/api/sysApis'
-import { useGet, usePut } from '@/hooks'
+import { hasPermission, useGet, usePut } from '@/hooks'
 import { router } from '@/router'
 import { useUserStore } from '@/stores'
 import type { dept, deptList } from '@/types/system/dept'
@@ -169,7 +169,7 @@ get_options()
         >
       </div>
       <template #content>
-        <a-doption>
+        <a-doption v-if="hasPermission(ApiSysUser.changeRole)">
           <a-popover position="lt">
             <span class="m-l--20px" @click="roleChangeModal">
               <span class="m-l-20px">
@@ -181,7 +181,7 @@ get_options()
             </template>
           </a-popover>
         </a-doption>
-        <a-doption>
+        <a-doption v-if="hasPermission(ApiSysUser.changeDept)">
           <a-popover position="lt">
             <span class="m-l--20px" @click="deptChangeModal">
               <span class="m-l-20px">
