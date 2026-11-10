@@ -22,6 +22,8 @@ export enum ApiAiAgent {
 // ── Skill 管理 ──────────────────────────────────────
 export enum ApiAiSkill {
   getList = '/ai/skill/list',
+  /** 业务页面选择技能用；不受 AI 管理菜单权限约束（别用 getList） */
+  options = '/ai/skill/options',
   getById = '/ai/skill/get_by_id',
   add = '/ai/skill/add',
   edit = '/ai/skill/edit',
@@ -163,11 +165,15 @@ export interface AiAgent {
   max_concurrent: number
   health_check_cmd: string | null
   skill_mount_path: string | null
+  /** 任务级 MCP 注入方式：none / qoder / opencode / dsh */
+  mcp_mode: string
   status: string
   remark: string | null
   created_at: string
   updated_at: string
 }
+
+export type AiSkillOption = Pick<AiSkill, 'skill_code' | 'skill_name'>
 
 export interface AiSkill {
   id: string

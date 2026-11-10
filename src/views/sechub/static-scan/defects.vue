@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AiAgent } from '@/api/aiApis'
+import type { AiAgentOption } from '@/api/aiApis'
 import type { ColumnFilterState } from '@/hooks'
 import type { BranchesControlResponse, IssueImportSummary, IssueTransitionSummary, ModuleWithRepository, RepositoryBranch, RepositoryCommit, RepositoryCommitListResponse, ScanIssueEventRow, ScanIssuePage, ScanIssueRow } from '@/types/static-scan'
 import { Message, Modal } from '@arco-design/web-vue'
@@ -1253,10 +1253,10 @@ const verifyCommitLoading = ref(false)
 let verifyCommitSeq = 0
 
 // Agent/模型下拉（模型候选随所选 Agent 的 supported_models_json 带出，与重扫弹窗同款）
-const verifyAgents = ref<AiAgent[]>([])
+const verifyAgents = ref<AiAgentOption[]>([])
 const verifyAgentsLoading = ref(false)
 let verifyAgentsRequested = false
-const verifySelectedAgent = computed<AiAgent | null>(() => verifyAgents.value.find(a => a.agent_code === verifyForm.value.agent_code) ?? null)
+const verifySelectedAgent = computed<AiAgentOption | null>(() => verifyAgents.value.find(a => a.agent_code === verifyForm.value.agent_code) ?? null)
 const verifyModelOptions = computed(() => {
   const raw = verifySelectedAgent.value?.supported_models_json
   if (!raw)
@@ -1286,8 +1286,10 @@ async function ensureVerifyAgents() {
   verifyAgentsRequested = true
   verifyAgentsLoading.value = true
   try {
-    const res = await getAction<{ list: AiAgent[] }>(ApiAiAgent.getList, { status: 'active', page_size: 50 })
-    verifyAgents.value = res?.list ?? []
+    // 用 options：/ai/agent/list 挂在 AI 管理中心菜单权限下，扫描用户调用会 403
+    // （2026-11-10 反馈：重新验证弹窗选不了 Agent）。
+    const res = await getAction<AiAgentOption[]>(ApiAiAgent.options)
+    verifyAgents.value = Array.isArray(res) ? res : []
   }
   catch {
     verifyAgents.value = []

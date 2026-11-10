@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AiAgent } from '@/api/aiApis'
+import type { AiAgentOption } from '@/api/aiApis'
 import type { ColumnFilterState } from '@/hooks'
 
 import type {
@@ -565,12 +565,12 @@ const AUTONOMOUS_AGENT_CODES = ['qoder-cli-scan']
 const retryAgentCode = ref('')
 /** 空串 = 用该 Agent 的默认模型（agent.default_model / auto） */
 const retryModel = ref('')
-const agents = ref<AiAgent[]>([])
+const agents = ref<AiAgentOption[]>([])
 const agentsLoading = ref(false)
 let agentsRequested = false
 const retryBusy = ref(false)
 
-const selectedRetryAgent = computed<AiAgent | null>(() => agents.value.find(a => a.agent_code === retryAgentCode.value) ?? null)
+const selectedRetryAgent = computed<AiAgentOption | null>(() => agents.value.find(a => a.agent_code === retryAgentCode.value) ?? null)
 /** 所选 Agent 是否走自主审计协议（决定重扫范围是整轮还是仅勾选） */
 const retryAutonomous = computed(() => AUTONOMOUS_AGENT_CODES.includes(retryAgentCode.value))
 /** 模型候选来自所选 Agent 的模型清单（auto 是"Agent 默认模型"的占位，不单列） */
@@ -599,8 +599,9 @@ async function ensureAgents() {
   agentsRequested = true
   agentsLoading.value = true
   try {
-    const res = await getAction<{ list: AiAgent[] }>(ApiAiAgent.getList, { status: 'active', page_size: 50 })
-    agents.value = res?.list ?? []
+    // business 页面用 options：list 受 AI 管理菜单权限约束，扫描用户会 403
+    const res = await getAction<AiAgentOption[]>(ApiAiAgent.options)
+    agents.value = Array.isArray(res) ? res : []
   }
   finally {
     agentsLoading.value = false

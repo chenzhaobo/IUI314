@@ -5,7 +5,7 @@ import type { AiConfirmBody } from './types'
  * 行级确认（useAiConfirm：提交后跟踪 Agent 进度）与批量确认（useBatchAiConfirm：
  * 逐个提交、只看成功/失败）表单一致，抽出来共用，避免两处选项逻辑漂移。
  */
-import type { AiAgent, AiSkill } from '@/api/aiApis'
+import type { AiAgentOption, AiSkillOption } from '@/api/aiApis'
 import { computed, ref } from 'vue'
 import { fetchAgents, fetchSkills } from './service'
 import { AI_CONFIRM_SCOPE_ALL } from './useRunScanPoints'
@@ -32,9 +32,9 @@ export function useAiConfirmOptions() {
   /** 确认范围：'all' 或某个 scan_point_id（选项见 ./useRunScanPoints） */
   const scope = ref<string>(AI_CONFIRM_SCOPE_ALL)
 
-  const agentList = ref<AiAgent[]>([])
+  const agentList = ref<AiAgentOption[]>([])
   const agentLoading = ref(false)
-  const skillList = ref<AiSkill[]>([])
+  const skillList = ref<AiSkillOption[]>([])
   const skillLoading = ref(false)
 
   /** 根据选中 agent 的 supported_models_json 动态生成模型选项 */

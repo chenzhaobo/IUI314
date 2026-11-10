@@ -12,7 +12,7 @@
  * - 「扫描结果」：报告（Markdown）+ 逐条结论（未找到API / 已排除 / 确认问题）；
  * - 「删除」：软删除任务（运行中不可删）。
  */
-import type { AiAgent } from '@/api/aiApis'
+import type { AiAgentOption } from '@/api/aiApis'
 import type { ModuleWithRepository } from '@/types/static-scan'
 import { Message, Modal } from '@arco-design/web-vue'
 import { MdPreview } from 'md-editor-v3'
@@ -212,7 +212,7 @@ const runVisible = ref(false)
 const runSubmitting = ref(false)
 const runTask = ref<any>(null)
 const runForm = reactive({ agentCode: '', model: '', repositoryId: '' })
-const agentList = ref<AiAgent[]>([])
+const agentList = ref<AiAgentOption[]>([])
 const repoList = ref<ModuleWithRepository[]>([])
 const runLookupsLoading = ref(false)
 
