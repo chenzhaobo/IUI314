@@ -14,6 +14,7 @@ import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import { downloadText, emptyFilter, formatTime, getAction, isFilterActive, toServerFilters, useAutoHeight, useDicts, useDownload, useGet, usePost, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
 import { useUserStore } from '@/stores'
 import IssueScopeTree from './components/IssueScopeTree.vue'
+import IssueCodeDrawer from './defects/IssueCodeDrawer.vue'
 import IssueDetectionsPanel from './defects/IssueDetectionsPanel.vue'
 import { canConfirmRepro, DEFAULT_EXCLUDE_STATUS, ISSUE_SOURCE_OPTIONS, issueSourceLabel, REPRO_STATUS_LABELS } from './defects/issueStates'
 import { useConfirmRepro } from './defects/useConfirmRepro'
@@ -1606,6 +1607,14 @@ function viewReport(row: ScanIssueRow) {
   reportVisible.value = true
 }
 
+// ===== 代码预览（最新 commit / 检出时 commit）=====
+const codeVisible = ref(false)
+const codeRow = ref<ScanIssueRow | null>(null)
+function viewCode(row: ScanIssueRow) {
+  codeRow.value = row
+  codeVisible.value = true
+}
+
 /**
  * 动作完成后的统一收尾：批量才清空勾选；列表刷新后同步详情弹窗里的行，
  * 避免报告还显示旧状态（行已不存在则关闭详情）。
@@ -1778,7 +1787,7 @@ const columns = computed(() => withTableDefaults([
   { title: '负责人', dataIndex: 'assignee', width: 90, filterable: filterableOf('assignee') },
   // 计划完成：点单元格可单条改；表头排序按后端白名单的 plan_finish_date（最早到期在前）
   { title: '计划完成', dataIndex: 'plan_finish_date', slotName: 'planFinish', width: 124, sortable: { sortDirections: ['ascend', 'descend'] }, filterable: filterableOf('plan_finish_date') },
-  { title: '文件', dataIndex: 'file_path', width: 180, filterable: filterableOf('file_path') },
+  { title: '文件', dataIndex: 'file_path', slotName: 'filePath', width: 200, filterable: filterableOf('file_path') },
   { title: '命中', dataIndex: 'hit_count', slotName: 'hitCount', width: 70, filterable: filterableOf('hit_count') },
   { title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 140, ellipsis: true, tooltip: true, sortable: { sortDirections: ['descend', 'ascend'] }, filterable: filterableOf('introduced_at') },
   { title: 'DMP 编码', dataIndex: 'dmp_defect_code', slotName: 'dmpCode', width: 130, ellipsis: true, tooltip: true, filterable: filterableOf('dmp_defect_code') },
@@ -1800,7 +1809,7 @@ const columns = computed(() => withTableDefaults([
       filter: (): boolean => true,
     },
   },
-  { title: '操作', slotName: 'ops', width: 120, fixed: 'right' as const },
+  { title: '操作', slotName: 'ops', width: 170, fixed: 'right' as const },
 ]))
 
 // keep-alive 页面：再次带着 query 跳进来时 onMounted 不会再跑，用 watch 兜住
@@ -2199,6 +2208,14 @@ function shortSha(sha: string | null | undefined): string {
                     {{ issueSourceLabel(record.source).label }}
                   </a-tag>
                 </template>
+                <!-- 文件列即代码入口：路径 + 行号整块可点，比在操作列再塞一个按钮更顺手 -->
+                <template #filePath="{ record }">
+                  <a-tooltip content="查看代码（默认最新提交，可切到检出时）" mini>
+                    <span class="code-link" @click.stop="viewCode(record)">
+                      {{ record.file_path }}<span v-if="record.start_line" class="code-link-line">:{{ record.start_line }}</span>
+                    </span>
+                  </a-tooltip>
+                </template>
                 <template #domain="{ record }">
                   <a-tag :color="domainLabels[record.domain]?.color ?? 'gray'" size="small">
                     {{ domainLabels[record.domain]?.label ?? record.domain }}
@@ -2328,6 +2345,9 @@ function shortSha(sha: string | null | undefined): string {
                   <a-space :size="4">
                     <a-button type="text" size="small" :disabled="!record.ai_detail_report" @click="viewReport(record)">
                       报告
+                    </a-button>
+                    <a-button type="text" size="small" @click="viewCode(record)">
+                      代码
                     </a-button>
                     <!-- 其余动作收进「更多」，避免操作列过宽、也少一眼三个按钮的噪音 -->
                     <a-dropdown trigger="click" @select="(value: unknown) => onOpsSelect(value, record)">
@@ -2826,6 +2846,10 @@ function shortSha(sha: string | null | undefined): string {
               <a-button size="small" type="primary" @click="openReportNotes">
                 备注与原因
               </a-button>
+              <!-- 看报告时最常追问「这段代码现在长什么样」，入口就放在标题栏，不用回列表找 -->
+              <a-button size="small" :disabled="!reportRow" @click="reportRow && viewCode(reportRow)">
+                查看代码
+              </a-button>
               <a-button size="small" type="outline" status="success" :disabled="!reportRow?.ai_detail_report" @click="downloadReport">
                 <template #icon>
                   <icon-download />
@@ -2872,6 +2896,14 @@ function shortSha(sha: string | null | undefined): string {
           </a-tab-pane>
         </a-tabs>
       </a-modal>
+
+      <!-- 代码预览：默认最新 commit，可切到缺陷检出时的 commit -->
+      <IssueCodeDrawer
+        v-model:visible="codeVisible"
+        :issue-id="codeRow?.id ?? ''"
+        :issue-title="codeRow?.title"
+        :detection-commit="codeRow?.last_seen_commit ?? codeRow?.first_seen_commit"
+      />
     </div>
     <!-- 暂缓处理弹窗（批量；原因必填，状态仍归「处理中」） -->
     <a-modal
@@ -3092,6 +3124,10 @@ function shortSha(sha: string | null | undefined): string {
 .mine-switch { display: flex; align-items: center; gap: 6px; flex-shrink: 0; cursor: pointer; }
 .mine-switch-label { font-size: 13px; color: var(--color-text-2); white-space: nowrap; }
 .text-muted { color: var(--color-text-4); }
+/* 文件列：整块是代码预览入口，行号用次级色，悬停给下划线提示可点 */
+.code-link { display: block; overflow: hidden; cursor: pointer; text-overflow: ellipsis; white-space: nowrap; }
+.code-link:hover { color: rgb(var(--primary-6)); text-decoration: underline; }
+.code-link-line { color: var(--color-text-3); }
 /* flex-basis 必须是 auto：`flex: 1` 是 `1 1 0%`，basis 0% 会让上面实测的 `height`
    被 flex 布局无视 —— 行高退回内容驱动，左树一展开（性能+安全）就把整条高度链顶高，
    内容区出现滚动条。basis auto 时行的基准尺寸就是那个实测 height，grow 只在

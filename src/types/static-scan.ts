@@ -882,6 +882,10 @@ export interface ScanIssueRow {
   file_path: string
   start_line?: number | null
   branch?: string | null
+  /** 首次检出的 commit；历史行为 null */
+  first_seen_commit?: string | null
+  /** 最近一次检出的 commit（代码预览「检出时」版本用） */
+  last_seen_commit?: string | null
   hit_count: number
   risk_level?: string | null
   status: string

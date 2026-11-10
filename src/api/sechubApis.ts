@@ -273,6 +273,8 @@ export enum ApiSecPrescan {
   ruleSetTree = '/sechub/prescan/rule-set-tree',
   /** 20261008 A：某缺陷的全部检出记录（按检出时间倒序） */
   issueDetections = '/sechub/prescan/issue-detections',
+  /** 缺陷代码预览：默认仓库分支最新 commit，可切到检出时的 commit */
+  issueCode = '/sechub/prescan/issue-code',
   deltaPreview = '/sechub/static-prescan/delta/preview',
   deltaPlan = '/sechub/static-prescan/delta/{plan_id}',
   deltaExecute = '/sechub/static-prescan/delta/{plan_id}/execute',
