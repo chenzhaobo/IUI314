@@ -1268,3 +1268,47 @@ export interface RepositorySyncResponse {
   message: string
   duration_ms: number
 }
+
+/** 代码预览的一行：n 是文件真实行号 */
+export interface IssueCodeLine {
+  n: number
+  text: string
+}
+
+/** 预览版本：current=仓库分支最新 commit；detection=缺陷最近一次命中；custom=指定 commit */
+export type IssueCodeVersion = 'current' | 'detection' | 'custom'
+
+/**
+ * 代码预览契约（缺陷 / 候选两个入口共用，响应结构一致）：
+ * - GET /sechub/prescan/issue-code?issue_id=
+ * - GET /sechub/prescan/candidate-code?candidate_id=
+ * source=git 为 mirror 实时读取；source=snippet 表示回退到扫描时存的命中上下文。
+ */
+export interface IssueCodePreview {
+  available: boolean
+  source: 'git' | 'snippet'
+  version: IssueCodeVersion
+  repository_name?: string | null
+  branch?: string | null
+  commit?: string | null
+  commit_short?: string | null
+  /** ISO8601 提交时间 */
+  commit_time?: string | null
+  commit_author?: string | null
+  commit_subject?: string | null
+  /** 本地镜像最近刷新时间：落后远端时提示用 */
+  mirror_updated_at?: string | null
+  /** 本次是否成功把 mirror 拉到远端最新（false 时不保证是最新，必须提示） */
+  remote_synced: boolean
+  file_path: string
+  /** 路径纠偏后实际读取的文件（与 file_path 不同时前端要提示） */
+  resolved_path?: string | null
+  encoding?: string | null
+  total_lines: number
+  start_line: number
+  end_line: number
+  highlight_lines: number[]
+  lines: IssueCodeLine[]
+  truncated: boolean
+  note?: string | null
+}

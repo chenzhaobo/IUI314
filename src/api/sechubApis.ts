@@ -275,6 +275,8 @@ export enum ApiSecPrescan {
   issueDetections = '/sechub/prescan/issue-detections',
   /** 缺陷代码预览：默认仓库分支最新 commit，可切到检出时的 commit */
   issueCode = '/sechub/prescan/issue-code',
+  /** 候选代码预览：仓库/分支/检出 commit 取自候选所属扫描运行 */
+  candidateCode = '/sechub/prescan/candidate-code',
   deltaPreview = '/sechub/static-prescan/delta/preview',
   deltaPlan = '/sechub/static-prescan/delta/{plan_id}',
   deltaExecute = '/sechub/static-prescan/delta/{plan_id}/execute',

@@ -2,7 +2,7 @@
  * 缺陷页新增动作的取数（View → Composable → Service → Api 的 service 层）。
  * 失败返回 null（拦截器已弹后端原因），调用方不必重复提示。
  */
-import type { IssueCodePreview, IssueDetectionRow } from './types'
+import type { IssueDetectionRow } from './types'
 import { ApiSecPrescan } from '@/api/sechubApis'
 import { getAction, postAction } from '@/hooks'
 
@@ -17,15 +17,4 @@ export async function fetchIssueDetections(issueId: string): Promise<IssueDetect
   if (data === null)
     return null
   return Array.isArray(data) ? data : []
-}
-
-/** 缺陷代码预览；失败返回 null（拦截器已提示原因） */
-export function fetchIssueCode(params: {
-  issue_id: string
-  version?: string
-  commit?: string
-  from?: number
-  to?: number
-}): Promise<IssueCodePreview | null> {
-  return getAction<IssueCodePreview>(ApiSecPrescan.issueCode, params)
 }

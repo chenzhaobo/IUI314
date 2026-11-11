@@ -13,8 +13,8 @@ import { ApiSysUser } from '@/api/sysApis'
 import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import { downloadText, emptyFilter, formatTime, getAction, isFilterActive, toServerFilters, useAutoHeight, useDicts, useDownload, useGet, usePost, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
 import { useUserStore } from '@/stores'
+import CodePreviewDrawer from './components/CodePreviewDrawer.vue'
 import IssueScopeTree from './components/IssueScopeTree.vue'
-import IssueCodeDrawer from './defects/IssueCodeDrawer.vue'
 import IssueDetectionsPanel from './defects/IssueDetectionsPanel.vue'
 import { canConfirmRepro, DEFAULT_EXCLUDE_STATUS, ISSUE_SOURCE_OPTIONS, issueSourceLabel, REPRO_STATUS_LABELS } from './defects/issueStates'
 import { useConfirmRepro } from './defects/useConfirmRepro'
@@ -2902,10 +2902,10 @@ function shortSha(sha: string | null | undefined): string {
       </a-modal>
 
       <!-- 代码预览：默认最新 commit，可切到缺陷检出时的 commit -->
-      <IssueCodeDrawer
+      <CodePreviewDrawer
         v-model:visible="codeVisible"
         :issue-id="codeRow?.id ?? ''"
-        :issue-title="codeRow?.title"
+        :title="codeRow?.title"
         :detection-commit="codeRow?.last_seen_commit ?? codeRow?.first_seen_commit"
       />
     </div>

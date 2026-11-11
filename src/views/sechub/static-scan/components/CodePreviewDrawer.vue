@@ -1,32 +1,47 @@
 <script setup lang="ts">
 /**
- * 缺陷代码预览抽屉（A+B）：
+ * 代码预览抽屉（缺陷 / 候选共用）：
  * - 默认看仓库分支**最新 commit** 的文件片段（后端按命中文本重新定位行号）；
- * - 顶部可切到**缺陷最近一次检出时的 commit**，行号与缺陷记录对齐；
+ * - 顶部可切到**检出时的 commit**（缺陷 last_seen / 候选所属运行 commit），
+ *   行号与记录对齐；
  * - 镜像不可用时后端回退到扫描时保存的命中上下文（±10 行），此处用 note 说明。
  *
  * 只渲染纯文本 + 行号，不引额外的语法高亮依赖，也不用 v-html。
  */
-import type { IssueCodeVersion } from './types'
+import type { IssueCodeVersion } from '@/types/static-scan'
 import { computed, nextTick, ref, watch } from 'vue'
 import { formatTime } from '@/hooks'
-import { useIssueCode } from './useIssueCode'
+import type { CodeTarget } from './useCodePreview'
+import { useCodePreview } from './useCodePreview'
 
 const props = defineProps<{
   visible: boolean
-  issueId: string
-  /** 弹窗标题里显示的缺陷标题 */
-  issueTitle?: string
-  /** 缺陷最近一次检出的 commit（来自列表行），用来判断能否切「检出时」 */
+  /** 缺陷入口：优先使用 */
+  issueId?: string
+  /** 候选入口（扫描结果详情） */
+  candidateId?: string
+  /** 抽屉标题里显示的业务标题 */
+  title?: string
+  /** 检出时的 commit（已知时显示短 sha） */
   detectionCommit?: string | null
+  /** 是否允许切「检出时」；候选的 commit 在后端按运行解析，前端拿不到时也传 true */
+  detectionAvailable?: boolean
 }>()
 
-const emit = defineEmits<{ (e: 'update:visible', value: boolean): void }>()
+// 用仓库统一的 keyed-tuple 写法：调用签名形式在 vue-tsc 下会解析失败（TS1005）
+const emit = defineEmits<{ 'update:visible': [value: boolean] }>()
 
-const { data, loading, version, load, switchVersion, loadMore, jumpToAnchor, reset } = useIssueCode()
+const { data, loading, version, load, switchVersion, loadMore, jumpToAnchor, reset } = useCodePreview()
 const codeRef = ref<HTMLElement | null>(null)
 
-const hasDetection = computed(() => Boolean(props.detectionCommit?.trim()))
+const target = computed<CodeTarget | null>(() => {
+  if (props.issueId)
+    return { kind: 'issue', id: props.issueId }
+  if (props.candidateId)
+    return { kind: 'candidate', id: props.candidateId }
+  return null
+})
+const hasDetection = computed(() => props.detectionAvailable ?? Boolean(props.detectionCommit?.trim()))
 const hitLines = computed(() => new Set(data.value?.highlight_lines ?? []))
 const isSnippet = computed(() => data.value?.source === 'snippet')
 const freshnessHint = computed(() => {
@@ -39,7 +54,7 @@ const freshnessHint = computed(() => {
 const pathText = computed(() => {
   const current = data.value
   if (!current)
-    return props.issueTitle || ''
+    return props.title || ''
   return current.resolved_path || current.file_path
 })
 
@@ -51,14 +66,15 @@ function onVersionChange(value: string | number | boolean) {
   const next = String(value) as IssueCodeVersion
   if (next !== 'current' && next !== 'detection')
     return
-  switchVersion(props.issueId, next)
+  if (target.value)
+    switchVersion(target.value, next)
 }
 
 watch(
-  () => [props.visible, props.issueId] as const,
-  ([visible, issueId]) => {
-    if (visible && issueId) {
-      void load(issueId)
+  () => [props.visible, props.issueId, props.candidateId] as const,
+  ([visible]) => {
+    if (visible && target.value) {
+      void load(target.value)
       return
     }
     reset()
@@ -88,7 +104,7 @@ watch(data, async (value) => {
     <template #title>
       <div class="code-head">
         <span class="code-title" :title="pathText">
-          代码 · {{ issueTitle || pathText }}
+          代码 · {{ title || pathText }}
         </span>
         <a-radio-group
           :model-value="version"
@@ -157,16 +173,16 @@ watch(data, async (value) => {
               第 {{ data.start_line }}–{{ data.end_line }} 行 / 共 {{ data.total_lines }} 行
             </span>
             <a-space :size="8">
-              <a-button size="mini" :disabled="data.start_line <= 1" @click="loadMore(issueId, 'up')">
+              <a-button size="mini" :disabled="data.start_line <= 1" @click="target && loadMore(target, 'up')">
                 上一段
               </a-button>
-              <a-button size="mini" :disabled="data.end_line >= data.total_lines" @click="loadMore(issueId, 'down')">
+              <a-button size="mini" :disabled="data.end_line >= data.total_lines" @click="target && loadMore(target, 'down')">
                 下一段
               </a-button>
-              <a-button v-if="data.highlight_lines.length" size="mini" type="text" @click="jumpToAnchor(issueId)">
+              <a-button v-if="data.highlight_lines.length" size="mini" type="text" @click="target && jumpToAnchor(target)">
                 回到命中行
               </a-button>
-              <a-button v-if="version === 'current' && !data.remote_synced" size="mini" type="text" @click="load(issueId)">
+              <a-button v-if="version === 'current' && !data.remote_synced" size="mini" type="text" @click="target && load(target)">
                 重新同步
               </a-button>
             </a-space>
