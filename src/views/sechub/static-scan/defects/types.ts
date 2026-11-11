@@ -70,6 +70,8 @@ export interface IssueCodePreview {
   commit_subject?: string | null
   /** 本地镜像最近刷新时间：落后远端时提示用 */
   mirror_updated_at?: string | null
+  /** 本次是否成功把 mirror 拉到远端最新（false 时不保证是最新，必须提示） */
+  remote_synced: boolean
   file_path: string
   /** 路径纠偏后实际读取的文件（与 file_path 不同时前端要提示） */
   resolved_path?: string | null

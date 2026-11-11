@@ -29,6 +29,13 @@ const codeRef = ref<HTMLElement | null>(null)
 const hasDetection = computed(() => Boolean(props.detectionCommit?.trim()))
 const hitLines = computed(() => new Set(data.value?.highlight_lines ?? []))
 const isSnippet = computed(() => data.value?.source === 'snippet')
+const freshnessHint = computed(() => {
+  if (data.value?.remote_synced)
+    return '本次已从远端拉取最新提交'
+  if (data.value?.mirror_updated_at)
+    return `本地镜像刷新于 ${formatTime(data.value.mirror_updated_at)}，可能落后远端`
+  return '本地镜像，可能落后远端；可点「重新同步」重试'
+})
 const pathText = computed(() => {
   const current = data.value
   if (!current)
@@ -117,6 +124,14 @@ watch(data, async (value) => {
             <span class="code-meta-label">作者</span>
             <span>{{ data.commit_author }}</span>
           </span>
+          <!-- 「最新」必须是远端最新：拉不动就明说，不能让人以为看到的是最新代码 -->
+          <span v-if="version === 'current'" class="code-meta-item">
+            <a-tooltip :content="freshnessHint" mini>
+              <a-tag :color="data.remote_synced ? 'green' : 'orange'" size="small">
+                {{ data.remote_synced ? '已同步远端' : '本地镜像' }}
+              </a-tag>
+            </a-tooltip>
+          </span>
           <span v-if="data.branch" class="code-meta-item">
             <span class="code-meta-label">分支</span>
             <span class="code-branch">{{ data.branch }}</span>
@@ -149,6 +164,9 @@ watch(data, async (value) => {
               </a-button>
               <a-button v-if="data.highlight_lines.length" size="mini" type="text" @click="jumpToAnchor(issueId)">
                 回到命中行
+              </a-button>
+              <a-button v-if="version === 'current' && !data.remote_synced" size="mini" type="text" @click="load(issueId)">
+                重新同步
               </a-button>
             </a-space>
           </div>

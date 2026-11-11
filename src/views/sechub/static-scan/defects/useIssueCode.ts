@@ -27,6 +27,9 @@ export function useIssueCode() {
       if (current !== seq)
         return
       if (result) {
+        // 翻页（带行段）不会重新拉远端，沿用首屏的同步状态，避免标签来回跳
+        if (range)
+          result.remote_synced = data.value?.remote_synced ?? result.remote_synced
         data.value = result
         // 后端可能主动降级（镜像不可用 → 命中上下文快照），以实际内容为准同步开关
         version.value = result.version
