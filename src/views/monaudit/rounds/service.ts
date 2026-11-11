@@ -3,8 +3,9 @@
  */
 import type { RequestOutcome } from '../shared/service'
 import type { ListData } from '../shared/types'
+import type { AutomationReport, AutomationSourceOption, CaseCompareQuery, CaseCompareVo } from './caseTypes'
 import type { RoundCreateForm, RoundDetail, RoundRow, SettleStats } from './types'
-import { ApiMonauditRound } from '@/api/monauditApis'
+import { ApiMonauditCase, ApiMonauditRound } from '@/api/monauditApis'
 import { getAction, parseTimeInput, postAction } from '@/hooks'
 import { requestWithError } from '../shared/service'
 import { compactQuery, nullable } from '../shared/types'
@@ -47,4 +48,25 @@ export async function retryBatch(batchId: string): Promise<boolean> {
 /** 补抓本轮日志（同步执行，可能较慢） */
 export async function fetchRoundLogs(roundId: string): Promise<boolean> {
   return (await postAction<unknown>(ApiMonauditRound.fetchLogs, { round_id: roundId })) !== null
+}
+
+export function fetchAutomationOptions(): Promise<AutomationSourceOption[] | null> {
+  return getAction<AutomationSourceOption[]>(ApiMonauditCase.options)
+}
+
+export function fetchAutomationExecutions(sourceId: string): Promise<AutomationReport[] | null> {
+  return getAction<AutomationReport[]>(ApiMonauditCase.executions, { id: sourceId })
+}
+
+export function syncSuccessCases(roundId: string, sourceId: string, executeId: string, force = false): Promise<string | null> {
+  return postAction<string>(ApiMonauditCase.sync, {
+    round_id: roundId,
+    automation_source_id: sourceId,
+    task_execute_id: executeId,
+    force,
+  })
+}
+
+export function fetchCaseComparison(roundId: string, query: CaseCompareQuery): Promise<CaseCompareVo | null> {
+  return getAction<CaseCompareVo>(ApiMonauditCase.compare, compactQuery({ round_id: roundId, ...query }))
 }

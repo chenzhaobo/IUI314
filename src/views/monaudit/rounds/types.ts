@@ -16,6 +16,17 @@ export interface RoundModel {
   synced_at?: string | null
   settled_at?: string | null
   settled_by?: string | null
+  automation_source_id?: string | null
+  automation_task_id?: string | null
+  automation_task_name?: string | null
+  automation_execute_id?: string | null
+  automation_started_at?: string | null
+  automation_finished_at?: string | null
+  automation_report_json?: string | null
+  case_sync_status?: 'running' | 'success' | 'failed' | null
+  case_total: number
+  case_sync_error?: string | null
+  case_synced_at?: string | null
   stats_json?: string | null
   remark?: string | null
   create_by: string

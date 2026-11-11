@@ -1,17 +1,29 @@
 /**
- * 同步源配置：列表 / 新增编辑 / 删除 / 测试 OpenAPI（View → Composable → Service）。
+ * 同步源配置：列表 / 新增编辑 / 删除 / 测试来源（View → Composable → Service）。
  */
-import type { SourceForm, SourceListFilter, SourceRow } from './types'
+import type { DatabaseEnvOption, SourceForm, SourceListFilter, SourceRow } from './types'
 import { Message, Modal } from '@arco-design/web-vue'
 import { ref } from 'vue'
 import { usePagedQuery } from '@/hooks'
-import { createSource, deleteSources, fetchSources, testOpenapi, updateSource } from './service'
+import { createSource, deleteSources, fetchDatabaseEnvOptions, fetchSources, testOpenapi, updateSource } from './service'
 import { buildSourcePayload, emptySourceForm, extraParamsError, sourceFormOf } from './types'
 
 export function useSources() {
   const dataList = ref<SourceRow[]>([])
   const loading = ref(false)
+  const dbEnvOptions = ref<DatabaseEnvOption[]>([])
+  const dbEnvLoading = ref(false)
   let seq = 0
+
+  async function loadDatabaseEnvs() {
+    dbEnvLoading.value = true
+    try {
+      dbEnvOptions.value = await fetchDatabaseEnvOptions() ?? []
+    }
+    finally {
+      dbEnvLoading.value = false
+    }
+  }
 
   const { query, total, pagination, onPageChange, onPageSizeChange, search }
     = usePagedQuery<SourceListFilter>({ keyword: '', status: '' }, () => void loadList())
@@ -52,6 +64,10 @@ export function useSources() {
 
   /** 返回 false 时弹窗保持打开（后端校验原因已由拦截器弹出） */
   async function submitForm(): Promise<boolean> {
+    if (formData.value.source_type === 'database' && !formData.value.db_env_id) {
+      Message.warning('请选择数据库环境')
+      return false
+    }
     const extraError = extraParamsError(formData.value.query_extra_params)
     if (extraError) {
       Message.warning(extraError)
@@ -115,6 +131,9 @@ export function useSources() {
     onPageSizeChange,
     search,
     loadList,
+    dbEnvOptions,
+    dbEnvLoading,
+    loadDatabaseEnvs,
     formVisible,
     formLoading,
     isEdit,

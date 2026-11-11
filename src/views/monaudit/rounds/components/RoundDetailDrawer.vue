@@ -5,6 +5,7 @@ import { formatTime } from '@/hooks'
 import { BATCH_STATUS, ROUND_STATUS, tagMeta } from '../../shared/types'
 import { BATCH_PHASE, SETTLE_LABELS } from '../types'
 import { useRoundDetail } from '../useRoundDetail'
+import CaseComparisonPanel from './CaseComparisonPanel.vue'
 
 const props = defineProps<{
   roundId: string
@@ -97,6 +98,8 @@ const { detail, loading, retryingId, retry, stats, reload } = useRoundDetail(vis
             </a-table-column>
           </template>
         </a-table>
+
+        <CaseComparisonPanel :round="detail.round" @refresh="reload" />
       </template>
       <a-empty v-else-if="!loading" description="轮次不存在" />
     </a-spin>

@@ -1,10 +1,11 @@
 <script lang="ts" setup>
 /**
- * 监控审计 · 同步源配置：自动化环境 × 数据中心的苍穹 OpenAPI 与 Monitor 凭据。
+ * 监控审计 · 同步源配置：自动化环境 × 数据中心的 OpenAPI / PostgreSQL 与 Monitor 凭据。
  *
- * 凭据只进不出（出参只有 has_* 标记，编辑留空 = 保留）；测试 OpenAPI 与 Monitor 登录结果回写到行上。
+ * 凭据只进不出（出参只有 has_* 标记，编辑留空 = 保留）；来源测试与 Monitor 登录结果回写到行上。
  * 状态与动作在 ./sources/useSources、./sources/useMonitorLogin，取数经 ./sources/service。
  */
+import type { SourceRow } from './sources/types'
 import { onMounted } from 'vue'
 import ListPage from '@/components/common/ListPage.vue'
 import { formatTime } from '@/hooks'
@@ -28,6 +29,9 @@ const {
   onPageSizeChange,
   search,
   loadList,
+  dbEnvOptions,
+  dbEnvLoading,
+  loadDatabaseEnvs,
   formVisible,
   formLoading,
   isEdit,
@@ -57,8 +61,20 @@ const statusOptions = [
   { value: '0', label: '停用' },
 ]
 
+function databaseEnvLabel(record: SourceRow): string {
+  const env = dbEnvOptions.value.find(item => item.id === record.db_env_id)
+  return env ? `${env.env_name}（${env.env_code}）` : record.db_env_id || '-'
+}
+
+function databaseName(record: SourceRow): string {
+  if (record.db_name)
+    return record.db_name
+  return dbEnvOptions.value.find(item => item.id === record.db_env_id)?.database_name || '未配置库名'
+}
+
 onMounted(() => {
   void loadList()
+  void loadDatabaseEnvs()
 })
 </script>
 
@@ -94,17 +110,35 @@ onMounted(() => {
           <template #columns>
             <a-table-column title="编码" data-index="code" :width="140" ellipsis tooltip />
             <a-table-column title="名称" data-index="name" :width="160" ellipsis tooltip />
+            <a-table-column title="同步方式" :width="130">
+              <template #cell="{ record }">
+                <a-tag :color="record.source_type === 'database' ? 'purple' : 'arcoblue'" size="small">
+                  {{ record.source_type === 'database' ? 'PostgreSQL' : 'OpenAPI' }}
+                </a-tag>
+              </template>
+            </a-table-column>
             <a-table-column title="环境 / 数据中心" :width="200" ellipsis tooltip>
               <template #cell="{ record }">
                 {{ record.env_name || '-' }} / {{ record.datacenter_name || '-' }}
               </template>
             </a-table-column>
-            <a-table-column title="苍穹地址" data-index="base_url" :width="220" ellipsis tooltip />
-            <a-table-column title="查询接口" data-index="query_api_path" :width="200" ellipsis tooltip />
+            <a-table-column title="苍穹地址 / 数据库环境" :width="220" ellipsis tooltip>
+              <template #cell="{ record }">
+                {{ record.source_type === 'database' ? databaseEnvLabel(record) : record.base_url }}
+              </template>
+            </a-table-column>
+            <a-table-column title="查询接口 / 数据库" :width="200" ellipsis tooltip>
+              <template #cell="{ record }">
+                {{ record.source_type === 'database' ? databaseName(record) : record.query_api_path }}
+              </template>
+            </a-table-column>
             <a-table-column title="凭据" :width="150">
               <template #cell="{ record }">
                 <a-space size="mini">
-                  <a-tag :color="record.has_app_secret ? 'arcoblue' : 'gray'" size="small">
+                  <a-tag v-if="record.source_type === 'database'" color="purple" size="small">
+                    复用环境库凭据
+                  </a-tag>
+                  <a-tag v-else :color="record.has_app_secret ? 'arcoblue' : 'gray'" size="small">
                     {{ record.has_app_secret ? '已存密钥' : '无密钥' }}
                   </a-tag>
                   <a-tag :color="record.has_monitor_credential ? 'arcoblue' : 'gray'" size="small">
@@ -113,7 +147,7 @@ onMounted(() => {
                 </a-space>
               </template>
             </a-table-column>
-            <a-table-column title="OpenAPI" :width="190">
+            <a-table-column title="来源验证" :width="190">
               <template #cell="{ record }">
                 <a-tooltip :disabled="!record.verify_error" :content="record.verify_error || ''">
                   <a-tag :color="verifyMeta(record.verify_error, record.verified_at).color" size="small">
@@ -153,7 +187,7 @@ onMounted(() => {
               <template #cell="{ record }">
                 <a-space size="mini">
                   <a-button size="mini" :loading="testingId === record.id" @click="testSource(record)">
-                    测试OpenAPI
+                    {{ record.source_type === 'database' ? '测试数据库' : '测试OpenAPI' }}
                   </a-button>
                   <a-button
                     size="mini"
@@ -183,6 +217,8 @@ onMounted(() => {
       :is-edit="isEdit"
       :loading="formLoading"
       :submit="submitForm"
+      :db-env-options="dbEnvOptions"
+      :db-env-loading="dbEnvLoading"
     />
 
     <MonitorCaptchaModal

@@ -2,13 +2,17 @@
  * 同步源配置取数（service 层）。失败返回 null（拦截器已弹原因）。
  */
 import type { ListData } from '../shared/types'
-import type { LoginOutcome, SourceRow, SourceTestResult } from './types'
+import type { DatabaseEnvOption, LoginOutcome, SourceRow, SourceTestResult } from './types'
 import { ApiMonauditSource } from '@/api/monauditApis'
 import { deleteAction, getAction, postAction, putAction } from '@/hooks'
 import { compactQuery } from '../shared/types'
 
 export function fetchSources(query: object): Promise<ListData<SourceRow> | null> {
   return getAction<ListData<SourceRow>>(ApiMonauditSource.getList, compactQuery(query))
+}
+
+export function fetchDatabaseEnvOptions(): Promise<DatabaseEnvOption[] | null> {
+  return getAction<DatabaseEnvOption[]>(ApiMonauditSource.dbEnvOptions)
 }
 
 export function createSource(payload: Record<string, unknown>): Promise<string | null> {
@@ -23,7 +27,7 @@ export async function deleteSources(ids: string[]): Promise<boolean> {
   return (await deleteAction<unknown>(ApiMonauditSource.delete, { ids })) !== null
 }
 
-/** 测试 OpenAPI：登录 + 取第一页并检查字段，结果同时回写 verified_at / verify_error */
+/** 测试当前来源：OpenAPI 登录或数据库连接 + 取第一页并检查字段，结果回写验证状态 */
 export function testOpenapi(id: string): Promise<SourceTestResult | null> {
   return postAction<SourceTestResult>(ApiMonauditSource.testOpenapi, { id })
 }

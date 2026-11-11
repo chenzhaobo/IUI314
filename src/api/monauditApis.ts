@@ -8,12 +8,21 @@
 export enum ApiMonauditSource {
   getList = '/monaudit/source/list',
   getById = '/monaudit/source/get_by_id',
+  dbEnvOptions = '/monaudit/source/db_env_options',
   add = '/monaudit/source/add',
   edit = '/monaudit/source/edit',
   delete = '/monaudit/source/delete',
   testOpenapi = '/monaudit/source/test_openapi',
   monitorCaptcha = '/monaudit/source/monitor_captcha',
   monitorLogin = '/monaudit/source/monitor_login',
+}
+
+// ── 自动化成功用例 / 耗时横比 ───────────────────────
+export enum ApiMonauditCase {
+  options = '/monaudit/case/options',
+  executions = '/monaudit/case/executions',
+  sync = '/monaudit/case/sync',
+  compare = '/monaudit/case/compare',
 }
 
 // ── 领域映射 ───────────────────────────────────────

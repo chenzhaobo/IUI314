@@ -4,12 +4,24 @@
  * 凭据只进不出：出参只有 has_app_secret / has_monitor_credential 标记；编辑时留空 = 保留旧值。
  */
 
+export type SourceType = 'openapi' | 'database'
+
+export interface DatabaseEnvOption {
+  id: string
+  env_code: string
+  env_name: string
+  database_name: string
+}
+
 export interface SourceRow {
   id: string
   code: string
   name: string
   env_name: string
   datacenter_name: string
+  source_type: SourceType
+  db_env_id?: string | null
+  db_name?: string | null
   base_url: string
   account_id: string
   tenant_id?: string | null
@@ -71,6 +83,9 @@ export interface SourceForm {
   name: string
   env_name: string
   datacenter_name: string
+  source_type: SourceType
+  db_env_id: string
+  db_name: string
   base_url: string
   account_id: string
   tenant_id: string
@@ -90,6 +105,11 @@ export interface SourceForm {
   status: string
   remark: string
 }
+
+export const SOURCE_TYPE_OPTIONS: Array<{ value: SourceType, label: string }> = [
+  { value: 'openapi', label: '苍穹 OpenAPI' },
+  { value: 'database', label: 'PostgreSQL 数据库' },
+]
 
 export const SECRET_FIELD_OPTIONS = [
   { value: 'appSecuret', label: 'appSecuret（苍穹拼写）' },
@@ -113,6 +133,9 @@ export function emptySourceForm(): SourceForm {
     name: '',
     env_name: '',
     datacenter_name: '',
+    source_type: 'openapi',
+    db_env_id: '',
+    db_name: '',
     base_url: '',
     account_id: '',
     tenant_id: '',
@@ -142,6 +165,9 @@ export function sourceFormOf(row: SourceRow): SourceForm {
     name: row.name,
     env_name: row.env_name,
     datacenter_name: row.datacenter_name,
+    source_type: row.source_type,
+    db_env_id: row.db_env_id ?? '',
+    db_name: row.db_name ?? '',
     base_url: row.base_url,
     account_id: row.account_id,
     tenant_id: row.tenant_id ?? '',
@@ -186,6 +212,9 @@ export function buildSourcePayload(form: SourceForm): Record<string, unknown> {
     name: text(form.name),
     env_name: text(form.env_name),
     datacenter_name: text(form.datacenter_name),
+    source_type: form.source_type,
+    db_env_id: optional(form.db_env_id),
+    db_name: optional(form.db_name),
     base_url: text(form.base_url),
     account_id: text(form.account_id),
     tenant_id: optional(form.tenant_id),

@@ -2,17 +2,25 @@
 /**
  * 同步源新增 / 编辑弹窗。应用密钥与 Monitor 口令只进不出：编辑时留空 = 保留旧值。
  */
-import type { SourceForm } from '../types'
-import { AUTH_MODE_OPTIONS, LOGIN_USER_TYPE_OPTIONS, SECRET_FIELD_OPTIONS } from '../types'
+import type { DatabaseEnvOption, SourceForm } from '../types'
+import { computed } from 'vue'
+import { AUTH_MODE_OPTIONS, LOGIN_USER_TYPE_OPTIONS, SECRET_FIELD_OPTIONS, SOURCE_TYPE_OPTIONS } from '../types'
 
-defineProps<{
+const props = defineProps<{
   isEdit: boolean
   loading: boolean
   submit: () => Promise<boolean>
+  dbEnvOptions: DatabaseEnvOption[]
+  dbEnvLoading: boolean
 }>()
 
+const databaseOptions = computed(() => props.dbEnvOptions.map(env => ({
+  value: env.id,
+  label: `${env.env_name}（${env.env_code}）`,
+})))
 const visible = defineModel<boolean>('visible', { required: true })
 const form = defineModel<SourceForm>('form', { required: true })
+const defaultDatabaseName = computed(() => props.dbEnvOptions.find(env => env.id === form.value.db_env_id)?.database_name ?? '')
 </script>
 
 <template>
@@ -29,6 +37,11 @@ const form = defineModel<SourceForm>('form', { required: true })
         基本信息
       </a-divider>
       <a-row :gutter="16">
+        <a-col :span="24">
+          <a-form-item label="同步方式" required>
+            <a-radio-group v-model="form.source_type" type="button" :options="SOURCE_TYPE_OPTIONS" />
+          </a-form-item>
+        </a-col>
         <a-col :span="8">
           <a-form-item label="编码" required>
             <a-input v-model="form.code" placeholder="唯一，如 patchfiauto-pg" />
@@ -56,10 +69,10 @@ const form = defineModel<SourceForm>('form', { required: true })
         </a-col>
       </a-row>
 
-      <a-divider orientation="left">
+      <a-divider v-if="form.source_type === 'openapi'" orientation="left">
         苍穹 OpenAPI
       </a-divider>
-      <a-row :gutter="16">
+      <a-row v-if="form.source_type === 'openapi'" :gutter="16">
         <a-col :span="12">
           <a-form-item label="苍穹地址" required>
             <a-input v-model="form.base_url" placeholder="如 https://devtest.kingdee.com:2024/patchfiauto" />
@@ -126,6 +139,40 @@ const form = defineModel<SourceForm>('form', { required: true })
           </a-form-item>
         </a-col>
       </a-row>
+
+      <template v-else>
+        <a-divider orientation="left">
+          PostgreSQL 数据库
+        </a-divider>
+        <a-row :gutter="16">
+          <a-col :span="12">
+            <a-form-item label="数据库环境" required extra="复用「基础配置 → 测试环境」的连接与凭据">
+              <a-select
+                v-model="form.db_env_id"
+                :options="databaseOptions"
+                :loading="dbEnvLoading"
+                placeholder="请选择环境，如集团财务-基准-sit8023"
+                allow-search
+              />
+            </a-form-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-item label="数据库名" :extra="defaultDatabaseName ? `留空 = ${defaultDatabaseName}` : '当前环境无默认库名，请显式填写'">
+              <a-input v-model="form.db_name" :placeholder="defaultDatabaseName || '如 benchmarksit_fi'" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-item label="监控记录表" extra="字段自动映射为审计记录，无需配置查询 API">
+              <a-input model-value="public.t_bcm_monitorrecord" disabled />
+            </a-form-item>
+          </a-col>
+          <a-col :span="6">
+            <a-form-item label="分页大小" extra="按 fid 键集分页">
+              <a-input-number v-model="form.page_size" :min="1" :max="1000" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+      </template>
 
       <a-divider orientation="left">
         Monitor 日志
