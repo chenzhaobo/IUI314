@@ -2846,8 +2846,12 @@ function shortSha(sha: string | null | undefined): string {
               <a-button size="small" type="primary" @click="openReportNotes">
                 备注与原因
               </a-button>
-              <!-- 看报告时最常追问「这段代码现在长什么样」，入口就放在标题栏，不用回列表找 -->
-              <a-button size="small" :disabled="!reportRow" @click="reportRow && viewCode(reportRow)">
+              <!-- 看报告时最常追问「这段代码现在长什么样」，入口就放在标题栏；
+                   用绿色实心 + 代码图标与其它蓝色动作区分开，避免一排按钮里找不到 -->
+              <a-button size="small" type="primary" status="success" :disabled="!reportRow" @click="reportRow && viewCode(reportRow)">
+                <template #icon>
+                  <icon-code />
+                </template>
                 查看代码
               </a-button>
               <a-button size="small" type="outline" status="success" :disabled="!reportRow?.ai_detail_report" @click="downloadReport">

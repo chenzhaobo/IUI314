@@ -81,6 +81,7 @@ watch(data, async (value) => {
     :visible="visible"
     :width="980"
     :footer="false"
+    :body-style="{ display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }"
     unmount-on-close
     @cancel="emit('update:visible', false)"
   >
@@ -105,7 +106,7 @@ watch(data, async (value) => {
       </div>
     </template>
 
-    <a-spin :loading="loading" style="width: 100%">
+    <a-spin :loading="loading" class="code-spin">
       <template v-if="data">
         <!-- 版本条：commit / 时间 / 作者 / 分支。commit 时间是判断「看到的是哪一版」的关键 -->
         <div class="code-meta">
@@ -204,9 +205,12 @@ watch(data, async (value) => {
 .code-branch { padding: 0 6px; border-radius: 3px; background: var(--color-fill-2); }
 .code-subject { overflow: hidden; margin-bottom: 10px; color: var(--color-text-3); text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .code-note { margin-bottom: 10px; }
-.code-toolbar { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 6px 10px; border-bottom: 1px solid var(--color-border-2); background: var(--color-fill-1); font-size: 12px; }
+.code-spin { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+/* 代码区吃掉抽屉剩余高度：面板纵向 flex，code-view 只负责滚动 */
+.code-panel { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.code-toolbar { display: flex; flex: 0 0 auto; gap: 12px; align-items: center; justify-content: space-between; padding: 6px 10px; border-bottom: 1px solid var(--color-border-2); background: var(--color-fill-1); font-size: 12px; }
 .code-range { color: var(--color-text-3); }
-.code-view { overflow: auto; max-height: 62vh; border: 1px solid var(--color-border-2); border-top: none; background: var(--color-bg-2); }
+.code-view { flex: 1 1 auto; min-height: 0; overflow: auto; border: 1px solid var(--color-border-2); border-top: none; background: var(--color-bg-2); }
 .code-line { display: flex; min-width: max-content; line-height: 20px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
 .code-line:hover { background: var(--color-fill-2); }
 .code-line-hit { background: rgb(var(--warning-1)); }
