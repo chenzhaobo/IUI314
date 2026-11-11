@@ -29,16 +29,27 @@ export function useUnifiedScan() {
     const value = unifiedPreview.value?.baseline
     return value?.run_id ? value : null
   })
-  /** 增量不可选的原因（'' = 可选）；带上后端的具体诊断，避免反复重跑全量 */
+  /**
+   * 增量不可选的原因（'' = 可选）。
+   *
+   * **先看 `baseline_unavailable_reason`，不能先看 `baseline` 是否存在**：后端找到
+   * 基线但规则快照校验不过时，`baseline` 与 `reason` 会同时有值（摘要仍要给用户
+   * 看「是哪次运行」）。按原来「有 baseline 就可选」的写法，界面会放行增量，用户
+   * 提交后才被触发端拒绝，提示还落在另一个页面上。
+   */
   const incrementalDisabledReason = computed(() => {
-    if (!unifiedPreview.value)
+    const preview = unifiedPreview.value
+    if (!preview)
       return '预览未返回，暂不能判断是否有可用基线'
+    const reason = preview.baseline_unavailable_reason?.trim()
+    if (reason) {
+      const detail = preview.baseline_unavailable_detail?.trim()
+      const base = unifiedBaselineReasonText(reason)
+      return detail ? `${base}（${detail}）` : base
+    }
     if (baseline.value)
       return ''
-    const reason = unifiedPreview.value.baseline_unavailable_reason?.trim()
-    const detail = unifiedPreview.value.baseline_unavailable_detail?.trim()
-    const base = reason ? unifiedBaselineReasonText(reason) : DEFAULT_NO_BASELINE_REASON
-    return detail ? `${base}（${detail}）` : base
+    return DEFAULT_NO_BASELINE_REASON
   })
   const unifiedBlockedReason = computed(() => {
     const reason = unifiedPreview.value?.blocked_reason?.trim()
