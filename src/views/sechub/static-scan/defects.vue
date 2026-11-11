@@ -3131,7 +3131,8 @@ function shortSha(sha: string | null | undefined): string {
 /* 文件列：整块是代码预览入口，行号用次级色，悬停给下划线提示可点 */
 .code-link { display: block; overflow: hidden; cursor: pointer; text-overflow: ellipsis; white-space: nowrap; }
 .code-link:hover { color: rgb(var(--primary-6)); text-decoration: underline; }
-.code-link-line { color: var(--color-text-3); }
+/* 行号常驻蓝色：与「文件」同一入口，但让「看这里」的定位点更显眼 */
+.code-link-line { color: rgb(var(--primary-6)); font-variant-numeric: tabular-nums; }
 /* flex-basis 必须是 auto：`flex: 1` 是 `1 1 0%`，basis 0% 会让上面实测的 `height`
    被 flex 布局无视 —— 行高退回内容驱动，左树一展开（性能+安全）就把整条高度链顶高，
    内容区出现滚动条。basis auto 时行的基准尺寸就是那个实测 height，grow 只在

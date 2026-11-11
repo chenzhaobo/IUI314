@@ -1550,7 +1550,7 @@ watch(() => route.query, (newQ, oldQ) => {
                   </template>
                   <template #lineNo="{ record }">
                     <a-tooltip content="查看代码（默认最新提交，可切到检出时）" mini>
-                      <span class="code-link" @click.stop="viewCode(record)">{{ record.start_line ?? '-' }}</span>
+                      <span class="code-link code-link-accent" @click.stop="viewCode(record)">{{ record.start_line ?? '-' }}</span>
                     </a-tooltip>
                   </template>
                   <template #confidence="{ record }">
@@ -1838,6 +1838,8 @@ watch(() => route.query, (newQ, oldQ) => {
 /* 文件 / 行号列：代码预览入口，悬停给下划线提示可点 */
 .code-link { cursor: pointer; }
 .code-link:hover { color: rgb(var(--primary-6)); text-decoration: underline; }
+/* 行号常驻蓝色：它是「点这里看代码」的主要提示，不靠悬停才发现 */
+.code-link-accent { color: rgb(var(--primary-6)); font-variant-numeric: tabular-nums; font-weight: 500; }
 .verdict-panel { padding: 8px 12px; background: var(--color-fill-1); }
 /* flex-basis 必须是 auto：`flex: 1` 是 `1 1 0%`，basis 0% 会让上面实测的 `height`
    被 flex 布局无视 —— 行高退回内容驱动，左树一展开就把整条高度链顶高、内容区出滚动条。
