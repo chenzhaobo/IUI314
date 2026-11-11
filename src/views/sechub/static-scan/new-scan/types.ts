@@ -68,6 +68,8 @@ export interface UnifiedPreview {
   baseline?: UnifiedBaseline | null
   /** 没有可用基线的原因；有基线时为 null */
   baseline_unavailable_reason?: string | null
+  /** 原因的具体诊断（缺哪段快照 / 哪些规则版本不存在 / 哪些规则内容漂移） */
+  baseline_unavailable_detail?: string | null
   /** 该分支最新 commit（目标 commit 留空时用它） */
   target_commit?: string | null
   /** 规则目录相对基线新增/变更的规则数（增量时这些规则额外跑全部文件） */

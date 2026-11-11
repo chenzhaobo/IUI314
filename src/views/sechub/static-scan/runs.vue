@@ -811,9 +811,14 @@ const settlingRunId = ref('')
 async function settleRunRecord(row: CrossRunAggRow) {
   settlingRunId.value = row.run_id
   try {
-    const resp = await postAction<{ finalized: boolean, message?: string }>(ApiSecPrescan.settleRun, { run_id: row.run_id })
+    const resp = await postAction<{ finalized: boolean, state?: string | null, unfinished?: number, message?: string }>(ApiSecPrescan.settleRun, { run_id: row.run_id })
     if (resp) {
-      Message.success(resp.message || '已补定稿')
+      // 成败以 finalized 为准：补定稿最常见的失败是仍有未完成候选或问题回写报错，
+      // 这两种都不能再报「已完成」（否则状态没变却提示成功）。
+      if (resp.finalized)
+        Message.success(resp.message || '已补定稿')
+      else
+        Message.warning(resp.message || '补定稿未生效，请查看服务日志')
       await loadCrossRows()
     }
   }

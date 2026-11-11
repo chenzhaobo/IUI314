@@ -29,14 +29,16 @@ export function useUnifiedScan() {
     const value = unifiedPreview.value?.baseline
     return value?.run_id ? value : null
   })
-  /** 增量不可选的原因（'' = 可选） */
+  /** 增量不可选的原因（'' = 可选）；带上后端的具体诊断，避免反复重跑全量 */
   const incrementalDisabledReason = computed(() => {
     if (!unifiedPreview.value)
       return '预览未返回，暂不能判断是否有可用基线'
     if (baseline.value)
       return ''
     const reason = unifiedPreview.value.baseline_unavailable_reason?.trim()
-    return reason ? unifiedBaselineReasonText(reason) : DEFAULT_NO_BASELINE_REASON
+    const detail = unifiedPreview.value.baseline_unavailable_detail?.trim()
+    const base = reason ? unifiedBaselineReasonText(reason) : DEFAULT_NO_BASELINE_REASON
+    return detail ? `${base}（${detail}）` : base
   })
   const unifiedBlockedReason = computed(() => {
     const reason = unifiedPreview.value?.blocked_reason?.trim()
