@@ -1108,6 +1108,8 @@ const nofixStateFilters = [
   { text: '审批驳回', value: 'rejected' },
   { text: '已通过', value: 'approved' },
   { text: '已撤回', value: 'withdrawn' },
+  // 「空」= 没有当前审批态（从未申请 / 最新一条不构成展示态），后端按 __none__ 处理
+  { text: '为空（无审批）', value: '__none__' },
 ]
 
 function nofixStateLabel(state?: string | null) {
@@ -1763,9 +1765,12 @@ function issueStatusLabel(row: ScanIssueRow): { label: string, color: string } {
 }
 // 不处理原因列的 Arco filterable 配置，选项来自字典（wontFixReasonOptions 异步加载）
 // 使用 computed 以便字典加载完成后自动更新过滤选项
-const wontFixReasonFilters = computed(() =>
-  wontFixReasonOptions.value.map(opt => ({ text: opt.label, value: opt.value })),
-)
+const wontFixReasonFilters = computed(() => [
+  // 空/非空是跨字典的通用条件，排在具体原因之前
+  { text: '为空', value: '__none__' },
+  { text: '不为空', value: '__not_none__' },
+  ...wontFixReasonOptions.value.map(opt => ({ text: opt.label, value: opt.value })),
+])
 
 const columns = computed(() => withTableDefaults([
   { title: '缺陷编号', dataIndex: 'defect_code', slotName: 'defectCode', width: 210, ellipsis: true, tooltip: true, filterable: filterableOf('defect_code') },
