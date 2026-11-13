@@ -151,16 +151,13 @@ const planFinishRange = computed<string[]>({
 </template>
 
 <style scoped>
-.issue-filter { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
-.round-select { width: 180px; }
-.source-select { width: 160px; }
-.audit-select { width: 230px; }
-.group-select { width: 180px; }
-.level-select { width: 100px; }
-.repro-select { width: 120px; }
-.status-select { width: 190px; }
-.handler-select { width: 140px; }
-.date-range { width: 280px; }
-.overdue-select { width: 120px; }
-.keyword-input { width: 300px; }
+.issue-filter { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px 10px; align-items: center; }
+.issue-filter > * { min-width: 0; width: auto; }
+.issue-filter .date-range,
+.issue-filter .keyword-input { grid-column: span 2; }
+@media (max-width: 720px) {
+  .issue-filter { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .issue-filter .date-range,
+  .issue-filter .keyword-input { grid-column: span 2; }
+}
 </style>

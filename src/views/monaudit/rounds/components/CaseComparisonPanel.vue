@@ -44,9 +44,9 @@ const sourceNotice = computed(() => {
   if (sources.value.some(source => source.status === '1'))
     return ''
   if (!sources.value.length)
-    return '尚未配置自动化源，因此下拉没有数据。请先配置自动化平台任务和 OpenAPI 凭据。'
+    return '尚未配置自动化源，因此下拉没有数据。请先到「自动化源配置」菜单新增任务和 OpenAPI 凭据。'
   const reason = sources.value.map(source => source.remark).find(Boolean)
-  return `自动化源当前处于停用状态，因此不能加载执行批次。${reason || '请检查凭据后启用。'}`
+  return `自动化源当前处于停用状态，因此不能加载执行批次。请到「自动化源配置」修正并启用。${reason || ''}`
 })
 const executionNotice = computed(() => {
   if (!selectedSourceEnabled.value || executionLoading.value || executions.value.length)

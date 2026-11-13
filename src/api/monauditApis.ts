@@ -17,6 +17,16 @@ export enum ApiMonauditSource {
   monitorLogin = '/monaudit/source/monitor_login',
 }
 
+// ── 自动化源配置 ───────────────────────────────────
+export enum ApiMonauditAutomationSource {
+  getList = '/monaudit/automation/source/list',
+  getById = '/monaudit/automation/source/get_by_id',
+  add = '/monaudit/automation/source/add',
+  edit = '/monaudit/automation/source/edit',
+  delete = '/monaudit/automation/source/delete',
+  test = '/monaudit/automation/source/test',
+}
+
 // ── 自动化成功用例 / 耗时横比 ───────────────────────
 export enum ApiMonauditCase {
   options = '/monaudit/case/options',
