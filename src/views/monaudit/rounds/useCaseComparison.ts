@@ -28,7 +28,7 @@ export function useCaseComparison(round: Ref<RoundModel>, onRefresh: () => void)
     try {
       sources.value = await fetchAutomationOptions() ?? []
       if (!selectedSourceId.value)
-        selectedSourceId.value = round.value.automation_source_id || sources.value[0]?.id || ''
+        selectedSourceId.value = round.value.automation_source_id || sources.value.find(source => source.status === '1')?.id || ''
     }
     finally {
       sourceLoading.value = false
@@ -36,7 +36,8 @@ export function useCaseComparison(round: Ref<RoundModel>, onRefresh: () => void)
   }
 
   async function loadExecutions() {
-    if (!selectedSourceId.value) {
+    const source = sources.value.find(item => item.id === selectedSourceId.value)
+    if (!selectedSourceId.value || (source && source.status !== '1')) {
       executions.value = []
       return
     }
@@ -54,6 +55,11 @@ export function useCaseComparison(round: Ref<RoundModel>, onRefresh: () => void)
   }
 
   async function startSync(force = false) {
+    const source = sources.value.find(item => item.id === selectedSourceId.value)
+    if (source?.status !== '1') {
+      Message.warning(source?.remark || '自动化源未启用，不能采集')
+      return
+    }
     if (!selectedSourceId.value || !selectedExecuteId.value) {
       Message.warning('请选择自动化源和主执行批次')
       return

@@ -28,6 +28,14 @@ function valueText(row: IssueRow): string {
   return `${act} / ${threshold}`
 }
 
+function overdueMeta(row: IssueRow): { label: string, color: string } {
+  if (row.overdue)
+    return { label: '超期', color: 'red' }
+  if (!row.plan_finish_date)
+    return { label: '未设置', color: 'gray' }
+  return { label: '未超期', color: 'green' }
+}
+
 function onRowClick(record: Record<string, unknown>) {
   emit('open', record as unknown as IssueRow)
 }
@@ -41,7 +49,7 @@ function onRowClick(record: Record<string, unknown>) {
     :pagination="pagination"
     :row-selection="rowSelection"
     row-key="id"
-    :scroll="{ minWidth: 1900, y: tableHeight }"
+    :scroll="{ minWidth: 1990, y: tableHeight }"
     class="issue-table"
     @page-change="emit('pageChange', $event)"
     @page-size-change="emit('pageSizeChange', $event)"
@@ -98,6 +106,13 @@ function onRowClick(record: Record<string, unknown>) {
       <a-table-column title="预计完成" data-index="plan_finish_date" :width="110">
         <template #cell="{ record }">
           <span :class="{ 'overdue-text': record.overdue }">{{ record.plan_finish_date || '-' }}</span>
+        </template>
+      </a-table-column>
+      <a-table-column title="超期状态" :width="90">
+        <template #cell="{ record }">
+          <a-tag :color="overdueMeta(record).color" size="small">
+            {{ overdueMeta(record).label }}
+          </a-tag>
         </template>
       </a-table-column>
       <a-table-column title="用户故事" data-index="story_no" :width="120" ellipsis tooltip />

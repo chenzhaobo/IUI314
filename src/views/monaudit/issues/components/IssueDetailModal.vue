@@ -65,13 +65,14 @@ const { reasonVisible, reasonTitle, reason, submitting: transiting, run: runTran
                 v-for="act in actions"
                 :key="act.value"
                 size="mini"
+                type="primary"
                 :loading="transiting"
                 @click="runTransition(act.value)"
               >
                 {{ act.label }}
               </a-button>
               <a-button size="mini" type="primary" :loading="saving" @click="save">
-                保存处理信息
+                保存
               </a-button>
             </a-space>
             <span v-else class="muted">不在所属项目组，只读</span>

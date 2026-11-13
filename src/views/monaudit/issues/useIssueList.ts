@@ -11,7 +11,7 @@ import { useFilterPersistence, usePagedQuery } from '@/hooks'
 import { fetchIssueOptions } from '../shared/service'
 import { emptyIssueOptions } from '../shared/types'
 import { fetchIssues } from './service'
-import { emptyIssueFilter, ISSUE_PAGE_SIZE } from './types'
+import { emptyIssueFilter, ISSUE_PAGE_SIZE, ISSUE_PAGE_SIZE_OPTIONS } from './types'
 
 export function useIssueList() {
   const route = useRoute()
@@ -24,7 +24,7 @@ export function useIssueList() {
   let seq = 0
 
   const { query, total, pagination, onPageChange, onPageSizeChange }
-    = usePagedQuery({}, () => void loadList(), { pageSize: ISSUE_PAGE_SIZE })
+    = usePagedQuery({}, () => void loadList(), { pageSize: ISSUE_PAGE_SIZE, pageSizeOptions: ISSUE_PAGE_SIZE_OPTIONS })
 
   /** 给左树的筛选：右侧条件，不含范围与分页 */
   const treeFilters = computed(() => ({ ...filter.value }))

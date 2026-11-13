@@ -23,6 +23,8 @@ export interface IssueOptions {
   audit_types: LabelValue[]
   rounds: LabelValue[]
   sources: LabelValue[]
+  /** 当前数据范围内出现过的处理人 */
+  handlers: LabelValue[]
   /** 当前用户可见的项目组 */
   project_groups: LabelValue[]
   /** 持有 monaudit/scope/all：可见全部项目组与「未归类」 */
@@ -30,7 +32,7 @@ export interface IssueOptions {
 }
 
 export function emptyIssueOptions(): IssueOptions {
-  return { audit_types: [], rounds: [], sources: [], project_groups: [], scope_all: false }
+  return { audit_types: [], rounds: [], sources: [], handlers: [], project_groups: [], scope_all: false }
 }
 
 /** 批量动作结果（后端 BatchResult） */

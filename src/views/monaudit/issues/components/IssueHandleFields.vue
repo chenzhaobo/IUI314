@@ -1,8 +1,7 @@
 <script setup lang="ts">
 /**
  * 处理信息字段：预计完成 / 用户故事 / 缺陷编码 / 处理意见。
- *
- * 单条编辑（详情弹窗）与批量填写共用；批量时留空 = 不修改。
+ * 单条编辑（详情弹窗）与批量填写共用；前三个字段同排，减少纵向占用。
  */
 import type { HandleForm } from '../types'
 
@@ -17,15 +16,23 @@ const form = defineModel<HandleForm>('form', { required: true })
 
 <template>
   <a-form :model="form" layout="vertical" :disabled="disabled">
-    <a-form-item label="预计完成日期">
-      <a-date-picker v-model="form.plan_finish_date" value-format="YYYY-MM-DD" style="width: 100%" />
-    </a-form-item>
-    <a-form-item label="用户故事">
-      <a-input v-model="form.story_no" :placeholder="batch ? '留空则不修改' : '用户故事编号'" allow-clear />
-    </a-form-item>
-    <a-form-item label="缺陷编码">
-      <a-input v-model="form.defect_code" :placeholder="batch ? '留空则不修改' : '缺陷编码'" allow-clear />
-    </a-form-item>
+    <a-row :gutter="16">
+      <a-col :xs="24" :md="8">
+        <a-form-item label="预计完成日期">
+          <a-date-picker v-model="form.plan_finish_date" value-format="YYYY-MM-DD" style="width: 100%" />
+        </a-form-item>
+      </a-col>
+      <a-col :xs="24" :md="8">
+        <a-form-item label="用户故事">
+          <a-input v-model="form.story_no" :placeholder="batch ? '留空则不修改' : '用户故事编号'" allow-clear />
+        </a-form-item>
+      </a-col>
+      <a-col :xs="24" :md="8">
+        <a-form-item label="缺陷编码">
+          <a-input v-model="form.defect_code" :placeholder="batch ? '留空则不修改' : '缺陷编码'" allow-clear />
+        </a-form-item>
+      </a-col>
+    </a-row>
     <a-form-item label="处理意见">
       <a-textarea
         v-model="form.handle_note"

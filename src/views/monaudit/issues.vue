@@ -115,8 +115,8 @@ onMounted(() => {
             状态流转
           </a-button>
           <template #content>
-            <a-doption v-for="t in TRANSITIONS" :key="t.value" :value="t.value">
-              {{ t.label }}{{ t.needReason ? '…' : '' }}
+            <a-doption v-for="t in TRANSITIONS" :key="t.value" :value="t.value" class="transition-option">
+              {{ t.label }}
             </a-doption>
           </template>
         </a-dropdown>
@@ -170,4 +170,5 @@ onMounted(() => {
 
 <style scoped>
 .selected-hint { color: var(--color-text-3); font-size: 12px; }
+:deep(.transition-option) { white-space: nowrap; }
 </style>

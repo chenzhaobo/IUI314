@@ -159,16 +159,34 @@ export interface IssueFilter {
   status: string[]
   repro_state: string
   level: string
-  /** '1' = 仅超期 */
+  project_group_id: string
+  handler_id: string
+  plan_finish_start: string
+  plan_finish_end: string
+  /** '' = 全部；'1' = 仅超期；'0' = 未超期 */
   overdue: string
   keyword: string
 }
 
 export function emptyIssueFilter(): IssueFilter {
-  return { round_id: '', source_id: '', audit_type: [], status: [], repro_state: '', level: '', overdue: '', keyword: '' }
+  return {
+    round_id: '',
+    source_id: '',
+    audit_type: [],
+    status: [],
+    repro_state: '',
+    level: '',
+    project_group_id: '',
+    handler_id: '',
+    plan_finish_start: '',
+    plan_finish_end: '',
+    overdue: '',
+    keyword: '',
+  }
 }
 
 export const ISSUE_PAGE_SIZE = 20
+export const ISSUE_PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 1000]
 
 /** 状态流转动作 */
 export type TransitionAction = 'start' | 'fix' | 'close' | 'wont_fix' | 'false_positive' | 'reopen'

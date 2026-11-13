@@ -7,6 +7,8 @@ export interface AutomationSourceOption {
   base_url: string
   task_id: string
   task_name: string
+  status: string
+  remark?: string | null
 }
 
 export interface AutomationReport {
