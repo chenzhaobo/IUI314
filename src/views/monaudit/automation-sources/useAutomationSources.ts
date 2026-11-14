@@ -14,7 +14,7 @@ export function useAutomationSources() {
   const formData = ref<AutomationSourceForm>(emptyAutomationSourceForm())
   const testingId = ref('')
   let seq = 0
-  let originalAuthMode: AutomationAuthMode = 'app_token'
+  let originalAuthMode: AutomationAuthMode = 'token'
 
   const { query, total, pagination, onPageChange, onPageSizeChange, search }
     = usePagedQuery<AutomationSourceListFilter>({ keyword: '', status: '' }, () => void loadList())
@@ -43,7 +43,7 @@ export function useAutomationSources() {
 
   function openCreate() {
     isEdit.value = false
-    originalAuthMode = 'app_token'
+    originalAuthMode = 'token'
     formData.value = emptyAutomationSourceForm()
     formVisible.value = true
   }

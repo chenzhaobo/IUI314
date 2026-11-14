@@ -56,7 +56,7 @@ export function emptyAutomationSourceForm(): AutomationSourceForm {
     name: '',
     base_url: '',
     token_path: '/open/getAppToken',
-    auth_mode: 'app_token',
+    auth_mode: 'token',
     app_id: '',
     app_secret: '',
     account_id: '',
