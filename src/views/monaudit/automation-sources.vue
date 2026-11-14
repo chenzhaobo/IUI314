@@ -85,11 +85,15 @@ onMounted(() => void loadList())
                 </div>
               </template>
             </a-table-column>
-            <a-table-column title="token 路径" data-index="token_path" :width="190" ellipsis tooltip />
-            <a-table-column title="凭据" :width="90">
+            <a-table-column title="token 路径" :width="190" ellipsis tooltip>
+              <template #cell="{ record }">
+                {{ record.auth_mode === 'token' ? '—' : record.token_path }}
+              </template>
+            </a-table-column>
+            <a-table-column title="认证" :width="150">
               <template #cell="{ record }">
                 <a-tag :color="record.has_app_secret ? 'arcoblue' : 'gray'" size="small">
-                  {{ record.has_app_secret ? '已配置' : '未配置' }}
+                  {{ record.auth_mode === 'token' ? 'Token' : '应用凭据' }} · {{ record.has_app_secret ? '已配置' : '未配置' }}
                 </a-tag>
               </template>
             </a-table-column>

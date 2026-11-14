@@ -21,7 +21,7 @@ const form = defineModel<AutomationSourceForm>('form', { required: true })
     :body-style="{ maxHeight: 'calc(100vh - 220px)', overflowY: 'auto', overflowX: 'hidden' }"
   >
     <a-alert type="info" class="form-tip">
-      新增配置默认停用。密钥不回显，编辑时留空表示保留旧密钥；请先测试连接，再启用。
+      新增配置默认停用。密钥 / Token 不回显，同认证方式留空表示保留，切换方式需重新填写；直接 Token 不调用登录接口。
     </a-alert>
     <a-form :model="form" layout="vertical">
       <a-row :gutter="16">
@@ -47,26 +47,38 @@ const form = defineModel<AutomationSourceForm>('form', { required: true })
           </a-form-item>
         </a-col>
         <a-col :span="24">
-          <a-form-item label="自动化平台地址" required extra="不包含 /open/getAppToken；执行批次接口也使用该 origin">
-            <a-input v-model="form.base_url" placeholder="https://apiautotest.example.com" />
+          <a-form-item label="认证方式" required>
+            <a-radio-group v-model="form.auth_mode" type="button">
+              <a-radio value="app_token">
+                应用凭据
+              </a-radio>
+              <a-radio value="token">
+                直接 Token
+              </a-radio>
+            </a-radio-group>
           </a-form-item>
         </a-col>
         <a-col :span="24">
+          <a-form-item label="自动化平台地址" required extra="执行批次与用例接口使用的 origin">
+            <a-input v-model="form.base_url" placeholder="https://apiautotest.example.com" />
+          </a-form-item>
+        </a-col>
+        <a-col v-if="form.auth_mode === 'app_token'" :span="24">
           <a-form-item label="token 路径" extra="默认 /open/getAppToken；网关带 /api 前缀时填 /api/open/getAppToken">
             <a-input v-model="form.token_path" placeholder="/open/getAppToken" />
           </a-form-item>
         </a-col>
-        <a-col :span="8">
+        <a-col v-if="form.auth_mode === 'app_token'" :span="8">
           <a-form-item label="应用 appId" required>
             <a-input v-model="form.app_id" />
           </a-form-item>
         </a-col>
-        <a-col :span="8">
-          <a-form-item label="应用密钥" :extra="isEdit ? '留空则保留旧密钥' : '新增必填'">
-            <a-input-password v-model="form.app_secret" :placeholder="isEdit ? '留空则保留' : '应用密钥'" />
+        <a-col :span="form.auth_mode === 'token' ? 24 : 8">
+          <a-form-item :label="form.auth_mode === 'token' ? '访问 Token' : '应用密钥'" :extra="isEdit ? '同方式留空保留，切换方式需重填' : '新增必填'">
+            <a-input-password v-model="form.app_secret" :placeholder="isEdit ? '同方式留空保留，切换需重填' : (form.auth_mode === 'token' ? '访问 Token' : '应用密钥')" />
           </a-form-item>
         </a-col>
-        <a-col :span="8">
+        <a-col v-if="form.auth_mode === 'app_token'" :span="8">
           <a-form-item label="accountId" required>
             <a-input v-model="form.account_id" />
           </a-form-item>

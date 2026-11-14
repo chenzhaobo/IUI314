@@ -1,4 +1,4 @@
-import type { AutomationSourceForm, AutomationSourceListFilter, AutomationSourceRow } from './types'
+import type { AutomationAuthMode, AutomationSourceForm, AutomationSourceListFilter, AutomationSourceRow } from './types'
 import { Message, Modal } from '@arco-design/web-vue'
 import { ref } from 'vue'
 import { usePagedQuery } from '@/hooks'
@@ -14,6 +14,7 @@ export function useAutomationSources() {
   const formData = ref<AutomationSourceForm>(emptyAutomationSourceForm())
   const testingId = ref('')
   let seq = 0
+  let originalAuthMode: AutomationAuthMode = 'app_token'
 
   const { query, total, pagination, onPageChange, onPageSizeChange, search }
     = usePagedQuery<AutomationSourceListFilter>({ keyword: '', status: '' }, () => void loadList())
@@ -42,34 +43,39 @@ export function useAutomationSources() {
 
   function openCreate() {
     isEdit.value = false
+    originalAuthMode = 'app_token'
     formData.value = emptyAutomationSourceForm()
     formVisible.value = true
   }
 
   function openEdit(row: AutomationSourceRow) {
     isEdit.value = true
+    originalAuthMode = row.auth_mode
     formData.value = automationSourceFormOf(row)
     formVisible.value = true
   }
 
   async function submitForm(): Promise<boolean> {
     const form = formData.value
-    for (const [value, label] of [
+    const requiredFields: Array<[string, string]> = [
       [form.code, '编码'],
       [form.name, '名称'],
       [form.base_url, '平台地址'],
-      [form.app_id, 'appId'],
-      [form.account_id, 'accountId'],
       [form.task_id, '任务 taskId'],
       [form.task_name, '任务名称'],
-    ] as const) {
+    ]
+    if (form.auth_mode === 'app_token')
+      requiredFields.push([form.app_id, 'appId'], [form.account_id, 'accountId'])
+    for (const [value, label] of requiredFields) {
       if (!value.trim()) {
         Message.warning(`${label}不能为空`)
         return false
       }
     }
-    if (!isEdit.value && !form.app_secret) {
-      Message.warning('新增自动化源必须填写应用密钥')
+    const authModeChanged = isEdit.value && form.auth_mode !== originalAuthMode
+    if ((!isEdit.value || authModeChanged) && !form.app_secret) {
+      const credential = form.auth_mode === 'token' ? '访问 Token' : '应用密钥'
+      Message.warning(authModeChanged ? `切换认证方式必须重新填写${credential}` : `新增自动化源必须填写${credential}`)
       return false
     }
     formLoading.value = true
