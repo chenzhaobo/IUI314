@@ -63,8 +63,13 @@ export interface OccurrenceRow {
 export interface RawSampleRow {
   id: string
   source_name: string
+  round_no: string
+  audit_type: string
+  domain?: string | null
+  invoke_class?: string | null
   src_number?: string | null
   src_identity?: string | null
+  src_creator?: string | null
   act_value?: number | null
   threshold?: number | null
   trace_id?: string | null

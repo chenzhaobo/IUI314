@@ -8,6 +8,7 @@
 import { toRef } from 'vue'
 import { useIssueDetail } from '../useIssueDetail'
 import IssueDetailInfo from './IssueDetailInfo.vue'
+import IssueDiagnosisPanel from './IssueDiagnosisPanel.vue'
 import IssueEvents from './IssueEvents.vue'
 import IssueHandleFields from './IssueHandleFields.vue'
 import IssueOccurrences from './IssueOccurrences.vue'
@@ -59,7 +60,33 @@ const { reasonVisible, reasonTitle, reason, submitting: transiting, run: runTran
       <template v-if="detail">
         <IssueDetailInfo :detail="detail" />
 
-        <div class="section">
+        <IssueDiagnosisPanel :samples="detail.raw_samples" :audit-type-label="detail.issue.audit_type_label" />
+
+        <a-tabs default-active-key="logs" class="section">
+          <a-tab-pane key="logs" :title="`Monitor 日志（${detail.trace_logs.length}）`">
+            <IssueTraceLogs
+              v-model:log-visible="logVisible"
+              :logs="detail.trace_logs"
+              :can-refetch="detail.can_handle"
+              :refetching="refetching"
+              :log-loading="logLoading"
+              :log-lines="logLines"
+              :log-title="logTitle"
+              :downloading-log-id="downloadingLogId"
+              @open="openLog"
+              @download="downloadLog"
+              @refetch="refetchLog"
+            />
+          </a-tab-pane>
+          <a-tab-pane key="occ" :title="`历史出现（${detail.occurrences.length}）`">
+            <IssueOccurrences :occurrences="detail.occurrences" />
+          </a-tab-pane>
+          <a-tab-pane key="events" :title="`变更历史（${detail.events.length}）`">
+            <IssueEvents :events="detail.events" />
+          </a-tab-pane>
+        </a-tabs>
+
+        <div class="section handle-section">
           <div class="section-head">
             <span class="section-title">处理信息</span>
             <a-space v-if="detail.can_handle" wrap>
@@ -81,30 +108,6 @@ const { reasonVisible, reasonTitle, reason, submitting: transiting, run: runTran
           </div>
           <IssueHandleFields v-model:form="form" :disabled="!detail.can_handle" />
         </div>
-
-        <a-tabs default-active-key="occ" class="section">
-          <a-tab-pane key="occ" :title="`出现情况（${detail.occurrences.length}）`">
-            <IssueOccurrences :occurrences="detail.occurrences" :raw-samples="detail.raw_samples" />
-          </a-tab-pane>
-          <a-tab-pane key="logs" :title="`Monitor 日志（${detail.trace_logs.length}）`">
-            <IssueTraceLogs
-              v-model:log-visible="logVisible"
-              :logs="detail.trace_logs"
-              :can-refetch="detail.can_handle"
-              :refetching="refetching"
-              :log-loading="logLoading"
-              :log-lines="logLines"
-              :log-title="logTitle"
-              :downloading-log-id="downloadingLogId"
-              @open="openLog"
-              @download="downloadLog"
-              @refetch="refetchLog"
-            />
-          </a-tab-pane>
-          <a-tab-pane key="events" :title="`变更历史（${detail.events.length}）`">
-            <IssueEvents :events="detail.events" />
-          </a-tab-pane>
-        </a-tabs>
       </template>
       <a-empty v-else-if="!loading" description="问题不存在或无权查看" />
     </a-spin>
