@@ -35,7 +35,7 @@ defineProps<{
         <span class="muted">（{{ detail.issue.assign_source === 'manual' ? '人工归类' : '映射' }}）</span>
       </a-descriptions-item>
       <a-descriptions-item label="处理人">
-        {{ detail.issue.handler_name || '-' }}
+        {{ detail.issue.handler_name || '未分派' }}
       </a-descriptions-item>
       <a-descriptions-item label="首次出现">
         {{ formatTime(detail.issue.first_seen_at) }}

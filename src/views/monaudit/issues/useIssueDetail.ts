@@ -2,12 +2,14 @@
  * 问题详情弹窗：加载详情、编辑处理信息（version 乐观锁）、状态流转、日志查看与重新抓取。
  */
 import type { Ref } from 'vue'
+import type { LabelValue } from '../shared/types'
 import type { HandleForm, IssueDetail, TraceLogLine, TraceLogRow, TransitionMeta } from './types'
 import { Message } from '@arco-design/web-vue'
 import { computed, ref, watch } from 'vue'
 import { ApiMonauditIssue } from '@/api/monauditApis'
 import { useDownload } from '@/hooks'
-import { editIssue, fetchIssueDetail, fetchTraceLog, refetchIssueLog } from './service'
+import { fetchHandlerCandidates, showBatchResult } from '../shared/service'
+import { assignIssues, editIssue, fetchIssueDetail, fetchTraceLog, refetchIssueLog } from './service'
 import { emptyHandleForm, handleFormOf, TRANSITIONS } from './types'
 import { useIssueTransition } from './useIssueTransition'
 
@@ -20,6 +22,23 @@ export function useIssueDetail(visible: Ref<boolean>, issueId: Ref<string>, onCh
   const form = ref<HandleForm>(emptyHandleForm())
   const saving = ref(false)
   const refetching = ref(false)
+  const handlerId = ref('')
+  const handlerOptions = ref<LabelValue[]>([])
+  const handlerLoading = ref(false)
+  const assigning = ref(false)
+
+  async function loadHandlerOptions(groupId: string | null | undefined) {
+    handlerOptions.value = []
+    if (!groupId)
+      return
+    handlerLoading.value = true
+    try {
+      handlerOptions.value = await fetchHandlerCandidates(groupId)
+    }
+    finally {
+      handlerLoading.value = false
+    }
+  }
 
   async function load() {
     if (!issueId.value)
@@ -29,9 +48,34 @@ export function useIssueDetail(visible: Ref<boolean>, issueId: Ref<string>, onCh
       const res = await fetchIssueDetail(issueId.value)
       detail.value = res
       form.value = res ? handleFormOf(res.issue) : emptyHandleForm()
+      handlerId.value = res?.issue.handler_id ?? ''
+      await loadHandlerOptions(res?.issue.project_group_id)
+      const currentHandler = res?.issue.handler_name
+      if (handlerId.value && currentHandler && !handlerOptions.value.some(option => option.value === handlerId.value))
+        handlerOptions.value.unshift({ value: handlerId.value, label: currentHandler })
     }
     finally {
       loading.value = false
+    }
+  }
+
+  async function saveHandler() {
+    const current = detail.value
+    if (!current)
+      return
+    assigning.value = true
+    try {
+      const result = await assignIssues([current.issue.id], handlerId.value)
+      if (!result)
+        return
+      showBatchResult(result)
+      if (result.done === 0)
+        return
+      await load()
+      onChanged()
+    }
+    finally {
+      assigning.value = false
     }
   }
 
@@ -135,6 +179,11 @@ export function useIssueDetail(visible: Ref<boolean>, issueId: Ref<string>, onCh
     load,
     actions,
     transition,
+    handlerId,
+    handlerOptions,
+    handlerLoading,
+    assigning,
+    saveHandler,
     refetching,
     refetchLog,
     logVisible,

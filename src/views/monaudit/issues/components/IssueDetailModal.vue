@@ -33,6 +33,11 @@ const {
   save,
   actions,
   transition,
+  handlerId,
+  handlerOptions,
+  handlerLoading,
+  assigning,
+  saveHandler,
   refetching,
   refetchLog,
   logVisible,
@@ -106,6 +111,33 @@ const { reasonVisible, reasonTitle, reason, submitting: transiting, run: runTran
             </a-space>
             <span v-else class="muted">不在所属项目组，只读</span>
           </div>
+          <a-form layout="vertical" :model="{}">
+            <a-form-item label="处理人（跟进开发）">
+              <div class="handler-row">
+                <a-select
+                  v-model="handlerId"
+                  :options="handlerOptions"
+                  :loading="handlerLoading"
+                  :disabled="!detail.can_handle || !detail.issue.project_group_id"
+                  placeholder="选择项目组成员"
+                  allow-clear
+                  allow-search
+                />
+                <a-button
+                  type="primary"
+                  :loading="assigning"
+                  :disabled="!detail.can_handle || !detail.issue.project_group_id"
+                  @click="saveHandler"
+                >
+                  保存处理人
+                </a-button>
+              </div>
+              <template #extra>
+                <span v-if="!detail.issue.project_group_id">请先将问题归类到项目组，才能选择项目组成员</span>
+                <span v-else>候选为项目组成员；清空后保存 = 取消分派</span>
+              </template>
+            </a-form-item>
+          </a-form>
           <IssueHandleFields v-model:form="form" :disabled="!detail.can_handle" />
         </div>
       </template>
@@ -128,4 +160,6 @@ const { reasonVisible, reasonTitle, reason, submitting: transiting, run: runTran
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .section-title { font-weight: 600; }
 .muted { color: var(--color-text-3); font-size: 12px; }
+.handler-row { display: flex; gap: 8px; width: min(620px, 100%); }
+.handler-row .arco-select { flex: 1; }
 </style>
