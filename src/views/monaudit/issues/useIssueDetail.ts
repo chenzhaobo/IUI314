@@ -128,8 +128,9 @@ export function useIssueDetail(visible: Ref<boolean>, issueId: Ref<string>, onCh
       return
     refetching.value = true
     try {
-      if (await refetchIssueLog(current.issue.id)) {
-        Message.success('日志抓取完成')
+      const message = await refetchIssueLog(current.issue.id)
+      if (message !== null) {
+        Message.success(message || '日志抓取完成')
         await load()
       }
     }

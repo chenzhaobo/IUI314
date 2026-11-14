@@ -2,7 +2,7 @@
 /** 问题清单右侧筛选：所有条件均由后端生效，左树同步沿用（不含左树范围本身）。 */
 import type { IssueOptions, LabelValue } from '../../shared/types'
 import type { IssueFilter } from '../types'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { ISSUE_LEVEL, ISSUE_STATUS, REPRO_STATE, tagOptions } from '../../shared/types'
 
 const props = defineProps<{
@@ -40,6 +40,16 @@ const planFinishRange = computed<string[]>({
     filter.value.plan_finish_end = values?.[1] ?? ''
   },
 })
+const lastSeenRange = computed<string[]>({
+  get: () => filter.value.last_seen_start && filter.value.last_seen_end
+    ? [filter.value.last_seen_start, filter.value.last_seen_end]
+    : [],
+  set: (values) => {
+    filter.value.last_seen_start = values?.[0] ?? ''
+    filter.value.last_seen_end = values?.[1] ?? ''
+  },
+})
+const showAdvanced = ref(false)
 </script>
 
 <template>
@@ -141,11 +151,63 @@ const planFinishRange = computed<string[]>({
       @press-enter="emit('search')"
       @clear="emit('search')"
     />
+    <template v-if="showAdvanced">
+      <a-input
+        v-model="filter.title"
+        placeholder="标题（包含）"
+        allow-clear
+        @press-enter="emit('search')"
+        @clear="emit('search')"
+      />
+      <a-input
+        v-model="filter.domain"
+        placeholder="领域（包含）"
+        allow-clear
+        @press-enter="emit('search')"
+        @clear="emit('search')"
+      />
+      <a-input
+        v-model="filter.invoke_class"
+        placeholder="调用类（包含）"
+        allow-clear
+        @press-enter="emit('search')"
+        @clear="emit('search')"
+      />
+      <a-input-number
+        v-model="filter.act_value_min"
+        placeholder="实际值 ≥"
+        hide-button
+        class="num-input"
+      />
+      <a-input-number
+        v-model="filter.act_value_max"
+        placeholder="实际值 ≤"
+        hide-button
+        class="num-input"
+      />
+      <a-input-number
+        v-model="filter.hit_rounds_min"
+        placeholder="出现轮次 ≥"
+        hide-button
+        class="num-input"
+      />
+      <a-range-picker
+        v-model="lastSeenRange"
+        value-format="YYYY-MM-DD"
+        :placeholder="['最近出现开始', '最近出现结束']"
+        allow-clear
+        class="date-range"
+        @change="emit('search')"
+      />
+    </template>
     <a-button type="primary" size="small" @click="emit('search')">
       查询
     </a-button>
     <a-button size="small" @click="emit('reset')">
       重置
+    </a-button>
+    <a-button type="text" size="small" @click="showAdvanced = !showAdvanced">
+      {{ showAdvanced ? '收起筛选' : '更多筛选' }}
     </a-button>
   </div>
 </template>
@@ -155,6 +217,7 @@ const planFinishRange = computed<string[]>({
 .issue-filter > * { min-width: 0; width: auto; }
 .issue-filter .date-range,
 .issue-filter .keyword-input { grid-column: span 2; }
+.issue-filter .num-input { width: 100%; }
 @media (max-width: 720px) {
   .issue-filter { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .issue-filter .date-range,

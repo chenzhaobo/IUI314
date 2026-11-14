@@ -1,6 +1,7 @@
 import type { RoundDetail, RoundRow } from './types'
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { fetchRoundDetail, fetchRounds } from './service'
+import { ROUND_POLL_MS } from './types'
 
 /** 独立用例横比页：轮次选择、详情加载与刷新。 */
 export function useCaseWorkspace() {
@@ -10,27 +11,44 @@ export function useCaseWorkspace() {
   const listLoading = ref(false)
   const detailLoading = ref(false)
   let seq = 0
+  let timer: ReturnType<typeof setTimeout> | undefined
 
   const roundOptions = computed(() => rounds.value.map(round => ({
     value: round.id,
     label: `${round.round_no} · ${round.name}${round.case_sync_status === 'success' ? ` · 已采集${round.case_total}` : ''}`,
   })))
 
-  async function loadDetail() {
+  function stopPolling() {
+    if (timer)
+      clearTimeout(timer)
+    timer = undefined
+  }
+
+  function schedulePolling() {
+    stopPolling()
+    if (detail.value && !detail.value.done)
+      timer = setTimeout(() => void loadDetail(true), ROUND_POLL_MS)
+  }
+
+  async function loadDetail(silent = false) {
+    stopPolling()
     if (!selectedRoundId.value) {
       detail.value = null
       return
     }
     const current = ++seq
-    detailLoading.value = true
+    if (!silent)
+      detailLoading.value = true
     try {
       const result = await fetchRoundDetail(selectedRoundId.value)
       if (current === seq)
         detail.value = result
     }
     finally {
-      if (current === seq)
+      if (current === seq) {
         detailLoading.value = false
+        schedulePolling()
+      }
     }
   }
 
@@ -53,6 +71,7 @@ export function useCaseWorkspace() {
     await loadRounds()
   }
 
+  onBeforeUnmount(stopPolling)
   void loadRounds()
 
   return { rounds, selectedRoundId, detail, roundOptions, listLoading, detailLoading, loadRounds, loadDetail, reload }

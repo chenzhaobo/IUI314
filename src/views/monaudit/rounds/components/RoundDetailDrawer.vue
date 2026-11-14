@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /** 轮次详情：批次进度表（未结束时自动刷新）+ 结算统计；失败批次可重试 */
-import { toRef } from 'vue'
+import { computed, toRef } from 'vue'
 import { formatTime } from '@/hooks'
 import { BATCH_STATUS, ROUND_STATUS, tagMeta } from '../../shared/types'
-import { BATCH_PHASE, SETTLE_LABELS } from '../types'
+import { BATCH_PHASE, caseProgressText, SETTLE_LABELS } from '../types'
 import { useRoundDetail } from '../useRoundDetail'
 import CaseComparisonPanel from './CaseComparisonPanel.vue'
 
@@ -18,6 +18,17 @@ const emit = defineEmits<{
 const visible = defineModel<boolean>('visible', { required: true })
 
 const { detail, loading, retryingId, retry, stats, reload } = useRoundDetail(visible, toRef(props, 'roundId'), () => emit('changed'))
+
+const logSummary = computed(() => {
+  const batches = detail.value?.batches ?? []
+  return {
+    total: batches.reduce((sum, batch) => sum + batch.log_total, 0),
+    done: batches.reduce((sum, batch) => sum + batch.log_done, 0),
+    failed: batches.reduce((sum, batch) => sum + batch.log_failed, 0),
+    running: batches.some(batch => batch.phase === 'logs'),
+  }
+})
+const caseProgress = computed(() => (detail.value ? caseProgressText(detail.value.round) : '0'))
 </script>
 
 <template>
@@ -33,14 +44,30 @@ const { detail, loading, retryingId, retry, stats, reload } = useRoundDetail(vis
             <a-tag :color="tagMeta(ROUND_STATUS, detail.round.status).color">
               {{ tagMeta(ROUND_STATUS, detail.round.status).label }}
             </a-tag>
-            <span v-if="!detail.done" class="muted">同步进行中，每 5 秒自动刷新</span>
+            <a-tag>
+              日志 {{ logSummary.done }}/{{ logSummary.total }}
+            </a-tag>
+            <a-tag v-if="logSummary.failed > 0" color="red">
+              日志失败 {{ logSummary.failed }}
+            </a-tag>
+            <a-tag v-if="logSummary.running" color="arcoblue">
+              抓日志中
+            </a-tag>
+            <a-tag v-if="detail.round.case_sync_status">
+              用例 {{ caseProgress }}
+            </a-tag>
+            <span v-if="!detail.done" class="muted">任务进行中，每 5 秒自动刷新</span>
           </a-space>
           <a-button size="mini" @click="reload">
             刷新
           </a-button>
         </div>
 
-        <a-descriptions v-if="stats" :column="6" size="small" bordered title="结算统计" class="stats">
+        <a-alert type="info" class="stats-tip">
+          结算统计只记录问题复现判定（出现 / 新增 / 重现 / 复发 / 未复现 / 失败批次），不包含日志条数；日志抓取进度看上方汇总和批次表。
+        </a-alert>
+
+        <a-descriptions v-if="stats" :column="6" size="small" bordered title="结算统计（问题判定）" class="stats">
           <a-descriptions-item v-for="item in SETTLE_LABELS" :key="item.key" :label="item.label">
             {{ stats[item.key] ?? 0 }}
           </a-descriptions-item>
@@ -67,12 +94,18 @@ const { detail, loading, retryingId, retry, stats, reload } = useRoundDetail(vis
             <a-table-column title="入库" data-index="raw_count" :width="70" />
             <a-table-column title="问题" data-index="issue_count" :width="70" />
             <a-table-column title="新增问题" data-index="new_issue_count" :width="80" />
-            <a-table-column title="日志" :width="80">
+            <a-table-column title="日志（完成/总数）" :width="140">
               <template #cell="{ record }">
-                {{ record.log_done }}/{{ record.log_total }}
+                <span>{{ record.log_done }}/{{ record.log_total }}</span>
+                <a-tag v-if="record.log_failed > 0" color="red" size="small" class="log-failed">
+                  失败 {{ record.log_failed }}
+                </a-tag>
+                <a-tag v-if="record.phase === 'logs'" color="arcoblue" size="small" class="log-failed">
+                  抓取中
+                </a-tag>
               </template>
             </a-table-column>
-            <a-table-column title="错误" data-index="error" :width="220" ellipsis tooltip />
+            <a-table-column title="错误 / 日志提示" data-index="error" :width="240" ellipsis tooltip />
             <a-table-column title="开始" data-index="started_at" :width="160">
               <template #cell="{ record }">
                 {{ formatTime(record.started_at) }}
@@ -112,4 +145,6 @@ const { detail, loading, retryingId, retry, stats, reload } = useRoundDetail(vis
 .head-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .muted { color: var(--color-text-3); font-size: 12px; }
 .stats { margin-bottom: 12px; }
+.stats-tip { margin-bottom: 12px; }
+.log-failed { margin-left: 4px; }
 </style>

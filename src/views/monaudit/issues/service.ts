@@ -71,7 +71,7 @@ export function transitionIssues(ids: string[], action: TransitionAction, reason
   return postAction<BatchResult>(ApiMonauditIssue.transition, { ids, action, reason: nullable(reason) })
 }
 
-/** 重新抓取样例 traceId 的日志（同步执行，可能较慢） */
-export async function refetchIssueLog(id: string): Promise<boolean> {
-  return (await postAction<unknown>(ApiMonauditIssue.refetchLog, { id })) !== null
+/** 重新抓取样例 traceId 的日志（同步执行，内部并发抓取） */
+export function refetchIssueLog(id: string): Promise<string | null> {
+  return postAction<string>(ApiMonauditIssue.refetchLog, { id })
 }

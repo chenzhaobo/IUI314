@@ -45,9 +45,9 @@ export async function retryBatch(batchId: string): Promise<boolean> {
   return (await postAction<unknown>(ApiMonauditRound.retry, { batch_id: batchId })) !== null
 }
 
-/** 补抓本轮日志（同步执行，可能较慢） */
-export async function fetchRoundLogs(roundId: string): Promise<boolean> {
-  return (await postAction<unknown>(ApiMonauditRound.fetchLogs, { round_id: roundId })) !== null
+/** 补抓本轮日志：后台执行，进度写回批次；返回提示文案 */
+export function fetchRoundLogs(roundId: string): Promise<string | null> {
+  return postAction<string>(ApiMonauditRound.fetchLogs, { round_id: roundId })
 }
 
 export function fetchAutomationOptions(): Promise<AutomationSourceOption[] | null> {

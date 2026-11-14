@@ -40,6 +40,10 @@ export interface RoundRow extends RoundModel {
   batch_success: number
   batch_failed: number
   batch_running: number
+  log_total: number
+  log_done: number
+  log_failed: number
+  log_running: boolean
 }
 
 /** 后端 BatchVo（flatten mon_sync_batch 列 + 同步源信息） */
@@ -57,6 +61,7 @@ export interface BatchRow {
   new_issue_count: number
   log_total: number
   log_done: number
+  log_failed: number
   error?: string | null
   started_at?: string | null
   finished_at?: string | null
@@ -115,6 +120,54 @@ export const BATCH_PHASE: Record<string, string> = {
   merging: '归并中',
   logs: '抓日志',
   done: '完成',
+}
+
+export const CASE_SYNC_STATUS: Record<string, { label: string, color: string }> = {
+  running: { label: '采集中', color: 'arcoblue' },
+  success: { label: '采集完成', color: 'green' },
+  failed: { label: '采集失败', color: 'red' },
+}
+
+export interface CaseReportStats {
+  success: number | null
+  total: number | null
+  failed: number | null
+}
+
+function reportNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value))
+    return value
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+/** 从轮次保存的自动化批次报告解析成功 / 总数 / 失败数。 */
+export function parseCaseReport(raw: string | null | undefined): CaseReportStats {
+  if (!raw)
+    return { success: null, total: null, failed: null }
+  try {
+    const value: unknown = JSON.parse(raw)
+    if (!value || typeof value !== 'object')
+      return { success: null, total: null, failed: null }
+    const record = value as Record<string, unknown>
+    return {
+      success: reportNumber(record.successNum ?? record.success_num),
+      total: reportNumber(record.totalNum ?? record.caseNum ?? record.total_num),
+      failed: reportNumber(record.failNum ?? record.failureNum ?? record.fail_num),
+    }
+  }
+  catch {
+    return { success: null, total: null, failed: null }
+  }
+}
+
+/** 成功用例进度：已采集 / 预期成功数；未知预期时不拼分母。 */
+export function caseProgressText(round: Pick<RoundModel, 'case_total' | 'automation_report_json'>): string {
+  const expected = parseCaseReport(round.automation_report_json).success
+  return expected && expected > 0 ? `${round.case_total}/${expected}` : `${round.case_total}`
 }
 
 export const TRIGGER_TYPE: Record<string, string> = {

@@ -23,7 +23,7 @@ const { selectedRoundId, detail, roundOptions, listLoading, detailLoading, loadD
             placeholder="选择当前批次（本轮）"
             allow-search
             class="round-select"
-            @change="loadDetail"
+            @change="loadDetail()"
           />
           <a-button size="small" :loading="listLoading || detailLoading" @click="reload">
             刷新

@@ -132,11 +132,15 @@ export function useRounds() {
     void doSettle(row, false)
   }
 
-  async function fetchLogs(row: RoundRow) {
+  async function fetchLogs(row: RoundRow): Promise<boolean> {
     actingId.value = row.id
     try {
-      if (await fetchRoundLogs(row.id))
-        Message.success('日志补抓完成')
+      const message = await fetchRoundLogs(row.id)
+      if (message === null)
+        return false
+      Message.success(message || '已开始补抓日志')
+      void loadList()
+      return true
     }
     finally {
       actingId.value = ''

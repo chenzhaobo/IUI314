@@ -11,7 +11,7 @@ import { formatTime } from '@/hooks'
 import PipelineHelp from './rounds/components/PipelineHelp.vue'
 import RoundDetailDrawer from './rounds/components/RoundDetailDrawer.vue'
 import RoundModals from './rounds/components/RoundModals.vue'
-import { TRIGGER_TYPE } from './rounds/types'
+import { CASE_SYNC_STATUS, caseProgressText, TRIGGER_TYPE } from './rounds/types'
 import { useRounds } from './rounds/useRounds'
 import { ROUND_STATUS, tagMeta, tagOptions } from './shared/types'
 
@@ -55,6 +55,17 @@ function openDetail(row: RoundRow) {
   drawerVisible.value = true
 }
 
+function caseStatusMeta(status?: string | null) {
+  if (!status)
+    return { label: '未采集', color: 'gray' }
+  return CASE_SYNC_STATUS[status] ?? { label: status, color: 'gray' }
+}
+
+async function onFetchLogs(row: RoundRow) {
+  if (await fetchLogs(row))
+    openDetail(row)
+}
+
 onMounted(() => {
   void loadList()
 })
@@ -86,7 +97,7 @@ onMounted(() => {
           :loading="loading"
           :pagination="pagination"
           row-key="id"
-          :scroll="{ minWidth: 1400, y: tableHeight }"
+          :scroll="{ minWidth: 1720, y: tableHeight }"
           @page-change="onPageChange"
           @page-size-change="onPageSizeChange"
         >
@@ -110,6 +121,25 @@ onMounted(() => {
                 <span class="ok-text">{{ record.batch_success }}</span> /
                 <span :class="{ 'fail-text': record.batch_failed > 0 }">{{ record.batch_failed }}</span> /
                 {{ record.batch_running }} / {{ record.batch_total }}
+              </template>
+            </a-table-column>
+            <a-table-column title="日志（完成/总数）" :width="150">
+              <template #cell="{ record }">
+                <span>{{ record.log_done }}/{{ record.log_total }}</span>
+                <a-tag v-if="record.log_failed > 0" color="red" size="small" class="inline-tag">
+                  失败 {{ record.log_failed }}
+                </a-tag>
+                <a-tag v-else-if="record.log_running" color="arcoblue" size="small" class="inline-tag">
+                  抓取中
+                </a-tag>
+              </template>
+            </a-table-column>
+            <a-table-column title="用例采集" :width="170">
+              <template #cell="{ record }">
+                <a-tag :color="caseStatusMeta(record.case_sync_status).color" size="small">
+                  {{ caseStatusMeta(record.case_sync_status).label }}
+                </a-tag>
+                <span class="case-progress">{{ caseProgressText(record) }}</span>
               </template>
             </a-table-column>
             <a-table-column title="开始同步" data-index="started_at" :width="170">
@@ -141,7 +171,7 @@ onMounted(() => {
                   >
                     结算
                   </a-button>
-                  <a-button size="mini" :loading="actingId === record.id" @click="fetchLogs(record)">
+                  <a-button size="mini" :loading="actingId === record.id" @click="onFetchLogs(record)">
                     补抓日志
                   </a-button>
                   <a-button size="mini" type="primary" @click="openDetail(record)">
@@ -175,4 +205,6 @@ onMounted(() => {
 .filter-row { display: flex; align-items: center; gap: 12px; }
 .ok-text { color: rgb(var(--success-6)); }
 .fail-text { color: rgb(var(--danger-6)); font-weight: 600; }
+.inline-tag { margin-left: 4px; }
+.case-progress { margin-left: 6px; color: var(--color-text-2); }
 </style>

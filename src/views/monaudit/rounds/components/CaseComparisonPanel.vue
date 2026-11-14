@@ -4,6 +4,7 @@ import type { RoundModel } from '../types'
 import { computed, toRef } from 'vue'
 import { formatTime } from '@/hooks'
 import { CASE_VERDICT_OPTIONS, formatDelta, formatDeltaPct, formatDuration, verdictMeta } from '../caseTypes'
+import { caseProgressText, parseCaseReport } from '../types'
 import { useCaseComparison } from '../useCaseComparison'
 
 const props = defineProps<{
@@ -68,6 +69,12 @@ const baselineOptions = computed(() => (compare.value?.baseline_options ?? []).m
   value: round.round_id,
   label: `${formatTime(round.automation_started_at, { precision: 'minute' })} · ${round.round_no} · ${round.automation_execute_id || '-'}`,
 })))
+
+const reportStats = computed(() => parseCaseReport(props.round.automation_report_json))
+const progressText = computed(() => caseProgressText(props.round))
+const syncHint = computed(() => props.round.case_sync_status === 'running' && props.round.case_sync_error
+  ? props.round.case_sync_error
+  : '')
 </script>
 
 <template>
@@ -101,12 +108,27 @@ const baselineOptions = computed(() => (compare.value?.baseline_options ?? []).m
         {{ round.case_sync_status === 'success' ? '重新采集此批次' : '采集成功用例' }}
       </a-button>
       <a-tag v-if="round.case_sync_status === 'running'" color="arcoblue" size="small">
-        正在采集
+        采集中 {{ progressText }}
       </a-tag>
       <a-tag v-else-if="round.case_sync_status === 'success'" color="green" size="small">
-        已采集 {{ round.case_total }} 条
+        成功用例 {{ progressText }}
+      </a-tag>
+      <a-tag v-else-if="round.case_sync_status === 'failed'" color="red" size="small">
+        采集失败 · 已采集 {{ round.case_total }} 条
       </a-tag>
     </div>
+
+    <a-space v-if="reportStats.total !== null || reportStats.failed !== null" wrap size="mini" class="summary-row">
+      <a-tag v-if="reportStats.total !== null">
+        自动化用例 {{ reportStats.total }}
+      </a-tag>
+      <a-tag v-if="reportStats.success !== null" color="green">
+        成功 {{ reportStats.success }}
+      </a-tag>
+      <a-tag v-if="reportStats.failed !== null" color="red">
+        失败 {{ reportStats.failed }}
+      </a-tag>
+    </a-space>
 
     <a-alert v-if="sourceNotice" type="warning" class="case-alert">
       {{ sourceNotice }}
@@ -116,10 +138,10 @@ const baselineOptions = computed(() => (compare.value?.baseline_options ?? []).m
     </a-alert>
 
     <a-alert v-if="round.case_sync_status === 'failed'" type="error" class="case-alert">
-      采集失败：{{ round.case_sync_error || '未知错误' }}
+      采集失败（已采集 {{ round.case_total }} 条）：{{ round.case_sync_error || '未知错误' }}
     </a-alert>
     <a-alert v-else-if="round.case_sync_status === 'running'" type="info" class="case-alert">
-      正在读取成功用例（executeState=2），完成后自动加载横比。
+      正在读取成功用例（executeState=2）：已采集 {{ progressText }} 条{{ syncHint ? `；${syncHint}` : '，完成后自动加载横比' }}
     </a-alert>
 
     <template v-if="round.case_sync_status === 'success'">

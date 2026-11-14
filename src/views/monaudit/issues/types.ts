@@ -171,6 +171,17 @@ export interface IssueFilter {
   /** '' = 全部；'1' = 仅超期；'0' = 未超期 */
   overdue: string
   keyword: string
+  /** 列表字段级筛选：标题 / 领域 / 调用类 */
+  title: string
+  domain: string
+  invoke_class: string
+  /** 实际值范围与出现轮次下限 */
+  act_value_min?: number
+  act_value_max?: number
+  hit_rounds_min?: number
+  /** 最近出现日期范围（YYYY-MM-DD，含首尾） */
+  last_seen_start: string
+  last_seen_end: string
 }
 
 export function emptyIssueFilter(): IssueFilter {
@@ -187,6 +198,14 @@ export function emptyIssueFilter(): IssueFilter {
     plan_finish_end: '',
     overdue: '',
     keyword: '',
+    title: '',
+    domain: '',
+    invoke_class: '',
+    act_value_min: undefined,
+    act_value_max: undefined,
+    hit_rounds_min: undefined,
+    last_seen_start: '',
+    last_seen_end: '',
   }
 }
 
