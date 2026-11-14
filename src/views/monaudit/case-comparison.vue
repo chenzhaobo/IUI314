@@ -20,7 +20,7 @@ const { selectedRoundId, detail, roundOptions, listLoading, detailLoading, loadD
             v-model="selectedRoundId"
             :options="roundOptions"
             :loading="listLoading"
-            placeholder="选择要采集 / 横比的轮次"
+            placeholder="选择当前批次（本轮）"
             allow-search
             class="round-select"
             @change="loadDetail"
