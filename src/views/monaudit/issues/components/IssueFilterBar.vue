@@ -135,7 +135,7 @@ const planFinishRange = computed<string[]>({
     />
     <a-input
       v-model="filter.keyword"
-      placeholder="标题 / 调用类 / 领域 / 用户故事 / 缺陷编码 / 指纹"
+      placeholder="标题 / 调用类 / 领域 / 用户故事 / 缺陷编码 / 唯一标记"
       allow-clear
       class="keyword-input"
       @press-enter="emit('search')"

@@ -62,12 +62,12 @@ defineProps<{
       <a-descriptions-item label="出现 / 未复现轮次">
         {{ detail.issue.hit_rounds }} / {{ detail.issue.miss_rounds }}
       </a-descriptions-item>
-      <a-descriptions-item label="指纹">
+      <a-descriptions-item label="归并键">
         <span class="mono">{{ detail.issue.fingerprint }}</span>
       </a-descriptions-item>
     </a-descriptions>
     <div v-if="detail.fp_anchor" class="fp-anchor mono" :title="detail.fp_anchor">
-      指纹锚点：{{ detail.fp_anchor }}
+      归并依据：{{ detail.fp_anchor }}
     </div>
   </div>
 </template>
