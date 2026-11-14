@@ -65,7 +65,7 @@ export function emptyAutomationSourceForm(): AutomationSourceForm {
     account_id: '',
     task_id: '',
     task_name: '',
-    page_size: 200,
+    page_size: 1000,
     status: '0',
     remark: '',
   }

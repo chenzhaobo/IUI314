@@ -25,6 +25,10 @@ export interface RoundModel {
   automation_report_json?: string | null
   case_sync_status?: 'running' | 'success' | 'partial' | 'failed' | null
   case_total: number
+  /** 下次续采页（1 基），0 = 从头 */
+  case_page?: number
+  /** 本批次实际生效的 pageSize */
+  case_page_size?: number
   case_sync_error?: string | null
   case_synced_at?: string | null
   stats_json?: string | null

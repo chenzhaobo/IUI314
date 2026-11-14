@@ -42,8 +42,8 @@ const form = defineModel<AutomationSourceForm>('form', { required: true })
           </a-form-item>
         </a-col>
         <a-col :span="12">
-          <a-form-item label="分页大小">
-            <a-input-number v-model="form.page_size" :min="1" :max="500" />
+          <a-form-item label="分页大小" extra="1~1000；调大可减少用例采集请求次数和限流概率">
+            <a-input-number v-model="form.page_size" :min="1" :max="1000" />
           </a-form-item>
         </a-col>
         <a-col :span="24">
