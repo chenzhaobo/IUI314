@@ -105,7 +105,7 @@ export function useIssueDetail(visible: Ref<boolean>, issueId: Ref<string>, onCh
   async function downloadLog(row: TraceLogRow) {
     downloadingLogId.value = row.id
     try {
-      const filename = `monitor-log-${row.trace_id.replace(/[^\w-]/g, '_')}.jsonl`
+      const filename = `monitor-log-${row.trace_id.replace(/[^\w-]/g, '_')}.csv`
       await downloadWithTip(`${ApiMonauditIssue.traceLogDownload}?id=${encodeURIComponent(row.id)}`, filename, '日志下载失败')
     }
     finally {

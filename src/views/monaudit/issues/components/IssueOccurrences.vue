@@ -40,10 +40,15 @@ function sampleText(row: OccurrenceRow): string {
     <a-collapse v-else :bordered="false">
       <a-collapse-item v-for="raw in rawSamples" :key="raw.id">
         <template #header>
-          <span class="raw-head">
-            {{ raw.source_name }} · {{ raw.src_number || raw.id }} · 实际值 {{ raw.act_value ?? '-' }} / 阈值 {{ raw.threshold ?? '-' }}
-            · {{ formatTime(raw.src_created_at) }}
-          </span>
+          <div class="raw-head">
+            <div>
+              {{ raw.source_name }} · {{ raw.src_number || raw.id }} · 实际值 {{ raw.act_value ?? '-' }} / 阈值 {{ raw.threshold ?? '-' }}
+              · {{ formatTime(raw.src_created_at) }}
+            </div>
+            <div class="raw-sub">
+              唯一标记：{{ raw.src_identity || '-' }}
+            </div>
+          </div>
         </template>
         <div class="raw-meta mono">
           traceId：{{ raw.trace_id || '-' }}
@@ -68,6 +73,7 @@ function sampleText(row: OccurrenceRow): string {
 .pre-line { white-space: pre-line; }
 .section-title { margin: 14px 0 6px; font-weight: 600; }
 .raw-head { font-size: 13px; }
+.raw-sub { margin-top: 2px; color: var(--color-text-3); font-size: 12px; }
 .raw-meta { margin-bottom: 6px; }
 .raw-label { margin: 4px 0; color: var(--color-text-3); font-size: 12px; }
 .raw-pre {

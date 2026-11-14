@@ -61,7 +61,7 @@ const logVisible = defineModel<boolean>('logVisible', { required: true })
               :loading="downloadingLogId === record.id"
               @click="emit('download', record)"
             >
-              下载
+              下载 CSV
             </a-button>
           </template>
         </a-table-column>
