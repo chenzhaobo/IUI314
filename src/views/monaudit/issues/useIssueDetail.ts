@@ -5,6 +5,8 @@ import type { Ref } from 'vue'
 import type { HandleForm, IssueDetail, TraceLogLine, TraceLogRow, TransitionMeta } from './types'
 import { Message } from '@arco-design/web-vue'
 import { computed, ref, watch } from 'vue'
+import { ApiMonauditIssue } from '@/api/monauditApis'
+import { useDownload } from '@/hooks'
 import { editIssue, fetchIssueDetail, fetchTraceLog, refetchIssueLog } from './service'
 import { emptyHandleForm, handleFormOf, TRANSITIONS } from './types'
 import { useIssueTransition } from './useIssueTransition'
@@ -97,6 +99,19 @@ export function useIssueDetail(visible: Ref<boolean>, issueId: Ref<string>, onCh
   const logLoading = ref(false)
   const logLines = ref<TraceLogLine[]>([])
   const logTitle = ref('')
+  const downloadingLogId = ref('')
+  const { downloadWithTip } = useDownload()
+
+  async function downloadLog(row: TraceLogRow) {
+    downloadingLogId.value = row.id
+    try {
+      const filename = `monitor-log-${row.trace_id.replace(/[^\w-]/g, '_')}.jsonl`
+      await downloadWithTip(`${ApiMonauditIssue.traceLogDownload}?id=${encodeURIComponent(row.id)}`, filename, '日志下载失败')
+    }
+    finally {
+      downloadingLogId.value = ''
+    }
+  }
 
   async function openLog(row: TraceLogRow) {
     logTitle.value = `日志 · ${row.trace_id}`
@@ -126,6 +141,8 @@ export function useIssueDetail(visible: Ref<boolean>, issueId: Ref<string>, onCh
     logLoading,
     logLines,
     logTitle,
+    downloadingLogId,
     openLog,
+    downloadLog,
   }
 }

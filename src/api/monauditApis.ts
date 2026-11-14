@@ -66,6 +66,7 @@ export enum ApiMonauditIssue {
   options = '/monaudit/issue/options',
   handlerCandidates = '/monaudit/issue/handler_candidates',
   traceLog = '/monaudit/issue/trace_log',
+  traceLogDownload = '/monaudit/issue/trace_log/download',
   edit = '/monaudit/issue/edit',
   batchEdit = '/monaudit/issue/batch_edit',
   assign = '/monaudit/issue/assign',

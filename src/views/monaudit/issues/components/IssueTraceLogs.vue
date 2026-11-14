@@ -12,10 +12,12 @@ defineProps<{
   logLoading: boolean
   logLines: TraceLogLine[]
   logTitle: string
+  downloadingLogId: string
 }>()
 
 const emit = defineEmits<{
   (e: 'open', row: TraceLogRow): void
+  (e: 'download', row: TraceLogRow): void
   (e: 'refetch'): void
 }>()
 
@@ -47,10 +49,19 @@ const logVisible = defineModel<boolean>('logVisible', { required: true })
           </template>
         </a-table-column>
         <a-table-column title="错误" data-index="error" ellipsis tooltip />
-        <a-table-column title="操作" :width="90">
+        <a-table-column title="操作" :width="150">
           <template #cell="{ record }">
             <a-button size="mini" type="text" :disabled="record.status !== 'ok'" @click="emit('open', record)">
-              查看日志
+              查看
+            </a-button>
+            <a-button
+              size="mini"
+              type="text"
+              :disabled="record.status !== 'ok'"
+              :loading="downloadingLogId === record.id"
+              @click="emit('download', record)"
+            >
+              下载
             </a-button>
           </template>
         </a-table-column>

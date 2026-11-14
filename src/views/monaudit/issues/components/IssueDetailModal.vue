@@ -38,7 +38,9 @@ const {
   logLoading,
   logLines,
   logTitle,
+  downloadingLogId,
   openLog,
+  downloadLog,
 } = useIssueDetail(visible, toRef(props, 'issueId'), () => emit('changed'))
 
 const { reasonVisible, reasonTitle, reason, submitting: transiting, run: runTransition, confirmReason } = transition
@@ -93,7 +95,9 @@ const { reasonVisible, reasonTitle, reason, submitting: transiting, run: runTran
               :log-loading="logLoading"
               :log-lines="logLines"
               :log-title="logTitle"
+              :downloading-log-id="downloadingLogId"
               @open="openLog"
+              @download="downloadLog"
               @refetch="refetchLog"
             />
           </a-tab-pane>
