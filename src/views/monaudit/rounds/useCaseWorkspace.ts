@@ -1,7 +1,7 @@
 import type { RoundDetail, RoundRow } from './types'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { fetchRoundDetail, fetchRounds } from './service'
-import { ROUND_POLL_MS } from './types'
+import { caseDataReady, ROUND_POLL_MS } from './types'
 
 /** 独立用例横比页：轮次选择、详情加载与刷新。 */
 export function useCaseWorkspace() {
@@ -15,7 +15,7 @@ export function useCaseWorkspace() {
 
   const roundOptions = computed(() => rounds.value.map(round => ({
     value: round.id,
-    label: `${round.round_no} · ${round.name}${round.case_sync_status === 'success' ? ` · 已采集${round.case_total}` : ''}`,
+    label: `${round.round_no} · ${round.name}${round.case_sync_status !== 'running' && round.case_total > 0 ? ` · 已采集${round.case_total}` : ''}`,
   })))
 
   function stopPolling() {
@@ -58,7 +58,7 @@ export function useCaseWorkspace() {
       const page = await fetchRounds({ page_num: 1, page_size: 200 })
       rounds.value = page?.list ?? []
       if (!rounds.value.some(round => round.id === selectedRoundId.value))
-        selectedRoundId.value = rounds.value.find(round => round.case_sync_status === 'success')?.id ?? rounds.value[0]?.id ?? ''
+        selectedRoundId.value = rounds.value.find(round => caseDataReady(round))?.id ?? rounds.value[0]?.id ?? ''
       if (selectedRoundId.value)
         await loadDetail()
     }

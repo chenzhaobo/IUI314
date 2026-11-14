@@ -4,7 +4,7 @@ import type { RoundModel } from '../types'
 import { computed, toRef } from 'vue'
 import { formatTime } from '@/hooks'
 import { CASE_VERDICT_OPTIONS, formatDelta, formatDeltaPct, formatDuration, verdictMeta } from '../caseTypes'
-import { caseProgressText, parseCaseReport } from '../types'
+import { caseDataReady, caseProgressText, parseCaseReport } from '../types'
 import { useCaseComparison } from '../useCaseComparison'
 
 const props = defineProps<{
@@ -75,6 +75,14 @@ const progressText = computed(() => caseProgressText(props.round))
 const syncHint = computed(() => props.round.case_sync_status === 'running' && props.round.case_sync_error
   ? props.round.case_sync_error
   : '')
+const canCompare = computed(() => caseDataReady(props.round))
+const canResume = computed(() => props.round.case_total > 0 && ['failed', 'partial'].includes(props.round.case_sync_status ?? ''))
+const rateLimited = computed(() => /页面频繁访问|稍等\d+秒/.test(props.round.case_sync_error ?? ''))
+const syncButtonText = computed(() => {
+  if (props.round.case_sync_status === 'success')
+    return '重新采集此批次'
+  return canResume.value ? '继续采集' : '采集成功用例'
+})
 </script>
 
 <template>
@@ -105,13 +113,16 @@ const syncHint = computed(() => props.round.case_sync_status === 'running' && pr
         class="execute-select"
       />
       <a-button type="primary" size="small" :loading="syncing" :disabled="round.case_sync_status === 'running' || !selectedSourceEnabled" @click="startSync(round.case_sync_status === 'success')">
-        {{ round.case_sync_status === 'success' ? '重新采集此批次' : '采集成功用例' }}
+        {{ syncButtonText }}
       </a-button>
       <a-tag v-if="round.case_sync_status === 'running'" color="arcoblue" size="small">
         采集中 {{ progressText }}
       </a-tag>
       <a-tag v-else-if="round.case_sync_status === 'success'" color="green" size="small">
         成功用例 {{ progressText }}
+      </a-tag>
+      <a-tag v-else-if="round.case_sync_status === 'partial'" color="orange" size="small">
+        部分采集 {{ progressText }}
       </a-tag>
       <a-tag v-else-if="round.case_sync_status === 'failed'" color="red" size="small">
         采集失败 · 已采集 {{ round.case_total }} 条
@@ -138,13 +149,24 @@ const syncHint = computed(() => props.round.case_sync_status === 'running' && pr
     </a-alert>
 
     <a-alert v-if="round.case_sync_status === 'failed'" type="error" class="case-alert">
-      采集失败（已采集 {{ round.case_total }} 条）：{{ round.case_sync_error || '未知错误' }}
+      <div>
+        采集失败（已采集 {{ round.case_total }} 条{{ canCompare ? '，可先查看已采集部分' : '' }}）。
+        <template v-if="rateLimited">
+          这是自动化平台限制访问频率，不是平台不可用；稍后点「继续采集」会从断点续采。
+        </template>
+      </div>
+      <div class="case-error">
+        {{ round.case_sync_error || '未知错误' }}
+      </div>
+    </a-alert>
+    <a-alert v-else-if="round.case_sync_status === 'partial'" type="warning" class="case-alert">
+      平台限流中断，已采集 {{ progressText }} 条；当前数据可正常查看，稍后点「继续采集」会从断点续采。{{ round.case_sync_error || '' }}
     </a-alert>
     <a-alert v-else-if="round.case_sync_status === 'running'" type="info" class="case-alert">
       正在读取成功用例（executeState=2）：已采集 {{ progressText }} 条{{ syncHint ? `；${syncHint}` : '，完成后自动加载横比' }}
     </a-alert>
 
-    <template v-if="round.case_sync_status === 'success'">
+    <template v-if="canCompare">
       <div class="compare-pair">
         <div class="pair-card current">
           <div class="pair-label">
@@ -270,6 +292,7 @@ const syncHint = computed(() => props.round.case_sync_status === 'running' && pr
 .summary-row { margin-bottom: 12px; }
 .case-alert, .compare-tip { margin-bottom: 12px; }
 .case-key { color: var(--color-text-3); font-size: 12px; }
+.case-error { margin-top: 4px; word-break: break-all; }
 .muted { color: var(--color-text-3); font-size: 12px; }
 .compare-pair { display: flex; align-items: stretch; gap: 12px; margin-bottom: 12px; }
 .pair-card { flex: 1; padding: 12px; border: 1px solid var(--color-border-2); border-radius: 6px; background: var(--color-fill-1); }

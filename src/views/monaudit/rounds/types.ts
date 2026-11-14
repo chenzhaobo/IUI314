@@ -23,7 +23,7 @@ export interface RoundModel {
   automation_started_at?: string | null
   automation_finished_at?: string | null
   automation_report_json?: string | null
-  case_sync_status?: 'running' | 'success' | 'failed' | null
+  case_sync_status?: 'running' | 'success' | 'partial' | 'failed' | null
   case_total: number
   case_sync_error?: string | null
   case_synced_at?: string | null
@@ -125,7 +125,15 @@ export const BATCH_PHASE: Record<string, string> = {
 export const CASE_SYNC_STATUS: Record<string, { label: string, color: string }> = {
   running: { label: '采集中', color: 'arcoblue' },
   success: { label: '采集完成', color: 'green' },
+  partial: { label: '部分采集', color: 'orange' },
   failed: { label: '采集失败', color: 'red' },
+}
+
+/** 有可查看的用例数据：成功或至少采到一页；采集中不加载横比。 */
+export function caseDataReady(round: Pick<RoundModel, 'case_sync_status' | 'case_total'>): boolean {
+  if (round.case_sync_status === 'running')
+    return false
+  return round.case_sync_status === 'success' || round.case_total > 0
 }
 
 export interface CaseReportStats {

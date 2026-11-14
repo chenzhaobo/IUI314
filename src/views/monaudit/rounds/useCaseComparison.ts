@@ -4,6 +4,7 @@ import type { RoundModel } from './types'
 import { Message } from '@arco-design/web-vue'
 import { computed, ref, watch } from 'vue'
 import { fetchAutomationExecutions, fetchAutomationOptions, fetchCaseComparison, syncSuccessCases } from './service'
+import { caseDataReady } from './types'
 
 export function useCaseComparison(round: Ref<RoundModel>, onRefresh: () => void) {
   const sources = ref<AutomationSourceOption[]>([])
@@ -79,7 +80,7 @@ export function useCaseComparison(round: Ref<RoundModel>, onRefresh: () => void)
   }
 
   async function loadCompare() {
-    if (round.value.case_sync_status !== 'success') {
+    if (!caseDataReady(round.value)) {
       compare.value = null
       return
     }
