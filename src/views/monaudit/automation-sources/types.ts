@@ -9,6 +9,7 @@ export interface AutomationSourceRow {
   base_url: string
   token_path: string
   auth_mode: AutomationAuthMode
+  user_info_json: string
   app_id: string
   account_id: string
   task_id: string
@@ -28,6 +29,7 @@ export interface AutomationSourceForm {
   base_url: string
   token_path: string
   auth_mode: AutomationAuthMode
+  user_info_json: string
   app_id: string
   app_secret: string
   account_id: string
@@ -57,6 +59,7 @@ export function emptyAutomationSourceForm(): AutomationSourceForm {
     base_url: '',
     token_path: '/open/getAppToken',
     auth_mode: 'token',
+    user_info_json: '',
     app_id: '',
     app_secret: '',
     account_id: '',
@@ -76,6 +79,7 @@ export function automationSourceFormOf(row: AutomationSourceRow): AutomationSour
     base_url: row.base_url,
     token_path: row.token_path,
     auth_mode: row.auth_mode,
+    user_info_json: row.user_info_json ?? '',
     app_id: row.app_id,
     app_secret: '',
     account_id: row.account_id,
@@ -95,6 +99,7 @@ export function buildAutomationSourcePayload(form: AutomationSourceForm): Record
     base_url: text(form.base_url),
     token_path: text(form.token_path) || '/open/getAppToken',
     auth_mode: form.auth_mode,
+    user_info_json: text(form.user_info_json) || null,
     app_id: text(form.app_id),
     account_id: text(form.account_id),
     task_id: text(form.task_id),

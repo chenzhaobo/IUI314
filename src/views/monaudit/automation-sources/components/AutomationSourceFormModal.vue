@@ -68,6 +68,11 @@ const form = defineModel<AutomationSourceForm>('form', { required: true })
             <a-input v-model="form.token_path" placeholder="/open/getAppToken" />
           </a-form-item>
         </a-col>
+        <a-col v-if="form.auth_mode === 'token'" :span="24">
+          <a-form-item label="平台上下文 userInfo" extra="历史批次查询必填；JSON 至少包含 userId、productId、versionId，Token 会自动注入">
+            <a-textarea v-model="form.user_info_json" :auto-size="{ minRows: 2, maxRows: 5 }" />
+          </a-form-item>
+        </a-col>
         <a-col v-if="form.auth_mode === 'app_token'" :span="8">
           <a-form-item label="应用 appId" required>
             <a-input v-model="form.app_id" />
