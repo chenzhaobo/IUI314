@@ -45,15 +45,15 @@ export interface CaseCompareSummary {
   invalid_duration: number
 }
 
-export type CaseVerdict = 'improved' | 'regressed' | 'unchanged'
+export type CaseVerdict = 'improved' | 'regressed' | 'unchanged' | 'no_baseline'
 
 export interface CaseComparisonRow {
   case_key: string
   case_name?: string | null
   case_path?: string | null
   current_duration_ms: number
-  baseline_duration_ms: number
-  delta_ms: number
+  baseline_duration_ms?: number | null
+  delta_ms?: number | null
   delta_pct?: number | null
   verdict: CaseVerdict
 }
@@ -88,6 +88,8 @@ export function verdictMeta(verdict: CaseVerdict): { label: string, color: strin
     return { label: '性能提升', color: 'green' }
   if (verdict === 'regressed')
     return { label: '性能下降', color: 'red' }
+  if (verdict === 'no_baseline')
+    return { label: '无基线', color: 'gray' }
   return { label: '持平', color: 'gray' }
 }
 
@@ -99,7 +101,9 @@ export function formatDuration(ms: number | null | undefined): string {
   return `${ms} ms`
 }
 
-export function formatDelta(ms: number): string {
+export function formatDelta(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined)
+    return '-'
   return `${ms > 0 ? '+' : ''}${formatDuration(ms)}`
 }
 

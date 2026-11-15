@@ -189,6 +189,7 @@ const syncButtonText = computed(() => {
             :options="baselineOptions"
             placeholder="选择基线批次"
             allow-search
+            :disabled="!baselineOptions.length"
             class="baseline-select"
             @change="loadCompare"
           />
@@ -219,15 +220,16 @@ const syncButtonText = computed(() => {
 
       <div class="filter-row">
         <a-input v-model="keyword" placeholder="用例名 / 路径 / caseId" allow-clear class="keyword-input" @press-enter="search" />
-        <a-select v-model="verdict" :options="CASE_VERDICT_OPTIONS" placeholder="对比结论" allow-clear class="verdict-select" @change="search" />
+        <a-select v-model="verdict" :options="CASE_VERDICT_OPTIONS" placeholder="对比结论" allow-clear :disabled="!compare?.baseline_round" class="verdict-select" @change="search" />
         <a-button size="small" @click="search">
           查询
         </a-button>
       </div>
 
-      <a-empty v-if="compare && !compare.baseline_round" description="暂无同任务的已采集历史轮次，请先采集另一个批次" />
+      <a-alert v-if="compare && !compare.baseline_round" type="info" class="case-alert">
+        暂无同任务的已采集历史批次，当前展示本轮成功用例明细；基线耗时、差值和变化率显示为 “-”，采集完另一个批次后可进行横比。
+      </a-alert>
       <a-table
-        v-else
         :data="compare?.list ?? []"
         :loading="compareLoading"
         :pagination="pagination"
