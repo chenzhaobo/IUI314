@@ -123,7 +123,7 @@ onMounted(() => {
                 {{ record.batch_running }} / {{ record.batch_total }}
               </template>
             </a-table-column>
-            <a-table-column title="日志（完成/总数）" :width="150">
+            <a-table-column title="最近抓日志（完成/总数）" :width="180">
               <template #cell="{ record }">
                 <span>{{ record.log_done }}/{{ record.log_total }}</span>
                 <a-tag v-if="record.log_failed > 0" color="red" size="small" class="inline-tag">

@@ -45,7 +45,7 @@ const caseProgress = computed(() => (detail.value ? caseProgressText(detail.valu
               {{ tagMeta(ROUND_STATUS, detail.round.status).label }}
             </a-tag>
             <a-tag>
-              日志 {{ logSummary.done }}/{{ logSummary.total }}
+              最近抓日志 {{ logSummary.done }}/{{ logSummary.total }}
             </a-tag>
             <a-tag v-if="logSummary.failed > 0" color="red">
               日志失败 {{ logSummary.failed }}
@@ -64,7 +64,7 @@ const caseProgress = computed(() => (detail.value ? caseProgressText(detail.valu
         </div>
 
         <a-alert type="info" class="stats-tip">
-          结算统计只记录问题复现判定（出现 / 新增 / 重现 / 复发 / 未复现 / 失败批次），不包含日志条数；日志抓取进度看上方汇总和批次表。
+          结算统计只记录问题复现判定（出现 / 新增 / 重现 / 复发 / 未复现 / 失败批次），不包含日志条数。“最近抓日志”是批次最后一次补抓的待处理数，显示 0/0 表示当时没有待抓任务，不代表该源没有已落盘日志。
         </a-alert>
 
         <a-descriptions v-if="stats" :column="6" size="small" bordered title="结算统计（问题判定）" class="stats">
@@ -94,7 +94,7 @@ const caseProgress = computed(() => (detail.value ? caseProgressText(detail.valu
             <a-table-column title="入库" data-index="raw_count" :width="70" />
             <a-table-column title="问题" data-index="issue_count" :width="70" />
             <a-table-column title="新增问题" data-index="new_issue_count" :width="80" />
-            <a-table-column title="日志（完成/总数）" :width="140">
+            <a-table-column title="最近抓日志（完成/总数）" :width="170">
               <template #cell="{ record }">
                 <span>{{ record.log_done }}/{{ record.log_total }}</span>
                 <a-tag v-if="record.log_failed > 0" color="red" size="small" class="log-failed">
