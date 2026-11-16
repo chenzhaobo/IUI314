@@ -205,7 +205,7 @@
             <template #columns>
               <a-table-column title="名称" data-index="name" :width="180" :sortable="{ sortDirections: ['ascend', 'descend'], sorter: nameSorter }">
                 <template #cell="{ record }">
-                  <a-tooltip :content="nameTip(record)" :disabled="!nameTip(record)" mini>
+                  <a-tooltip :content="nameTip(record)" :disabled="!nameTip(record)" :content-style="{ maxWidth: '520px' }">
                     <span style="display: inline-block; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle">{{ record.name }}</span>
                   </a-tooltip>
                 </template>
