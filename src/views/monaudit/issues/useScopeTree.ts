@@ -26,9 +26,11 @@ export function useScopeTree(filters: Ref<object>, onScope: (scope: IssueScope) 
   const expandedKeys = ref<string[]>([])
   let index = new Map<string, { parent: string, node: ScopeTreeNode }>()
   let seq = 0
+  let loadedSignature = ''
 
   async function load(resetSelection = false) {
     const current = ++seq
+    loadedSignature = JSON.stringify(filters.value)
     loading.value = true
     try {
       if (resetSelection) {
@@ -71,10 +73,16 @@ export function useScopeTree(filters: Ref<object>, onScope: (scope: IssueScope) 
   }
 
   let timer: ReturnType<typeof setTimeout> | undefined
-  watch(() => JSON.stringify(filters.value), () => {
+  watch(() => JSON.stringify(filters.value), (signature) => {
+    // 点“查询”会显式 reload，同一筛选不再走防抖重复请求
+    if (signature === loadedSignature)
+      return
     if (timer)
       clearTimeout(timer)
-    timer = setTimeout(() => void load(), RELOAD_DEBOUNCE_MS)
+    timer = setTimeout(() => {
+      if (JSON.stringify(filters.value) !== loadedSignature)
+        void load()
+    }, RELOAD_DEBOUNCE_MS)
   })
   onBeforeUnmount(() => {
     if (timer)

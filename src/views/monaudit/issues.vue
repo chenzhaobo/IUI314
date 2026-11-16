@@ -49,6 +49,17 @@ function refreshAll() {
   scopeTree.value?.reload()
 }
 
+/** 筛选查询 / 重置：列表和左树计数同时刷新 */
+function onFilterSearch() {
+  search()
+  scopeTree.value?.reload()
+}
+
+function onFilterReset() {
+  resetFilter()
+  scopeTree.value?.reload()
+}
+
 const batch = useIssueBatch(selectedRows, refreshAll)
 const {
   submitting: batchSubmitting,
@@ -95,7 +106,7 @@ onMounted(() => {
   <div class="p-4">
     <ListPage :aside-width="300" aside-resizable>
       <template #filter>
-        <IssueFilterBar v-model:filter="filter" :options="options" @search="search" @reset="resetFilter" />
+        <IssueFilterBar v-model:filter="filter" :options="options" @search="onFilterSearch" @reset="onFilterReset" />
       </template>
 
       <template #aside>
