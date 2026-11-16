@@ -7,7 +7,7 @@ import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { ApiAiAgent } from '@/api/aiApis'
 import { ApiPerfCompliance, ApiPerfReportTask } from '@/api/perfApis'
 import { formatTime, postAction, useGet, usePost, useTableAutoHeight } from '@/hooks'
-import { normalizeFormTags, tagsToTargetDimensions, targetDimensionsToTags, toDimensionSelectOptions } from './taskDimension'
+import { mergeTargetDimensions, normalizeFormTags, tagsToTargetDimensions, targetDimensionsToTags, toDimensionSelectOptions } from './taskDimension'
 import { attrRangeText, isSkippedResult, retryPlan } from './taskTrigger'
 import TriggerTaskModal from './TriggerTaskModal.vue'
 
@@ -29,6 +29,8 @@ const modalVisible = ref(false)
 const isEdit = ref(false)
 const saving = ref(false)
 const editId = ref('')
+// 保留 target_dimensions 里下拉标签不展示的高级字段（客户/版本）
+const originalTargetDimensions = ref<unknown>(null)
 // 归因阶段的 Agent 与模型。
 //
 // 原先后端写死 kiro-cli + gpt-5.6-terra（defect_analysis.rs / report_attribution.rs），
@@ -47,6 +49,9 @@ const form = reactive<any>({
   daily_limit_per_group: 100,
   group_top_pct: 80,
   group_max: 1000,
+  sampling_strategy: 'cost',
+  strata_min_per_stratum: 1,
+  coverage_gate_mode: 'off',
   // cron 取代了原来的「执行时间 + 执行周期」两个字段：那是同一个表达式的两半。
   cron_expr: '',
   yzj_chat_id: '',
@@ -142,6 +147,9 @@ function openAddModal() {
     daily_limit_per_group: 100,
     group_top_pct: 80,
     group_max: 1000,
+    sampling_strategy: 'cost',
+    strata_min_per_stratum: 1,
+    coverage_gate_mode: 'off',
     cron_expr: '',
     yzj_chat_id: '',
     push_enabled: false,
@@ -154,6 +162,7 @@ function openAddModal() {
     target_forms: [],
     run_time: '02:00',
   })
+  originalTargetDimensions.value = null
   targetFormInput.value = ''
   loadDimValues()
   modalVisible.value = true
@@ -181,6 +190,9 @@ function openEditModal(record: any) {
     daily_limit_per_group: record.daily_limit_per_group ?? 100,
     group_top_pct: record.group_top_pct ?? 80,
     group_max: record.group_max ?? 1000,
+    sampling_strategy: record.sampling_strategy || 'cost',
+    strata_min_per_stratum: record.strata_min_per_stratum ?? 1,
+    coverage_gate_mode: record.coverage_gate_mode || 'off',
     // 老记录只有 run_time：迁移已把它转成 cron，这里再兜一层，
     // 免得迁移前建的记录打开编辑框看到空的执行时间
     cron_expr: record.cron_expr || (record.run_time ? cronFromRunTime(record.run_time) : ''),
@@ -195,6 +207,7 @@ function openEditModal(record: any) {
     period_scope: record.period_scope || 'last_month',
     target_forms: targetDimensionsToTags(record.target_dimensions),
   })
+  originalTargetDimensions.value = record.target_dimensions ?? null
   targetFormInput.value = ''
   loadDimValues()
   modalVisible.value = true
@@ -214,6 +227,9 @@ function buildPayload(base: any) {
     daily_limit_per_group: base.daily_limit_per_group,
     group_top_pct: base.group_top_pct,
     group_max: base.group_max,
+    sampling_strategy: base.sampling_strategy || 'cost',
+    strata_min_per_stratum: base.strata_min_per_stratum ?? 1,
+    coverage_gate_mode: base.coverage_gate_mode || 'off',
     cron_expr: base.cron_expr || undefined,
     // run_time 仍传：后端列非空，且回退到旧版本时它还是调度依据。
     // 有 cron 时按 cron 反推，保持两者一致。
@@ -227,7 +243,9 @@ function buildPayload(base: any) {
     model: base.model || undefined,
     enabled: base.enabled,
     // 后端更新时整列覆盖：不传就会把已配的指定表单清空（启用开关切换也走这里）
-    target_dimensions: Array.isArray(base.target_forms) ? tagsToTargetDimensions(base.target_forms) : (base.target_dimensions ?? null),
+    target_dimensions: Array.isArray(base.target_forms)
+      ? mergeTargetDimensions(tagsToTargetDimensions(base.target_forms), originalTargetDimensions.value)
+      : (base.target_dimensions ?? null),
   }
 }
 
@@ -778,6 +796,32 @@ function fmtDuration(seconds?: number) {
             <a-col :span="6">
               <a-form-item label="维度数上限">
                 <a-input-number v-model="form.group_max" :min="1" :max="5000" style="width: 100%" />
+              </a-form-item>
+            </a-col>
+          </a-row>
+          <a-row :gutter="16">
+            <a-col :span="8">
+              <a-form-item label="选样策略">
+                <a-select v-model="form.sampling_strategy">
+                  <a-option value="cost">按耗时（旧口径）</a-option>
+                  <a-option value="stratified">客户/版本分层</a-option>
+                </a-select>
+                <template #extra><span>分层会把每桶样本分摊到客户×版本，避免只采到头部客户。</span></template>
+              </a-form-item>
+            </a-col>
+            <a-col :span="8">
+              <a-form-item label="每层最少样本">
+                <a-input-number v-model="form.strata_min_per_stratum" :min="1" :max="20" :disabled="form.sampling_strategy !== 'stratified'" style="width: 100%" />
+              </a-form-item>
+            </a-col>
+            <a-col :span="8">
+              <a-form-item label="覆盖率门禁">
+                <a-select v-model="form.coverage_gate_mode" :disabled="form.sampling_strategy !== 'stratified'">
+                  <a-option value="off">关闭</a-option>
+                  <a-option value="warn">告警</a-option>
+                  <a-option value="enforce">阻断</a-option>
+                </a-select>
+                <template #extra><span>阻断时，存在 0 样本的可分析客户/版本层会拒绝出完整日报和 push。</span></template>
               </a-form-item>
             </a-col>
           </a-row>

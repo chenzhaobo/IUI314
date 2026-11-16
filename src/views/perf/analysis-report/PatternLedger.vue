@@ -56,6 +56,11 @@
           </a-select>
         </a-col>
         <a-col :span="3">
+          <a-select v-model="searchForm.regression_type" placeholder="回归分类" allow-clear>
+            <a-option v-for="o in regressionOptions" :key="o.value" :value="o.value">{{ o.label }}</a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="3">
           <a-select v-model="searchForm.status" placeholder="状态" allow-clear>
             <a-option value="new">待处置</a-option>
             <a-option value="issued">已提单</a-option>
@@ -231,6 +236,12 @@
                     <a-tag v-for="(tag, idx) in splitTag(record.attribution_tag)" :key="idx" :color="idx === 0 ? 'arcoblue' : 'cyan'" size="small" style="margin-right: 4px">{{ tag }}</a-tag>
                   </template>
                   <span v-else>--</span>
+                </template>
+              </a-table-column>
+              <a-table-column title="回归分类" data-index="regression_type" :width="120" :filterable="enumFilterable(regressionOptions, searchForm.regression_type)">
+                <template #cell="{ record }">
+                  <a-tag v-if="record.regression_type" :color="regressionColor(record.regression_type)" size="small">{{ regressionText(record.regression_type) }}</a-tag>
+                  <span v-else style="color: #86909c">未分类</span>
                 </template>
               </a-table-column>
               <a-table-column title="维度" data-index="dimension_value" :width="150" :filterable="filterableOf('dimension_value')">
@@ -468,6 +479,11 @@
           </template>
           <span v-else>--</span>
         </a-descriptions-item>
+        <a-descriptions-item label="回归分类">
+          <a-tag v-if="currentRecord?.regression_type" :color="regressionColor(currentRecord.regression_type)" size="small">{{ regressionText(currentRecord.regression_type) }}</a-tag>
+          <span v-else>未分类</span>
+          <span v-if="currentRecord?.version_matrix?.classification?.reason" style="margin-left: 8px; color: #86909c; font-size: 12px">{{ currentRecord.version_matrix.classification.reason }}</span>
+        </a-descriptions-item>
         <a-descriptions-item label="影响面">
           <ImpactCell :record="currentRecord || {}" />
         </a-descriptions-item>
@@ -557,6 +573,20 @@
       </div>
       <div v-else class="content-block">暂无</div>
 
+      <a-divider>版本 / 客户矩阵</a-divider>
+      <a-table v-if="versionMatrixRows().length" :data="versionMatrixRows()" size="small" :pagination="false" row-key="key" style="margin-bottom: 12px">
+        <template #columns>
+          <a-table-column title="客户" data-index="customer" :width="220" ellipsis tooltip />
+          <a-table-column title="影响" data-index="affected" :width="60" />
+          <a-table-column title="版本" data-index="version" :width="140" />
+          <a-table-column title="超3秒" data-index="slow" :width="80" />
+          <a-table-column title="总请求" data-index="total" :width="90" />
+          <a-table-column title="样本" data-index="sample" :width="70" />
+          <a-table-column title="来源" data-index="source" :width="130" />
+        </template>
+      </a-table>
+      <div v-else class="content-block">暂无版本矩阵（旧台账或尚无版本证据）</div>
+
       <a-divider>影响客户 (customer_names)</a-divider>
       <div v-if="currentRecord?.customer_names && Array.isArray(currentRecord.customer_names)" class="content-block">
         <a-tag v-for="(name, idx) in currentRecord.customer_names" :key="idx" style="margin: 2px">{{ name }}</a-tag>
@@ -584,6 +614,11 @@
           <!-- tooltip 必须包在 span 上：Arco 的 disabled 按钮不派发鼠标事件，
                直接把 a-tooltip 套在 a-button 外面时，禁用态下浮动提示不会弹 ——
                而"为什么不能点"恰恰是禁用态最需要说明的。 -->
+          <a-button
+            v-if="currentRecord?.regression_type === 'insufficient' || currentRecord?.version_matrix?.universe?.missing_strata?.length"
+            :loading="backfillLoading"
+            @click="handleBackfillSamples()"
+          >补样本</a-button>
           <a-tooltip :content="bundleTip(currentRecord)">
             <span style="display: inline-block">
               <a-button
@@ -764,6 +799,7 @@ const searchForm = reactive({
   dimension_type: '',
   dimension_value: '',
   attribution_tag: '',
+  regression_type: '',
   // 默认只看待处置：这个页面的用途是"决定这些问题要不要修"，而生产实测 61 条里
   // 60 条从来没人下过判断。默认列全部等于把待办埋在已处置的行里 ——
   // 筛选框会显示「待处置」，想看全部清掉它即可。
@@ -832,6 +868,8 @@ function onEnumFilterChange(dataIndex: string, filteredValues: string[]) {
     searchForm.status = value
   else if (dataIndex === 'is_custom')
     searchForm.is_custom = value
+  else if (dataIndex === 'regression_type')
+    searchForm.regression_type = value
   else if (dataIndex === 'product_line')
     searchForm.product_line = value
   pageNum.value = 1
@@ -860,6 +898,7 @@ const scopeCountFilters = computed(() => ({
   dimension_type: searchForm.dimension_type,
   dimension_value: searchForm.dimension_value,
   attribution_tag: searchForm.attribution_tag,
+  regression_type: searchForm.regression_type,
   status: searchForm.status,
   is_custom: searchForm.is_custom,
   filters: activeColumnFilters.value,
@@ -870,6 +909,22 @@ const currentRecord = ref<any>(null)
 const { mdDownloading, downloadReportMd } = useReportMdDownload()
 const detailExporting = ref(false)
 const logsDownloading = ref(false)
+interface BackfillPayload {
+  pattern_id: string
+  max_samples_per_stratum: number
+  dry_run?: boolean
+}
+interface BackfillResult {
+  dry_run: boolean
+  pattern_no: string
+  targets: Array<Record<string, unknown>>
+  targets_truncated: boolean
+  downloaded_trace_ids: string[]
+  work_dir: string
+}
+const backfillLoading = ref(false)
+const backfillPayload = ref<BackfillPayload>({ pattern_id: '', max_samples_per_stratum: 3 })
+const { data: backfillRes, execute: doBackfill } = usePost<BackfillResult>(ApiPerfPatternLedger.backfill, backfillPayload, { immediate: false })
 /** 下载 zip 是否带同桶对照样本：thin_log 台账默认带上，否则只有一个坏样本。 */
 const includeContrast = ref(true)
 
@@ -1139,6 +1194,51 @@ const tagOptions = computed(() => {
   if (!Array.isArray(raw)) return []
   return raw.map((d: any) => ({ value: d.value ?? d.dict_value, label: d.label ?? d.dict_label }))
 })
+
+interface DictEntry {
+  value?: string
+  label?: string
+  dict_value?: string
+  dict_label?: string
+}
+const regressionDict = useDicts('perf_regression_type')
+const regressionOptions = computed(() => {
+  const raw: unknown = regressionDict.value.perf_regression_type
+  if (!Array.isArray(raw)) return []
+  return raw.map((d: DictEntry) => ({ value: d.value ?? d.dict_value ?? '', label: d.label ?? d.dict_label ?? '' }))
+})
+function regressionText(value: string | null | undefined) {
+  return regressionOptions.value.find(o => o.value === value)?.label || value || '未分类'
+}
+function regressionColor(value: string | null | undefined) {
+  return ({ cross_version: 'arcoblue', new_version: 'orangered', old_version_only: 'orange', customer_specific: 'purple', customer_customized: 'magenta', insufficient: 'gray' } as Record<string, string>)[value || ''] || 'gray'
+}
+interface MatrixVersionStat {
+  slow_count?: number
+  total_count?: number
+  sample_count?: number
+  source?: string
+}
+interface MatrixCustomer {
+  tenant_code?: string
+  customer_name?: string
+  affected?: boolean
+  versions?: Record<string, MatrixVersionStat>
+}
+function versionMatrixRows() {
+  const customers: MatrixCustomer[] | undefined = currentRecord.value?.version_matrix?.customers
+  if (!Array.isArray(customers)) return []
+  return customers.flatMap(customer => Object.entries(customer.versions ?? {}).map(([version, stat]) => ({
+    key: `${customer.customer_name || customer.tenant_code}|${version}`,
+    customer: customer.customer_name || customer.tenant_code,
+    affected: customer.affected ? '是' : '否',
+    version,
+    slow: stat.slow_count ?? 0,
+    total: stat.total_count ?? 0,
+    sample: stat.sample_count ?? 0,
+    source: stat.source || '',
+  })))
+}
 
 // 产品线也走数据字典 perf_product_line（星瀚/星空），不要写死历史值
 const productLineDict = useDicts('perf_product_line')
@@ -1565,6 +1665,35 @@ const bundleTip = (record: any): string =>
     : '该台账没有可打包的日志与缺陷报告（无样本 trace，也没有报告文件）'
 
 // 下载该问题命中的原始天梯日志与缺陷报告 md（同一个 zip）。
+function handleBackfillSamples() {
+  const record = currentRecord.value
+  if (!record)
+    return
+  Modal.confirm({
+    title: '补样本',
+    content: '按版本矩阵缺失的客户/版本层，从原任务的 work_dir 下载少量 trace。补样本不等于重新分析，缺版本结论仍可能保持“证据不足”。',
+    okText: '开始',
+    cancelText: '取消',
+    onOk: () => submitBackfill(record.id),
+  })
+}
+async function submitBackfill(patternId: string) {
+  backfillLoading.value = true
+  try {
+    backfillPayload.value = { pattern_id: patternId, max_samples_per_stratum: 3 }
+    await doBackfill()
+    if (isRequestFailed(backfillRes))
+      return
+    if (backfillRes.value?.targets_truncated)
+      Message.warning('缺失层超过 200 个，本次只补前 200 个')
+    Message.success('补样本完成')
+    await fetchData()
+  }
+  finally {
+    backfillLoading.value = false
+  }
+}
+
 const handleLogsDownload = async (target?: any) => {
   // **必须挡掉 MouseEvent**：模板里写 `@click="handleLogsDownload"`（不带括号）时
   // Vue 会把事件对象当第一个参数传进来，于是 target 是 MouseEvent、
@@ -1707,7 +1836,7 @@ const handleProductLineFilterChange = () => {
 const handleReset = () => {
   Object.assign(searchForm, {
     // status 回到 'new' 而不是空：与初始状态一致，否则"重置"会变成"看全部"
-    keyword: '', product_line: '星瀚', dimension_type: '', dimension_value: '', attribution_tag: '', status: 'new',
+    keyword: '', product_line: '星瀚', dimension_type: '', dimension_value: '', attribution_tag: '', regression_type: '', status: 'new',
     report_status: '',
     project_group_code: '',
     cloud_number: '',
