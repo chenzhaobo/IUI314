@@ -220,7 +220,7 @@ export interface TransitionMeta {
   label: string
   /** 需填写原因 */
   needReason: boolean
-  /** 需架构师 / 总监权限（can_suppress） */
+  /** 需全部处理权限或项目组架构师 / 总监权限（can_suppress） */
   suppress: boolean
 }
 

@@ -115,22 +115,24 @@ onMounted(() => {
 
       <template #toolbar>
         <span class="selected-hint">已选 {{ selectedRows.length }} 条</span>
-        <a-button size="small" :disabled="!selectedRows.length" @click="batch.openEdit">
-          批量填写
-        </a-button>
-        <a-button size="small" :disabled="!selectedRows.length" @click="batch.openAssign">
-          分派
-        </a-button>
-        <a-dropdown trigger="click" @select="onTransitionSelect">
-          <a-button size="small" :disabled="!selectedRows.length" :loading="transiting">
-            状态流转
+        <template v-if="options.can_manage">
+          <a-button size="small" :disabled="!selectedRows.length" @click="batch.openEdit">
+            批量填写
           </a-button>
-          <template #content>
-            <a-doption v-for="t in TRANSITIONS" :key="t.value" :value="t.value" class="transition-option">
-              {{ t.label }}
-            </a-doption>
-          </template>
-        </a-dropdown>
+          <a-button size="small" :disabled="!selectedRows.length" @click="batch.openAssign">
+            分派
+          </a-button>
+          <a-dropdown trigger="click" @select="onTransitionSelect">
+            <a-button size="small" :disabled="!selectedRows.length" :loading="transiting">
+              状态流转
+            </a-button>
+            <template #content>
+              <a-doption v-for="t in TRANSITIONS" :key="t.value" :value="t.value" class="transition-option">
+                {{ t.label }}
+              </a-doption>
+            </template>
+          </a-dropdown>
+        </template>
         <a-button v-if="options.scope_all" size="small" :disabled="!selectedRows.length" @click="batch.openClassify">
           归类到项目组
         </a-button>

@@ -27,12 +27,14 @@ export interface IssueOptions {
   handlers: LabelValue[]
   /** 当前用户可见的项目组 */
   project_groups: LabelValue[]
-  /** 持有 monaudit/scope/all：可见全部项目组与「未归类」 */
+  /** 持有 monaudit/scope/all：显示「归类到项目组」入口 */
   scope_all: boolean
+  /** 是否有可处理范围（全部范围、菜单处理范围或至少一个项目组） */
+  can_manage: boolean
 }
 
 export function emptyIssueOptions(): IssueOptions {
-  return { audit_types: [], rounds: [], sources: [], handlers: [], project_groups: [], scope_all: false }
+  return { audit_types: [], rounds: [], sources: [], handlers: [], project_groups: [], scope_all: false, can_manage: false }
 }
 
 /** 批量动作结果（后端 BatchResult） */
