@@ -118,23 +118,22 @@ const { reasonVisible, reasonTitle, reason, submitting: transiting, run: runTran
                   v-model="handlerId"
                   :options="handlerOptions"
                   :loading="handlerLoading"
-                  :disabled="!detail.can_handle || !detail.issue.project_group_id"
-                  placeholder="选择项目组成员"
+                  :disabled="!detail.can_handle"
+                  placeholder="选择系统人员"
                   allow-clear
                   allow-search
                 />
                 <a-button
                   type="primary"
                   :loading="assigning"
-                  :disabled="!detail.can_handle || !detail.issue.project_group_id"
+                  :disabled="!detail.can_handle"
                   @click="saveHandler"
                 >
                   保存处理人
                 </a-button>
               </div>
               <template #extra>
-                <span v-if="!detail.issue.project_group_id">请先将问题归类到项目组，才能选择项目组成员</span>
-                <span v-else>候选为项目组成员；清空后保存 = 取消分派</span>
+                <span>候选为系统人员表全部启用用户；清空后保存 = 取消分派</span>
               </template>
             </a-form-item>
           </a-form>

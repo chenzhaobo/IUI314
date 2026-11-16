@@ -16,6 +16,12 @@ export function fetchIssueOptions(): Promise<IssueOptions | null> {
   return getAction<IssueOptions>(ApiMonauditIssue.options)
 }
 
+/** 详情页处理人候选：系统人员表全部启用用户 */
+export async function fetchAllHandlerOptions(): Promise<LabelValue[]> {
+  const list = await getAction<LabelValue[]>(ApiMonauditIssue.handlerOptions)
+  return Array.isArray(list) ? list : []
+}
+
 /** 处理人候选：项目组成员 */
 export async function fetchHandlerCandidates(projectGroupId: string): Promise<LabelValue[]> {
   if (!projectGroupId)

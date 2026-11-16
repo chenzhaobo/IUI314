@@ -8,7 +8,7 @@ import { Message } from '@arco-design/web-vue'
 import { computed, ref, watch } from 'vue'
 import { ApiMonauditIssue } from '@/api/monauditApis'
 import { useDownload } from '@/hooks'
-import { fetchHandlerCandidates, showBatchResult } from '../shared/service'
+import { fetchAllHandlerOptions, showBatchResult } from '../shared/service'
 import { assignIssues, editIssue, fetchIssueDetail, fetchTraceLog, refetchIssueLog } from './service'
 import { emptyHandleForm, handleFormOf, TRANSITIONS } from './types'
 import { useIssueTransition } from './useIssueTransition'
@@ -27,13 +27,11 @@ export function useIssueDetail(visible: Ref<boolean>, issueId: Ref<string>, onCh
   const handlerLoading = ref(false)
   const assigning = ref(false)
 
-  async function loadHandlerOptions(groupId: string | null | undefined) {
+  async function loadHandlerOptions() {
     handlerOptions.value = []
-    if (!groupId)
-      return
     handlerLoading.value = true
     try {
-      handlerOptions.value = await fetchHandlerCandidates(groupId)
+      handlerOptions.value = await fetchAllHandlerOptions()
     }
     finally {
       handlerLoading.value = false
@@ -49,7 +47,7 @@ export function useIssueDetail(visible: Ref<boolean>, issueId: Ref<string>, onCh
       detail.value = res
       form.value = res ? handleFormOf(res.issue) : emptyHandleForm()
       handlerId.value = res?.issue.handler_id ?? ''
-      await loadHandlerOptions(res?.issue.project_group_id)
+      await loadHandlerOptions()
       const currentHandler = res?.issue.handler_name
       if (handlerId.value && currentHandler && !handlerOptions.value.some(option => option.value === handlerId.value))
         handlerOptions.value.unshift({ value: handlerId.value, label: currentHandler })

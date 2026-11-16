@@ -49,7 +49,7 @@ function onRowClick(record: Record<string, unknown>) {
     :pagination="pagination"
     :row-selection="rowSelection"
     row-key="id"
-    :scroll="{ minWidth: 1990, y: tableHeight }"
+    :scroll="{ minWidth: 2230, y: tableHeight }"
     class="issue-table"
     @page-change="emit('pageChange', $event)"
     @page-size-change="emit('pageSizeChange', $event)"
@@ -66,6 +66,7 @@ function onRowClick(record: Record<string, unknown>) {
           </div>
         </template>
       </a-table-column>
+      <a-table-column title="调用类" data-index="invoke_class" :width="240" ellipsis tooltip />
       <a-table-column title="审计类型" data-index="audit_type_label" :width="140" ellipsis tooltip />
       <a-table-column title="领域" data-index="domain" :width="110" ellipsis tooltip />
       <a-table-column title="项目组" data-index="project_group_name" :width="150" ellipsis tooltip>
