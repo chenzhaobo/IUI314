@@ -31,7 +31,7 @@ function handleAdd() {
   isEdit.value = false
   form.value = {
     agent_code: '', agent_name: '', executable_path: '', invoke_template: '["chat", "{prompt}", "--no-interactive", "--trust-all-tools", "-f", "json", "--model", "{model}"]',
-    supported_models_json: '[]', default_model: 'auto', max_timeout_secs: 300, max_concurrent: 2, health_check_cmd: '--help', skill_mount_path: '.qoder/skills/{skill_code}', status: 'active', remark: '',
+    supported_models_json: '[]', default_model: 'auto', max_timeout_secs: 300, max_concurrent: 2, health_check_cmd: '--help', skill_mount_path: '.qoder/skills/{skill_code}', mcp_mode: 'none', status: 'active', remark: '',
   }
   modalVisible.value = true
 }
@@ -467,6 +467,15 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
             </a-form-item>
           </a-col>
         </a-row>
+        <a-form-item label="任务级 MCP 接入">
+          <a-select v-model="form.mcp_mode" placeholder="选择 MCP 注入方式">
+            <a-option value="none">不支持任务级 MCP</a-option>
+            <a-option value="qoder">Qoder（--mcp-config）</a-option>
+            <a-option value="opencode">灵基（OPENCODE_CONFIG_CONTENT）</a-option>
+            <a-option value="dsh">DSH（dsh-mcp-client patch）</a-option>
+          </a-select>
+          <template #extra>由 AI 中心声明注入方式；业务只提供 mcpServers 定义。dsh 需配合 dsh-mcp-client。</template>
+        </a-form-item>
         <a-form-item label="健康检查命令"><a-input :model-value="form.health_check_cmd ?? undefined" placeholder="如：--help 或 --version" @update:model-value="(value: string) => { form.health_check_cmd = value }" /></a-form-item>
         <a-form-item label="技能挂载路径">
           <a-input :model-value="form.skill_mount_path ?? undefined" placeholder="如：.qoder/skills/{skill_code} 或 .kiro/skills/{skill_code}" @update:model-value="(value: string) => { form.skill_mount_path = value }" />

@@ -246,6 +246,7 @@ function runTimeFromCron(expr?: string): string {
 async function handleSave() {
   if (!form.task_name) { Message.warning('请输入任务名称'); return }
   if (!form.dimension_value) { Message.warning('请选择或输入维度值'); return }
+  if (!form.agent_code) { Message.warning('请选择归因 Agent'); return }
   // 采集与归因拆成两个任务时，靠**同一个工作目录**衔接（归因按 work_dir 找已下载日期）。
   // 留空会按任务名各自兜底成不同目录，归因任务就永远找不到采集产物。
   if (form.task_type !== 'period' && !String(form.work_dir || '').trim()) {
@@ -822,14 +823,14 @@ function fmtDuration(seconds?: number) {
           </a-form-item>
           <a-row :gutter="16">
             <a-col :span="12">
-              <a-form-item label="归因 Agent">
-                <a-select v-model="form.agent_code" allow-clear placeholder="默认 kiro-cli">
+              <a-form-item label="归因 Agent" required>
+                <a-select v-model="form.agent_code" allow-clear placeholder="请选择 Agent">
                   <a-option v-for="a in agents" :key="a.agent_code" :value="a.agent_code">
                     {{ a.agent_name || a.agent_code }}
                   </a-option>
                 </a-select>
                 <template #extra>
-                  <span>kiro 因网络受限不可用时可切到 qoder 系列。</span>
+                  <span>必须显式选择；留空的任务不会执行归因，也不会隐式回退到 kiro。</span>
                 </template>
               </a-form-item>
             </a-col>
