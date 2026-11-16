@@ -45,7 +45,7 @@ const classifyForm = defineModel<ClassifyForm>('classifyForm', { required: true 
       :on-before-ok="submitAssign"
     >
       <a-form layout="vertical" :model="{}">
-        <a-form-item label="处理人" extra="候选为所选问题所属项目组的成员；留空 = 取消分派">
+        <a-form-item label="处理人" extra="候选为系统人员表全部启用用户；留空 = 取消分派">
           <a-select
             v-model="assignHandler"
             :options="handlerOptions"

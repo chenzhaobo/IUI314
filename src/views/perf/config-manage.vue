@@ -32,6 +32,7 @@ const AI_TUNING_NUMERIC_CONFIGS: Record<string, { min: number, max: number, plac
   ai_agent_queue_lane_scan_reserved: { min: 0, max: 32, placeholder: '如 1，0 = 不保底', unit: '个' },
   ai_agent_queue_lane_attribution_reserved: { min: 0, max: 32, placeholder: '如 1，0 = 不保底', unit: '个' },
   ai_agent_queue_lane_verify_reserved: { min: 0, max: 32, placeholder: '如 1，0 = 不保底', unit: '个' },
+  monaudit_log_concurrency: { min: 1, max: 4, placeholder: '默认 2', unit: '个' },
 }
 
 const WINDOWS_DRIVE_RE = /^[a-zA-Z]:[/\\]/
@@ -146,6 +147,7 @@ const groupLabels: Record<string, string> = {
   static_scan: '静态扫描配置',
   dmp: 'DMP 数据爬取',
   agent: '压测 Agent',
+  monaudit: '监控审计配置',
 }
 
 // 判断是否为布尔类型配置（值为 true/false）

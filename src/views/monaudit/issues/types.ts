@@ -302,12 +302,3 @@ export const EVENT_TYPE: Record<string, string> = {
   classify: '归类',
   edit: '编辑',
 }
-
-/** 选中行的唯一项目组；跨组 / 未归类返回 null */
-export function singleGroupOf(rows: IssueRow[]): string | null {
-  const groups = new Set(rows.map(r => r.project_group_id ?? ''))
-  if (groups.size !== 1)
-    return null
-  const [only] = [...groups]
-  return only || null
-}

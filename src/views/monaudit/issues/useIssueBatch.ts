@@ -1,16 +1,16 @@
 /**
  * 问题清单工具栏的批量动作：批量填写 / 分派 / 归类到项目组。
  *
- * 分派的处理人候选来自所选问题的项目组成员，所以要求所选问题属于同一项目组。
+ * 分派处理人来自系统人员表，不限制所选问题是否属于同一项目组。
  */
 import type { Ref } from 'vue'
 import type { LabelValue } from '../shared/types'
 import type { ClassifyForm, HandleForm, IssueRow } from './types'
 import { Message } from '@arco-design/web-vue'
 import { ref } from 'vue'
-import { fetchHandlerCandidates, showBatchResult } from '../shared/service'
+import { fetchAllHandlerOptions, showBatchResult } from '../shared/service'
 import { assignIssues, batchEditIssues, classifyIssues } from './service'
-import { emptyHandleForm, singleGroupOf } from './types'
+import { emptyHandleForm } from './types'
 
 export function useIssueBatch(selectedRows: Ref<IssueRow[]>, onDone: () => void) {
   const submitting = ref(false)
@@ -72,17 +72,12 @@ export function useIssueBatch(selectedRows: Ref<IssueRow[]>, onDone: () => void)
   async function openAssign() {
     if (!ensureSelected())
       return
-    const group = singleGroupOf(selectedRows.value)
-    if (!group) {
-      Message.warning('分派需选择同一项目组的问题（未归类问题请先归类）')
-      return
-    }
     assignHandler.value = ''
     handlerOptions.value = []
     assignVisible.value = true
     handlerLoading.value = true
     try {
-      handlerOptions.value = await fetchHandlerCandidates(group)
+      handlerOptions.value = await fetchAllHandlerOptions()
     }
     finally {
       handlerLoading.value = false
