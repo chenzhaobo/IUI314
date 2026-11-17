@@ -582,6 +582,8 @@
           <a-table-column title="超3秒" data-index="slow" :width="80" />
           <a-table-column title="总请求" data-index="total" :width="90" />
           <a-table-column title="样本" data-index="sample" :width="70" />
+          <a-table-column title="成功" data-index="ok" :width="70" />
+          <a-table-column title="失败/无数据" data-index="failed" :width="100" />
           <a-table-column title="来源" data-index="source" :width="130" />
         </template>
       </a-table>
@@ -1298,6 +1300,10 @@ interface MatrixVersionStat {
   slow_count?: number
   total_count?: number
   sample_count?: number
+  selected_count?: number
+  ok_count?: number
+  failed_count?: number
+  no_data_count?: number
   source?: string
 }
 interface MatrixCustomer {
@@ -1316,7 +1322,9 @@ function versionMatrixRows() {
     version,
     slow: stat.slow_count ?? 0,
     total: stat.total_count ?? 0,
-    sample: stat.sample_count ?? 0,
+    sample: stat.sample_count ?? stat.ok_count ?? 0,
+    ok: stat.ok_count ?? 0,
+    failed: (stat.failed_count ?? 0) + (stat.no_data_count ?? 0),
     source: stat.source || '',
   })))
 }
