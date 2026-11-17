@@ -805,18 +805,19 @@ function fmtDuration(seconds?: number) {
                 <a-select v-model="form.sampling_strategy">
                   <a-option value="cost">按耗时（旧口径）</a-option>
                   <a-option value="stratified">客户/版本分层</a-option>
+                  <a-option value="weighted">加权分层（大客户优先）</a-option>
                 </a-select>
-                <template #extra><span>分层会把每桶样本分摊到客户×版本，避免只采到头部客户。</span></template>
+                <template #extra><span>分层保底覆盖客户×版本；加权分层在保底后把剩余预算向高慢量客户倾斜。</span></template>
               </a-form-item>
             </a-col>
             <a-col :span="8">
               <a-form-item label="每层最少样本">
-                <a-input-number v-model="form.strata_min_per_stratum" :min="1" :max="20" :disabled="form.sampling_strategy !== 'stratified'" style="width: 100%" />
+                <a-input-number v-model="form.strata_min_per_stratum" :min="1" :max="20" :disabled="form.sampling_strategy === 'cost'" style="width: 100%" />
               </a-form-item>
             </a-col>
             <a-col :span="8">
               <a-form-item label="覆盖率门禁">
-                <a-select v-model="form.coverage_gate_mode" :disabled="form.sampling_strategy !== 'stratified'">
+                <a-select v-model="form.coverage_gate_mode" :disabled="form.sampling_strategy === 'cost'">
                   <a-option value="off">关闭</a-option>
                   <a-option value="warn">告警</a-option>
                   <a-option value="enforce">阻断</a-option>
