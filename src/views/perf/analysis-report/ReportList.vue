@@ -200,6 +200,54 @@ const prettyArtifactJson = computed(() => {
   }
 })
 
+
+interface CoverageBriefTotals {
+  slow_count?: number
+  selected_trace_count?: number
+  ok_trace_count?: number
+  failed_trace_count?: number
+  no_data_trace_count?: number
+  selected_pct?: number | null
+  slow_covered_pct?: number | null
+}
+interface CoverageBriefVersion {
+  product_version?: string
+  slow_count?: number
+  selected_count?: number
+  ok_count?: number
+  selected_pct?: number | null
+  actual_covered_pct?: number | null
+}
+interface CoverageBriefLow {
+  form_id?: string
+  event_name?: string
+  control_name?: string
+  customer_key?: string
+  product_version?: string
+  slow_count?: number
+  selected_count?: number
+  selected_pct?: number | null
+  reason?: string
+}
+interface CoverageBrief {
+  phase?: string
+  target_pct?: number
+  totals?: CoverageBriefTotals
+  by_version?: CoverageBriefVersion[]
+  top_low_coverage?: CoverageBriefLow[]
+  tail_groups_omitted?: { count?: number }
+}
+const coverageBrief = computed<CoverageBrief | null>(() => {
+  if (selectedArtifact.value?.path !== 'coverage_brief.json' || !artifactContent.value)
+    return null
+  try {
+    return JSON.parse(artifactContent.value) as CoverageBrief
+  }
+  catch {
+    return null
+  }
+})
+
 const artifactCategoryText: Record<string, string> = {
   report: '报告',
   defect: '缺陷',
@@ -248,7 +296,7 @@ async function handleArtifacts(record: any) {
     await execute()
     artifactItems.value = data.value?.items || []
     defectReportCount.value = data.value?.defect_report_count || 0
-    const preferred = artifactItems.value.find(item => item.path === 'daily_report.md') || artifactItems.value[0]
+    const preferred = artifactItems.value.find(item => item.path === 'daily_report.md') || artifactItems.value.find(item => item.path === 'coverage_brief.json') || artifactItems.value[0]
     if (preferred)
       await selectArtifact(preferred)
   }
@@ -617,6 +665,47 @@ async function handleDailyExport(record: any) {
               :model-value="artifactContent"
               style="min-height: 100%"
             />
+            <div v-else-if="coverageBrief" class="coverage-brief">
+              <a-alert type="info" style="margin-bottom: 12px">
+                阶段：{{ coverageBrief.phase || '-' }}，目标覆盖率：{{ coverageBrief.target_pct ?? 0 }}%，
+                尾部未选组：{{ coverageBrief.tail_groups_omitted?.count ?? 0 }}
+              </a-alert>
+              <a-descriptions :column="4" size="small" bordered style="margin-bottom: 16px">
+                <a-descriptions-item label="慢请求">{{ coverageBrief.totals?.slow_count ?? 0 }}</a-descriptions-item>
+                <a-descriptions-item label="计划选中">{{ coverageBrief.totals?.selected_trace_count ?? 0 }}</a-descriptions-item>
+                <a-descriptions-item label="成功">{{ coverageBrief.totals?.ok_trace_count ?? 0 }}</a-descriptions-item>
+                <a-descriptions-item label="失败 / 无数据">
+                  {{ (coverageBrief.totals?.failed_trace_count ?? 0) + (coverageBrief.totals?.no_data_trace_count ?? 0) }}
+                </a-descriptions-item>
+                <a-descriptions-item label="计划覆盖">{{ coverageBrief.totals?.selected_pct ?? 0 }}%</a-descriptions-item>
+                <a-descriptions-item label="实际覆盖">{{ coverageBrief.totals?.slow_covered_pct ?? 0 }}%</a-descriptions-item>
+              </a-descriptions>
+              <a-divider>版本覆盖</a-divider>
+              <a-table :data="coverageBrief.by_version || []" size="small" :pagination="false" row-key="product_version" style="margin-bottom: 12px">
+                <template #columns>
+                  <a-table-column title="版本" data-index="product_version" />
+                  <a-table-column title="慢请求" data-index="slow_count" :width="90" />
+                  <a-table-column title="选中" data-index="selected_count" :width="80" />
+                  <a-table-column title="成功" data-index="ok_count" :width="80" />
+                  <a-table-column title="计划覆盖" data-index="selected_pct" :width="100" />
+                  <a-table-column title="实际覆盖" data-index="actual_covered_pct" :width="100" />
+                </template>
+              </a-table>
+              <a-divider>低覆盖客户/版本层</a-divider>
+              <a-table :data="coverageBrief.top_low_coverage || []" size="small" :pagination="false" row-key="customer_key" style="margin-bottom: 12px">
+                <template #columns>
+                  <a-table-column title="表单 / 操作" :width="220">
+                    <template #cell="{ record }">{{ record.form_id }} / {{ record.event_name }} / {{ record.control_name || '空' }}</template>
+                  </a-table-column>
+                  <a-table-column title="客户" data-index="customer_key" />
+                  <a-table-column title="版本" data-index="product_version" :width="140" />
+                  <a-table-column title="慢请求" data-index="slow_count" :width="80" />
+                  <a-table-column title="选中" data-index="selected_count" :width="80" />
+                  <a-table-column title="覆盖" data-index="selected_pct" :width="90" />
+                </template>
+              </a-table>
+              <div v-if="!coverageBrief.top_low_coverage?.length" class="content-block">暂无低覆盖层</div>
+            </div>
             <pre v-else-if="selectedArtifact?.render_type === 'json' && artifactContent" class="json-preview">{{ prettyArtifactJson }}</pre>
             <a-empty v-else description="请选择过程文件" style="padding-top: 200px" />
           </div>
@@ -671,6 +760,7 @@ async function handleDailyExport(record: any) {
 <style scoped>
 .content { white-space: pre-wrap; background: var(--color-fill-1); padding: 12px; border-radius: 4px; }
 .markdown { font-family: monospace; }
+.coverage-brief { height: 100%; overflow: auto; }
 .artifact-layout { display: flex; gap: 16px; height: calc(82vh - 62px); min-height: 0; }
 .artifact-list { width: 340px; flex-shrink: 0; overflow: auto; border-right: 1px solid var(--color-border-2); padding-right: 12px; }
 .artifact-list :deep(.arco-list-item) { cursor: pointer; }
