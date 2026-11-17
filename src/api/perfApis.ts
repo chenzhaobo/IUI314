@@ -492,8 +492,10 @@ export enum ApiPerfPatternLedger {
   controlDrill = '/perf/periodic-report/pattern/control-drill',
   export = '/perf/periodic-report/pattern/export',
   logs = '/perf/periodic-report/pattern/logs',
-  /** 按版本矩阵缺口定向补少量样本（同步执行） */
+  /** 按版本矩阵缺口创建补样本批次（队列异步执行） */
   backfill = '/perf/periodic-report/pattern/backfill',
+  backfillProgress = '/perf/periodic-report/pattern/backfill/progress',
+  backfillCancel = '/perf/periodic-report/pattern/backfill/cancel',
   reportMd = '/perf/periodic-report/pattern/report-md',
   /** 单独下载缺陷报告 md 完整原文（不截断、不含原始日志） */
   reportMdDownload = '/perf/periodic-report/pattern/report-md/download',

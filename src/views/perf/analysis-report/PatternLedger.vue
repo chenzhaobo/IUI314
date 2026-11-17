@@ -635,6 +635,21 @@
             下载报告 md
           </a-button>
         </a-space>
+        <div v-if="backfillBatch" class="backfill-progress">
+          <span>
+            补样本 {{ backfillBatch.batch_no }}：完成 {{ backfillBatch.done }}/{{ backfillBatch.total_items }}
+            <template v-if="backfillBatch.running">，执行中 {{ backfillBatch.running }}</template>
+            <template v-if="backfillBatch.failed">，失败 {{ backfillBatch.failed }}</template>
+            <template v-if="backfillBatch.cancelled">，已取消 {{ backfillBatch.cancelled }}</template>
+            <template v-if="backfillBatch.cancel_requested && !isBackfillTerminal(backfillBatch.status)">（取消请求已提交）</template>
+          </span>
+          <a-button
+            v-if="!backfillBatch.cancel_requested && !isBackfillTerminal(backfillBatch.status)"
+            size="mini"
+            :loading="backfillCancelling"
+            @click="cancelBackfill"
+          >取消</a-button>
+        </div>
       </template>
     </a-drawer>
     <!-- 行内「更多 → 流转记录」：与详情底部同一个时间线组件，不用打开整个详情 -->
@@ -914,17 +929,82 @@ interface BackfillPayload {
   max_samples_per_stratum: number
   dry_run?: boolean
 }
-interface BackfillResult {
+interface BackfillStartResult {
+  batch_id: string
+  batch_no: string
+  total: number
+  queued: number
+  skipped: number
   dry_run: boolean
+}
+interface BackfillItemProgress {
+  pattern_id: string
   pattern_no: string
-  targets: Array<Record<string, unknown>>
-  targets_truncated: boolean
-  downloaded_trace_ids: string[]
-  work_dir: string
+  run_date?: string
+  status: string
+  requested: number
+  downloaded: number
+  error?: string
+}
+interface BackfillProgress {
+  batch_id: string
+  batch_no: string
+  total_items: number
+  status: string
+  cancel_requested: boolean
+  pending: number
+  running: number
+  done: number
+  failed: number
+  skipped: number
+  cancelled: number
+  items: BackfillItemProgress[]
 }
 const backfillLoading = ref(false)
+const backfillCancelling = ref(false)
+const backfillBatch = ref<BackfillProgress | null>(null)
 const backfillPayload = ref<BackfillPayload>({ pattern_id: '', max_samples_per_stratum: 3 })
-const { data: backfillRes, execute: doBackfill } = usePost<BackfillResult>(ApiPerfPatternLedger.backfill, backfillPayload, { immediate: false })
+const { data: startRes, execute: startBackfill } = usePost<BackfillStartResult>(ApiPerfPatternLedger.backfill, backfillPayload, { immediate: false })
+const progressQuery = computed(() => ({ batch_id: backfillBatch.value?.batch_id ?? '' }))
+const { data: progressRes, execute: fetchBackfillProgress } = useGet<BackfillProgress>(ApiPerfPatternLedger.backfillProgress, progressQuery, { immediate: false })
+const cancelPayload = ref<{ batch_id: string }>({ batch_id: '' })
+const { execute: cancelBackfillRequest } = usePost<{ batch_id: string, cancel_requested: boolean }>(ApiPerfPatternLedger.backfillCancel, cancelPayload, { immediate: false })
+let backfillTimer: ReturnType<typeof setInterval> | undefined
+
+function isBackfillTerminal(status: string | undefined) {
+  return status === 'success' || status === 'partial' || status === 'failed' || status === 'cancelled'
+}
+
+function stopBackfillPolling() {
+  if (backfillTimer) {
+    clearInterval(backfillTimer)
+    backfillTimer = undefined
+  }
+}
+
+async function pollBackfill() {
+  if (!backfillBatch.value?.batch_id)
+    return
+  await fetchBackfillProgress()
+  if (progressRes.value)
+    backfillBatch.value = progressRes.value
+  if (isBackfillTerminal(progressRes.value?.status)) {
+    stopBackfillPolling()
+    if (progressRes.value?.status === 'success')
+      Message.success('补样本完成')
+    else if (progressRes.value?.status === 'cancelled')
+      Message.info('补样本已取消')
+    else
+      Message.warning('补样本结束，存在失败条目')
+    await fetchData()
+  }
+}
+
+function startBackfillPolling() {
+  stopBackfillPolling()
+  void pollBackfill()
+  backfillTimer = setInterval(() => { void pollBackfill() }, 2000)
+}
 /** 下载 zip 是否带同桶对照样本：thin_log 台账默认带上，否则只有一个坏样本。 */
 const includeContrast = ref(true)
 
@@ -1163,6 +1243,7 @@ const handleRecomputeImpact = async () => {
   }
 }
 onUnmounted(stopImpactRefresh)
+onUnmounted(stopBackfillPolling)
 /** 表头点击排序 → 转成后端参数重新查询。
  *
  * 必须走后端：表格自带的 sortable 只排当前页 20 条，
@@ -1671,7 +1752,7 @@ function handleBackfillSamples() {
     return
   Modal.confirm({
     title: '补样本',
-    content: '按版本矩阵缺失的客户/版本层，从原任务的 work_dir 下载少量 trace。补样本不等于重新分析，缺版本结论仍可能保持“证据不足”。',
+    content: '按版本矩阵缺失的客户/版本层创建补样本批次，由队列串行下载少量 trace。补样本不等于重新分析，缺版本结论仍可能保持“证据不足”。',
     okText: '开始',
     cancelText: '取消',
     onOk: () => submitBackfill(record.id),
@@ -1681,16 +1762,48 @@ async function submitBackfill(patternId: string) {
   backfillLoading.value = true
   try {
     backfillPayload.value = { pattern_id: patternId, max_samples_per_stratum: 3 }
-    await doBackfill()
-    if (isRequestFailed(backfillRes))
+    await startBackfill()
+    if (isRequestFailed(startRes) || !startRes.value)
       return
-    if (backfillRes.value?.targets_truncated)
-      Message.warning('缺失层超过 200 个，本次只补前 200 个')
-    Message.success('补样本完成')
-    await fetchData()
+    const started = startRes.value
+    if (started.queued === 0) {
+      Message.info(started.skipped ? '没有可补的缺失客户/版本层' : '没有可执行的补样本条目')
+      return
+    }
+    backfillBatch.value = {
+      batch_id: started.batch_id,
+      batch_no: started.batch_no,
+      total_items: started.total,
+      status: 'pending',
+      cancel_requested: false,
+      pending: started.queued,
+      running: 0,
+      done: 0,
+      failed: 0,
+      skipped: started.skipped,
+      cancelled: 0,
+      items: [],
+    }
+    Message.success(`补样本批次 ${started.batch_no} 已入队`)
+    startBackfillPolling()
   }
   finally {
     backfillLoading.value = false
+  }
+}
+async function cancelBackfill() {
+  const batch = backfillBatch.value
+  if (!batch)
+    return
+  backfillCancelling.value = true
+  try {
+    cancelPayload.value = { batch_id: batch.batch_id }
+    await cancelBackfillRequest()
+    Message.info('已请求取消，当前正在下载的条目完成后停止')
+    startBackfillPolling()
+  }
+  finally {
+    backfillCancelling.value = false
   }
 }
 
@@ -2159,5 +2272,14 @@ const handleLinkIssue = async () => {
 .table-fill {
   flex: 1;
   min-height: 0;
+}
+
+.backfill-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--color-text-3);
+  font-size: 12px;
 }
 </style>
