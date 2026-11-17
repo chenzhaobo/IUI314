@@ -52,6 +52,8 @@ const form = reactive<any>({
   sampling_strategy: 'cost',
   strata_min_per_stratum: 1,
   coverage_gate_mode: 'off',
+  coverage_target_pct: 0,
+  max_total_downloads: 0,
   // cron 取代了原来的「执行时间 + 执行周期」两个字段：那是同一个表达式的两半。
   cron_expr: '',
   yzj_chat_id: '',
@@ -150,6 +152,8 @@ function openAddModal() {
     sampling_strategy: 'cost',
     strata_min_per_stratum: 1,
     coverage_gate_mode: 'off',
+    coverage_target_pct: 0,
+    max_total_downloads: 0,
     cron_expr: '',
     yzj_chat_id: '',
     push_enabled: false,
@@ -193,6 +197,8 @@ function openEditModal(record: any) {
     sampling_strategy: record.sampling_strategy || 'cost',
     strata_min_per_stratum: record.strata_min_per_stratum ?? 1,
     coverage_gate_mode: record.coverage_gate_mode || 'off',
+    coverage_target_pct: record.coverage_target_pct ?? 0,
+    max_total_downloads: record.max_total_downloads ?? 0,
     // 老记录只有 run_time：迁移已把它转成 cron，这里再兜一层，
     // 免得迁移前建的记录打开编辑框看到空的执行时间
     cron_expr: record.cron_expr || (record.run_time ? cronFromRunTime(record.run_time) : ''),
@@ -230,6 +236,8 @@ function buildPayload(base: any) {
     sampling_strategy: base.sampling_strategy || 'cost',
     strata_min_per_stratum: base.strata_min_per_stratum ?? 1,
     coverage_gate_mode: base.coverage_gate_mode || 'off',
+    coverage_target_pct: base.coverage_target_pct ?? 0,
+    max_total_downloads: base.max_total_downloads ?? 0,
     cron_expr: base.cron_expr || undefined,
     // run_time 仍传：后端列非空，且回退到旧版本时它还是调度依据。
     // 有 cron 时按 cron 反推，保持两者一致。
@@ -823,6 +831,20 @@ function fmtDuration(seconds?: number) {
                   <a-option value="enforce">阻断</a-option>
                 </a-select>
                 <template #extra><span>阻断时，存在 0 样本的可分析客户/版本层会拒绝出完整日报和 push。</span></template>
+              </a-form-item>
+            </a-col>
+          </a-row>
+          <a-row :gutter="16">
+            <a-col :span="8">
+              <a-form-item label="目标覆盖率(%)">
+                <a-input-number v-model="form.coverage_target_pct" :min="0" :max="100" :disabled="form.sampling_strategy === 'cost'" style="width: 100%" />
+                <template #extra><span>0=按单组上限；目标只在单组上限内生效，不会突破。</span></template>
+              </a-form-item>
+            </a-col>
+            <a-col :span="8">
+              <a-form-item label="任务总下载上限">
+                <a-input-number v-model="form.max_total_downloads" :min="0" :max="1000000" :disabled="form.sampling_strategy === 'cost'" style="width: 100%" />
+                <template #extra><span>0=不限制；只做上限压缩，不会增加下载量。</span></template>
               </a-form-item>
             </a-col>
           </a-row>
