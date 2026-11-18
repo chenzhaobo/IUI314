@@ -205,6 +205,16 @@ async function reloadTree(resetSelection: boolean, emitReset = true) {
       selectedKeys.value = [ROOT_KEY]
       emit('change', { product_line: productLine.value })
     }
+    // 客户/版本树只有两级，且状态徽标在子节点上；默认展开一级节点，
+    // 不让用户以为「版本没显示」。菜单/项目组等模式仍保持默认收起。
+    // 必须放在 resetSelection 之后：换模式时上面会先把 expandedKeys 清成根节点。
+    if (mode.value === 'customer' || mode.value === 'version') {
+      const topChildren = treeData.value[0]?.children || []
+      if (topChildren.length) {
+        expandedKeys.value = [ROOT_KEY, ...topChildren.map((child: any) => child.key)]
+        expandNonce.value += 1
+      }
+    }
   }
   finally {
     loading.value = false
@@ -353,8 +363,12 @@ const displayTree = computed(() => {
     // 不再让用户展开后看到空表。null 表示计数仍在加载，先保留以避免闪烁。
     if (node.record_count !== null && node.record_count !== undefined && Number(node.record_count) <= 0)
       return result
-    const children = node.children?.length ? filter(node.children) : []
     const matched = !search || `${node.title} ${node.code}`.toLowerCase().includes(search)
+    // 节点自己命中搜索时保留全部子节点：搜「客户名」必须能看到它的所有版本，
+    // 否则父节点命中、子节点因不含关键词被过滤掉，看起来像版本不存在。
+    const children = matched
+      ? (node.children || [])
+      : (node.children?.length ? filter(node.children) : [])
     if (matched || children.length)
       result.push({ ...node, children })
     return result
@@ -462,6 +476,16 @@ onUnmounted(() => {
               <a-tooltip :content="`${countLabel}：${formatCount(node.record_count)} ${countUnit}`">
                 <span class="node-count">{{ formatCount(node.record_count) }}</span>
               </a-tooltip>
+              <!-- 客户/版本节点：版本汇总状态计数（同一台账可在不同版本处于不同状态） -->
+              <a-tooltip v-if="node.observed_count" content="已观测到该根因">
+                <span class="node-state node-state-observed">观测 {{ node.observed_count }}</span>
+              </a-tooltip>
+              <a-tooltip v-if="node.inherited_count" content="客户升级后尚未在新版本观测到复现，需验证">
+                <span class="node-state node-state-inherited">继承 {{ node.inherited_count }}</span>
+              </a-tooltip>
+              <a-tooltip v-if="node.not_observed_count" content="有足够成功样本且未命中，不等于人工确认已修复">
+                <span class="node-state node-state-clear">未命中 {{ node.not_observed_count }}</span>
+              </a-tooltip>
               <!-- 当月 3 秒达标率：项目组判断「先改哪个」的判断基准，与达标率看板同阈值配色 -->
               <a-tooltip>
                 <template #content>
@@ -499,5 +523,9 @@ onUnmounted(() => {
 .tree-node-title { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; min-width: 0; }
 .node-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .node-count { min-width: 20px; flex-shrink: 0; padding: 0 5px; border-radius: 8px; background: var(--color-fill-3); color: var(--color-text-2); font-size: 11px; line-height: 18px; text-align: center; }
+.node-state { flex-shrink: 0; padding: 0 4px; border-radius: 3px; font-size: 10px; line-height: 16px; white-space: nowrap; }
+.node-state-observed { color: rgb(var(--primary-6)); background: rgba(var(--primary-1), 0.6); }
+.node-state-inherited { color: rgb(var(--orange-6)); background: rgba(var(--orange-1), 0.6); }
+.node-state-clear { color: rgb(var(--green-6)); background: rgba(var(--green-1), 0.6); }
 .node-rate { min-width: 46px; flex-shrink: 0; font-size: 11px; line-height: 18px; text-align: right; font-variant-numeric: tabular-nums; }
 </style>
