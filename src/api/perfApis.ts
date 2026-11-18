@@ -487,6 +487,10 @@ export enum ApiPerfPatternLedger {
   // 不走 scopeCounts 的原因：那套结构与计数打在达标率快照上（生产 500 万行，
   // 实测 15 秒级且受 500 节点上限约束），台账自身字段分组又快又只出现有数据的节点。
   scopeTree = '/perf/periodic-report/pattern/scope-tree',
+  /** 详情：客户×版本汇总 + 最近 N 天出现事实 */
+  scope = '/perf/periodic-report/pattern/scope',
+  /** 历史台账客户×版本事实回填（幂等） */
+  scopeBackfill = '/perf/periodic-report/pattern/scope-backfill',
   formDrill = '/perf/periodic-report/pattern/form-drill',
   /** 表单节点展开出的按钮（台账 form_keys 里该表单的按钮聚合） */
   controlDrill = '/perf/periodic-report/pattern/control-drill',

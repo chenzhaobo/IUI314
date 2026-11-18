@@ -14,6 +14,21 @@
           </a-select>
         </a-col>
         <a-col :span="3">
+          <!-- 客户过滤读客户×版本事实表（tenant_code 优先，名称兜底）；左树客户节点会自动带入 -->
+          <a-input v-model="searchForm.customer_key" placeholder="客户编码/名称" allow-clear @press-enter="handleSearch" />
+        </a-col>
+        <a-col :span="3">
+          <a-input v-model="searchForm.product_version" placeholder="产品版本" allow-clear @press-enter="handleSearch" />
+        </a-col>
+        <a-col :span="3">
+          <a-select v-model="searchForm.version_state" placeholder="版本状态" allow-clear>
+            <a-option value="observed">已观测</a-option>
+            <a-option value="inherited_unverified">升级继承未验证</a-option>
+            <a-option value="not_observed">足够样本未命中</a-option>
+            <a-option value="resolved">已解决</a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="3">
           <!-- 项目组：生产上有 9 个取值，是真正有区分度的维度。
                原来这里是「维度类型 + 维度值」，但台账 364 条的 dimension_type
                全是 product_domain、dimension_value 全是「集团财务」——
@@ -207,7 +222,7 @@
           <!-- 表格 -->
           <div ref="tableWrap" class="table-fill">
           <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange"
- @page-size-change="handlePageSizeChange" row-key="id" column-resizable :scroll="{ minWidth: 1970, y: tableHeight }"
+ @page-size-change="handlePageSizeChange" row-key="id" column-resizable :scroll="{ minWidth: 2140, y: tableHeight }"
  v-model:selected-keys="selectedKeys" :row-selection="rowSelection" @sorter-change="handleSorterChange"
  @filter-change="onEnumFilterChange">
             <template #columns>
@@ -270,6 +285,28 @@
               <a-table-column title="应用" data-index="app_number" :width="90" :filterable="filterableOf('app_number')">
                 <template #cell="{ record }">
                   {{ record.app_number || '--' }}
+                </template>
+              </a-table-column>
+              <!-- 客户×版本摘要：一条台账可能跨多个客户/版本，列表只给汇总；详情展开每日事实 -->
+              <a-table-column title="客户 / 版本" :width="170">
+                <template #cell="{ record }">
+                  <template v-if="record.scope_summary">
+                    <a-tooltip>
+                      <template #content>
+                        <div v-for="(item, idx) in record.scope_summary.top || []" :key="idx">
+                          {{ item.customer_name || '未知客户' }} / {{ item.product_version }} · {{ versionStateText(item.state) }}
+                        </div>
+                      </template>
+                      <span>{{ record.scope_summary.customer_count }} 客户 / {{ record.scope_summary.version_count }} 版本</span>
+                    </a-tooltip>
+                    <a-tag v-if="record.scope_summary.inherited" color="orange" size="small" style="margin-left: 4px" title="客户升级后尚未在新版本观测到复现">
+                      继承 {{ record.scope_summary.inherited }}
+                    </a-tag>
+                    <a-tag v-if="record.scope_summary.not_observed" color="green" size="small" style="margin-left: 4px" title="有足够成功样本且未命中，不等于人工确认已修复">
+                      未命中 {{ record.scope_summary.not_observed }}
+                    </a-tag>
+                  </template>
+                  <span v-else class="muted">--</span>
                 </template>
               </a-table-column>
               <a-table-column title="产品线" data-index="product_line" :width="80" ellipsis tooltip :filterable="enumFilterable(productLineOptions, searchForm.product_line)" />
@@ -573,6 +610,46 @@
       </div>
       <div v-else class="content-block">暂无</div>
 
+      <a-divider>客户×版本演进（事实表）</a-divider>
+      <a-spin :loading="scopeLoading" style="display: block">
+        <a-table v-if="scopeVersions.length" :data="scopeVersions" size="small" :pagination="false" row-key="id" style="margin-bottom: 12px">
+          <template #columns>
+            <a-table-column title="客户" data-index="customer_name" :width="220" ellipsis tooltip />
+            <a-table-column title="版本" data-index="product_version" :width="140" />
+            <a-table-column title="状态" :width="130">
+              <template #cell="{ record }">
+                <a-tag :color="versionStateColor(record.state)" size="small">{{ versionStateText(record.state) }}</a-tag>
+              </template>
+            </a-table-column>
+            <a-table-column title="首次出现" data-index="first_seen_date" :width="110" />
+            <a-table-column title="最近观测" data-index="last_observed_run_date" :width="110" />
+            <a-table-column title="最近慢请求" data-index="last_slow_count" :width="100" />
+            <a-table-column title="来源" data-index="source" :width="110" />
+          </template>
+        </a-table>
+        <div v-else class="content-block">暂无客户×版本记录；历史台账可执行一次 scope 回填。</div>
+        <template v-if="scopeFacts.length">
+          <div style="margin: 8px 0; color: #86909c; font-size: 12px">
+            最近 90 天出现事实（{{ scopeSince }} 起，共 {{ scopeFacts.length }} 条；按日保留）
+          </div>
+          <a-table :data="scopeFacts.slice(0, 80)" size="mini" :pagination="false" row-key="id">
+            <template #columns>
+              <a-table-column title="日期" data-index="run_date" :width="100" />
+              <a-table-column title="客户" data-index="customer_name" :width="180" ellipsis tooltip />
+              <a-table-column title="版本" data-index="product_version" :width="130" />
+              <a-table-column title="表单/按钮" :width="180" ellipsis tooltip>
+                <template #cell="{ record }">{{ record.form_id }} / {{ record.control_name || '未归因操作' }}</template>
+              </a-table-column>
+              <a-table-column title="慢请求" data-index="slow_count" :width="80" />
+              <a-table-column title="选中/成功" :width="90">
+                <template #cell="{ record }">{{ record.selected_count }} / {{ record.ok_count }}</template>
+              </a-table-column>
+              <a-table-column title="来源" data-index="source" :width="110" />
+            </template>
+          </a-table>
+        </template>
+      </a-spin>
+
       <a-divider>版本 / 客户矩阵</a-divider>
       <a-table v-if="versionMatrixRows().length" :data="versionMatrixRows()" size="small" :pagination="false" row-key="key" style="margin-bottom: 12px">
         <template #columns>
@@ -830,6 +907,11 @@ const searchForm = reactive({
   form_id: '',
   // 左树表单下的按钮层（未归因操作为哨兵 __unattributed__）
   control_name: '',
+  // 客户×版本事实过滤（scope 表）；左树客户/版本节点会写入这里
+  customer_key: '',
+  customer_name: '',
+  product_version: '',
+  version_state: '',
   // 是否二开：true=二开 / false=非二开（含历史未标记的 NULL）
   is_custom: '',
   // 排序在后端做：影响面与分析权重要按**全量**排序，
@@ -898,7 +980,10 @@ function resetColumnFilters() {
 }
 
 // 从达标率看板「联查问题」带入的范围：右表先按它过滤，左树挂载后定位到对应节点
-const clearedScope = { project_group_code: '', cloud_number: '', business_area: '', product_domain: '', app_number: '', form_id: '', control_name: '' }
+const clearedScope = {
+  project_group_code: '', cloud_number: '', business_area: '', product_domain: '', app_number: '', form_id: '', control_name: '',
+  customer_key: '', customer_name: '', product_version: '',
+}
 const { initialScope: routeScope } = useRouteScope('pattern-ledger', (scope) => {
   Object.assign(searchForm, clearedScope, scope)
   scopeTreeKey.value += 1
@@ -922,6 +1007,13 @@ const scopeCountFilters = computed(() => ({
 }))
 const drawerVisible = ref(false)
 const currentRecord = ref<any>(null)
+// 详情里的客户×版本事实：版本汇总是主视图，日粒度事实用于追溯
+const scopePayload = ref<any>({})
+const scopeRequest = useGet<any>(ApiPerfPatternLedger.scope, scopePayload, { immediate: false })
+const scopeVersions = computed<any[]>(() => scopeRequest.data.value?.versions || [])
+const scopeFacts = computed<any[]>(() => scopeRequest.data.value?.facts || [])
+const scopeSince = computed<string>(() => scopeRequest.data.value?.since || '')
+const scopeLoading = computed(() => scopeRequest.isFetching.value)
 // 单独下载报告 md（完整原文，见 useReportMdDownload）
 const { mdDownloading, downloadReportMd } = useReportMdDownload()
 const detailExporting = ref(false)
@@ -1295,6 +1387,18 @@ function regressionText(value: string | null | undefined) {
 }
 function regressionColor(value: string | null | undefined) {
   return ({ cross_version: 'arcoblue', new_version: 'orangered', old_version_only: 'orange', customer_specific: 'purple', customer_customized: 'magenta', insufficient: 'gray' } as Record<string, string>)[value || ''] || 'gray'
+}
+const versionStateMap: Record<string, { text: string, color: string }> = {
+  observed: { text: '已观测', color: 'arcoblue' },
+  inherited_unverified: { text: '升级继承未验证', color: 'orange' },
+  not_observed: { text: '足够样本未命中', color: 'green' },
+  resolved: { text: '已解决', color: 'gray' },
+}
+function versionStateText(value: string | null | undefined) {
+  return versionStateMap[value || '']?.text || value || '--'
+}
+function versionStateColor(value: string | null | undefined) {
+  return versionStateMap[value || '']?.color || 'gray'
 }
 interface MatrixVersionStat {
   slow_count?: number
@@ -1916,6 +2020,9 @@ const handleScopeChange = (scope: {
   app_number?: string
   form_id?: string
   control_name?: string
+  customer_key?: string
+  customer_name?: string
+  product_version?: string
 }) => {
   // 左侧范围树可切换星瀚/星空；应用下拉必须跟着产品线重取，不能一直显示首次加载的数据。
   if (scope.product_line && appQuery.value.product_line !== scope.product_line) {
@@ -1930,6 +2037,9 @@ const handleScopeChange = (scope: {
     app_number: '',
     form_id: '',
     control_name: '',
+    customer_key: '',
+    customer_name: '',
+    product_version: '',
     ...scope,
   })
   pageNum.value = 1
@@ -1966,6 +2076,10 @@ const handleReset = () => {
     app_number: '',
     form_id: '',
     control_name: '',
+    customer_key: '',
+    customer_name: '',
+    product_version: '',
+    version_state: '',
     is_custom: '',
   })
   resetColumnFilters()
@@ -2016,6 +2130,11 @@ const handleDetail = (record: any) => {
   mdPayload.value = { pattern: key }
   mdLoading.value = true
   fetchPatternMd().finally(() => { mdLoading.value = false })
+  // 客户×版本事实按台账 id 单独拉；列表只带摘要，详情要看每日证据
+  if (record?.id) {
+    scopePayload.value = { pattern_id: record.id, days: 90 }
+    void scopeRequest.execute()
+  }
   // 追加分析由 PatternReanalysis 组件按 pattern-id / active 自己加载，这里不再触发
 }
 

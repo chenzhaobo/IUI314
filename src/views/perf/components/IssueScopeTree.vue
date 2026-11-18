@@ -14,6 +14,11 @@ interface IssueScopeFilter {
   form_id?: string
   /** 按钮（仅台账：表单节点下再展开一层，开发据此找「提交」有哪些问题） */
   control_name?: string
+  /** 客户（tenant_code 优先，customer_name 兜底） */
+  customer_key?: string
+  customer_name?: string
+  /** 下载时记录的客户产品版本 */
+  product_version?: string
 }
 
 interface Props {
@@ -26,7 +31,7 @@ interface Props {
   initialScope?: IssueScopeFilter | null
 }
 
-type ScopeMode = 'menu' | 'project_group' | 'business_area' | 'product_domain'
+type ScopeMode = 'menu' | 'project_group' | 'business_area' | 'product_domain' | 'customer' | 'version'
 
 const props = withDefaults(defineProps<Props>(), {
   filters: () => ({}),
@@ -48,7 +53,15 @@ const isPattern = computed(() => props.source === 'pattern')
 const treeEndpoint = computed(() => (isPattern.value ? ApiPerfPatternLedger.scopeTree : ApiPerfIssue.scopeTree))
 const drillEndpoint = computed(() => (isPattern.value ? ApiPerfPatternLedger.formDrill : ApiPerfIssue.formDrill))
 /** 只有台账有按钮层：问题单只有单个按钮字段，表单已足够定位 */
-const leafLevel = computed(() => (isPattern.value ? 'control' : 'form'))
+const leafLevel = computed(() => {
+  if (!isPattern.value)
+    return 'form'
+  if (mode.value === 'customer')
+    return 'version'
+  if (mode.value === 'version')
+    return 'customer'
+  return 'control'
+})
 
 const productLine = ref('星瀚')
 const mode = ref<ScopeMode>('menu')
@@ -87,6 +100,12 @@ function scopeFor(level: string, code: string, parentScope: IssueScopeFilter): I
     scope.form_id = code
   if (level === 'control')
     scope.control_name = code
+  if (level === 'customer') {
+    scope.customer_key = code
+    scope.customer_name = undefined
+  }
+  if (level === 'version')
+    scope.product_version = code
   return scope
 }
 
@@ -108,6 +127,13 @@ function normalizeNode(item: any, parentScope: IssueScopeFilter): any {
   const level = item.level
   const code = String(item.code || '')
   const scope = scopeFor(level, code, parentScope)
+  // 客户/版本节点由后端显式带归属，避免用 code 猜名称、用 title 猜编码
+  if (item.customer_key)
+    scope.customer_key = String(item.customer_key)
+  if (item.customer_name)
+    scope.customer_name = String(item.customer_name)
+  if (item.product_version)
+    scope.product_version = String(item.product_version)
   return {
     ...item,
     key: item.key || `${level}:${code}`,
@@ -154,7 +180,9 @@ async function reloadTree(resetSelection: boolean, emitReset = true) {
     const children = items.map((item: any) => normalizeNode(item, { product_line: productLine.value }))
     if (children.length) {
       const root: any = createRoot(children)
-      root.record_count = children.reduce((sum: number, child: any) => sum + Number(child.record_count || 0), 0)
+      root.record_count = resp.total_count !== null && resp.total_count !== undefined
+        ? Number(resp.total_count)
+        : children.reduce((sum: number, child: any) => sum + Number(child.record_count || 0), 0)
       // 「全部」取整条产品线的达标率（子节点只覆盖有问题/台账的应用，所以整体可以大于子项之和）
       root.compliance_rate = resp.overall?.compliance_rate ?? null
       root.total_count = resp.overall?.total_count ?? null
@@ -390,6 +418,14 @@ onUnmounted(() => {
         <a-option value="product_domain">
           产品领域
         </a-option>
+        <template v-if="isPattern">
+          <a-option value="customer">
+            客户 / 版本
+          </a-option>
+          <a-option value="version">
+            版本 / 客户
+          </a-option>
+        </template>
       </a-select>
     </div>
     <div class="period-tip">
