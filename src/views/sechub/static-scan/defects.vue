@@ -1197,16 +1197,20 @@ async function openNextApproval() {
     Message.warning('当前账号没有不处理审批权限')
     return
   }
-  const res = await getAction<any>(ApiSecApproval.issueList, { scope: 'mine', status: 'pending', page_num: 1, page_size: 20 })
+  // 「下一条」必须沿用缺陷列表当前的项目组筛选，否则会带到其他项目组。
+  const groupFilter: Record<string, string> = {}
+  if (queryParams.value.project_group_id)
+    groupFilter.project_group_id = queryParams.value.project_group_id
+  const res = await getAction<any>(ApiSecApproval.issueList, { scope: 'mine', status: 'pending', page_num: 1, page_size: 20, ...groupFilter })
   if (res === null) {
     Message.error('加载待审批列表失败，请稍后重试')
     return
   }
   let next = res.list?.[0]
   // 兜底：待我审批为空时再看全部待审批，按当前账号覆盖的产品领域过滤，
-  // 避免「明明还有待办却提示没有」。
+  // 避免「明明还有待办却提示没有」；项目组筛选仍然保留。
   if (!next) {
-    const all = await getAction<any>(ApiSecApproval.issueList, { status: 'pending', page_num: 1, page_size: 50 })
+    const all = await getAction<any>(ApiSecApproval.issueList, { status: 'pending', page_num: 1, page_size: 50, ...groupFilter })
     if (all === null) {
       Message.error('加载待审批列表失败，请稍后重试')
       return
@@ -1220,7 +1224,7 @@ async function openNextApproval() {
     }
   }
   if (!next) {
-    Message.info('当前没有你负责的待审批申请')
+    Message.info('当前筛选条件下没有你负责的待审批申请')
     return
   }
   await openApprovalById(next.id)
