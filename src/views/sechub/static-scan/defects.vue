@@ -1145,12 +1145,43 @@ async function openApprovalById(id: string) {
   }
 }
 
-function openApprovalForRow(row: ScanIssueRow) {
-  if (!row.nofix_approval_id) {
-    Message.warning('该缺陷没有待审批申请')
+/** 审批「下一条」同时受两层约束：当前查询条件 + 当前审批人的权限范围。 */
+function currentApprovalFilters(): Record<string, string> {
+  const q = queryParams.value
+  const filters: Record<string, string> = { scope: 'mine', status: 'pending' }
+  if (q.project_group_id)
+    filters.project_group_id = q.project_group_id
+  if (q.product_domain)
+    filters.product_domain = q.product_domain
+  if (q.business_area)
+    filters.business_area = q.business_area
+  if (q.repository_id)
+    filters.repository_id = q.repository_id
+  return filters
+}
+
+/** 按当前过滤条件 + 审批权限查一条待办；issueId 有值时限定该缺陷。 */
+async function findScopedApproval(issueId?: string): Promise<{ ok: boolean, row: any | null }> {
+  const params: Record<string, string | number> = { ...currentApprovalFilters(), page_num: 1, page_size: 1 }
+  if (issueId)
+    params.issue_id = issueId
+  const res = await getAction<any>(ApiSecApproval.issueList, params)
+  if (res === null) {
+    Message.error('加载待审批列表失败，请稍后重试')
+    return { ok: false, row: null }
+  }
+  return { ok: true, row: res.list?.[0] ?? null }
+}
+
+async function openApprovalForRow(row: ScanIssueRow) {
+  const found = await findScopedApproval(row?.id)
+  if (!found.ok)
+    return
+  if (!found.row) {
+    Message.info('当前筛选条件下没有你负责的待审批申请')
     return
   }
-  void openApprovalById(row.nofix_approval_id)
+  await openApprovalById(found.row.id)
 }
 
 async function onApprovalClick() {
@@ -1164,26 +1195,13 @@ async function onApprovalClick() {
   }
   if (selectedIds.value.length === 1) {
     const row = selectedRows.value[0]
-    if (row?.nofix_approval_state === 'pending' && row.nofix_approval_id) {
-      await openApprovalById(row.nofix_approval_id)
+    // 即使列表显示 pending，也要用「当前筛选 + 审批权限」重新确认，
+    // 避免打开不在当前项目组/领域范围内的审批。
+    const found = await findScopedApproval(row?.id)
+    if (!found.ok)
       return
-    }
-    // 列表可能落后于申请/状态：先按 issue_id 拉一次当前审批人的待办，
-    // 命中就直接打开；否则回退到待办队列，而不是把用户拦在提示上。
-    const res = await getAction<any>(ApiSecApproval.issueList, {
-      scope: 'mine',
-      status: 'pending',
-      issue_id: row?.id,
-      page_num: 1,
-      page_size: 1,
-    })
-    if (res === null) {
-      Message.error('加载待审批列表失败，请稍后重试')
-      return
-    }
-    const fresh = res.list?.[0]
-    if (fresh?.id) {
-      await openApprovalById(fresh.id)
+    if (found.row) {
+      await openApprovalById(found.row.id)
       return
     }
     await openNextApproval()
@@ -1197,37 +1215,16 @@ async function openNextApproval() {
     Message.warning('当前账号没有不处理审批权限')
     return
   }
-  // 「下一条」必须沿用缺陷列表当前的项目组筛选，否则会带到其他项目组。
-  const groupFilter: Record<string, string> = {}
-  if (queryParams.value.project_group_id)
-    groupFilter.project_group_id = queryParams.value.project_group_id
-  const res = await getAction<any>(ApiSecApproval.issueList, { scope: 'mine', status: 'pending', page_num: 1, page_size: 20, ...groupFilter })
-  if (res === null) {
-    Message.error('加载待审批列表失败，请稍后重试')
+  // 下一条只取「当前筛选 + 当前审批人权限」范围内的待办；
+  // 不再回退到未做权限过滤的全量待审批。
+  const found = await findScopedApproval()
+  if (!found.ok)
     return
-  }
-  let next = res.list?.[0]
-  // 兜底：待我审批为空时再看全部待审批，按当前账号覆盖的产品领域过滤，
-  // 避免「明明还有待办却提示没有」；项目组筛选仍然保留。
-  if (!next) {
-    const all = await getAction<any>(ApiSecApproval.issueList, { status: 'pending', page_num: 1, page_size: 50, ...groupFilter })
-    if (all === null) {
-      Message.error('加载待审批列表失败，请稍后重试')
-      return
-    }
-    if (capability.value.is_director) {
-      next = all.list?.[0]
-    }
-    else {
-      const domains: string[] = capability.value.domain_architect_product_domains || []
-      next = (all.list || []).find((row: any) => row.product_domain && domains.includes(row.product_domain))
-    }
-  }
-  if (!next) {
+  if (!found.row) {
     Message.info('当前筛选条件下没有你负责的待审批申请')
     return
   }
-  await openApprovalById(next.id)
+  await openApprovalById(found.row.id)
 }
 
 async function submitApproval(decision: 'approved' | 'rejected', next: boolean) {
@@ -1696,7 +1693,7 @@ function onOpsSelect(value: unknown, row: ScanIssueRow) {
   else if (value === 'withdrawApproval')
     void withdrawApproval(row)
   else if (value === 'approve')
-    openApprovalForRow(row)
+    void openApprovalForRow(row)
   else if (value === 'delete')
     confirmDeleteIssues([row.id], '该')
 }
