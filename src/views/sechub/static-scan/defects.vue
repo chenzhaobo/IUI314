@@ -1153,7 +1153,11 @@ function openApprovalForRow(row: ScanIssueRow) {
   void openApprovalById(row.nofix_approval_id)
 }
 
-function onApprovalClick() {
+async function onApprovalClick() {
+  if (!canApproveNofix.value) {
+    Message.warning('当前账号没有不处理审批权限')
+    return
+  }
   if (selectedIds.value.length > 1) {
     Message.warning('审批不支持批量，请只勾选一条缺陷')
     return
@@ -1161,14 +1165,31 @@ function onApprovalClick() {
   if (selectedIds.value.length === 1) {
     const row = selectedRows.value[0]
     if (row?.nofix_approval_state === 'pending' && row.nofix_approval_id) {
-      openApprovalForRow(row)
+      await openApprovalById(row.nofix_approval_id)
+      return
     }
-    else {
-      Message.info('该缺陷没有待审批的不处理申请')
+    // 列表可能落后于申请/状态：先按 issue_id 拉一次当前审批人的待办，
+    // 命中就直接打开；否则回退到待办队列，而不是把用户拦在提示上。
+    const res = await getAction<any>(ApiSecApproval.issueList, {
+      scope: 'mine',
+      status: 'pending',
+      issue_id: row?.id,
+      page_num: 1,
+      page_size: 1,
+    })
+    if (res === null) {
+      Message.error('加载待审批列表失败，请稍后重试')
+      return
     }
+    const fresh = res.list?.[0]
+    if (fresh?.id) {
+      await openApprovalById(fresh.id)
+      return
+    }
+    await openNextApproval()
     return
   }
-  void openNextApproval()
+  await openNextApproval()
 }
 
 async function openNextApproval() {
