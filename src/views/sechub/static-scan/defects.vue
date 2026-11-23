@@ -709,8 +709,11 @@ async function submitDefer() {
 }
 
 // ===== 备注与原因（备注只追加流转事件，不改状态）=====
+/** 审批弹窗没有缺陷列表行，只带备注弹窗需要的字段（id/状态/不处理原因） */
+type IssueNotesTarget = Pick<ScanIssueRow, 'id' | 'status' | 'wont_fix_reason_code' | 'wont_fix_reason' | 'defer_reason'>
+  & Partial<Pick<ScanIssueRow, 'coverage_state' | 'coverage_reason'>>
 const notesVisible = ref(false)
-const notesRow = ref<ScanIssueRow | null>(null)
+const notesRow = ref<IssueNotesTarget | null>(null)
 const notesAllEvents = ref<ScanIssueEventRow[]>([])
 const notesList = ref<ScanIssueEventRow[]>([])
 const notesLoading = ref(false)
@@ -725,7 +728,7 @@ const notesStatusEvent = computed(() => {
   return notesAllEvents.value.find(ev => ev.event_type !== 'note' && ev.to_status === status) ?? null
 })
 
-async function loadIssueNotes(row: ScanIssueRow) {
+async function loadIssueNotes(row: IssueNotesTarget) {
   notesLoading.value = true
   notesAllEvents.value = []
   notesList.value = []
@@ -740,11 +743,15 @@ async function loadIssueNotes(row: ScanIssueRow) {
   }
 }
 
-async function openIssueNotes(row: ScanIssueRow) {
+async function openNotesForIssue(row: IssueNotesTarget) {
   notesRow.value = row
   notesVisible.value = true
   noteText.value = ''
   await loadIssueNotes(row)
+}
+
+async function openIssueNotes(row: ScanIssueRow) {
+  await openNotesForIssue(row)
 }
 
 async function submitNote() {
@@ -1119,14 +1126,85 @@ function nofixStateLabel(state?: string | null) {
 // ===== 不处理审批（领域架构师/总监）：详情 + 逐条同意/驳回 =====
 const { data: capData } = useGet<any>(ApiSecGovernance.me, {}, { immediate: true })
 const canApproveNofix = computed(() => Boolean(capData.value?.can_approve_issue_nofix))
-const capability = computed(() => capData.value ?? {})
 const reviewVisible = ref(false)
 const reviewLoading = ref(false)
 const reviewSubmitting = ref(false)
 const reviewRow = ref<any>(null)
 const reviewComment = ref('')
+/** 「上一条 / 下一条」的待办队列：筛选条件与「同意并下一条」完全一致 */
+const approvalQueue = ref<any[]>([])
+const approvalQueueLoading = ref(false)
+const approvalQueueIndex = computed(() => (reviewRow.value ? approvalQueue.value.findIndex(item => item.id === reviewRow.value.id) : -1))
+const approvalHasPrev = computed(() => approvalQueueIndex.value > 0)
+const approvalHasNext = computed(() => approvalQueueIndex.value >= 0 && approvalQueueIndex.value < approvalQueue.value.length - 1)
 
-async function openApprovalById(id: string) {
+async function loadApprovalQueue() {
+  if (!canApproveNofix.value)
+    return
+  approvalQueueLoading.value = true
+  try {
+    const res = await getAction<any>(ApiSecApproval.issueList, {
+      ...currentApprovalFilters(),
+      page_num: 1,
+      page_size: 200,
+    })
+    if (res === null) {
+      approvalQueue.value = []
+      return
+    }
+    approvalQueue.value = Array.isArray(res.list) ? res.list : []
+  }
+  finally {
+    approvalQueueLoading.value = false
+  }
+}
+
+/** 按当前筛选 + 审批权限的待办队列移动；不动审批状态 */
+async function stepApproval(delta: -1 | 1) {
+  if (!reviewRow.value || reviewLoading.value)
+    return
+  if (!approvalQueue.value.length)
+    await loadApprovalQueue()
+  let index = approvalQueue.value.findIndex(item => item.id === reviewRow.value?.id)
+  if (index < 0) {
+    await loadApprovalQueue()
+    index = approvalQueue.value.findIndex(item => item.id === reviewRow.value?.id)
+  }
+  if (index < 0) {
+    Message.info('当前审批不在当前筛选的待办队列中')
+    return
+  }
+  const target = approvalQueue.value[index + delta]
+  if (!target)
+    return
+  await openApprovalById(target.id, false)
+}
+
+function viewApprovalCode() {
+  if (!reviewRow.value)
+    return
+  viewCode({
+    id: reviewRow.value.issue_id,
+    title: reviewRow.value.issue_title,
+    last_seen_commit: reviewRow.value.last_seen_commit,
+    first_seen_commit: reviewRow.value.first_seen_commit,
+  })
+}
+
+async function openApprovalNotes() {
+  const row = reviewRow.value
+  if (!row)
+    return
+  await openNotesForIssue({
+    id: row.issue_id,
+    status: row.issue_status || row.issue_status_before || 'open',
+    wont_fix_reason_code: row.reason_code ?? null,
+    wont_fix_reason: row.reason ?? null,
+    defer_reason: null,
+  })
+}
+
+async function openApprovalById(id: string, refreshQueue = true) {
   reviewLoading.value = true
   reviewVisible.value = true
   reviewRow.value = null
@@ -1139,6 +1217,8 @@ async function openApprovalById(id: string) {
       return
     }
     reviewRow.value = row
+    if (refreshQueue)
+      void loadApprovalQueue()
   }
   finally {
     reviewLoading.value = false
@@ -1555,6 +1635,11 @@ interface VerifyEventMeta {
   /** 处理人变化（转交 / 认领 / 无主缺陷标已修复时的顺带认领） */
   from_assignee?: string | null
   to_assignee?: string | null
+  /** 不处理事件（wont_fix / no_fix_requested）的结构化原因 */
+  approval_id?: string | null
+  reason_code?: string | null
+  reason?: string | null
+  impact_note?: string | null
 }
 
 /** 处理人变化文案：「A → B」，认领（原来没人负责）显示「（无） → B」 */
@@ -1583,6 +1668,23 @@ function parseEventMeta(event: ScanIssueEventRow): VerifyEventMeta | null {
 
 /** 流转列表 + 解析好的 meta：一次 JSON.parse，模板直接读 */
 const eventsView = computed(() => eventsList.value.map(ev => ({ ...ev, meta: parseEventMeta(ev) })))
+
+/** 不处理相关事件：新事件优先按 meta 结构化渲染，老事件退回文案 */
+function isNoFixEvent(event: ScanIssueEventRow): boolean {
+  return event.event_type === 'wont_fix' || event.event_type === 'no_fix_requested'
+}
+
+/** 老事件文案兜底：原因代码换中文、丢掉「影响说明：」空段 */
+function formatEventReason(event: ScanIssueEventRow): string {
+  let text = event.reason ?? ''
+  if (!text)
+    return ''
+  text = text.replace(/原因(?:代码|分类)：([\w-]+)/g, (raw, code: string) => {
+    const label = wontFixReasonLabelMap.value[code]
+    return label ? `原因分类：${label}` : raw
+  })
+  return text.replace(/，影响说明：[ \t]*(?=，|$)/g, '')
+}
 
 /** 事件标签：带 meta 的复核事件显示复核方式，其余沿用事件类型表 */
 function eventLabel(event: ScanIssueEventRow & { meta: VerifyEventMeta | null }): { label: string, color: string } {
@@ -1632,9 +1734,11 @@ function viewReport(row: ScanIssueRow) {
 }
 
 // ===== 代码预览（最新 commit / 检出时 commit）=====
+/** 审批弹窗只有 issue_id / issue_title，检出 commit 允许缺省（只影响「检出时」切换） */
+type CodePreviewTarget = Pick<ScanIssueRow, 'id' | 'title'> & Partial<Pick<ScanIssueRow, 'last_seen_commit' | 'first_seen_commit'>>
 const codeVisible = ref(false)
-const codeRow = ref<ScanIssueRow | null>(null)
-function viewCode(row: ScanIssueRow) {
+const codeRow = ref<CodePreviewTarget | null>(null)
+function viewCode(row: CodePreviewTarget) {
   codeRow.value = row
   codeVisible.value = true
 }
@@ -1777,7 +1881,7 @@ function statusTooltip(row: ScanIssueRow): string {
   return `${base}\n\nAI 直判：复核前状态为「${fromLabel}」，未经人工标记「已修复」`
 }
 
-function issueStatusLabel(row: ScanIssueRow): { label: string, color: string } {
+function issueStatusLabel(row: Pick<ScanIssueRow, 'status'> & Partial<Pick<ScanIssueRow, 'coverage_state' | 'coverage_reason'>>): { label: string, color: string } {
   // 004c：新覆盖状态本身即语义（状态列保留原处置状态，这里以覆盖状态提示为准）
   if (row.coverage_state === 'location_lost' || row.coverage_state === 'removed_with_code')
     return coverageReasonLabels[row.coverage_state] ?? { label: row.coverage_state, color: 'gray' }
@@ -2491,11 +2595,34 @@ function shortSha(sha: string | null | undefined): string {
       <!-- 不处理审批：展示完整理由，可逐条同意/驳回并自动带出下一条 -->
       <a-modal
         v-model:visible="reviewVisible"
-        title="审批不处理申请"
         fullscreen
         :footer="false"
         :body-style="{ padding: '12px', flex: '1 1 auto', minHeight: 0, overflow: 'hidden' }"
       >
+        <template #title>
+          <div class="report-modal-head">
+            <span class="report-modal-title">审批不处理申请</span>
+            <a-space :size="8" class="report-modal-actions">
+              <a-button size="small" :disabled="!reviewRow" @click="openApprovalNotes">
+                备注与原因
+              </a-button>
+              <a-button size="small" type="primary" status="success" :disabled="!reviewRow" @click="viewApprovalCode">
+                <template #icon>
+                  <icon-code />
+                </template>
+                查看代码
+              </a-button>
+              <a-button-group size="small">
+                <a-button :disabled="!reviewRow || reviewLoading || approvalQueueLoading || !approvalHasPrev" @click="stepApproval(-1)">
+                  ‹ 上一条
+                </a-button>
+                <a-button :disabled="!reviewRow || reviewLoading || approvalQueueLoading || !approvalHasNext" @click="stepApproval(1)">
+                  下一条 ›
+                </a-button>
+              </a-button-group>
+            </a-space>
+          </div>
+        </template>
         <div v-if="reviewLoading" style="padding: 24px">
           加载中…
         </div>
@@ -2800,8 +2927,24 @@ function shortSha(sha: string | null | undefined): string {
                   </div>
                 </div>
               </template>
+              <template v-else-if="isNoFixEvent(ev) && ev.meta?.reason">
+                <div class="event-meta">
+                  <div v-if="ev.meta.reason_code" class="event-meta-row">
+                    <span class="event-meta-label">原因分类</span>
+                    <span class="event-meta-value">{{ wontFixReasonLabelMap[ev.meta.reason_code] ?? ev.meta.reason_code }}</span>
+                  </div>
+                  <div class="event-meta-row">
+                    <span class="event-meta-label">不处理原因</span>
+                    <span class="event-meta-value event-meta-text">{{ ev.meta.reason }}</span>
+                  </div>
+                  <div v-if="ev.meta.impact_note" class="event-meta-row">
+                    <span class="event-meta-label">影响说明</span>
+                    <span class="event-meta-value event-meta-text">{{ ev.meta.impact_note }}</span>
+                  </div>
+                </div>
+              </template>
               <div v-else-if="ev.reason" class="event-reason">
-                {{ ev.reason }}
+                {{ formatEventReason(ev) }}
               </div>
               <div v-if="ev.detail_report" class="event-report-link">
                 <a-button type="text" size="mini" @click="viewEventReport(ev)">
