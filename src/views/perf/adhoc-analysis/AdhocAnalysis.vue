@@ -46,6 +46,30 @@
           </a-col>
         </a-row>
 
+        <a-row :gutter="16">
+          <a-col :span="8">
+            <a-form-item label="归因 Agent" required>
+              <a-select v-model="form.agent_code" allow-clear placeholder="请选择 Agent">
+                <a-option v-for="a in agents" :key="a.agent_code" :value="a.agent_code">
+                  {{ a.agent_name || a.agent_code }}
+                </a-option>
+              </a-select>
+              <template #extra>
+                <span>归因阶段必须选择 Agent；默认 qoder-cli。</span>
+              </template>
+            </a-form-item>
+          </a-col>
+          <a-col :span="8">
+            <a-form-item label="归因模型">
+              <a-select v-model="form.model" allow-clear allow-create placeholder="默认按 Agent 配置">
+                <a-option v-for="m in modelOptions" :key="m" :value="m">
+                  {{ m }}
+                </a-option>
+              </a-select>
+            </a-form-item>
+          </a-col>
+        </a-row>
+
         <a-form-item label="分析维度" required>
           <div style="width: 100%">
             <div v-for="(d, idx) in form.dimensions" :key="idx" style="display: flex; gap: 8px; margin-bottom: 8px">
@@ -150,8 +174,10 @@
 </template>
 
 <script lang="ts" setup>
-import { onMounted, reactive, ref } from 'vue'
+import type { AiAgentOption } from '@/api/aiApis'
 import { Message } from '@arco-design/web-vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { ApiAiAgent } from '@/api/aiApis'
 import { ApiPerfReportTask } from '@/api/perfApis'
 import { useGet, usePost } from '@/hooks'
 
@@ -173,9 +199,44 @@ const blank = () => ({
   dimensions: [{ form_id: '', event_name: '' }],
   daily_limit_per_group: 100,
   threshold_ms: 3000,
+  agent_code: '',
+  model: '',
 })
 const form = reactive(blank())
 const submitting = ref(false)
+
+// 归因阶段的 Agent 与模型。用 options：getList 受 AI 管理菜单权限控制，
+// 没有该权限的业务角色调用会 403。
+const { data: agentData } = useGet<AiAgentOption[]>(ApiAiAgent.options, undefined, { immediate: true })
+const agents = computed<AiAgentOption[]>(() => (Array.isArray(agentData.value) ? agentData.value : []))
+
+// 模型选项跟随所选 Agent 的 supported_models_json：各 Agent 支持的模型不同。
+const modelOptions = computed<string[]>(() => {
+  const agent = agents.value.find(item => item.agent_code === form.agent_code)
+  if (!agent?.supported_models_json)
+    return []
+  try {
+    const parsed = JSON.parse(agent.supported_models_json)
+    return Array.isArray(parsed) ? parsed.filter((v: unknown): v is string => typeof v === 'string' && v.length > 0) : []
+  }
+  catch {
+    return []
+  }
+})
+
+// 平台默认 Agent 是 qoder-cli；列表加载后自动预选，保留一键创建。
+watch(agents, (list) => {
+  if (form.agent_code || !list.length)
+    return
+  const preferred = list.find(item => item.agent_code === 'qoder-cli')
+  form.agent_code = preferred?.agent_code || list[0].agent_code
+}, { immediate: true })
+
+// 换 Agent 后原模型可能不在新清单里，留着会提交出后端拒绝的值。
+watch(() => form.agent_code, () => {
+  if (form.model && !modelOptions.value.includes(form.model))
+    form.model = ''
+})
 
 // Ops 日志只留 6 天 —— 选更早的日期下载必然失败，不如直接禁掉。
 // 也禁掉今天：当天数据还没同步完，跑出来是不完整的。
@@ -188,7 +249,13 @@ const disabledDate = (current?: Date) => {
   return day > daysAgo(1) || day < daysAgo(6)
 }
 
-const reset = () => Object.assign(form, blank())
+const reset = () => {
+  const agentCode = form.agent_code
+  const model = form.model
+  Object.assign(form, blank())
+  form.agent_code = agentCode
+  form.model = model
+}
 
 const parseDims = (v: any): { form_id: string, event_name?: string }[] => {
   if (!v) return []
@@ -250,6 +317,7 @@ const createAndRun = async () => {
   if (!form.task_name.trim()) return Message.warning('请填任务名称')
   if (!form.dimension_value.trim()) return Message.warning('请填维度值')
   if (!dims.length) return Message.warning('至少填一个维度的表单标识')
+  if (!form.agent_code) return Message.warning('请选择归因 Agent')
 
   savePayload.value = {
     task_name: form.task_name.trim(),
@@ -260,6 +328,8 @@ const createAndRun = async () => {
     target_dimensions: dims,
     daily_limit_per_group: form.daily_limit_per_group,
     threshold_ms: form.threshold_ms,
+    agent_code: form.agent_code,
+    model: form.model || undefined,
     // 临时任务不进调度：后端 is_task_due 对 adhoc 直接返回 false，
     // 这里的 enabled 只影响列表展示
     enabled: false,
