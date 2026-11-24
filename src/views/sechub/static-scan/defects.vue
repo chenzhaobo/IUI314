@@ -1326,7 +1326,11 @@ async function submitApproval(decision: 'approved' | 'rejected', next: boolean) 
     Message.success(decision === 'approved' ? '已通过，不处理申请生效' : '已驳回，缺陷保持待修复')
     reviewVisible.value = false
     reviewRow.value = null
-    void getList()
+    approvalQueue.value = []
+    // 审批后该行会因「待审批」筛选从列表消失；受控选择不会自动剔除失效 key，
+    // 等列表刷新完再清空，避免残留的选中项把下一次审批误判成批量。
+    await getList()
+    clearSelection()
     if (next)
       await openNextApproval()
   }
