@@ -59,6 +59,8 @@ const props = withDefaults(defineProps<{
   asideWidth?: number
   /** 允许拖动分栏改变左侧栏宽度 */
   asideResizable?: boolean
+  /** 是否显示左栏；用于不需要归属树的结果页签 */
+  asideVisible?: boolean
   /** 左侧栏可拖动的宽度范围 */
   asideMinWidth?: number
   asideMaxWidth?: number
@@ -67,6 +69,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   asideWidth: 260,
   asideResizable: false,
+  asideVisible: true,
   asideMinWidth: 180,
   asideMaxWidth: 520,
   minBodyHeight: 320,
@@ -141,7 +144,7 @@ defineExpose({ tableHeight, bodyHeight: bodyH })
     -->
     <div ref="bodyRef" class="lp-body" :class="{ dragging }" :style="{ height: bodyH ? `${bodyH}px` : undefined }">
       <template v-if="$slots.aside">
-        <aside class="lp-aside" :style="asideStyle">
+        <aside v-show="props.asideVisible" class="lp-aside" :style="asideStyle">
           <div v-if="asideTitle || $slots['aside-title']" class="lp-aside-title">
             <slot name="aside-title">{{ asideTitle }}</slot>
           </div>
@@ -153,6 +156,7 @@ defineExpose({ tableHeight, bodyHeight: bodyH })
 
         <!-- 拖动手柄；不可拖时仍渲染成一条分隔线，避免开关拖动导致布局跳动 -->
         <div
+          v-show="props.asideVisible"
           class="lp-handle"
           :class="{ resizable: asideResizable }"
           @pointerdown="onHandleDown"

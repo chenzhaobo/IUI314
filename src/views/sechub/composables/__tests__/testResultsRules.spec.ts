@@ -112,6 +112,8 @@ test('apiDetailSeed 只吃完整接口路径，支持数组 query', () => {
 test('tabFromQuery / formNumberFromQuery 只接受已知取值', () => {
   assert.equal(tabFromQuery({ tab: 'runs' }), 'runs')
   assert.equal(tabFromQuery({ tab: ['runs'] }), 'runs')
+  assert.equal(tabFromQuery({ tab: 'custom' }), 'custom')
+  assert.equal(tabFromQuery({ tab: ['custom'] }), 'custom')
   assert.equal(tabFromQuery({ tab: 'whatever' }), 'apis')
   assert.equal(tabFromQuery({}), 'apis')
 })

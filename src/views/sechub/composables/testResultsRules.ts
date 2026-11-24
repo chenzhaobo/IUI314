@@ -148,9 +148,10 @@ export function apiDetailSeed(query: Record<string, unknown>): ApiDetailSeed | n
   }
 }
 
-/** tab=query：只有 `runs` 有效，其余落到默认「按接口」 */
-export function tabFromQuery(query: Record<string, unknown>): 'apis' | 'runs' {
-  return queryText(query.tab) === 'runs' ? 'runs' : 'apis'
+/** tab=query：接受执行记录 / 自定义扫描，其余落到默认「按接口」 */
+export function tabFromQuery(query: Record<string, unknown>): 'apis' | 'runs' | 'custom' {
+  const tab = queryText(query.tab)
+  return tab === 'runs' || tab === 'custom' ? tab : 'apis'
 }
 
 /** 从路由 query 解析要直接打开的表单编码 */

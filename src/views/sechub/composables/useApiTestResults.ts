@@ -24,7 +24,7 @@ import {
   testTypeOptions,
 } from './testResultsRules'
 
-export type ApiResultTab = 'apis' | 'runs'
+export type ApiResultTab = 'apis' | 'runs' | 'custom'
 
 export interface RunListQuery {
   keyword: string

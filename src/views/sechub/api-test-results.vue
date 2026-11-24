@@ -2,10 +2,11 @@
 /**
  * API测试结果（安全测试 → API测试 → API测试结果）
  *
- * 两个 Tab：
+ * 三个 Tab：
  *   · 按接口：GET /sechub/test-results/apis（接口级汇总 + 各测试类型最新判定），
  *     左树按 project_group / business_area / product_domain / app 过滤；
  *   · 执行记录：原运行列表（GET /sechub/scan/runs）+ 运行结果抽屉。
+ *   · 自定义扫描：直接读取自定义 API 任务的逐接口结论，不再要求阅读整份长报告。
  * 路由 query 支持 E09 穿透：`api_path` / `http_method` / `env_id` 直接开详情，
  * `tab=runs` 切到执行记录。
  */
@@ -16,6 +17,7 @@ import ApiInventoryTree from '@/views/metadata/components/ApiInventoryTree.vue'
 import ApiResultDetailDrawer from './components/ApiResultDetailDrawer.vue'
 import ApiResultTable from './components/ApiResultTable.vue'
 import ApiRunListPanel from './components/ApiRunListPanel.vue'
+import CustomApiScanResults from './components/CustomApiScanResults.vue'
 import { RESULT_VERDICT_OPTIONS, TEST_STATUS_META } from './composables/testResultsRules'
 import { useApiTestResults } from './composables/useApiTestResults'
 
@@ -72,7 +74,7 @@ onMounted(() => {
 
 <template>
   <div class="api-test-results">
-    <ListPage :aside-width="300" aside-resizable :aside-max-width="520">
+    <ListPage :aside-width="300" :aside-visible="activeTab !== 'custom'" aside-resizable :aside-max-width="520">
       <template #aside-title>
         <div class="aside-title-row">
           <span>归属维度</span>
@@ -95,6 +97,9 @@ onMounted(() => {
             </a-radio>
             <a-radio value="runs">
               执行记录
+            </a-radio>
+            <a-radio value="custom">
+              自定义扫描
             </a-radio>
           </a-radio-group>
 
@@ -137,7 +142,7 @@ onMounted(() => {
             </a-button>
           </template>
 
-          <template v-else>
+          <template v-else-if="activeTab === 'runs'">
             <div class="f-wide">
               <a-input
                 v-model="runSearchForm.keyword"
@@ -179,11 +184,14 @@ onMounted(() => {
             </div>
           </div>
         </template>
-        <template v-else>
+        <template v-else-if="activeTab === 'runs'">
           <a-tag v-if="scope?.kind === 'api'" color="arcoblue">
             已选 API：{{ scope.code }}（打开运行结果时按此过滤）
           </a-tag>
           <span v-else class="hint">从左侧选择 API 可只看该接口的结果</span>
+        </template>
+        <template v-else>
+          <span class="hint">按任务和接口独立查看自定义扫描问题</span>
         </template>
         <div class="toolbar-spacer" />
       </template>
@@ -193,6 +201,10 @@ onMounted(() => {
           v-if="activeTab === 'runs'"
           :query="runQuery"
           :preset-keyword="scope?.kind === 'api' ? scope.code : ''"
+          :table-height="tableHeight"
+        />
+        <CustomApiScanResults
+          v-else-if="activeTab === 'custom'"
           :table-height="tableHeight"
         />
         <ApiResultTable

@@ -197,3 +197,52 @@ export interface TestResultTreeScope {
   kind: 'all' | 'group' | 'app' | 'api'
   code: string
 }
+
+/** 自定义 API 扫描任务（列表不携带长报告与导入原文） */
+export interface CustomApiScanTask {
+  id: string
+  name: string
+  status: string
+  api_count: number
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+}
+
+export interface CustomApiScanTaskListResponse {
+  list: CustomApiScanTask[]
+  total: number
+}
+
+export interface CustomApiImplTarget {
+  role: string
+  class_name: string
+  method?: string
+  operation?: string
+  file?: string | null
+}
+
+/** 一个 API 的代码定位与 AI 扫描结论 */
+export interface CustomApiScanItem {
+  id: string
+  task_id: string
+  call_path: string
+  http_method: string | null
+  api_number: string | null
+  api_name: string | null
+  app_number: string | null
+  app_name: string | null
+  locate_status: string | null
+  locate_note: string | null
+  impl_json: CustomApiImplTarget[] | null
+  verdict: string | null
+  severity: string | null
+  ai_summary: string | null
+  updated_at: string | null
+}
+
+export interface CustomApiScanTaskDetail {
+  task: CustomApiScanTask
+  items: CustomApiScanItem[]
+  repository_name: string | null
+}
