@@ -363,6 +363,7 @@ export enum ApiSecDecompile {
   sourceList = '/sechub/decompile/source/list',
   sourceSave = '/sechub/decompile/source/save',
   sourceDelete = '/sechub/decompile/source/delete',
+  sourcePackageOptions = '/sechub/decompile/source/package-options',
   sync = '/sechub/decompile/sync',
   runList = '/sechub/decompile/run/list',
   runGet = '/sechub/decompile/run/get',

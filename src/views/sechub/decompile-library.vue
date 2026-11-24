@@ -54,6 +54,7 @@
         <template #actions>
           <a-space wrap>
             <a-button type="primary" :disabled="!!runningRun(item)" @click="startSync(item, false)">一键更新</a-button>
+            <a-button :disabled="!!runningRun(item)" @click="openPackageSelect(item)">选择更新</a-button>
             <a-button :disabled="!!runningRun(item)" @click="startSync(item, true)">强制重做</a-button>
             <a-button :disabled="!!runningRun(item)" @click="importExisting(item)">导入已有产物</a-button>
             <!-- 用 change 的第二个参数取本次选中的文件：隐藏列表不会清空，files[0] 会一直是第一次选的那个 -->
@@ -193,6 +194,8 @@
       </div>
     </a-card>
 
+    <DecompilePackageSelectModal ref="packageSelectModal" @updated="fetchSources" />
+
     <!-- 源编辑 -->
     <a-modal v-model:visible="sourceModalVisible" :title="sourceForm.id ? '编辑源' : '新增源'" @ok="saveSource" @cancel="sourceModalVisible = false">
       <a-form :model="sourceForm" layout="vertical">
@@ -253,6 +256,7 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { Message, Modal } from '@arco-design/web-vue'
 import { ApiSecDecompile } from '@/api/sechubApis'
 import { postAction, useGet, usePost, useTableAutoHeight, useToken } from '@/hooks'
+import DecompilePackageSelectModal from './components/DecompilePackageSelectModal.vue'
 
 defineOptions({ name: 'decompile-library' })
 
@@ -277,6 +281,11 @@ const runningRun = (item: any) => item?.running_run || null
 
 const syncStatusText = (status: string) => (({ success: '成功', failed: '失败', cancelled: '已取消', running: '进行中' }) as Record<string, string>)[status] || status
 const syncStatusColor = (status: string) => (({ success: 'green', failed: 'red', cancelled: 'gray', running: 'orangered' }) as Record<string, string>)[status] || 'gray'
+
+const packageSelectModal = ref<InstanceType<typeof DecompilePackageSelectModal>>()
+const openPackageSelect = (item: { source: { id: string, name: string } }) => {
+  packageSelectModal.value?.open({ id: String(item.source.id).trim(), name: item.source.name })
+}
 
 // ── 一键更新 ──────────────────────────────────────
 const syncPayload = ref<any>({})
