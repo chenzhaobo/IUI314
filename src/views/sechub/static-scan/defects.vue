@@ -1640,6 +1640,11 @@ interface VerifyEventMeta {
   reason_code?: string | null
   reason?: string | null
   impact_note?: string | null
+  /** 审批事件（no_fix_approved / no_fix_rejected）与主状态事件共用的审批信息 */
+  approver_name?: string | null
+  approver_role?: string | null
+  decision_comment?: string | null
+  approval_comment?: string | null
 }
 
 /** 处理人变化文案：「A → B」，认领（原来没人负责）显示「（无） → B」 */
@@ -1672,6 +1677,19 @@ const eventsView = computed(() => eventsList.value.map(ev => ({ ...ev, meta: par
 /** 不处理相关事件：新事件优先按 meta 结构化渲染，老事件退回文案 */
 function isNoFixEvent(event: ScanIssueEventRow): boolean {
   return event.event_type === 'wont_fix' || event.event_type === 'no_fix_requested'
+}
+
+/** 审批决定事件：单独展示审批人/角色/审批意见 */
+function isApprovalDecisionEvent(event: ScanIssueEventRow): boolean {
+  return event.event_type === 'no_fix_approved' || event.event_type === 'no_fix_rejected'
+}
+
+function approverRoleLabel(role?: string | null): string {
+  if (role === 'director')
+    return '总监'
+  if (role === 'domain_architect')
+    return '领域架构师'
+  return role ?? ''
 }
 
 /** 老事件文案兜底：原因代码换中文、丢掉「影响说明：」空段 */
@@ -2927,6 +2945,21 @@ function shortSha(sha: string | null | undefined): string {
                   </div>
                 </div>
               </template>
+              <template v-else-if="isApprovalDecisionEvent(ev) && ev.meta">
+                <div class="event-meta">
+                  <div v-if="ev.meta.approver_name" class="event-meta-row">
+                    <span class="event-meta-label">审批人</span>
+                    <span class="event-meta-value">
+                      {{ ev.meta.approver_name }}
+                      <span v-if="ev.meta.approver_role" class="event-meta-sub">（{{ approverRoleLabel(ev.meta.approver_role) }}）</span>
+                    </span>
+                  </div>
+                  <div v-if="ev.meta.decision_comment" class="event-meta-row">
+                    <span class="event-meta-label">审批意见</span>
+                    <span class="event-meta-value event-meta-text">{{ ev.meta.decision_comment }}</span>
+                  </div>
+                </div>
+              </template>
               <template v-else-if="isNoFixEvent(ev) && ev.meta?.reason">
                 <div class="event-meta">
                   <div v-if="ev.meta.reason_code" class="event-meta-row">
@@ -2940,6 +2973,10 @@ function shortSha(sha: string | null | undefined): string {
                   <div v-if="ev.meta.impact_note" class="event-meta-row">
                     <span class="event-meta-label">影响说明</span>
                     <span class="event-meta-value event-meta-text">{{ ev.meta.impact_note }}</span>
+                  </div>
+                  <div v-if="ev.meta.approval_comment" class="event-meta-row">
+                    <span class="event-meta-label">审批意见</span>
+                    <span class="event-meta-value event-meta-text">{{ ev.meta.approval_comment }}</span>
                   </div>
                 </div>
               </template>
