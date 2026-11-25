@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import type { CustomApiScanItem } from '@/types/sechub-test-results'
-import { MdPreview } from 'md-editor-v3'
 import { computed, ref } from 'vue'
 import { formatTime } from '@/hooks'
-import { buildCustomApiReportIndex, reportSectionsForItem } from '../composables/customApiScanReport'
 import { useCustomApiScanResults } from '../composables/useCustomApiScanResults'
+import CustomApiScanDetailDrawer from './CustomApiScanDetailDrawer.vue'
 
 const props = defineProps<{ tableHeight?: number }>()
 
@@ -19,13 +18,6 @@ const SEVERITY_LABELS: Record<string, { text: string, color: string }> = {
   low: { text: '低', color: 'gold' },
   none: { text: '无', color: 'gray' },
 }
-const ROLE_LABELS: Record<string, string> = {
-  api_plugin: 'API 插件',
-  controller: '自定义API类',
-  op_plugin: '操作插件',
-  service_impl: '服务实现',
-}
-
 const {
   tasks,
   selectedTaskId,
@@ -45,20 +37,12 @@ const {
 } = useCustomApiScanResults()
 
 const detailVisible = ref(false)
-const detailTab = ref('findings')
 const selectedItem = ref<CustomApiScanItem | null>(null)
 const tableScrollY = computed(() => Math.max((props.tableHeight ?? 420) - 142, 220))
-const reportIndex = computed(() => buildCustomApiReportIndex(detail.value?.task.report_md))
-const selectedReport = computed(() => selectedItem.value ? reportSectionsForItem(reportIndex.value, selectedItem.value) : null)
 
 function openDetail(item: CustomApiScanItem) {
   selectedItem.value = item
-  detailTab.value = 'findings'
   detailVisible.value = true
-}
-
-function roleText(role: string): string {
-  return ROLE_LABELS[role] || role
 }
 </script>
 
@@ -169,89 +153,12 @@ function roleText(role: string): string {
     </a-spin>
   </div>
 
-  <a-drawer v-model:visible="detailVisible" :width="960" :footer="false" title="自定义 API 扫描详情" unmount-on-close>
-    <template v-if="selectedItem">
-      <a-descriptions :column="2" bordered size="small">
-        <a-descriptions-item label="接口" :span="2">
-          <a-tag v-if="selectedItem.http_method" size="small" color="arcoblue">
-            {{ selectedItem.http_method }}
-          </a-tag>
-          <span class="mono">{{ selectedItem.call_path }}</span>
-        </a-descriptions-item>
-        <a-descriptions-item label="应用" :span="2">
-          {{ selectedItem.app_name || selectedItem.app_number || '未归属应用' }}
-        </a-descriptions-item>
-        <a-descriptions-item label="扫描结论">
-          <a-tag v-if="selectedItem.verdict" :color="VERDICT_LABELS[selectedItem.verdict]?.color || 'gray'">
-            {{ VERDICT_LABELS[selectedItem.verdict]?.text || selectedItem.verdict }}
-          </a-tag>
-          <span v-else>未判定</span>
-        </a-descriptions-item>
-        <a-descriptions-item label="风险级别">
-          {{ SEVERITY_LABELS[selectedItem.severity || '']?.text || selectedItem.severity || '--' }}
-        </a-descriptions-item>
-      </a-descriptions>
-
-      <div class="section-title">
-        扫描问题说明
-      </div>
-      <div class="summary-text">
-        {{ selectedItem.ai_summary || selectedItem.locate_note || '暂无说明' }}
-      </div>
-
-      <a-tabs v-model:active-key="detailTab" class="detail-tabs">
-        <a-tab-pane key="findings" title="发现的问题与证据">
-          <MdPreview
-            v-if="selectedReport?.findings"
-            :editor-id="`custom-findings-${selectedItem.id}`"
-            :model-value="selectedReport.findings"
-          />
-          <a-empty v-else description="原报告中没有该接口的问题与证据小节" />
-        </a-tab-pane>
-        <a-tab-pane key="callChain" title="调用链">
-          <MdPreview
-            v-if="selectedReport?.callChain"
-            :editor-id="`custom-call-chain-${selectedItem.id}`"
-            :model-value="selectedReport.callChain"
-          />
-          <a-empty v-else description="原报告中没有该接口的调用链小节" />
-        </a-tab-pane>
-        <a-tab-pane key="fixSuggestions" title="修复建议">
-          <MdPreview
-            v-if="selectedReport?.fixSuggestions"
-            :editor-id="`custom-fix-${selectedItem.id}`"
-            :model-value="selectedReport.fixSuggestions"
-          />
-          <a-empty v-else description="原报告中没有该接口的修复建议小节" />
-        </a-tab-pane>
-        <a-tab-pane key="locations" :title="`代码定位（${selectedItem.impl_json?.length || 0}）`">
-          <a-table :data="selectedItem.impl_json || []" :pagination="false" size="small">
-            <template #columns>
-              <a-table-column title="角色" :width="120">
-                <template #cell="{ record }">
-                  {{ roleText(record.role) }}
-                </template>
-              </a-table-column>
-              <a-table-column title="类 / 方法" :min-width="240">
-                <template #cell="{ record }">
-                  <div class="mono">
-                    {{ record.class_name }}
-                  </div>
-                  <div class="muted">
-                    {{ record.method || record.operation || '--' }}
-                  </div>
-                </template>
-              </a-table-column>
-              <a-table-column title="文件" data-index="file" :min-width="260" ellipsis tooltip />
-            </template>
-            <template #empty>
-              <a-empty description="没有定位到实现代码" />
-            </template>
-          </a-table>
-        </a-tab-pane>
-      </a-tabs>
-    </template>
-  </a-drawer>
+  <CustomApiScanDetailDrawer
+    v-model:visible="detailVisible"
+    :item="selectedItem"
+    :report="detail?.task.report_md"
+    :task-name="selectedTask?.name"
+  />
 </template>
 
 <style scoped>
@@ -282,7 +189,4 @@ function roleText(role: string): string {
 
 .mono { word-break: break-all; }
 .muted { color: var(--color-text-3); font-size: 12px; }
-.section-title { margin: 16px 0 8px; font-weight: 600; }
-.summary-text { white-space: pre-wrap; word-break: break-word; line-height: 1.7; }
-.detail-tabs { margin-top: 16px; }
 </style>

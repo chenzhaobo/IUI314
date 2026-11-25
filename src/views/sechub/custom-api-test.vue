@@ -23,6 +23,8 @@ import { ApiSecCustomApiTask } from '@/api/sechubApis'
 import ListPage from '@/components/common/ListPage.vue'
 import { formatTime, getAction, postAction, useGet } from '@/hooks'
 import ApiInventoryTree from '@/views/metadata/components/ApiInventoryTree.vue'
+import CustomApiScanDetailDrawer from '@/views/sechub/components/CustomApiScanDetailDrawer.vue'
+import { customApiReportOverview } from '@/views/sechub/composables/customApiScanReport'
 import { fetchAgents, fetchRepositories } from '@/views/sechub/static-scan/new-scan/service'
 import 'md-editor-v3/lib/style.css'
 
@@ -362,6 +364,9 @@ const resultLoading = ref(false)
 const resultTaskId = ref('')
 const resultDetail = ref<TaskDetail | null>(null)
 const resultTab = ref('report')
+const scanDetailVisible = ref(false)
+const selectedScanItem = ref<TaskItem | null>(null)
+const resultReportOverview = computed(() => customApiReportOverview(resultDetail.value?.task.report_md))
 
 async function loadResult(taskId: string) {
   resultLoading.value = true
@@ -379,8 +384,15 @@ function openResult(record: any) {
   resultTaskId.value = String(record.id).trim()
   resultDetail.value = null
   resultTab.value = 'report'
+  selectedScanItem.value = null
+  scanDetailVisible.value = false
   resultVisible.value = true
   void loadResult(resultTaskId.value)
+}
+
+function openScanDetail(item: TaskItem) {
+  selectedScanItem.value = item
+  scanDetailVisible.value = true
 }
 
 function filesOf(item: TaskItem): ImplTarget[] {
@@ -703,7 +715,10 @@ async function handleDelete(record: any) {
           </a-alert>
           <a-tabs v-model:active-key="resultTab">
             <a-tab-pane key="report" title="检测报告">
-              <MdPreview v-if="resultDetail.task.report_md" :model-value="resultDetail.task.report_md" />
+              <a-alert type="info" class="result-alert">
+                此处仅显示检测结果总览；调用链、完整问题证据、已排除项和修复建议请在「API 明细」中逐条查看。
+              </a-alert>
+              <MdPreview v-if="resultReportOverview" :model-value="resultReportOverview" />
               <a-empty v-else description="暂无报告" />
             </a-tab-pane>
             <a-tab-pane key="items" :title="`API 明细（${resultDetail.items.length}）`">
@@ -754,6 +769,13 @@ async function handleDelete(record: any) {
                       {{ record.ai_summary || record.locate_note || '-' }}
                     </template>
                   </a-table-column>
+                  <a-table-column title="操作" :width="70" fixed="right">
+                    <template #cell="{ record }">
+                      <a-link @click="openScanDetail(record)">
+                        详情
+                      </a-link>
+                    </template>
+                  </a-table-column>
                 </template>
               </a-table>
             </a-tab-pane>
@@ -761,6 +783,13 @@ async function handleDelete(record: any) {
         </template>
       </a-spin>
     </a-modal>
+
+    <CustomApiScanDetailDrawer
+      v-model:visible="scanDetailVisible"
+      :item="selectedScanItem"
+      :report="resultDetail?.task.report_md"
+      :task-name="resultDetail?.task.name"
+    />
   </div>
 </template>
 

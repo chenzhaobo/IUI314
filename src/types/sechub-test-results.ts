@@ -199,6 +199,8 @@ export interface TestResultTreeScope {
 }
 
 /** 自定义 API 扫描任务（列表不携带长报告与导入原文） */
+export type CustomApiScanDetailItem = Pick<CustomApiScanItem, 'id' | 'call_path' | 'http_method' | 'api_name' | 'api_number' | 'app_number' | 'app_name' | 'verdict' | 'severity' | 'ai_summary' | 'locate_note' | 'impl_json'>
+
 export interface CustomApiScanTask {
   id: string
   name: string

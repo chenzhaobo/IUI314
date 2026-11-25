@@ -1,8 +1,7 @@
-import type { CustomApiScanItem } from '@/types/sechub-test-results'
-
 export interface CustomApiReportSections {
   callChain: string
   findings: string
+  excluded: string
   fixSuggestions: string
 }
 
@@ -88,6 +87,7 @@ function parseSections(lines: string[]): CustomApiReportSections {
   return {
     callChain: sectionContent(lines, title => title.includes('调用链')),
     findings: sectionContent(lines, title => title.includes('发现的问题') || title.includes('证据代码与排除依据') || title.includes('证据与排除依据') || title.startsWith('结论')),
+    excluded: sectionContent(lines, title => title.includes('已排除')),
     fixSuggestions: sectionContent(lines, title => title.includes('修复建议')),
   }
 }
@@ -127,7 +127,7 @@ export function buildCustomApiReportIndex(markdown?: string | null): CustomApiRe
 }
 
 /** 同路径多方法时优先精确匹配 HTTP 方法；方法缺失时退回路径匹配。 */
-export function reportSectionsForItem(index: CustomApiReportIndex, item: CustomApiScanItem): CustomApiReportSections | null {
+export function reportSectionsForItem(index: CustomApiReportIndex, item: { call_path: string, http_method?: string | null }): CustomApiReportSections | null {
   const path = normalizePath(item.call_path)
   if (item.http_method) {
     const exact = index.byMethodPath[methodPathKey(item.http_method, path)]
@@ -135,4 +135,24 @@ export function reportSectionsForItem(index: CustomApiReportIndex, item: CustomA
       return exact
   }
   return index.byPath[path] ?? null
+}
+
+/** 报告弹窗只显示平台总览；完整 Markdown 仍保留给逐接口详情解析。 */
+export function customApiReportOverview(markdown?: string | null): string {
+  if (!markdown)
+    return ''
+  const lines = markdown.replace(/\r\n?/g, '\n').split('\n')
+  const overview = lines.findIndex(line => /^##\s+检测结果总览\s*$/.test(line))
+  if (overview >= 0) {
+    let end = lines.length
+    for (let i = overview + 1; i < lines.length; i++) {
+      if (/^---\s*$/.test(lines[i]) || /^##\s+AI 扫描报告/.test(lines[i])) {
+        end = i
+        break
+      }
+    }
+    return lines.slice(0, end).join('\n').trimEnd()
+  }
+  const firstApi = lines.findIndex(line => /^#{2,3}\s+A\d+\s*[·:：-]/.test(line))
+  return (firstApi >= 0 ? lines.slice(0, firstApi) : lines).join('\n').trimEnd()
 }
