@@ -23,12 +23,24 @@ function normalizePath(value: string): string {
   return value.replace(/[`*]/g, '').replace(/（.*$/, '').trim()
 }
 
-function sectionTitle(line: string): string | null {
+interface ReportHeading {
+  title: string
+  /** `###` 一定是顶级小节；粗体还需结合标题白名单判断 */
+  alwaysBoundary: boolean
+}
+
+function sectionHeading(line: string): ReportHeading | null {
   const markdownHeading = line.match(/^###\s+/)
   if (markdownHeading)
-    return line.slice(markdownHeading[0].length).trim()
+    return { title: line.slice(markdownHeading[0].length).trim(), alwaysBoundary: true }
   const boldHeading = line.match(/^\*\*([^*]+)\*\*\s*$/)
-  return boldHeading?.[1]?.trim() || null
+  return boldHeading?.[1] ? { title: boldHeading[1].trim(), alwaysBoundary: false } : null
+}
+
+function isTopLevelSection(title: string): boolean {
+  const normalized = title.replace(/^\d+[.、]\s*/, '')
+  return ['实现定位', '调用链', '发现的问题', '证据代码与排除依据', '证据与排除依据', '已排除', '修复建议', '结论']
+    .some(prefix => normalized.startsWith(prefix))
 }
 
 function parseApiHeading(line: string): { method: string, path: string } | null {
@@ -53,12 +65,16 @@ function sectionContent(lines: string[], predicate: (title: string) => boolean):
   }
 
   for (const line of lines) {
-    const title = sectionTitle(line)
-    if (title !== null) {
-      if (collecting)
-        flush()
-      collecting = predicate(title)
-      continue
+    const heading = sectionHeading(line)
+    if (heading) {
+      const matches = predicate(heading.title)
+      // `**证据 1**`、`**利用方式**` 是问题正文，不是新小节，不能截断 F1/F2。
+      if (heading.alwaysBoundary || matches || isTopLevelSection(heading.title)) {
+        if (collecting)
+          flush()
+        collecting = matches
+        continue
+      }
     }
     if (collecting)
       current.push(line)
