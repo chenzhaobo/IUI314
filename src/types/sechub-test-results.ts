@@ -207,6 +207,8 @@ export interface CustomApiScanTask {
   created_at: string
   started_at: string | null
   finished_at: string | null
+  /** 完整扫描报告；仅任务详情返回，列表接口为空 */
+  report_md?: string | null
 }
 
 export interface CustomApiScanTaskListResponse {
