@@ -7,7 +7,7 @@ import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { ApiAiAgent } from '@/api/aiApis'
 import { ApiPerfCompliance, ApiPerfReportTask } from '@/api/perfApis'
 import { formatTime, postAction, useGet, usePost, useTableAutoHeight } from '@/hooks'
-import { normalizeFormTags, tagsToTargetDimensions, targetDimensionsToTags, toDimensionSelectOptions } from './taskDimension'
+import { mergeTargetDimensions, normalizeFormTags, tagsToTargetDimensions, targetDimensionsToTags, toDimensionSelectOptions } from './taskDimension'
 import { attrRangeText, isSkippedResult, retryPlan } from './taskTrigger'
 import TriggerTaskModal from './TriggerTaskModal.vue'
 
@@ -29,6 +29,8 @@ const modalVisible = ref(false)
 const isEdit = ref(false)
 const saving = ref(false)
 const editId = ref('')
+// 保留 target_dimensions 里下拉标签不展示的高级字段（客户/版本）
+const originalTargetDimensions = ref<unknown>(null)
 // 归因阶段的 Agent 与模型。
 //
 // 原先后端写死 kiro-cli + gpt-5.6-terra（defect_analysis.rs / report_attribution.rs），
@@ -47,6 +49,11 @@ const form = reactive<any>({
   daily_limit_per_group: 100,
   group_top_pct: 80,
   group_max: 1000,
+  sampling_strategy: 'cost',
+  strata_min_per_stratum: 1,
+  coverage_gate_mode: 'off',
+  coverage_target_pct: 0,
+  max_total_downloads: 0,
   // cron 取代了原来的「执行时间 + 执行周期」两个字段：那是同一个表达式的两半。
   cron_expr: '',
   yzj_chat_id: '',
@@ -142,6 +149,11 @@ function openAddModal() {
     daily_limit_per_group: 100,
     group_top_pct: 80,
     group_max: 1000,
+    sampling_strategy: 'cost',
+    strata_min_per_stratum: 1,
+    coverage_gate_mode: 'off',
+    coverage_target_pct: 0,
+    max_total_downloads: 0,
     cron_expr: '',
     yzj_chat_id: '',
     push_enabled: false,
@@ -154,6 +166,7 @@ function openAddModal() {
     target_forms: [],
     run_time: '02:00',
   })
+  originalTargetDimensions.value = null
   targetFormInput.value = ''
   loadDimValues()
   modalVisible.value = true
@@ -181,6 +194,11 @@ function openEditModal(record: any) {
     daily_limit_per_group: record.daily_limit_per_group ?? 100,
     group_top_pct: record.group_top_pct ?? 80,
     group_max: record.group_max ?? 1000,
+    sampling_strategy: record.sampling_strategy || 'cost',
+    strata_min_per_stratum: record.strata_min_per_stratum ?? 1,
+    coverage_gate_mode: record.coverage_gate_mode || 'off',
+    coverage_target_pct: record.coverage_target_pct ?? 0,
+    max_total_downloads: record.max_total_downloads ?? 0,
     // 老记录只有 run_time：迁移已把它转成 cron，这里再兜一层，
     // 免得迁移前建的记录打开编辑框看到空的执行时间
     cron_expr: record.cron_expr || (record.run_time ? cronFromRunTime(record.run_time) : ''),
@@ -195,6 +213,7 @@ function openEditModal(record: any) {
     period_scope: record.period_scope || 'last_month',
     target_forms: targetDimensionsToTags(record.target_dimensions),
   })
+  originalTargetDimensions.value = record.target_dimensions ?? null
   targetFormInput.value = ''
   loadDimValues()
   modalVisible.value = true
@@ -214,6 +233,11 @@ function buildPayload(base: any) {
     daily_limit_per_group: base.daily_limit_per_group,
     group_top_pct: base.group_top_pct,
     group_max: base.group_max,
+    sampling_strategy: base.sampling_strategy || 'cost',
+    strata_min_per_stratum: base.strata_min_per_stratum ?? 1,
+    coverage_gate_mode: base.coverage_gate_mode || 'off',
+    coverage_target_pct: base.coverage_target_pct ?? 0,
+    max_total_downloads: base.max_total_downloads ?? 0,
     cron_expr: base.cron_expr || undefined,
     // run_time 仍传：后端列非空，且回退到旧版本时它还是调度依据。
     // 有 cron 时按 cron 反推，保持两者一致。
@@ -227,7 +251,9 @@ function buildPayload(base: any) {
     model: base.model || undefined,
     enabled: base.enabled,
     // 后端更新时整列覆盖：不传就会把已配的指定表单清空（启用开关切换也走这里）
-    target_dimensions: Array.isArray(base.target_forms) ? tagsToTargetDimensions(base.target_forms) : (base.target_dimensions ?? null),
+    target_dimensions: Array.isArray(base.target_forms)
+      ? mergeTargetDimensions(tagsToTargetDimensions(base.target_forms), originalTargetDimensions.value)
+      : (base.target_dimensions ?? null),
   }
 }
 
@@ -246,6 +272,7 @@ function runTimeFromCron(expr?: string): string {
 async function handleSave() {
   if (!form.task_name) { Message.warning('请输入任务名称'); return }
   if (!form.dimension_value) { Message.warning('请选择或输入维度值'); return }
+  if (!form.agent_code) { Message.warning('请选择归因 Agent'); return }
   // 采集与归因拆成两个任务时，靠**同一个工作目录**衔接（归因按 work_dir 找已下载日期）。
   // 留空会按任务名各自兜底成不同目录，归因任务就永远找不到采集产物。
   if (form.task_type !== 'period' && !String(form.work_dir || '').trim()) {
@@ -780,6 +807,47 @@ function fmtDuration(seconds?: number) {
               </a-form-item>
             </a-col>
           </a-row>
+          <a-row :gutter="16">
+            <a-col :span="8">
+              <a-form-item label="选样策略">
+                <a-select v-model="form.sampling_strategy">
+                  <a-option value="cost">按耗时（旧口径）</a-option>
+                  <a-option value="stratified">客户/版本分层</a-option>
+                  <a-option value="weighted">加权分层（大客户优先）</a-option>
+                </a-select>
+                <template #extra><span>分层保底覆盖客户×版本；加权分层在保底后把剩余预算向高慢量客户倾斜。</span></template>
+              </a-form-item>
+            </a-col>
+            <a-col :span="8">
+              <a-form-item label="每层最少样本">
+                <a-input-number v-model="form.strata_min_per_stratum" :min="1" :max="20" :disabled="form.sampling_strategy === 'cost'" style="width: 100%" />
+              </a-form-item>
+            </a-col>
+            <a-col :span="8">
+              <a-form-item label="覆盖率门禁">
+                <a-select v-model="form.coverage_gate_mode" :disabled="form.sampling_strategy === 'cost'">
+                  <a-option value="off">关闭</a-option>
+                  <a-option value="warn">告警</a-option>
+                  <a-option value="enforce">阻断</a-option>
+                </a-select>
+                <template #extra><span>阻断时，存在 0 样本的可分析客户/版本层会拒绝出完整日报和 push。</span></template>
+              </a-form-item>
+            </a-col>
+          </a-row>
+          <a-row :gutter="16">
+            <a-col :span="8">
+              <a-form-item label="目标覆盖率(%)">
+                <a-input-number v-model="form.coverage_target_pct" :min="0" :max="100" :disabled="form.sampling_strategy === 'cost'" style="width: 100%" />
+                <template #extra><span>0=按单组上限；目标只在单组上限内生效，不会突破。</span></template>
+              </a-form-item>
+            </a-col>
+            <a-col :span="8">
+              <a-form-item label="任务总下载上限">
+                <a-input-number v-model="form.max_total_downloads" :min="0" :max="1000000" :disabled="form.sampling_strategy === 'cost'" style="width: 100%" />
+                <template #extra><span>0=不限制；只做上限压缩，不会增加下载量。</span></template>
+              </a-form-item>
+            </a-col>
+          </a-row>
           <a-form-item label="指定表单（可选）">
             <a-input-tag
               v-model="form.target_forms"
@@ -822,14 +890,14 @@ function fmtDuration(seconds?: number) {
           </a-form-item>
           <a-row :gutter="16">
             <a-col :span="12">
-              <a-form-item label="归因 Agent">
-                <a-select v-model="form.agent_code" allow-clear placeholder="默认 kiro-cli">
+              <a-form-item label="归因 Agent" required>
+                <a-select v-model="form.agent_code" allow-clear placeholder="请选择 Agent">
                   <a-option v-for="a in agents" :key="a.agent_code" :value="a.agent_code">
                     {{ a.agent_name || a.agent_code }}
                   </a-option>
                 </a-select>
                 <template #extra>
-                  <span>kiro 因网络受限不可用时可切到 qoder 系列。</span>
+                  <span>必须显式选择；留空的任务不会执行归因，也不会隐式回退到 kiro。</span>
                 </template>
               </a-form-item>
             </a-col>

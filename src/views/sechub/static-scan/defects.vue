@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import type { AiAgent } from '@/api/aiApis'
+import type { AiAgentOption } from '@/api/aiApis'
+import type { ColumnFilterState } from '@/hooks'
 import type { BranchesControlResponse, IssueImportSummary, IssueTransitionSummary, ModuleWithRepository, RepositoryBranch, RepositoryCommit, RepositoryCommitListResponse, ScanIssueEventRow, ScanIssuePage, ScanIssueRow } from '@/types/static-scan'
 import { Message, Modal } from '@arco-design/web-vue'
 import { MdPreview } from 'md-editor-v3'
@@ -9,8 +10,10 @@ import { ApiAiAgent } from '@/api/aiApis'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSecApproval, ApiSecGovernance, ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
 import { ApiSysUser } from '@/api/sysApis'
-import { downloadText, formatTime, getAction, useAutoHeight, useDicts, useDownload, useGet, usePost, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
+import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
+import { downloadText, emptyFilter, formatTime, getAction, isFilterActive, toServerFilters, useAutoHeight, useDicts, useDownload, useGet, usePost, useTableAutoHeight, useToken, withTableDefaults } from '@/hooks'
 import { useUserStore } from '@/stores'
+import CodePreviewDrawer from './components/CodePreviewDrawer.vue'
 import IssueScopeTree from './components/IssueScopeTree.vue'
 import IssueDetectionsPanel from './defects/IssueDetectionsPanel.vue'
 import { canConfirmRepro, DEFAULT_EXCLUDE_STATUS, ISSUE_SOURCE_OPTIONS, issueSourceLabel, REPRO_STATUS_LABELS } from './defects/issueStates'
@@ -35,7 +38,6 @@ const route = useRoute()
 // 默认只看自己的会让人以为列表漏了数据。
 const userStore = useUserStore()
 const mineOnly = ref(false)
-const approvalMine = ref(false)
 function mineAssigneeValue(): string {
   if (!mineOnly.value)
     return ''
@@ -92,7 +94,7 @@ const queryParams = ref({
   defect_code: '',
   // 来源过滤：scan=扫描检出 / import=Excel 导入
   source: '',
-  // 业务领域 / 产品领域过滤（左树点节点写入；__unclassified__ = 未分类）
+  // 业务领域 / 产品领域过滤（治理看板穿透写入；__unclassified__ = 未分类；左树点选走 treeScope 叠加）
   business_area: '',
   product_domain: '',
   // 「计划完成」过滤：__overdue__ / __due_soon__ / __none__（未标注）/ __planned__，只对处理中生效
@@ -106,6 +108,8 @@ const queryParams = ref({
   // 引入时间范围：下界含，上界半开（与候选明细同口径）
   introduced_from: '',
   introduced_to: '',
+  // 表头列过滤序列化后的 JSON（字段白名单由后端校验）
+  filters: '',
   // 表头排序：后端白名单只认 introduced_at / updated_at，空值=默认「更新时间倒序」
   sort_by: '',
   sort_order: '',
@@ -114,6 +118,21 @@ const queryParams = ref({
 // Arco 的 multiple 要求数组，后端接受逗号分隔字符串，这里做转换
 const riskLevels = ref<string[]>([])
 const introducedRange = ref<string[]>([])
+
+// 表头列过滤：文本用运算符（包含/等于…）、数字用大小比较、日期用区间。
+// 列表是服务端分页，条件必须序列化给后端，前端筛只能筛当前页。
+const columnFilters = ref<Record<string, ColumnFilterState>>({
+  defect_code: emptyFilter('text'),
+  title: emptyFilter('text'),
+  category: emptyFilter('text'),
+  assignee: emptyFilter('text'),
+  file_path: emptyFilter('text'),
+  hit_count: emptyFilter('number'),
+  introduced_at: emptyFilter('date'),
+  plan_finish_date: emptyFilter('date'),
+  dmp_defect_code: emptyFilter('text'),
+  updated_at: emptyFilter('date'),
+})
 
 // 状态多选：项目组常一次看「待修复 + 修复中 + 验证不通过」（即「处理中」），
 // 单选来回切换太别扭；同样是数组 → 逗号分隔字符串发给后端
@@ -133,9 +152,37 @@ for (const key of ['governance_status', 'plan_finish', 'domain', 'project_group_
     queryParams.value[key] = value.trim()
 }
 
-const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<ScanIssuePage>(ApiSecPrescan.issues, queryParams, { immediate: true })
+/**
+ * 左树点选的范围与查询栏条件分开保存：查询栏负责「过滤」，左树负责「下钻」。
+ *
+ * 两者会写同一批结构字段（项目组/应用/领域/扫描点/规则版本），合在一个对象里会互相覆盖：
+ * 点树时清空查询条件；查询条件又会进入树自身的请求，把树收窄成只剩选中子树。
+ * 因此树只吃 queryParams，列表吃「queryParams + treeScope」。
+ */
+const TREE_SCOPE_KEYS = ['project_group_id', 'repository_id', 'business_area', 'product_domain', 'domain', 'rule_version_id', 'scan_point_id'] as const
+const treeScope = ref<Record<string, string>>({})
+const listParams = computed(() => ({ ...queryParams.value, ...treeScope.value }))
+
+const { isFetching: isLoading, data: rawListData, execute: getList } = useGet<ScanIssuePage>(ApiSecPrescan.issues, listParams, { immediate: true })
 const dataList = computed(() => rawListData.value?.list ?? [])
 const total = computed(() => rawListData.value?.total ?? 0)
+
+/** 列过滤变化 → 同步 filters 参数、回第一页并重查 */
+function onColumnFilterChange() {
+  queryParams.value.filters = toServerFilters(columnFilters.value) ?? ''
+  queryParams.value.page_num = 1
+  void getList()
+}
+
+/** 生成列的 filterable 配置；filteredValue 非空让漏斗图标保持高亮 */
+function filterableOf(key: string): { slotName: string, filteredValue: string[], filter: () => boolean, hideButton: boolean } {
+  return {
+    slotName: `filter-${key}`,
+    filteredValue: isFilterActive(columnFilters.value[key]) ? ['1'] : [],
+    filter: () => true,
+    hideButton: true,
+  }
+}
 
 function onIntroducedRangeChange(value: unknown) {
   const range = Array.isArray(value) ? value : []
@@ -176,10 +223,10 @@ function onRiskLevelChange() {
 // ===== 导出 / 导入 / 模板 =====
 const { downloadWithTip } = useDownload()
 
-/** 当前筛选条件 → query string（导出与列表同一套条件，分页字段不参与） */
+/** 当前筛选条件 → query string（导出与列表同一套条件，含左树下钻范围；分页字段不参与） */
 function filterQueryString(): string {
   const params = new URLSearchParams()
-  for (const [key, value] of Object.entries(queryParams.value)) {
+  for (const [key, value] of Object.entries(listParams.value)) {
     if (key === 'page_num' || key === 'page_size')
       continue
     if (value !== '' && value != null)
@@ -238,14 +285,13 @@ async function handleImportUpload(fileList: any[]) {
 }
 
 // ===== 左树：维度树（规则分布 / 项目组 / 业务领域 / 产品领域，组件见 components/IssueScopeTree.vue）=====
-const scopeTreeRef = ref<{ reload: () => void } | null>(null)
+const scopeTreeRef = ref<{ reload: () => void, clearSelection: () => void } | null>(null)
 
 /**
- * 左树的筛选输入：与列表同一套条件，去掉分页/排序（不该因为翻页就重算整棵树）。
+ * 左树的筛选输入：查询栏的全部条件（含项目组/应用/领域等结构维度），去掉分页/排序。
  *
- * 结构维度（项目组/应用/业务领域/产品领域/领域/扫描点/规则版本）虽然也在 queryParams 里，
- * 但由 IssueScopeTree 组件内部剔除：它们不参与左树自身查询，保证树结构稳定 ——
- * 点节点只收窄右侧列表，左树不会塌缩成只剩该节点。
+ * 树点选的范围存在 treeScope 里，不在这里回传 —— 否则「点节点 → 范围进入树请求 →
+ * 树只剩该子集」，其它节点会消失。
  */
 const scopeTreeFilters = computed(() => {
   const out: Record<string, unknown> = {}
@@ -258,21 +304,34 @@ const scopeTreeFilters = computed(() => {
 })
 
 /**
- * 左树点节点 → 写回列表范围。
+ * 左树点节点 → 只替换下钻范围（treeScope），不动查询栏条件。
  *
- * 先清空全部范围字段再套新范围（与性能问题台账同一套语义）：节点只来自当前维度，
- * 跨维度混用会出现「项目组A ∩ 业务领域B」这类空集。
+ * 每次点选重建整个范围（节点只来自当前维度，跨维度混用会出现
+ * 「项目组A ∩ 业务领域B」这类空集）；点根节点「全部」得到空范围。
  */
 function onScopeChange(scope: Record<string, string>) {
-  queryParams.value.project_group_id = scope.project_group_id ?? ''
-  queryParams.value.repository_id = scope.repository_id ?? ''
-  queryParams.value.business_area = scope.business_area ?? ''
-  queryParams.value.product_domain = scope.product_domain ?? ''
-  queryParams.value.domain = scope.domain ?? ''
-  queryParams.value.rule_version_id = scope.rule_version_id ?? ''
-  queryParams.value.scan_point_id = scope.scan_point_id ?? ''
+  const next: Record<string, string> = {}
+  for (const key of TREE_SCOPE_KEYS) {
+    const value = scope[key]
+    if (value)
+      next[key] = value
+  }
+  treeScope.value = next
   queryParams.value.page_num = 1
   void getList()
+}
+
+/** 查询栏的结构条件变了：旧的树选中范围可能已不在新树里，先清掉再查 */
+function clearTreeScope() {
+  treeScope.value = {}
+  scopeTreeRef.value?.clearSelection()
+}
+
+function onStructureFilterChange() {
+  clearTreeScope()
+  queryParams.value.page_num = 1
+  void getList()
+  scopeTreeRef.value?.reload()
 }
 
 // ===== 左树宽度拖拽 =====
@@ -305,30 +364,9 @@ async function fetchJson<T>(url: string): Promise<T | null> {
 
 function refresh() {
   queryParams.value.page_num = 1
-  // 项目组/应用等下拉变更：左树原有的范围选择在新视角下没有意义，回到全量
-  queryParams.value.rule_version_id = ''
-  queryParams.value.scan_point_id = ''
-  queryParams.value.business_area = ''
-  queryParams.value.product_domain = ''
   void getList()
-  // 下拉变了但筛选字段不一定变（如只改了项目组又改回来），显式让树重算一次
+  // 下拉变了但筛选字段不一定变（如改回来），显式让树重算一次；选中范围保留
   scopeTreeRef.value?.reload()
-}
-
-/** 切换「我负责的」：重算负责人过滤值并刷新列表 */
-function onApprovalMineChange(value: string | number | boolean) {
-  if (value) {
-    approvalMine.value = true
-    queryParams.value.nofix_approval_state = 'pending'
-    queryParams.value.nofix_approval_scope = 'mine'
-  } else {
-    approvalMine.value = false
-    queryParams.value.nofix_approval_scope = ''
-    if (queryParams.value.nofix_approval_state === 'pending')
-      queryParams.value.nofix_approval_state = ''
-  }
-  queryParams.value.page_num = 1
-  void getList()
 }
 
 function onMineOnlyChange() {
@@ -336,12 +374,12 @@ function onMineOnlyChange() {
   refresh()
 }
 
-// 领域下拉变更：仅重载列表（领域属结构维度，左树不随之收窄；树只跟状态/风险/来源等查询筛选联动）
+// 领域下拉变更：树跟随该条件重算；旧的树选中范围（规则/扫描点等）可能已不在新树里
 function onDomainSelectChange() {
+  clearTreeScope()
   queryParams.value.page_num = 1
-  queryParams.value.rule_version_id = ''
-  queryParams.value.scan_point_id = ''
   void getList()
+  scopeTreeRef.value?.reload()
 }
 
 // 状态下拉变更（多选）：仅重载列表
@@ -413,6 +451,11 @@ function clearSelection() {
   selectedIds.value = []
 }
 
+/** 批量入口用勾选行，详情入口传单行；两者共用同一套动作实现 */
+function actionTargets(rows?: ScanIssueRow[]): ScanIssueRow[] {
+  return rows?.length ? rows : selectedRows.value
+}
+
 /** 导出：勾选了就只导出勾选的（跨页累计）；没勾选按当前筛选导出全部 */
 function exportIssues() {
   const qs = selectedIds.value.length
@@ -464,7 +507,7 @@ function deleteSelectedIssues() {
 // 可申请不处理：状态允许，且当前没有待审批申请（驳回/撤回后可以重新申请）
 function canWontFix(row: ScanIssueRow): boolean {
   const state = row.nofix_approval_state ?? 'none'
-  return ['open', 'reopened', 'verification_failed', 'pending_repro', 'unstable'].includes(row.status) && state !== 'pending'
+  return ['open', 'reopened', 'fixing', 'verification_failed', 'pending_repro', 'unstable'].includes(row.status) && state !== 'pending'
 }
 // 可发起复核的：**任意状态**都能验（内网批量导入的历史缺陷大多没走过人工流程，
 // 却可能早已在代码里修掉了 —— 要求先手工标「已修复」再验证不现实）。
@@ -480,6 +523,9 @@ const transferLoading = ref(false)
 const transferAssignee = ref('')
 const transferRemark = ref('')
 const transferProjectGroup = ref('')
+const transferTargets = ref<ScanIssueRow[]>([])
+/** 本次操作是否来自列表勾选（决定成功后是否清空勾选） */
+const transferBatch = ref(true)
 
 // 处理人下拉：取用户选项接口（/system/user/options），不从项目组成员取 ——
 // 项目组成员表常常是空的（缺陷行上也没有项目组字段），下拉会没有数据；
@@ -510,14 +556,17 @@ async function searchTransferUsers(keyword = '') {
   }, 250)
 }
 
-function openTransferModal() {
-  if (!selectedIds.value.length) {
+function openTransferModal(rows?: ScanIssueRow[]) {
+  const targets = actionTargets(rows)
+  if (!targets.length) {
     Message.warning('请先勾选缺陷')
     return
   }
+  transferTargets.value = targets
+  transferBatch.value = !rows?.length
   transferAssignee.value = ''
   transferRemark.value = ''
-  transferProjectGroup.value = selectedRows.value[0]?.project_group_id || ''
+  transferProjectGroup.value = targets[0]?.project_group_id || ''
   transferVisible.value = true
   void searchTransferUsers('')
 }
@@ -531,7 +580,7 @@ async function submitTransfer() {
   transferLoading.value = true
   try {
     const res = await postAction<IssueTransitionSummary>(ApiSecPrescan.issueTransfer, {
-      ids: selectedIds.value,
+      ids: transferTargets.value.map(row => row.id),
       assignee,
       remark: transferRemark.value.trim() || undefined,
       project_group_id: transferProjectGroup.value || undefined,
@@ -541,8 +590,7 @@ async function submitTransfer() {
     // 后端按行汇总（不处理/已修复等状态会被跳过并说明原因）
     Message.success(res.message)
     transferVisible.value = false
-    clearSelection()
-    void getList()
+    refreshAfterAction(transferBatch.value)
   }
   finally {
     transferLoading.value = false
@@ -556,36 +604,47 @@ const PROCESS_ACTIONS = [
   { value: 'fixed', label: '已修复' },
   { value: 'verified', label: '已验证' },
   { value: 'reopen', label: '重开' },
+  { value: 'deferred', label: '暂缓处理' },
+  { value: 'resume', label: '恢复处理' },
   { value: 'wont_fix', label: '申请不处理' },
 ]
 const processLoading = ref(false)
 
-function onProcessSelect(value: unknown) {
+function onProcessSelect(value: unknown, rows?: ScanIssueRow[]) {
   const target = String(value ?? '')
   if (!target)
     return
   if (target === 'wont_fix') {
-    openWontFixModal()
+    openWontFixModal(rows)
+    return
+  }
+  // 暂缓原因必填，走弹窗而不是点完就提交
+  if (target === 'deferred') {
+    openDeferModal(rows)
     return
   }
   // 「已修复」要填修复说明（后端强制），走弹窗而不是点完就提交
   if (target === 'fixed') {
-    openFixedModal()
+    openFixedModal(rows)
     return
   }
-  void submitTransition(target)
+  void submitTransition(target, undefined, rows)
 }
 
-async function submitTransition(target: string, remark?: string): Promise<boolean> {
+async function submitTransition(target: string, remark?: string, rows?: ScanIssueRow[], batch = !rows?.length): Promise<boolean> {
+  const targets = actionTargets(rows)
+  if (!targets.length) {
+    Message.warning('请先勾选缺陷')
+    return false
+  }
   processLoading.value = true
   try {
-    const res = await postAction<IssueTransitionSummary>(ApiSecPrescan.issueTransition, { ids: selectedIds.value, target, remark })
+    const res = await postAction<IssueTransitionSummary>(ApiSecPrescan.issueTransition, { ids: targets.map(row => row.id), target, remark })
     if (!res)
       return false
     // 状态不符 / 处理人不是自己的行由后端跳过并在 message 里说明
     Message.success(res.message)
-    clearSelection()
-    void getList()
+    refreshAfterAction(batch)
     return true
   }
   finally {
@@ -596,12 +655,17 @@ async function submitTransition(target: string, remark?: string): Promise<boolea
 // ===== 标记已修复（说明必填；只有当前处理人能标）=====
 const fixedVisible = ref(false)
 const fixedRemark = ref('')
+const fixedTargets = ref<ScanIssueRow[]>([])
+const fixedBatch = ref(true)
 
-function openFixedModal() {
-  if (!selectedIds.value.length) {
+function openFixedModal(rows?: ScanIssueRow[]) {
+  const targets = actionTargets(rows)
+  if (!targets.length) {
     Message.warning('请先勾选缺陷')
     return
   }
+  fixedTargets.value = targets
+  fixedBatch.value = !rows?.length
   fixedRemark.value = ''
   fixedVisible.value = true
 }
@@ -612,8 +676,105 @@ async function submitFixed() {
     Message.warning('请填写修复说明')
     return
   }
-  if (await submitTransition('fixed', remark))
+  if (await submitTransition('fixed', remark, fixedTargets.value, fixedBatch.value))
     fixedVisible.value = false
+}
+
+// ===== 暂缓处理（原因必填；状态仍归「处理中」）=====
+const deferVisible = ref(false)
+const deferReason = ref('')
+const deferTargets = ref<ScanIssueRow[]>([])
+const deferBatch = ref(true)
+
+function openDeferModal(rows?: ScanIssueRow[]) {
+  const targets = actionTargets(rows)
+  if (!targets.length) {
+    Message.warning('请先勾选缺陷')
+    return
+  }
+  deferTargets.value = targets
+  deferBatch.value = !rows?.length
+  deferReason.value = ''
+  deferVisible.value = true
+}
+
+async function submitDefer() {
+  const reason = deferReason.value.trim()
+  if (!reason) {
+    Message.warning('请填写暂缓原因')
+    return
+  }
+  if (await submitTransition('deferred', reason, deferTargets.value, deferBatch.value))
+    deferVisible.value = false
+}
+
+// ===== 备注与原因（备注只追加流转事件，不改状态）=====
+/** 审批弹窗没有缺陷列表行，只带备注弹窗需要的字段（id/状态/不处理原因） */
+type IssueNotesTarget = Pick<ScanIssueRow, 'id' | 'status' | 'wont_fix_reason_code' | 'wont_fix_reason' | 'defer_reason'>
+  & Partial<Pick<ScanIssueRow, 'coverage_state' | 'coverage_reason'>>
+const notesVisible = ref(false)
+const notesRow = ref<IssueNotesTarget | null>(null)
+const notesAllEvents = ref<ScanIssueEventRow[]>([])
+const notesList = ref<ScanIssueEventRow[]>([])
+const notesLoading = ref(false)
+const noteText = ref('')
+const noteSubmitting = ref(false)
+const notesStatusLabel = computed(() => notesRow.value ? issueStatusLabel(notesRow.value) : { label: '-', color: 'gray' })
+/** 到达当前状态的那条流转（事件已按时间倒序，取最近一条） */
+const notesStatusEvent = computed(() => {
+  const status = notesRow.value?.status
+  if (!status)
+    return null
+  return notesAllEvents.value.find(ev => ev.event_type !== 'note' && ev.to_status === status) ?? null
+})
+
+async function loadIssueNotes(row: IssueNotesTarget) {
+  notesLoading.value = true
+  notesAllEvents.value = []
+  notesList.value = []
+  try {
+    const { data, execute } = useGet<ScanIssueEventRow[]>(ApiSecPrescan.issueEvents, { issue_id: row.id }, { immediate: false })
+    await execute()
+    notesAllEvents.value = data.value ?? []
+    notesList.value = notesAllEvents.value.filter(ev => ev.event_type === 'note')
+  }
+  finally {
+    notesLoading.value = false
+  }
+}
+
+async function openNotesForIssue(row: IssueNotesTarget) {
+  notesRow.value = row
+  notesVisible.value = true
+  noteText.value = ''
+  await loadIssueNotes(row)
+}
+
+async function openIssueNotes(row: ScanIssueRow) {
+  await openNotesForIssue(row)
+}
+
+async function submitNote() {
+  const content = noteText.value.trim()
+  const row = notesRow.value
+  if (!content) {
+    Message.warning('请填写备注内容')
+    return
+  }
+  if (!row)
+    return
+  noteSubmitting.value = true
+  try {
+    const res = await postAction<string>(ApiSecPrescan.issueNote, { issue_id: row.id, note: content })
+    if (res === null)
+      return
+    noteText.value = ''
+    Message.success('备注已添加')
+    await loadIssueNotes(row)
+  }
+  finally {
+    noteSubmitting.value = false
+  }
 }
 
 // ===== DMP 缺陷编码：批量回填 =====
@@ -765,7 +926,7 @@ async function compensateWhitelist() {
     const resp = await postAction<{ message?: string }>(
       ApiSecPrescan.compensateWhitelist,
       // 限定当前筛选的仓库，避免一次扫全库
-      { repository_id: queryParams.value.repository_id || undefined },
+      { repository_id: listParams.value.repository_id || undefined },
     )
     if (resp) {
       Message.success(resp.message || '匹配完成')
@@ -811,6 +972,7 @@ async function viewInResults(row: ScanIssueRow) {
 // ===== 缺陷处理：批量标记不处理（open/reopened → wont_fix，可同步白名单）=====
 const wontFixVisible = ref(false)
 const wontFixTargets = ref<ScanIssueRow[]>([])
+const wontFixBatch = ref(true)
 // reason_code 新增必填字段，reason 文本保持原有必填规则
 const wontFixForm = ref<{
   reason: string
@@ -821,17 +983,19 @@ const wontFixForm = ref<{
 }>({ reason: '', impact_note: '', sync_whitelist: false, expires_at: '', reason_code: '' })
 const wontFixLoading = ref(false)
 
-function openWontFixModal() {
-  if (!selectedIds.value.length) {
+function openWontFixModal(rows?: ScanIssueRow[]) {
+  const candidates = actionTargets(rows)
+  if (!candidates.length) {
     Message.warning('请先勾选缺陷')
     return
   }
-  const eligible = selectedRows.value.filter(r => canWontFix(r))
+  const eligible = candidates.filter(r => canWontFix(r))
   if (!eligible.length) {
-    Message.warning('所选缺陷中没有可申请不处理的（仅「待修复/验证不通过/待复现/不稳定」且无待审批申请的可操作）')
+    Message.warning('所选缺陷中没有可申请不处理的（仅「待修复/修复中/验证不通过/待复现/不稳定」且无待审批申请的可操作）')
     return
   }
   wontFixTargets.value = eligible
+  wontFixBatch.value = !rows?.length
   wontFixForm.value = { reason: '', impact_note: '', sync_whitelist: false, expires_at: '', reason_code: '' }
   wontFixVisible.value = true
 }
@@ -870,8 +1034,7 @@ async function submitWontFix() {
       Message.warning(`${approverMissing} 条所在产品领域未配置领域架构师且无总监，申请会保持待审批，请联系管理员配置审批人`)
     }
     wontFixVisible.value = false
-    clearSelection()
-    void getList()
+    refreshAfterAction(wontFixBatch.value)
   }
   finally {
     wontFixLoading.value = false
@@ -952,6 +1115,8 @@ const nofixStateFilters = [
   { text: '审批驳回', value: 'rejected' },
   { text: '已通过', value: 'approved' },
   { text: '已撤回', value: 'withdrawn' },
+  // 「空」= 没有当前审批态（从未申请 / 最新一条不构成展示态），后端按 __none__ 处理
+  { text: '为空（无审批）', value: '__none__' },
 ]
 
 function nofixStateLabel(state?: string | null) {
@@ -961,14 +1126,85 @@ function nofixStateLabel(state?: string | null) {
 // ===== 不处理审批（领域架构师/总监）：详情 + 逐条同意/驳回 =====
 const { data: capData } = useGet<any>(ApiSecGovernance.me, {}, { immediate: true })
 const canApproveNofix = computed(() => Boolean(capData.value?.can_approve_issue_nofix))
-const capability = computed(() => capData.value ?? {})
 const reviewVisible = ref(false)
 const reviewLoading = ref(false)
 const reviewSubmitting = ref(false)
 const reviewRow = ref<any>(null)
 const reviewComment = ref('')
+/** 「上一条 / 下一条」的待办队列：筛选条件与「同意并下一条」完全一致 */
+const approvalQueue = ref<any[]>([])
+const approvalQueueLoading = ref(false)
+const approvalQueueIndex = computed(() => (reviewRow.value ? approvalQueue.value.findIndex(item => item.id === reviewRow.value.id) : -1))
+const approvalHasPrev = computed(() => approvalQueueIndex.value > 0)
+const approvalHasNext = computed(() => approvalQueueIndex.value >= 0 && approvalQueueIndex.value < approvalQueue.value.length - 1)
 
-async function openApprovalById(id: string) {
+async function loadApprovalQueue() {
+  if (!canApproveNofix.value)
+    return
+  approvalQueueLoading.value = true
+  try {
+    const res = await getAction<any>(ApiSecApproval.issueList, {
+      ...currentApprovalFilters(),
+      page_num: 1,
+      page_size: 200,
+    })
+    if (res === null) {
+      approvalQueue.value = []
+      return
+    }
+    approvalQueue.value = Array.isArray(res.list) ? res.list : []
+  }
+  finally {
+    approvalQueueLoading.value = false
+  }
+}
+
+/** 按当前筛选 + 审批权限的待办队列移动；不动审批状态 */
+async function stepApproval(delta: -1 | 1) {
+  if (!reviewRow.value || reviewLoading.value)
+    return
+  if (!approvalQueue.value.length)
+    await loadApprovalQueue()
+  let index = approvalQueue.value.findIndex(item => item.id === reviewRow.value?.id)
+  if (index < 0) {
+    await loadApprovalQueue()
+    index = approvalQueue.value.findIndex(item => item.id === reviewRow.value?.id)
+  }
+  if (index < 0) {
+    Message.info('当前审批不在当前筛选的待办队列中')
+    return
+  }
+  const target = approvalQueue.value[index + delta]
+  if (!target)
+    return
+  await openApprovalById(target.id, false)
+}
+
+function viewApprovalCode() {
+  if (!reviewRow.value)
+    return
+  viewCode({
+    id: reviewRow.value.issue_id,
+    title: reviewRow.value.issue_title,
+    last_seen_commit: reviewRow.value.last_seen_commit,
+    first_seen_commit: reviewRow.value.first_seen_commit,
+  })
+}
+
+async function openApprovalNotes() {
+  const row = reviewRow.value
+  if (!row)
+    return
+  await openNotesForIssue({
+    id: row.issue_id,
+    status: row.issue_status || row.issue_status_before || 'open',
+    wont_fix_reason_code: row.reason_code ?? null,
+    wont_fix_reason: row.reason ?? null,
+    defer_reason: null,
+  })
+}
+
+async function openApprovalById(id: string, refreshQueue = true) {
   reviewLoading.value = true
   reviewVisible.value = true
   reviewRow.value = null
@@ -981,35 +1217,77 @@ async function openApprovalById(id: string) {
       return
     }
     reviewRow.value = row
+    if (refreshQueue)
+      void loadApprovalQueue()
   }
   finally {
     reviewLoading.value = false
   }
 }
 
-function openApprovalForRow(row: ScanIssueRow) {
-  if (!row.nofix_approval_id) {
-    Message.warning('该缺陷没有待审批申请')
-    return
-  }
-  void openApprovalById(row.nofix_approval_id)
+/** 审批「下一条」同时受两层约束：当前查询条件 + 当前审批人的权限范围。 */
+function currentApprovalFilters(): Record<string, string> {
+  const q = queryParams.value
+  const filters: Record<string, string> = { scope: 'mine', status: 'pending' }
+  if (q.project_group_id)
+    filters.project_group_id = q.project_group_id
+  if (q.product_domain)
+    filters.product_domain = q.product_domain
+  if (q.business_area)
+    filters.business_area = q.business_area
+  if (q.repository_id)
+    filters.repository_id = q.repository_id
+  return filters
 }
 
-function onApprovalClick() {
+/** 按当前过滤条件 + 审批权限查一条待办；issueId 有值时限定该缺陷。 */
+async function findScopedApproval(issueId?: string): Promise<{ ok: boolean, row: any | null }> {
+  const params: Record<string, string | number> = { ...currentApprovalFilters(), page_num: 1, page_size: 1 }
+  if (issueId)
+    params.issue_id = issueId
+  const res = await getAction<any>(ApiSecApproval.issueList, params)
+  if (res === null) {
+    Message.error('加载待审批列表失败，请稍后重试')
+    return { ok: false, row: null }
+  }
+  return { ok: true, row: res.list?.[0] ?? null }
+}
+
+async function openApprovalForRow(row: ScanIssueRow) {
+  const found = await findScopedApproval(row?.id)
+  if (!found.ok)
+    return
+  if (!found.row) {
+    Message.info('当前筛选条件下没有你负责的待审批申请')
+    return
+  }
+  await openApprovalById(found.row.id)
+}
+
+async function onApprovalClick() {
+  if (!canApproveNofix.value) {
+    Message.warning('当前账号没有不处理审批权限')
+    return
+  }
   if (selectedIds.value.length > 1) {
     Message.warning('审批不支持批量，请只勾选一条缺陷')
     return
   }
   if (selectedIds.value.length === 1) {
     const row = selectedRows.value[0]
-    if (row?.nofix_approval_state === 'pending' && row.nofix_approval_id) {
-      openApprovalForRow(row)
-    } else {
-      Message.info('该缺陷没有待审批的不处理申请')
+    // 即使列表显示 pending，也要用「当前筛选 + 审批权限」重新确认，
+    // 避免打开不在当前项目组/领域范围内的审批。
+    const found = await findScopedApproval(row?.id)
+    if (!found.ok)
+      return
+    if (found.row) {
+      await openApprovalById(found.row.id)
+      return
     }
+    await openNextApproval()
     return
   }
-  void openNextApproval()
+  await openNextApproval()
 }
 
 async function openNextApproval() {
@@ -1017,32 +1295,16 @@ async function openNextApproval() {
     Message.warning('当前账号没有不处理审批权限')
     return
   }
-  const res = await getAction<any>(ApiSecApproval.issueList, { scope: 'mine', status: 'pending', page_num: 1, page_size: 20 })
-  if (res === null) {
-    Message.error('加载待审批列表失败，请稍后重试')
+  // 下一条只取「当前筛选 + 当前审批人权限」范围内的待办；
+  // 不再回退到未做权限过滤的全量待审批。
+  const found = await findScopedApproval()
+  if (!found.ok)
+    return
+  if (!found.row) {
+    Message.info('当前筛选条件下没有你负责的待审批申请')
     return
   }
-  let next = res.list?.[0]
-  // 兜底：待我审批为空时再看全部待审批，按当前账号覆盖的产品领域过滤，
-  // 避免「明明还有待办却提示没有」。
-  if (!next) {
-    const all = await getAction<any>(ApiSecApproval.issueList, { status: 'pending', page_num: 1, page_size: 50 })
-    if (all === null) {
-      Message.error('加载待审批列表失败，请稍后重试')
-      return
-    }
-    if (capability.value.is_director) {
-      next = all.list?.[0]
-    } else {
-      const domains: string[] = capability.value.domain_architect_product_domains || []
-      next = (all.list || []).find((row: any) => row.product_domain && domains.includes(row.product_domain))
-    }
-  }
-  if (!next) {
-    Message.info('当前没有你负责的待审批申请')
-    return
-  }
-  await openApprovalById(next.id)
+  await openApprovalById(found.row.id)
 }
 
 async function submitApproval(decision: 'approved' | 'rejected', next: boolean) {
@@ -1064,7 +1326,11 @@ async function submitApproval(decision: 'approved' | 'rejected', next: boolean) 
     Message.success(decision === 'approved' ? '已通过，不处理申请生效' : '已驳回，缺陷保持待修复')
     reviewVisible.value = false
     reviewRow.value = null
-    void getList()
+    approvalQueue.value = []
+    // 审批后该行会因「待审批」筛选从列表消失；受控选择不会自动剔除失效 key，
+    // 等列表刷新完再清空，避免残留的选中项把下一次审批误判成批量。
+    await getList()
+    clearSelection()
     if (next)
       await openNextApproval()
   }
@@ -1085,6 +1351,7 @@ async function submitApproval(decision: 'approved' | 'rejected', next: boolean) 
 const batchVerifyLoading = ref(false)
 const verifyVisible = ref(false)
 const verifyTargets = ref<ScanIssueRow[]>([])
+const verifyBatch = ref(true)
 const verifyForm = ref({ branch: '', commit_sha: '', agent_code: '', model: '' })
 
 // 分支/commit 下拉（复用扫描看板同一组接口）
@@ -1095,10 +1362,10 @@ const verifyCommitLoading = ref(false)
 let verifyCommitSeq = 0
 
 // Agent/模型下拉（模型候选随所选 Agent 的 supported_models_json 带出，与重扫弹窗同款）
-const verifyAgents = ref<AiAgent[]>([])
+const verifyAgents = ref<AiAgentOption[]>([])
 const verifyAgentsLoading = ref(false)
 let verifyAgentsRequested = false
-const verifySelectedAgent = computed<AiAgent | null>(() => verifyAgents.value.find(a => a.agent_code === verifyForm.value.agent_code) ?? null)
+const verifySelectedAgent = computed<AiAgentOption | null>(() => verifyAgents.value.find(a => a.agent_code === verifyForm.value.agent_code) ?? null)
 const verifyModelOptions = computed(() => {
   const raw = verifySelectedAgent.value?.supported_models_json
   if (!raw)
@@ -1128,8 +1395,10 @@ async function ensureVerifyAgents() {
   verifyAgentsRequested = true
   verifyAgentsLoading.value = true
   try {
-    const res = await getAction<{ list: AiAgent[] }>(ApiAiAgent.getList, { status: 'active', page_size: 50 })
-    verifyAgents.value = res?.list ?? []
+    // 用 options：/ai/agent/list 挂在 AI 管理中心菜单权限下，扫描用户调用会 403
+    // （2026-11-10 反馈：重新验证弹窗选不了 Agent）。
+    const res = await getAction<AiAgentOption[]>(ApiAiAgent.options)
+    verifyAgents.value = Array.isArray(res) ? res : []
   }
   catch {
     verifyAgents.value = []
@@ -1220,17 +1489,19 @@ function onVerifyAgentChange() {
   verifyForm.value.model = ''
 }
 
-function openVerifyDialog() {
-  if (!selectedIds.value.length) {
+function openVerifyDialog(rows?: ScanIssueRow[]) {
+  const candidates = actionTargets(rows)
+  if (!candidates.length) {
     Message.warning('请先勾选缺陷')
     return
   }
-  const eligible = selectedRows.value.filter(canVerify)
+  const eligible = candidates.filter(canVerify)
   if (!eligible.length) {
     Message.warning('所选缺陷中没有可重新验证的（失活已自动关闭的不再复核；复核中的请等结果）')
     return
   }
   verifyTargets.value = eligible
+  verifyBatch.value = !rows?.length
   // 分支默认选「该缺陷对应的分支」：所选缺陷分支一致就用它；不一致/为空留空由后端解析
   const branches = [...new Set(eligible.map(r => (r.branch ?? '').trim()).filter(Boolean))]
   verifyForm.value = {
@@ -1285,9 +1556,8 @@ async function batchVerify() {
     const failNote = failed > 0 ? `，${failed} 条未提交（状态不符或复核中，原因见上方提示）` : ''
     Message.success(`已提交 ${submitted} 条复核（后台执行，完成后刷新列表查看结果；流转记录有详情）${failNote}`)
     verifyVisible.value = false
-    clearSelection()
     // 立即刷新一次：列表上会显示「AI 复核中」，复核完成后状态与结果回写
-    void getList()
+    refreshAfterAction(verifyBatch.value)
   }
   finally {
     batchVerifyLoading.value = false
@@ -1343,6 +1613,9 @@ const eventTypeLabels: Record<string, { label: string, color: string }> = {
   no_fix_approved: { label: '不处理审批通过', color: 'green' },
   no_fix_rejected: { label: '不处理审批驳回', color: 'red' },
   no_fix_withdrawn: { label: '撤回不处理申请', color: 'gray' },
+  deferred: { label: '暂缓处理', color: 'gold' },
+  resumed: { label: '恢复处理', color: 'blue' },
+  note: { label: '备注', color: 'arcoblue' },
 }
 
 // ===== 流转事件的结构化上下文（meta_json）=====
@@ -1356,6 +1629,8 @@ interface VerifyEventMeta {
   commit_subject?: string | null
   commit_author?: string | null
   commit_time?: string | null
+  /** 本次复核实际拉取的仓库地址（仓库改地址后可回溯） */
+  git_url?: string | null
   agent_code?: string | null
   model?: string | null
   verdict?: string | null
@@ -1364,6 +1639,16 @@ interface VerifyEventMeta {
   /** 处理人变化（转交 / 认领 / 无主缺陷标已修复时的顺带认领） */
   from_assignee?: string | null
   to_assignee?: string | null
+  /** 不处理事件（wont_fix / no_fix_requested）的结构化原因 */
+  approval_id?: string | null
+  reason_code?: string | null
+  reason?: string | null
+  impact_note?: string | null
+  /** 审批事件（no_fix_approved / no_fix_rejected）与主状态事件共用的审批信息 */
+  approver_name?: string | null
+  approver_role?: string | null
+  decision_comment?: string | null
+  approval_comment?: string | null
 }
 
 /** 处理人变化文案：「A → B」，认领（原来没人负责）显示「（无） → B」 */
@@ -1392,6 +1677,36 @@ function parseEventMeta(event: ScanIssueEventRow): VerifyEventMeta | null {
 
 /** 流转列表 + 解析好的 meta：一次 JSON.parse，模板直接读 */
 const eventsView = computed(() => eventsList.value.map(ev => ({ ...ev, meta: parseEventMeta(ev) })))
+
+/** 不处理相关事件：新事件优先按 meta 结构化渲染，老事件退回文案 */
+function isNoFixEvent(event: ScanIssueEventRow): boolean {
+  return event.event_type === 'wont_fix' || event.event_type === 'no_fix_requested'
+}
+
+/** 审批决定事件：单独展示审批人/角色/审批意见 */
+function isApprovalDecisionEvent(event: ScanIssueEventRow): boolean {
+  return event.event_type === 'no_fix_approved' || event.event_type === 'no_fix_rejected'
+}
+
+function approverRoleLabel(role?: string | null): string {
+  if (role === 'director')
+    return '总监'
+  if (role === 'domain_architect')
+    return '领域架构师'
+  return role ?? ''
+}
+
+/** 老事件文案兜底：原因代码换中文、丢掉「影响说明：」空段 */
+function formatEventReason(event: ScanIssueEventRow): string {
+  let text = event.reason ?? ''
+  if (!text)
+    return ''
+  text = text.replace(/原因(?:代码|分类)：([\w-]+)/g, (raw, code: string) => {
+    const label = wontFixReasonLabelMap.value[code]
+    return label ? `原因分类：${label}` : raw
+  })
+  return text.replace(/，影响说明：[ \t]*(?=，|$)/g, '')
+}
 
 /** 事件标签：带 meta 的复核事件显示复核方式，其余沿用事件类型表 */
 function eventLabel(event: ScanIssueEventRow & { meta: VerifyEventMeta | null }): { label: string, color: string } {
@@ -1440,6 +1755,51 @@ function viewReport(row: ScanIssueRow) {
   reportVisible.value = true
 }
 
+// ===== 代码预览（最新 commit / 检出时 commit）=====
+/** 审批弹窗只有 issue_id / issue_title，检出 commit 允许缺省（只影响「检出时」切换） */
+type CodePreviewTarget = Pick<ScanIssueRow, 'id' | 'title'> & Partial<Pick<ScanIssueRow, 'last_seen_commit' | 'first_seen_commit'>>
+const codeVisible = ref(false)
+const codeRow = ref<CodePreviewTarget | null>(null)
+function viewCode(row: CodePreviewTarget) {
+  codeRow.value = row
+  codeVisible.value = true
+}
+
+/**
+ * 动作完成后的统一收尾：批量才清空勾选；列表刷新后同步详情弹窗里的行，
+ * 避免报告还显示旧状态（行已不存在则关闭详情）。
+ */
+function refreshAfterAction(batch: boolean) {
+  if (batch)
+    clearSelection()
+  void getList().then(() => {
+    const current = reportRow.value
+    if (!current)
+      return
+    const next = dataList.value.find(row => row.id === current.id)
+    if (next)
+      reportRow.value = next
+    else
+      reportVisible.value = false
+  })
+}
+
+/** 报告详情标题栏的三个单行动作：复用列表同一套弹窗/流转逻辑 */
+function openReportTransfer() {
+  if (reportRow.value)
+    openTransferModal([reportRow.value])
+}
+
+function onReportProcessSelect(value: unknown) {
+  if (reportRow.value)
+    onProcessSelect(value, [reportRow.value])
+}
+
+function openReportVerify() {
+  if (reportRow.value)
+    openVerifyDialog([reportRow.value])
+}
+
 // 007a「确认复现」：成功后重拉列表（该行升级为待修复）
 const { confirmRepro } = useConfirmRepro(() => void getList())
 /** 操作列「更多」下拉的分发（默认只露「报告 + 更多」） */
@@ -1448,6 +1808,8 @@ function onOpsSelect(value: unknown, row: ScanIssueRow) {
     void viewInResults(row)
   else if (value === 'events')
     void viewEvents(row)
+  else if (value === 'notes' || value === 'addNote')
+    void openIssueNotes(row)
   else if (value === 'confirmRepro')
     confirmRepro(row)
   else if (value === 'approvalHistory')
@@ -1457,7 +1819,7 @@ function onOpsSelect(value: unknown, row: ScanIssueRow) {
   else if (value === 'withdrawApproval')
     void withdrawApproval(row)
   else if (value === 'approve')
-    openApprovalForRow(row)
+    void openApprovalForRow(row)
   else if (value === 'delete')
     confirmDeleteIssues([row.id], '该')
 }
@@ -1472,6 +1834,12 @@ function downloadReport() {
     return
   }
   downloadText(row.ai_detail_report, `${row.title ?? 'AI报告'}.md`)
+}
+
+/** 报告标题栏的「备注与原因」入口：查看备注历史 + 不处理/暂缓原因，并可直接补备注 */
+function openReportNotes() {
+  if (reportRow.value)
+    void openIssueNotes(reportRow.value)
 }
 
 // ===== 标签映射 =====
@@ -1494,6 +1862,8 @@ const statusLabels: Record<string, { label: string, color: string }> = {
   fixed: { label: '已修复', color: 'green' },
   verified: { label: '已验证', color: 'green' },
   wont_fix: { label: '不处理', color: 'gray' },
+  /** 暂缓处理：仍属于「处理中」，原因在状态列悬浮展示 */
+  deferred: { label: '已暂缓', color: 'gold' },
   verification_failed: { label: '验证不通过', color: 'orange' },
   /** 提交后的后台 AI 复核窗口期（完成后按判定回写） */
   verifying: { label: 'AI 复核中', color: 'arcoblue' },
@@ -1533,7 +1903,7 @@ function statusTooltip(row: ScanIssueRow): string {
   return `${base}\n\nAI 直判：复核前状态为「${fromLabel}」，未经人工标记「已修复」`
 }
 
-function issueStatusLabel(row: ScanIssueRow): { label: string, color: string } {
+function issueStatusLabel(row: Pick<ScanIssueRow, 'status'> & Partial<Pick<ScanIssueRow, 'coverage_state' | 'coverage_reason'>>): { label: string, color: string } {
   // 004c：新覆盖状态本身即语义（状态列保留原处置状态，这里以覆盖状态提示为准）
   if (row.coverage_state === 'location_lost' || row.coverage_state === 'removed_with_code')
     return coverageReasonLabels[row.coverage_state] ?? { label: row.coverage_state, color: 'gray' }
@@ -1543,17 +1913,20 @@ function issueStatusLabel(row: ScanIssueRow): { label: string, color: string } {
 }
 // 不处理原因列的 Arco filterable 配置，选项来自字典（wontFixReasonOptions 异步加载）
 // 使用 computed 以便字典加载完成后自动更新过滤选项
-const wontFixReasonFilters = computed(() =>
-  wontFixReasonOptions.value.map(opt => ({ text: opt.label, value: opt.value })),
-)
+const wontFixReasonFilters = computed(() => [
+  // 空/非空是跨字典的通用条件，排在具体原因之前
+  { text: '为空', value: '__none__' },
+  { text: '不为空', value: '__not_none__' },
+  ...wontFixReasonOptions.value.map(opt => ({ text: opt.label, value: opt.value })),
+])
 
 const columns = computed(() => withTableDefaults([
-  { title: '缺陷编号', dataIndex: 'defect_code', slotName: 'defectCode', width: 210, ellipsis: true, tooltip: true },
-  { title: '缺陷标题', dataIndex: 'title', width: 240 },
+  { title: '缺陷编号', dataIndex: 'defect_code', slotName: 'defectCode', width: 210, ellipsis: true, tooltip: true, filterable: filterableOf('defect_code') },
+  { title: '缺陷标题', dataIndex: 'title', width: 240, filterable: filterableOf('title') },
   { title: '来源', dataIndex: 'source', slotName: 'source', width: 80 },
   { title: '领域', dataIndex: 'domain', slotName: 'domain', width: 70, ellipsis: true, tooltip: true },
   { title: '项目组', dataIndex: 'project_group_name', width: 130, ellipsis: true, tooltip: true },
-  { title: '分类', dataIndex: 'category', width: 100 },
+  { title: '分类', dataIndex: 'category', width: 100, filterable: filterableOf('category') },
   { title: '风险', dataIndex: 'risk_level', slotName: 'risk', width: 65, ellipsis: true, tooltip: true },
   // 宽度要容下「状态标签 + AI直判徽标」（90 时徽标会被 ellipsis 截掉，看不到）
   { title: '状态', dataIndex: 'status', slotName: 'status', width: 128, ellipsis: true, tooltip: true },
@@ -1562,16 +1935,16 @@ const columns = computed(() => withTableDefaults([
     dataIndex: 'nofix_approval_state',
     slotName: 'nofixApproval',
     width: 100,
-    filterable: { filters: nofixStateFilters, multiple: false, filter: () => true },
+    filterable: { filters: nofixStateFilters, multiple: false, filter: (): boolean => true },
   },
-  { title: '负责人', dataIndex: 'assignee', width: 75 },
+  { title: '负责人', dataIndex: 'assignee', width: 90, filterable: filterableOf('assignee') },
   // 计划完成：点单元格可单条改；表头排序按后端白名单的 plan_finish_date（最早到期在前）
-  { title: '计划完成', dataIndex: 'plan_finish_date', slotName: 'planFinish', width: 124, sortable: { sortDirections: ['ascend', 'descend'] } },
-  { title: '文件', dataIndex: 'file_path', width: 180 },
-  { title: '命中', dataIndex: 'hit_count', slotName: 'hitCount', width: 50 },
-  { title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 140, ellipsis: true, tooltip: true, sortable: { sortDirections: ['descend', 'ascend'] } },
-  { title: 'DMP 编码', dataIndex: 'dmp_defect_code', slotName: 'dmpCode', width: 130, ellipsis: true, tooltip: true },
-  { title: '更新时间', dataIndex: 'updated_at', slotName: 'updatedAt', width: 190, sortable: { sortDirections: ['descend', 'ascend'] } },
+  { title: '计划完成', dataIndex: 'plan_finish_date', slotName: 'planFinish', width: 124, sortable: { sortDirections: ['ascend', 'descend'] }, filterable: filterableOf('plan_finish_date') },
+  { title: '文件', dataIndex: 'file_path', slotName: 'filePath', width: 200, filterable: filterableOf('file_path') },
+  { title: '命中', dataIndex: 'hit_count', slotName: 'hitCount', width: 70, filterable: filterableOf('hit_count') },
+  { title: '引入时间', dataIndex: 'introduced_at', slotName: 'introducedAt', width: 140, ellipsis: true, tooltip: true, sortable: { sortDirections: ['descend', 'ascend'] }, filterable: filterableOf('introduced_at') },
+  { title: 'DMP 编码', dataIndex: 'dmp_defect_code', slotName: 'dmpCode', width: 130, ellipsis: true, tooltip: true, filterable: filterableOf('dmp_defect_code') },
+  { title: '更新时间', dataIndex: 'updated_at', slotName: 'updatedAt', width: 190, sortable: { sortDirections: ['descend', 'ascend'] }, filterable: filterableOf('updated_at') },
   // 不处理原因列：宽度 130，支持后端过滤，选项来自字典
   // filter 走后端（@filter-change → queryParams.wont_fix_reason_code），本地 filter 函数
   // 固定返回 true，不做客户端行筛选，仅作为 Arco 的必填字段占位。
@@ -1586,10 +1959,10 @@ const columns = computed(() => withTableDefaults([
       filters: wontFixReasonFilters.value,
       multiple: false,
       // Arco TableFilterable.filter 为必填字段；本页走后端过滤，此处返回 true 不做本地筛选
-      filter: () => true,
+      filter: (): boolean => true,
     },
   },
-  { title: '操作', slotName: 'ops', width: 120, fixed: 'right' as const },
+  { title: '操作', slotName: 'ops', width: 170, fixed: 'right' as const },
 ]))
 
 // keep-alive 页面：再次带着 query 跳进来时 onMounted 不会再跑，用 watch 兜住
@@ -1635,7 +2008,7 @@ function shortSha(sha: string | null | undefined): string {
       <!-- 筛选 -->
       <a-card :bordered="false" class="m-b-12px">
         <a-space wrap>
-          <a-select v-model="queryParams.project_group_id" allow-search allow-clear placeholder="项目组" style="width: 200px" @change="refresh">
+          <a-select v-model="queryParams.project_group_id" allow-search allow-clear placeholder="项目组" style="width: 200px" @change="onStructureFilterChange">
             <!-- 未分组：仓库维度上没有归属项目组（模块没挂项目组 / 未绑定模块），
                  与治理看板「未分组」行同一口径 —— 用于排查那些数据的来源 -->
             <a-option value="__none__">
@@ -1659,7 +2032,7 @@ function shortSha(sha: string | null | undefined): string {
               已撤回
             </a-option>
           </a-select>
-          <a-select v-model="queryParams.repository_id" allow-search allow-clear placeholder="应用" style="width: 280px" @change="refresh">
+          <a-select v-model="queryParams.repository_id" allow-search allow-clear placeholder="应用" style="width: 280px" @change="onStructureFilterChange">
             <a-option v-for="repo in repositories" :key="repo.repository_id" :value="repo.repository_id">
               {{ repo.module_name }}（{{ repo.repository_name }}）
             </a-option>
@@ -1727,6 +2100,9 @@ function shortSha(sha: string | null | undefined): string {
             </a-option>
             <a-option value="verification_failed">
               验证不通过
+            </a-option>
+            <a-option value="deferred">
+              已暂缓
             </a-option>
             <!-- 004：身份归并的产物行（已并入主行），默认列表不含；选中即显式查它们 -->
             <a-option value="merged">
@@ -1844,11 +2220,11 @@ function shortSha(sha: string | null | undefined): string {
               <div class="defect-toolbar">
                 <a-space>
                   <!-- 转交：选项目组 → 从该组成员里选处理人（与性能问题列表同形态） -->
-                  <a-button type="primary" :disabled="!selectedIds.length" @click="openTransferModal">
+                  <a-button type="primary" :disabled="!selectedIds.length" @click="openTransferModal()">
                     转交
                   </a-button>
                   <!-- 处理：状态流转统一入口（不处理需填原因，走弹窗） -->
-                  <a-dropdown :disabled="!selectedIds.length" @select="onProcessSelect">
+                  <a-dropdown :disabled="!selectedIds.length" @select="(value: unknown) => onProcessSelect(value)">
                     <a-button type="primary" :disabled="!selectedIds.length" :loading="processLoading">
                       处理
                       <template #icon>
@@ -1866,7 +2242,7 @@ function shortSha(sha: string | null | undefined): string {
                       审批
                     </a-button>
                   </a-tooltip>
-                  <a-button status="warning" :disabled="!selectedIds.length" :loading="batchVerifyLoading" @click="openVerifyDialog">
+                  <a-button status="warning" :disabled="!selectedIds.length" :loading="batchVerifyLoading" @click="openVerifyDialog()">
                     重新验证
                   </a-button>
                   <a-tooltip content="把所选缺陷关联到 DMP 单号，可批量填同一个" mini>
@@ -1925,7 +2301,6 @@ function shortSha(sha: string | null | undefined): string {
                 :loading="isLoading"
                 :data="dataList"
                 :columns="columns"
-                @sorter-change="handleSorterChange"
                 :pagination="{
                   total,
                   current: queryParams.page_num,
@@ -1939,10 +2314,41 @@ function shortSha(sha: string | null | undefined): string {
                 column-resizable
                 :row-selection="{ type: 'checkbox', showCheckedAll: true }"
                 :scroll="{ minWidth: 1480, y: tableHeight }"
+                @sorter-change="handleSorterChange"
                 @page-change="onPageChange"
                 @page-size-change="onPageSizeChange"
                 @filter-change="onTableFilter"
               >
+                <template #filter-defect_code>
+                  <ColumnFilterPanel v-model="columnFilters.defect_code" @change="onColumnFilterChange" />
+                </template>
+                <template #filter-title>
+                  <ColumnFilterPanel v-model="columnFilters.title" @change="onColumnFilterChange" />
+                </template>
+                <template #filter-category>
+                  <ColumnFilterPanel v-model="columnFilters.category" @change="onColumnFilterChange" />
+                </template>
+                <template #filter-assignee>
+                  <ColumnFilterPanel v-model="columnFilters.assignee" @change="onColumnFilterChange" />
+                </template>
+                <template #filter-file_path>
+                  <ColumnFilterPanel v-model="columnFilters.file_path" @change="onColumnFilterChange" />
+                </template>
+                <template #filter-hit_count>
+                  <ColumnFilterPanel v-model="columnFilters.hit_count" @change="onColumnFilterChange" />
+                </template>
+                <template #filter-introduced_at>
+                  <ColumnFilterPanel v-model="columnFilters.introduced_at" @change="onColumnFilterChange" />
+                </template>
+                <template #filter-plan_finish_date>
+                  <ColumnFilterPanel v-model="columnFilters.plan_finish_date" @change="onColumnFilterChange" />
+                </template>
+                <template #filter-dmp_defect_code>
+                  <ColumnFilterPanel v-model="columnFilters.dmp_defect_code" @change="onColumnFilterChange" />
+                </template>
+                <template #filter-updated_at>
+                  <ColumnFilterPanel v-model="columnFilters.updated_at" @change="onColumnFilterChange" />
+                </template>
                 <template #defectCode="{ record }">
                   <!-- 编号+复制按钮必须同一行：不设 nowrap 时按钮会把编号挤到第二行 -->
                   <a-typography-text v-if="record.defect_code" copyable :copy-text="record.defect_code" class="cell-nowrap" style="font-size: 12px">
@@ -1954,6 +2360,14 @@ function shortSha(sha: string | null | undefined): string {
                   <a-tag :color="issueSourceLabel(record.source).color" size="small">
                     {{ issueSourceLabel(record.source).label }}
                   </a-tag>
+                </template>
+                <!-- 文件列即代码入口：路径 + 行号整块可点，比在操作列再塞一个按钮更顺手 -->
+                <template #filePath="{ record }">
+                  <a-tooltip content="查看代码（默认最新提交，可切到检出时）" mini>
+                    <span class="code-link" @click.stop="viewCode(record)">
+                      {{ record.file_path }}<span v-if="record.start_line" class="code-link-line">:{{ record.start_line }}</span>
+                    </span>
+                  </a-tooltip>
                 </template>
                 <template #domain="{ record }">
                   <a-tag :color="domainLabels[record.domain]?.color ?? 'gray'" size="small">
@@ -1973,10 +2387,28 @@ function shortSha(sha: string | null | undefined): string {
                   <span v-else class="text-muted">-</span>
                 </template>
                 <template #status="{ record }">
+                  <!-- 已暂缓：悬浮直接展示暂缓原因（原因必填，状态标签后面无需再点详情） -->
+                  <a-tooltip
+                    v-if="record.status === 'deferred' && record.defer_reason"
+                    position="top"
+                    mini
+                    :content-style="{ maxWidth: '460px' }"
+                  >
+                    <template #content>
+                      <div class="status-tip">
+                        暂缓原因：{{ record.defer_reason }}
+                      </div>
+                    </template>
+                    <span class="status-cell">
+                      <a-tag :color="issueStatusLabel(record).color" size="small">
+                        {{ issueStatusLabel(record).label }}
+                      </a-tag>
+                    </span>
+                  </a-tooltip>
                   <!-- 有复核记录时悬浮展示最近一次复核结果（时间 + 结论与依据）+ 直接打开那一轮报告；
                        AI 直判（复核前未人工标记「已修复」）额外标一枚小徽标，便于和人工流程区分 -->
                   <a-tooltip
-                    v-if="record.last_verify_at"
+                    v-else-if="record.last_verify_at"
                     position="top"
                     mini
                     :content-style="{ maxWidth: '460px' }"
@@ -2067,6 +2499,9 @@ function shortSha(sha: string | null | undefined): string {
                     <a-button type="text" size="small" :disabled="!record.ai_detail_report" @click="viewReport(record)">
                       报告
                     </a-button>
+                    <a-button type="text" size="small" @click="viewCode(record)">
+                      代码
+                    </a-button>
                     <!-- 其余动作收进「更多」，避免操作列过宽、也少一眼三个按钮的噪音 -->
                     <a-dropdown trigger="click" @select="(value: unknown) => onOpsSelect(value, record)">
                       <a-button type="text" size="small">
@@ -2081,6 +2516,12 @@ function shortSha(sha: string | null | undefined): string {
                         </a-doption>
                         <a-doption value="events">
                           流转
+                        </a-doption>
+                        <a-doption value="notes">
+                          备注与原因
+                        </a-doption>
+                        <a-doption value="addNote">
+                          添加备注
                         </a-doption>
                         <a-doption value="similar">
                           疑似重复
@@ -2165,7 +2606,9 @@ function shortSha(sha: string | null | undefined): string {
               </template>
             </a-table-column>
             <a-table-column title="依据" :width="240" ellipsis tooltip>
-              <template #cell="{ record }">{{ (record.reasons || []).join('；') }}</template>
+              <template #cell="{ record }">
+                {{ (record.reasons || []).join('；') }}
+              </template>
             </a-table-column>
           </template>
         </a-table>
@@ -2174,66 +2617,113 @@ function shortSha(sha: string | null | undefined): string {
       <!-- 不处理审批：展示完整理由，可逐条同意/驳回并自动带出下一条 -->
       <a-modal
         v-model:visible="reviewVisible"
-        title="审批不处理申请"
         fullscreen
         :footer="false"
         :body-style="{ padding: '12px', flex: '1 1 auto', minHeight: 0, overflow: 'hidden' }"
       >
-        <div v-if="reviewLoading" style="padding: 24px">加载中…</div>
-          <template v-if="reviewRow">
+        <template #title>
+          <div class="report-modal-head">
+            <span class="report-modal-title">审批不处理申请</span>
+            <a-space :size="8" class="report-modal-actions">
+              <a-button size="small" :disabled="!reviewRow" @click="openApprovalNotes">
+                备注与原因
+              </a-button>
+              <a-button size="small" type="primary" status="success" :disabled="!reviewRow" @click="viewApprovalCode">
+                <template #icon>
+                  <icon-code />
+                </template>
+                查看代码
+              </a-button>
+              <a-button-group size="small">
+                <a-button :disabled="!reviewRow || reviewLoading || approvalQueueLoading || !approvalHasPrev" @click="stepApproval(-1)">
+                  ‹ 上一条
+                </a-button>
+                <a-button :disabled="!reviewRow || reviewLoading || approvalQueueLoading || !approvalHasNext" @click="stepApproval(1)">
+                  下一条 ›
+                </a-button>
+              </a-button-group>
+            </a-space>
+          </div>
+        </template>
+        <div v-if="reviewLoading" style="padding: 24px">
+          加载中…
+        </div>
+        <template v-if="reviewRow">
           <div style="display: flex; gap: 16px; align-items: stretch; height: 100%; min-height: 0">
-          <div style="flex: 1 1 56%; min-width: 0; height: 100%; overflow-y: auto; overflow-x: hidden; border-right: 1px solid var(--color-border-2); padding-right: 12px">
-            <div style="font-weight: 600; margin-bottom: 8px; position: sticky; top: 0; background: var(--color-bg-2); z-index: 1">缺陷报告（可滚动）</div>
-            <MdPreview v-if="reviewRow.ai_detail_report" :model-value="reviewRow.ai_detail_report" />
-            <a-empty v-else description="该缺陷没有 AI 报告" />
-          </div>
-          <div style="flex: 1 1 44%; min-width: 0; height: 100%; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column">
-            <a-descriptions :column="2" size="small" bordered>
-              <a-descriptions-item label="缺陷编号">{{ reviewRow.defect_code || '-' }}</a-descriptions-item>
-              <a-descriptions-item label="项目组">{{ reviewRow.project_group_name || '-' }}</a-descriptions-item>
-              <a-descriptions-item label="缺陷标题" :span="2">{{ reviewRow.issue_title }}</a-descriptions-item>
-              <a-descriptions-item label="产品领域">{{ reviewRow.product_domain || '-' }}</a-descriptions-item>
-              <a-descriptions-item label="申请人">{{ reviewRow.requester_name }}</a-descriptions-item>
-              <a-descriptions-item label="申请时间">{{ formatTime(reviewRow.created_at) }}</a-descriptions-item>
-              <a-descriptions-item label="当前状态">{{ reviewRow.issue_status }}</a-descriptions-item>
-            </a-descriptions>
-            <a-divider style="margin: 12px 0" />
-            <div class="approval-reason-block">
-              <div><b>原因分类：</b>{{ reviewRow.reason_code ? (wontFixReasonLabelMap[reviewRow.reason_code] ?? reviewRow.reason_code) : '未指定' }}</div>
-              <div class="nofix-long-text"><b>不处理原因：</b>{{ reviewRow.reason }}</div>
-              <div v-if="reviewRow.impact_note" class="nofix-long-text"><b>影响说明：</b>{{ reviewRow.impact_note }}</div>
-              <div v-if="reviewRow.evidence" class="nofix-long-text"><b>补充证据：</b>{{ reviewRow.evidence }}</div>
+            <div style="flex: 1 1 56%; min-width: 0; height: 100%; overflow-y: auto; overflow-x: hidden; border-right: 1px solid var(--color-border-2); padding-right: 12px">
+              <div style="font-weight: 600; margin-bottom: 8px; position: sticky; top: 0; background: var(--color-bg-2); z-index: 1">
+                缺陷报告（可滚动）
+              </div>
+              <MdPreview v-if="reviewRow.ai_detail_report" :model-value="reviewRow.ai_detail_report" />
+              <a-empty v-else description="该缺陷没有 AI 报告" />
             </div>
-            <a-form-item label="审批意见（必填）" style="margin-top: 12px">
-              <a-textarea v-model="reviewComment" :auto-size="{ minRows: 4, maxRows: 10 }" :max-length="500" show-word-limit />
-            </a-form-item>
-            <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px">
-              <a-button @click="reviewVisible = false">
-                关闭
-              </a-button>
-              <a-button status="danger" :loading="reviewSubmitting" @click="submitApproval('rejected', false)">
-                驳回
-              </a-button>
-              <a-button status="danger" type="outline" :loading="reviewSubmitting" @click="submitApproval('rejected', true)">
-                驳回并下一条
-              </a-button>
-              <a-button type="primary" :loading="reviewSubmitting" @click="submitApproval('approved', false)">
-                同意
-              </a-button>
-              <a-button type="primary" status="success" :loading="reviewSubmitting" @click="submitApproval('approved', true)">
-                同意并下一条
-              </a-button>
+            <div style="flex: 1 1 44%; min-width: 0; height: 100%; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column">
+              <a-descriptions :column="2" size="small" bordered>
+                <a-descriptions-item label="缺陷编号">
+                  {{ reviewRow.defect_code || '-' }}
+                </a-descriptions-item>
+                <a-descriptions-item label="项目组">
+                  {{ reviewRow.project_group_name || '-' }}
+                </a-descriptions-item>
+                <a-descriptions-item label="缺陷标题" :span="2">
+                  {{ reviewRow.issue_title }}
+                </a-descriptions-item>
+                <a-descriptions-item label="产品领域">
+                  {{ reviewRow.product_domain || '-' }}
+                </a-descriptions-item>
+                <a-descriptions-item label="申请人">
+                  {{ reviewRow.requester_name }}
+                </a-descriptions-item>
+                <a-descriptions-item label="申请时间">
+                  {{ formatTime(reviewRow.created_at) }}
+                </a-descriptions-item>
+                <a-descriptions-item label="当前状态">
+                  {{ reviewRow.issue_status }}
+                </a-descriptions-item>
+              </a-descriptions>
+              <a-divider style="margin: 12px 0" />
+              <div class="approval-reason-block">
+                <div><b>原因分类：</b>{{ reviewRow.reason_code ? (wontFixReasonLabelMap[reviewRow.reason_code] ?? reviewRow.reason_code) : '未指定' }}</div>
+                <div class="nofix-long-text">
+                  <b>不处理原因：</b>{{ reviewRow.reason }}
+                </div>
+                <div v-if="reviewRow.impact_note" class="nofix-long-text">
+                  <b>影响说明：</b>{{ reviewRow.impact_note }}
+                </div>
+                <div v-if="reviewRow.evidence" class="nofix-long-text">
+                  <b>补充证据：</b>{{ reviewRow.evidence }}
+                </div>
+              </div>
+              <a-form-item label="审批意见（必填）" style="margin-top: 12px">
+                <a-textarea v-model="reviewComment" :auto-size="{ minRows: 4, maxRows: 10 }" :max-length="500" show-word-limit />
+              </a-form-item>
+              <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px">
+                <a-button @click="reviewVisible = false">
+                  关闭
+                </a-button>
+                <a-button status="danger" :loading="reviewSubmitting" @click="submitApproval('rejected', false)">
+                  驳回
+                </a-button>
+                <a-button status="danger" type="outline" :loading="reviewSubmitting" @click="submitApproval('rejected', true)">
+                  驳回并下一条
+                </a-button>
+                <a-button type="primary" :loading="reviewSubmitting" @click="submitApproval('approved', false)">
+                  同意
+                </a-button>
+                <a-button type="primary" status="success" :loading="reviewSubmitting" @click="submitApproval('approved', true)">
+                  同意并下一条
+                </a-button>
+              </div>
             </div>
           </div>
-          </div>
-          </template>
+        </template>
       </a-modal>
 
       <!-- 转交弹窗：处理人从系统用户里选（缺陷本身没有项目组字段，不在此改归属） -->
       <a-modal v-model:visible="transferVisible" title="转交缺陷" :width="520" :footer="false" unmount-on-close>
         <a-form layout="vertical" :model="layoutOnlyModel">
           <a-alert type="info" class="m-b-12px">
-            将把 {{ selectedIds.length }} 条缺陷转交给指定处理人（「待修复」会同时进入修复中）
+            将把 {{ transferTargets.length }} 条缺陷转交给指定处理人（「待修复」会同时进入修复中）
           </a-alert>
           <a-form-item label="处理人" required>
             <!-- 手输请填登录名：「标记已修复」按登录名判定是不是本人 -->
@@ -2270,7 +2760,7 @@ function shortSha(sha: string | null | undefined): string {
       <!-- 标记已修复弹窗（批量）：说明必填，只有当前处理人的行会被改，别人的行由后端跳过 -->
       <a-modal
         v-model:visible="fixedVisible"
-        :title="`标记已修复（${selectedIds.length} 条）`"
+        :title="`标记已修复（${fixedTargets.length} 条）`"
         width="560px"
         :ok-loading="processLoading"
         @ok="submitFixed"
@@ -2299,7 +2789,7 @@ function shortSha(sha: string | null | undefined): string {
       <a-modal v-model:visible="wontFixVisible" :title="`申请不处理（${wontFixTargets.length} 条）`" width="560px" :ok-loading="wontFixLoading" @ok="submitWontFix" @cancel="wontFixVisible = false">
         <a-form layout="vertical" :model="layoutOnlyModel">
           <a-alert type="warning" class="m-b-12px">
-            将对 {{ wontFixTargets.length }} 条缺陷提交不处理申请：缺陷状态在审批通过前保持「待修复」，需领域架构师或总监审批；驳回后可修改证据重新申请
+            将对 {{ wontFixTargets.length }} 条缺陷提交不处理申请：缺陷状态在审批通过前保持不变，需领域架构师或总监审批；驳回后可修改证据重新申请
           </a-alert>
           <!-- 不处理原因分类（必选，后续统计与过滤的依据） -->
           <a-form-item label="原因分类" required>
@@ -2334,7 +2824,7 @@ function shortSha(sha: string | null | undefined): string {
         </a-form>
       </a-modal>
 
-      <!-- 不处理审批记录（申请/驳回/撤回/通过全部周期）-->
+      <!-- 不处理审批记录（申请/驳回/撤回/通过全部周期） -->
       <a-modal
         v-model:visible="approvalHistoryVisible"
         :title="`审批记录 · ${approvalHistoryTitle}`"
@@ -2349,45 +2839,49 @@ function shortSha(sha: string | null | undefined): string {
           size="small"
         >
           <template #columns>
-          <a-table-column title="申请时间" :width="150">
-            <template #cell="{ record }">{{ formatTime(record.created_at) }}</template>
-          </a-table-column>
-          <a-table-column title="状态" :width="90">
-            <template #cell="{ record }">
-              <a-tag :color="nofixStateLabel(record.status).color" size="small">
-                {{ nofixStateLabel(record.status).label }}
-              </a-tag>
-            </template>
-          </a-table-column>
-          <a-table-column title="申请人" :width="100">
-            <template #cell="{ record }">{{ record.requester_name }}</template>
-          </a-table-column>
-          <a-table-column title="原因" ellipsis tooltip>
-            <template #cell="{ record }">
-              {{ record.reason }}
-            </template>
-          </a-table-column>
-          <a-table-column title="审批人" :width="140">
-            <template #cell="{ record }">
-              <span v-if="record.approver_name">
-                {{ record.approver_name }}
-                <span class="text-muted">（{{ record.approver_role === 'director' ? '总监' : '领域架构师' }}）</span>
-              </span>
-              <span v-else class="text-muted">-</span>
-            </template>
-          </a-table-column>
-          <a-table-column title="审批意见" ellipsis tooltip>
-            <template #cell="{ record }">
-              <span v-if="record.decision_comment">{{ record.decision_comment }}</span>
-              <span v-else class="text-muted">-</span>
-            </template>
-          </a-table-column>
-          <a-table-column title="审批时间" :width="150">
-            <template #cell="{ record }">
-              <span v-if="record.decided_at">{{ formatTime(record.decided_at) }}</span>
-              <span v-else class="text-muted">-</span>
-            </template>
-          </a-table-column>
+            <a-table-column title="申请时间" :width="150">
+              <template #cell="{ record }">
+                {{ formatTime(record.created_at) }}
+              </template>
+            </a-table-column>
+            <a-table-column title="状态" :width="90">
+              <template #cell="{ record }">
+                <a-tag :color="nofixStateLabel(record.status).color" size="small">
+                  {{ nofixStateLabel(record.status).label }}
+                </a-tag>
+              </template>
+            </a-table-column>
+            <a-table-column title="申请人" :width="100">
+              <template #cell="{ record }">
+                {{ record.requester_name }}
+              </template>
+            </a-table-column>
+            <a-table-column title="原因" ellipsis tooltip>
+              <template #cell="{ record }">
+                {{ record.reason }}
+              </template>
+            </a-table-column>
+            <a-table-column title="审批人" :width="140">
+              <template #cell="{ record }">
+                <span v-if="record.approver_name">
+                  {{ record.approver_name }}
+                  <span class="text-muted">（{{ record.approver_role === 'director' ? '总监' : '领域架构师' }}）</span>
+                </span>
+                <span v-else class="text-muted">-</span>
+              </template>
+            </a-table-column>
+            <a-table-column title="审批意见" ellipsis tooltip>
+              <template #cell="{ record }">
+                <span v-if="record.decision_comment">{{ record.decision_comment }}</span>
+                <span v-else class="text-muted">-</span>
+              </template>
+            </a-table-column>
+            <a-table-column title="审批时间" :width="150">
+              <template #cell="{ record }">
+                <span v-if="record.decided_at">{{ formatTime(record.decided_at) }}</span>
+                <span v-else class="text-muted">-</span>
+              </template>
+            </a-table-column>
           </template>
         </a-table>
       </a-modal>
@@ -2433,6 +2927,10 @@ function shortSha(sha: string | null | undefined): string {
                       <span v-if="ev.meta.commit_author" class="event-meta-sub">{{ ev.meta.commit_author }}</span>
                     </span>
                   </div>
+                  <div v-if="ev.meta.git_url" class="event-meta-row">
+                    <span class="event-meta-label">仓库</span>
+                    <span class="event-meta-value" :title="ev.meta.git_url">{{ ev.meta.git_url }}</span>
+                  </div>
                   <div v-if="ev.meta.commit_subject" class="event-commit-subject" :title="ev.meta.commit_subject">
                     {{ ev.meta.commit_subject }}
                   </div>
@@ -2451,8 +2949,43 @@ function shortSha(sha: string | null | undefined): string {
                   </div>
                 </div>
               </template>
+              <template v-else-if="isApprovalDecisionEvent(ev) && ev.meta">
+                <div class="event-meta">
+                  <div v-if="ev.meta.approver_name" class="event-meta-row">
+                    <span class="event-meta-label">审批人</span>
+                    <span class="event-meta-value">
+                      {{ ev.meta.approver_name }}
+                      <span v-if="ev.meta.approver_role" class="event-meta-sub">（{{ approverRoleLabel(ev.meta.approver_role) }}）</span>
+                    </span>
+                  </div>
+                  <div v-if="ev.meta.decision_comment" class="event-meta-row">
+                    <span class="event-meta-label">审批意见</span>
+                    <span class="event-meta-value event-meta-text">{{ ev.meta.decision_comment }}</span>
+                  </div>
+                </div>
+              </template>
+              <template v-else-if="isNoFixEvent(ev) && ev.meta?.reason">
+                <div class="event-meta">
+                  <div v-if="ev.meta.reason_code" class="event-meta-row">
+                    <span class="event-meta-label">原因分类</span>
+                    <span class="event-meta-value">{{ wontFixReasonLabelMap[ev.meta.reason_code] ?? ev.meta.reason_code }}</span>
+                  </div>
+                  <div class="event-meta-row">
+                    <span class="event-meta-label">不处理原因</span>
+                    <span class="event-meta-value event-meta-text">{{ ev.meta.reason }}</span>
+                  </div>
+                  <div v-if="ev.meta.impact_note" class="event-meta-row">
+                    <span class="event-meta-label">影响说明</span>
+                    <span class="event-meta-value event-meta-text">{{ ev.meta.impact_note }}</span>
+                  </div>
+                  <div v-if="ev.meta.approval_comment" class="event-meta-row">
+                    <span class="event-meta-label">审批意见</span>
+                    <span class="event-meta-value event-meta-text">{{ ev.meta.approval_comment }}</span>
+                  </div>
+                </div>
+              </template>
               <div v-else-if="ev.reason" class="event-reason">
-                {{ ev.reason }}
+                {{ formatEventReason(ev) }}
               </div>
               <div v-if="ev.detail_report" class="event-report-link">
                 <a-button type="text" size="mini" @click="viewEventReport(ev)">
@@ -2497,6 +3030,50 @@ function shortSha(sha: string | null | undefined): string {
         unmount-on-close
         @cancel="reportVisible = false"
       >
+        <!-- 标题栏固定在弹窗顶部：备注入口与下载不随报告正文滚动 -->
+        <template #title>
+          <div class="report-modal-head">
+            <span class="report-modal-title">{{ reportRow?.title ?? 'AI 详细报告' }}</span>
+            <a-space :size="8" class="report-modal-actions">
+              <a-button size="small" type="primary" @click="openReportTransfer">
+                转交
+              </a-button>
+              <a-dropdown trigger="click" :disabled="!reportRow" @select="onReportProcessSelect">
+                <a-button size="small" type="primary" :loading="processLoading">
+                  处理
+                  <template #icon>
+                    <icon-down />
+                  </template>
+                </a-button>
+                <template #content>
+                  <a-doption v-for="action in PROCESS_ACTIONS" :key="action.value" :value="action.value">
+                    {{ action.label }}
+                  </a-doption>
+                </template>
+              </a-dropdown>
+              <a-button size="small" status="warning" :disabled="!reportRow || !canVerify(reportRow)" :loading="batchVerifyLoading" @click="openReportVerify">
+                重新验证
+              </a-button>
+              <a-button size="small" type="primary" @click="openReportNotes">
+                备注与原因
+              </a-button>
+              <!-- 看报告时最常追问「这段代码现在长什么样」，入口就放在标题栏；
+                   用绿色实心 + 代码图标与其它蓝色动作区分开，避免一排按钮里找不到 -->
+              <a-button size="small" type="primary" status="success" :disabled="!reportRow" @click="reportRow && viewCode(reportRow)">
+                <template #icon>
+                  <icon-code />
+                </template>
+                查看代码
+              </a-button>
+              <a-button size="small" type="outline" status="success" :disabled="!reportRow?.ai_detail_report" @click="downloadReport">
+                <template #icon>
+                  <icon-download />
+                </template>
+                下载 md
+              </a-button>
+            </a-space>
+          </div>
+        </template>
         <a-descriptions :column="3" bordered size="small" class="m-b-12px">
           <a-descriptions-item label="领域">
             {{ domainLabels[reportRow?.domain ?? '']?.label ?? reportRow?.domain }}
@@ -2526,15 +3103,6 @@ function shortSha(sha: string | null | undefined): string {
         <!-- 契约 A：主报告 = 代表检出的报告；「检出记录」列出该缺陷历次全部检出，可切换查看各自报告 -->
         <a-tabs v-model:active-key="reportTab" lazy-load>
           <a-tab-pane key="main" title="主报告">
-            <!-- 下载原始 md：内容已在前端手里，本地存盘即可，不必再走后端 -->
-            <div v-if="reportRow?.ai_detail_report" class="report-toolbar">
-              <a-button size="small" @click="downloadReport">
-                <template #icon>
-                  <icon-download />
-                </template>
-                下载 md
-              </a-button>
-            </div>
             <MdPreview v-if="reportRow?.ai_detail_report" :model-value="reportRow.ai_detail_report" />
             <a-empty v-else description="暂无详细报告" />
           </a-tab-pane>
@@ -2543,7 +3111,98 @@ function shortSha(sha: string | null | undefined): string {
           </a-tab-pane>
         </a-tabs>
       </a-modal>
+
+      <!-- 代码预览：默认最新 commit，可切到缺陷检出时的 commit -->
+      <CodePreviewDrawer
+        v-model:visible="codeVisible"
+        :issue-id="codeRow?.id ?? ''"
+        :title="codeRow?.title"
+        :detection-commit="codeRow?.last_seen_commit ?? codeRow?.first_seen_commit"
+      />
     </div>
+    <!-- 暂缓处理弹窗（批量；原因必填，状态仍归「处理中」） -->
+    <a-modal
+      v-model:visible="deferVisible"
+      :title="`暂缓处理（${deferTargets.length} 条）`"
+      :ok-loading="processLoading"
+      @ok="submitDefer"
+    >
+      <a-form :model="{ deferReason }" layout="vertical">
+        <a-form-item label="暂缓原因" required>
+          <a-textarea
+            v-model="deferReason"
+            placeholder="说明为什么暂时不修，例如：等待上游组件修复、排入下个版本、需要业务确认复现路径"
+            :auto-size="{ minRows: 3, maxRows: 6 }"
+            allow-clear
+          />
+        </a-form-item>
+      </a-form>
+      <a-alert type="info">
+        暂缓后状态显示「已暂缓」，仍计入「处理中」；在「处理」下拉里选「恢复处理」可回到待修复。
+      </a-alert>
+    </a-modal>
+
+    <!-- 备注与原因：备注历史 + 不处理/暂缓原因，可直接补备注 -->
+    <a-modal
+      v-model:visible="notesVisible"
+      title="备注与原因"
+      :footer="false"
+      width="600px"
+    >
+      <template v-if="notesRow">
+        <a-descriptions :column="1" bordered size="small">
+          <a-descriptions-item label="当前状态">
+            <a-tag :color="notesStatusLabel.color" size="small">
+              {{ notesStatusLabel.label }}
+            </a-tag>
+            <div v-if="notesStatusEvent" class="notes-meta">
+              {{ formatTime(notesStatusEvent.created_at) }} · {{ operatorLabel(notesStatusEvent.operator) }}
+            </div>
+          </a-descriptions-item>
+          <a-descriptions-item v-if="notesRow.wont_fix_reason_code || notesRow.wont_fix_reason" label="不处理原因">
+            <div v-if="notesRow.wont_fix_reason_code">
+              {{ wontFixReasonLabelMap[notesRow.wont_fix_reason_code] ?? notesRow.wont_fix_reason_code }}
+            </div>
+            <div v-if="notesRow.wont_fix_reason">
+              {{ notesRow.wont_fix_reason }}
+            </div>
+          </a-descriptions-item>
+          <a-descriptions-item v-if="notesRow.defer_reason" label="暂缓原因">
+            {{ notesRow.defer_reason }}
+          </a-descriptions-item>
+        </a-descriptions>
+      </template>
+      <div class="notes-title">
+        备注记录
+      </div>
+      <a-spin :loading="notesLoading" style="width: 100%">
+        <a-empty v-if="!notesList.length" description="暂无备注" />
+        <a-timeline v-else>
+          <a-timeline-item v-for="item in notesList" :key="item.id" :label="formatTime(item.created_at)">
+            <div class="note-content">
+              {{ item.reason }}
+            </div>
+            <div class="event-operator">
+              操作人：{{ operatorLabel(item.operator) }}
+            </div>
+          </a-timeline-item>
+        </a-timeline>
+      </a-spin>
+      <div class="notes-title">
+        添加备注
+      </div>
+      <a-textarea
+        v-model="noteText"
+        placeholder="补充说明：沟通结论、暂缓原因、临时绕行方案等；会记录到流转历史"
+        :auto-size="{ minRows: 3, maxRows: 6 }"
+      />
+      <div class="notes-actions">
+        <a-button type="primary" size="small" :loading="noteSubmitting" @click="submitNote">
+          添加备注
+        </a-button>
+      </div>
+    </a-modal>
+
     <!-- 重新验证弹窗：选分支/commit/Agent/模型，提交后由后台 AI 复核 -->
     <a-modal
       v-model:visible="verifyVisible"
@@ -2562,6 +3221,15 @@ function shortSha(sha: string | null | undefined): string {
         </template>
       </a-alert>
       <a-form :model="verifyForm" layout="vertical">
+        <!-- 仓库地址是仓库身份的一部分：这里只读展示，避免单次复核把缺陷验到
+             另一个仓库上（会破坏缺陷归属、权限、凭据与基线口径）。 -->
+        <a-form-item v-if="verifyRepoNames.length <= 1" label="代码仓库">
+          <a-input :model-value="verifyRepo?.git_url || ''" readonly />
+          <template #extra>
+            地址属于仓库配置，单次复核不可修改；换地址请到「代码仓库」页修改并重新验证，
+            该改动会影响这个仓库的所有扫描与复核。
+          </template>
+        </a-form-item>
         <a-form-item label="分支">
           <a-select
             v-model="verifyForm.branch"
@@ -2671,6 +3339,11 @@ function shortSha(sha: string | null | undefined): string {
 .mine-switch { display: flex; align-items: center; gap: 6px; flex-shrink: 0; cursor: pointer; }
 .mine-switch-label { font-size: 13px; color: var(--color-text-2); white-space: nowrap; }
 .text-muted { color: var(--color-text-4); }
+/* 文件列：整块是代码预览入口，行号用次级色，悬停给下划线提示可点 */
+.code-link { display: block; overflow: hidden; cursor: pointer; text-overflow: ellipsis; white-space: nowrap; }
+.code-link:hover { color: rgb(var(--primary-6)); text-decoration: underline; }
+/* 行号常驻蓝色：与「文件」同一入口，但让「看这里」的定位点更显眼 */
+.code-link-line { color: rgb(var(--primary-6)); font-variant-numeric: tabular-nums; }
 /* flex-basis 必须是 auto：`flex: 1` 是 `1 1 0%`，basis 0% 会让上面实测的 `height`
    被 flex 布局无视 —— 行高退回内容驱动，左树一展开（性能+安全）就把整条高度链顶高，
    内容区出现滚动条。basis auto 时行的基准尺寸就是那个实测 height，grow 只在
@@ -2697,7 +3370,20 @@ function shortSha(sha: string | null | undefined): string {
 .split-right { flex: 1; min-width: 0; min-height: 0; }
 .event-item { display: flex; align-items: center; gap: 8px; }
 .event-transition { font-size: 13px; color: var(--color-text-2); }
-.event-reason { margin-top: 4px; font-size: 12px; color: var(--color-text-3); }
+.event-reason {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-text-3);
+  /* 备注可能很长或包含无空格长串：保留换行并强制折行，避免撑出抽屉 */
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* 时间线内容列允许收缩，长文本才能在抽屉宽度内折行 */
+:deep(.arco-timeline-item-content) {
+  min-width: 0;
+}
 .event-report-link { margin-top: 2px; }
 .event-commit { margin-top: 2px; font-size: 12px; color: var(--color-text-4); font-family: monospace; }
 .event-operator { margin-top: 2px; font-size: 12px; color: var(--color-text-4); }
@@ -2721,10 +3407,47 @@ function shortSha(sha: string | null | undefined): string {
   white-space: nowrap;
 }
 
-.report-toolbar {
+/* 报告弹窗标题栏：标题左、操作右，固定不随正文滚动 */
+.report-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+}
+
+.report-modal-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 给右上角关闭按钮留位，避免两个操作按钮与它重叠 */
+.report-modal-actions {
+  margin-right: 36px;
+}
+
+/* 备注与原因弹窗 */
+.notes-title {
+  margin: 14px 0 8px;
+  font-weight: 600;
+}
+
+.notes-meta {
+  margin-top: 4px;
+  color: var(--color-text-3);
+  font-size: 12px;
+}
+
+.notes-actions {
   display: flex;
   justify-content: flex-end;
-  margin-bottom: 8px;
+  margin-top: 8px;
+}
+
+.note-content {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .dmp-empty {

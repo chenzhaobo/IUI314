@@ -10,7 +10,7 @@ import { Message } from '@arco-design/web-vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiAiFeedback } from '@/api/aiApis'
-import { formatTime, getAction, postAction } from '@/hooks'
+import { formatTime, getAction, postAction, useDownload } from '@/hooks'
 
 defineOptions({ name: 'AgentFeedback' })
 
@@ -78,6 +78,8 @@ const pageSize = ref(20)
 const loading = ref(false)
 const rows = ref<AiAgentFeedback[]>([])
 const total = ref(0)
+const selectedIds = ref<string[]>([])
+const { downloadWithTip } = useDownload()
 
 const queryParams = computed(() => ({
   page_num: pageNum.value,
@@ -107,6 +109,7 @@ async function load() {
 
 function search() {
   pageNum.value = 1
+  selectedIds.value = []
   void load()
 }
 
@@ -118,7 +121,34 @@ function reset() {
   filters.severity = ''
   filters.status = ''
   filters.execution_id = ''
+  selectedIds.value = []
   search()
+}
+
+/** 导出：勾选行优先；「全部」按当前筛选导出所有页，不受分页限制 */
+function exportFeedback(scope: 'selected' | 'all') {
+  const qs = new URLSearchParams()
+  if (scope === 'selected') {
+    if (!selectedIds.value.length) {
+      Message.warning('请先勾选要导出的反馈')
+      return
+    }
+    qs.set('ids', selectedIds.value.join(','))
+  }
+  else {
+    for (const key of ['keyword', 'domain', 'caller_module', 'category', 'severity', 'status', 'execution_id'] as const) {
+      const value = filters[key]
+      if (value)
+        qs.set(key, value)
+    }
+  }
+  void downloadWithTip(`${ApiAiFeedback.export}?${qs.toString()}`, 'agent_feedback_export.xlsx', '导出失败')
+}
+
+function onExportSelect(value: unknown) {
+  const scope = String(value ?? '')
+  if (scope === 'selected' || scope === 'all')
+    exportFeedback(scope)
 }
 
 function pageChange(page: number) {
@@ -158,14 +188,38 @@ async function updateStatus(row: AiAgentFeedback, status: string) {
   await load()
 }
 
+// ── 详情抽屉：表格列有省略号，建议/证据这类长文本必须能完整查看 ──
+const detailVisible = ref(false)
+const detailRow = ref<AiAgentFeedback | null>(null)
+
+function openDetail(row: AiAgentFeedback) {
+  detailRow.value = row
+  detailVisible.value = true
+}
+
+function prettyJson(value: unknown): string {
+  if (value === null || value === undefined || value === '')
+    return ''
+  if (typeof value === 'string')
+    return value
+  try {
+    return JSON.stringify(value, null, 2)
+  }
+  catch {
+    return String(value)
+  }
+}
+
+const evidenceText = computed(() => (detailRow.value ? prettyJson(detailRow.value.evidence_json) : ''))
+
 onMounted(load)
 </script>
 
 <template>
   <div class="feedback-page">
     <a-alert type="info" style="margin-bottom: 12px">
-      Agent 执行结束后由执行记录页手动发起复盘；平台按 fingerprint 聚合问题与改进建议。
-      反馈是过程改进，不是漏洞结论。优先处理「出现次数高 × 严重度高」的条目。
+      Agent 执行结束后可由执行记录页手动发起复盘；静态扫描 AI 发现的平台侧问题也会在运行期主动上报（source=runtime）。
+      平台按 fingerprint 聚合问题与改进建议。反馈是过程改进，不是漏洞结论。优先处理「出现次数高 × 严重度高」的条目。
     </a-alert>
 
     <a-card :bordered="false">
@@ -200,15 +254,33 @@ onMounted(load)
           重置
         </a-button>
         <div class="spacer" />
+        <a-dropdown trigger="click" @select="onExportSelect">
+          <a-button type="outline" status="success">
+            <template #icon>
+              <icon-download />
+            </template>
+            导出
+          </a-button>
+          <template #content>
+            <a-doption value="selected" :disabled="!selectedIds.length">
+              导出选中（{{ selectedIds.length }}）
+            </a-doption>
+            <a-doption value="all">
+              导出全部（当前筛选）
+            </a-doption>
+          </template>
+        </a-dropdown>
         <a-tag color="arcoblue">
           共 {{ total }} 条
         </a-tag>
       </div>
 
       <a-table
+        v-model:selected-keys="selectedIds"
         :data="rows"
         :loading="loading"
         row-key="id"
+        :row-selection="{ type: 'checkbox', showCheckedAll: true }"
         :pagination="{
           current: pageNum,
           pageSize,
@@ -235,6 +307,9 @@ onMounted(load)
                 {{ record.agent_code || '--' }}<template v-if="record.model">
                   / {{ record.model }}
                 </template>
+                <a-tag v-if="record.source === 'runtime'" size="small" color="green" style="margin-left: 6px">
+                  运行期上报
+                </a-tag>
               </div>
             </template>
           </a-table-column>
@@ -250,9 +325,9 @@ onMounted(load)
           </a-table-column>
           <a-table-column title="问题 / 建议" ellipsis tooltip>
             <template #cell="{ record }">
-              <div class="title">
+              <a-link class="title" @click="openDetail(record)">
                 {{ record.title }}
-              </div>
+              </a-link>
               <div class="sub">
                 {{ record.detail }}
               </div>
@@ -281,9 +356,12 @@ onMounted(load)
               </a-tag>
             </template>
           </a-table-column>
-          <a-table-column title="处理" :width="220" fixed="right">
+          <a-table-column title="处理" :width="250" fixed="right">
             <template #cell="{ record }">
               <a-space>
+                <a-link @click="openDetail(record)">
+                  详情
+                </a-link>
                 <a-link v-if="record.status === 'open'" @click="updateStatus(record, 'triaged')">
                   分诊
                 </a-link>
@@ -305,6 +383,80 @@ onMounted(load)
         </template>
       </a-table>
     </a-card>
+
+    <a-drawer v-model:visible="detailVisible" title="Agent 反馈详情" :width="720" :footer="false" unmount-on-close>
+      <template v-if="detailRow">
+        <div class="detail-tags">
+          <a-tag :color="severityMeta(detailRow.severity).color">
+            {{ severityMeta(detailRow.severity).label }}
+          </a-tag>
+          <a-tag color="arcoblue">
+            {{ domainLabel(detailRow.domain) }}
+          </a-tag>
+          <a-tag>{{ categoryLabel(detailRow.category) }}</a-tag>
+          <a-tag :color="statusMeta(detailRow.status).color">
+            {{ statusMeta(detailRow.status).label }}
+          </a-tag>
+          <a-tag v-if="detailRow.source === 'runtime'" color="green">
+            运行期上报
+          </a-tag>
+        </div>
+
+        <a-descriptions :column="2" size="small" bordered style="margin-top: 12px">
+          <a-descriptions-item label="调用模块">
+            {{ detailRow.caller_module || '--' }}
+          </a-descriptions-item>
+          <a-descriptions-item label="Agent">
+            {{ detailRow.agent_code || '--' }}
+          </a-descriptions-item>
+          <a-descriptions-item label="模型">
+            {{ detailRow.model || '--' }}
+          </a-descriptions-item>
+          <a-descriptions-item label="出现次数">
+            {{ detailRow.occurrences }}
+          </a-descriptions-item>
+          <a-descriptions-item label="首次出现">
+            {{ formatTime(detailRow.first_seen_at) }}
+          </a-descriptions-item>
+          <a-descriptions-item label="最后出现">
+            {{ formatTime(detailRow.last_seen_at) }}
+          </a-descriptions-item>
+          <a-descriptions-item label="首次执行" :span="2">
+            <a-link v-if="detailRow.first_execution_id" @click="openExecution(detailRow.first_execution_id)">
+              {{ detailRow.first_execution_id }}
+            </a-link>
+            <span v-else>--</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="最后执行" :span="2">
+            <a-link v-if="detailRow.last_execution_id || detailRow.execution_id" @click="openExecution(detailRow.last_execution_id || detailRow.execution_id)">
+              {{ detailRow.last_execution_id || detailRow.execution_id }}
+            </a-link>
+            <span v-else>--</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="fingerprint" :span="2">
+            <code>{{ detailRow.fingerprint }}</code>
+          </a-descriptions-item>
+        </a-descriptions>
+
+        <a-divider orientation="left">
+          问题
+        </a-divider>
+        <h3 class="detail-title">
+          {{ detailRow.title }}
+        </h3>
+        <pre class="detail-pre">{{ detailRow.detail || '（无详情）' }}</pre>
+
+        <a-divider orientation="left">
+          改进建议
+        </a-divider>
+        <pre class="detail-pre suggestion-box">{{ detailRow.suggestion || '（未给出建议）' }}</pre>
+
+        <a-divider orientation="left">
+          证据
+        </a-divider>
+        <pre class="detail-pre evidence-box">{{ evidenceText || '（无证据）' }}</pre>
+      </template>
+    </a-drawer>
   </div>
 </template>
 
@@ -321,4 +473,20 @@ onMounted(load)
 .title { color: var(--color-text-1); font-weight: 600; }
 .sub { color: var(--color-text-3); font-size: 12px; }
 .suggestion { color: var(--color-text-2); }
+.detail-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.detail-title { margin: 0 0 8px; font-size: 16px; font-weight: 600; color: var(--color-text-1); }
+.detail-pre {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 4px;
+  background: var(--color-fill-2);
+  color: var(--color-text-1);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.suggestion-box { border-left: 3px solid rgb(var(--arcoblue-6)); }
+.evidence-box { max-height: 320px; overflow: auto; font-family: var(--font-mono); font-size: 12px; }
 </style>

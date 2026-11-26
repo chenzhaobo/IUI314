@@ -17,16 +17,21 @@
 
 export type ColumnFilterKind = 'text' | 'number' | 'date'
 
-export type TextOp = 'eq' | 'ne' | 'contains' | 'notContains'
-export type NumberOp = 'gt' | 'lt'
+/** 空值判定：null / 空串 都算「为空」（与后端 dyn_filter 的 IsNull/NotNull 同口径） */
+export type NullOp = 'isNull' | 'notNull'
+
+export type TextOp = 'eq' | 'ne' | 'contains' | 'notContains' | NullOp
+export type NumberOp = 'gt' | 'lt' | NullOp
+/** 时间列：区间 / 为空 / 不为空 */
+export type DateOp = 'range' | NullOp
 
 export interface ColumnFilterState {
   kind: ColumnFilterKind
-  /** 文本/数字运算符；时间类不用 */
-  op?: TextOp | NumberOp
-  /** 文本与数字的比较值 */
+  /** 文本/数字/时间运算符；时间为 range / isNull / notNull */
+  op?: TextOp | NumberOp | DateOp
+  /** 文本与数字的比较值（空值运算符不需要） */
   value?: string
-  /** 时间区间 [从, 到]，元素可为空串表示该端不限 */
+  /** 时间区间 [从, 到]，元素可为空串表示该端不限（仅 op=range 时使用） */
   range?: [string, string]
 }
 
@@ -35,17 +40,35 @@ export const TEXT_OPS: Array<{ value: TextOp, label: string }> = [
   { value: 'notContains', label: '不包含' },
   { value: 'eq', label: '等于' },
   { value: 'ne', label: '不等于' },
+  { value: 'isNull', label: '为空' },
+  { value: 'notNull', label: '不为空' },
 ]
 
 export const NUMBER_OPS: Array<{ value: NumberOp, label: string }> = [
   { value: 'gt', label: '大于' },
   { value: 'lt', label: '小于' },
+  { value: 'isNull', label: '为空' },
+  { value: 'notNull', label: '不为空' },
 ]
+
+export const DATE_OPS: Array<{ value: DateOp, label: string }> = [
+  { value: 'range', label: '区间' },
+  { value: 'isNull', label: '为空' },
+  { value: 'notNull', label: '不为空' },
+]
+
+/** 是否为空值判定（不需要输入值） */
+export function isNullOp(op: ColumnFilterState['op'] | undefined): boolean {
+  return op === 'isNull' || op === 'notNull'
+}
 
 /** 该过滤条件是否真的会生效（空条件不参与过滤，避免把全部数据滤掉） */
 export function isFilterActive(f: ColumnFilterState | undefined): boolean {
   if (!f)
     return false
+  // 空值判定没有输入值，但它是有效条件
+  if (isNullOp(f.op))
+    return true
   if (f.kind === 'date')
     return Boolean(f.range?.[0] || f.range?.[1])
   return Boolean(f.value && f.value.trim())
@@ -62,6 +85,12 @@ export function matchFilter(raw: unknown, f: ColumnFilterState): boolean {
     return true
 
   const text = raw == null ? '' : String(raw)
+
+  // 空值判定优先：null / 空串 都算「为空」（与后端 is_null/eq('') 同口径）
+  if (f.op === 'isNull')
+    return text === ''
+  if (f.op === 'notNull')
+    return text !== ''
 
   if (f.kind === 'date') {
     const [from, to] = f.range ?? ['', '']
@@ -111,7 +140,7 @@ export function applyColumnFilters<T extends Record<string, any>>(
 /** 新建一个空过滤条件 */
 export function emptyFilter(kind: ColumnFilterKind): ColumnFilterState {
   if (kind === 'date')
-    return { kind, range: ['', ''] }
+    return { kind, op: 'range', range: ['', ''] }
   return { kind, op: kind === 'number' ? 'gt' : 'contains', value: '' }
 }
 
@@ -146,6 +175,11 @@ export function toServerFilters(
   for (const [field, f] of Object.entries(filters)) {
     if (!isFilterActive(f))
       continue
+    // 空值判定：不带 value，后端按 IsNull / NotNull 处理
+    if (isNullOp(f.op)) {
+      out.push({ field, op: f.op === 'isNull' ? 'isNull' : 'notNull' })
+      continue
+    }
     if (f.kind === 'date') {
       const [from, to] = f.range ?? ['', '']
       if (from)

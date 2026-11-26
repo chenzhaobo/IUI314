@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AiAgent, AiListResult } from '@/api/aiApis'
+import type { AiAgentOption } from '@/api/aiApis'
 import type { ModuleWithRepository } from '@/types/static-scan'
 import type { PrescanTaskRecordRow, PrescanTaskRow, PrescanTaskSavePayload, PrescanTaskTriggerResponse } from '@/types/static-scan-task'
 import { Message, Modal } from '@arco-design/web-vue'
@@ -114,13 +114,11 @@ function projectGroupName(id?: string | null): string {
 // ═══════════════════════════════════════════════════════════
 //  AI Agent 列表 → 模型下拉选项
 // ═══════════════════════════════════════════════════════════
-const { data: agentListRaw } = useGet<AiListResult<AiAgent>>(
-  ApiAiAgent.getList,
-  { page_size: 100, status: 'active' },
-  { immediate: true },
-)
+// options 不受 AI 管理菜单权限约束；list 对扫描用户是 403
+const { data: agentListRaw } = useGet<AiAgentOption[]>(ApiAiAgent.options, undefined, { immediate: true })
+const agentRows = computed<AiAgentOption[]>(() => (Array.isArray(agentListRaw.value) ? agentListRaw.value : []))
 const allModelOptions = computed<string[]>(() => {
-  const agents = agentListRaw.value?.list ?? []
+  const agents = agentRows.value
   const modelSet = new Set<string>()
   for (const agent of agents) {
     if (!agent.supported_models_json)
@@ -137,7 +135,7 @@ const allModelOptions = computed<string[]>(() => {
 })
 
 /** Agent 下拉选项（只列启用中的） */
-const agentOptions = computed(() => (agentListRaw.value?.list ?? []).map(a => ({
+const agentOptions = computed(() => agentRows.value.map(a => ({
   code: a.agent_code,
   label: `${a.agent_name}（${a.agent_code}）`,
 })))
@@ -348,7 +346,7 @@ const modelOptions = computed<string[]>(() => {
   const code = form.ai_agent_code.trim()
   if (!code)
     return allModelOptions.value
-  const agent = (agentListRaw.value?.list ?? []).find(a => a.agent_code === code)
+  const agent = agentRows.value.find(a => a.agent_code === code)
   if (!agent?.supported_models_json)
     return allModelOptions.value
   try {

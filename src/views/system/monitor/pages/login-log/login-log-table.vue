@@ -61,7 +61,7 @@ const columns = computed<TableColumnData[]>(() => [
     tooltip: true,
   },
   {
-    title: '地址',
+    title: 'IP',
     dataIndex: 'ipaddr',
     align: 'center',
     width: 120,

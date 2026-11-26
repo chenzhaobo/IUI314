@@ -60,6 +60,13 @@ const ruleChanges = computed(() => ctx.unifiedPreview?.rule_changes_since_baseli
               <span v-if="ruleChanges > 0" class="baseline-meta">（增量时这些规则额外跑全部文件）</span>
             </span>
           </div>
+          <!-- 找到基线 ≠ 可用于增量：规则快照校验不过时摘要还在，但必须显式标红 -->
+          <div v-if="ctx.incrementalDisabledReason" class="baseline-meta baseline-unusable">
+            <a-tag color="orange" size="small">
+              该基线不可用于增量
+            </a-tag>
+            {{ ctx.incrementalDisabledReason }}
+          </div>
         </template>
         <div v-else-if="!ctx.loadingUnifiedPreview" class="baseline-meta">
           <a-tag color="orange" size="small">
@@ -78,6 +85,7 @@ const ruleChanges = computed(() => ctx.unifiedPreview?.rule_changes_since_baseli
 <style scoped>
 .strategy-wrap { display: flex; flex-direction: column; gap: 8px; width: 100%; }
 .baseline-card { padding: 8px 12px; border: 1px solid var(--color-border-2); border-radius: 4px; background: var(--color-fill-1); }
+.baseline-unusable { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--color-border-2); color: var(--color-text-2); }
 .baseline-title { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; font-weight: 500; }
 .baseline-grid { display: grid; grid-template-columns: max-content 1fr max-content 1fr; gap: 4px 12px; font-size: 13px; }
 .baseline-label { color: var(--color-text-3); }

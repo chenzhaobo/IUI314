@@ -21,7 +21,7 @@ const showSearch = defineModel<boolean>('showSearch', { required: true })
 
 const queryFormItems = ref<IuQueryFormField[]>([
   {
-    field: 'ip',
+    field: 'ipaddr',
     label: '登录 IP',
     type: FormItemType.input,
     input: {

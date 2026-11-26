@@ -88,6 +88,44 @@ export interface TableAutoHeightOptions {
 }
 
 /**
+ * 路由过场期间量到的是**过渡值**，不能写进高度 ref。
+ *
+ * 过场由 `<transition>` 包住 `<keep-alive>`（见 `components/layout/app-main.vue`），
+ * 切页签时离场页与进场页会同时在文档里，而动画名是用户可配的
+ * （`appStore.app.animation`）。除默认的 `fade-transform` 外，多数动画的离场页
+ * **没有** `position: absolute`（fade / fade-bottom / zoom-fade / zoom-out / scale …），
+ * 它会继续占着文档流，把进场页整体往下推；进场动画带 translateY / scale 时，
+ * 元素自身的 `getBoundingClientRect()` 也还是过渡值。
+ *
+ * 结果：`top` 偏大 → 可用高度偏小 → 表格/左树矮一截，页面底部空出约五分之一。
+ * 而 0 / 120 / 400ms 的定时器在长动画（最长 0.85s）结束前就跑完了，
+ * 错误高度会一直留着 —— 现象就是「来回切页签后底部空白变大」。
+ */
+function layoutIsInTransition(el: HTMLElement) {
+  const page = el.closest('.app-main-content')
+  if (!page)
+    return false
+  // 仍在文档流里的离场页会把当前页往下推；绝对定位的离场页不影响布局
+  for (const other of document.querySelectorAll('.app-main-content')) {
+    if (other !== page && window.getComputedStyle(other).position !== 'absolute')
+      return true
+  }
+  // 进场动画自身带纵向位移/缩放时 rect 也是过渡值（纯 X 位移不影响 top）
+  const transform = window.getComputedStyle(page).transform
+  if (!transform || transform === 'none')
+    return false
+  if (typeof DOMMatrixReadOnly === 'undefined')
+    return true
+  try {
+    const m = new DOMMatrixReadOnly(transform)
+    return Math.abs(m.f) > 0.5 || Math.abs(m.a - 1) > 0.001 || Math.abs(m.d - 1) > 0.001
+  }
+  catch {
+    return true
+  }
+}
+
+/**
  * 算出表格体的可用高度，喂给 `:scroll="{ y: tableHeight }"`，
  * 让**滚动条出现在表格内部**、表头固定不动。
  *
@@ -222,7 +260,11 @@ export function useTableAutoHeight(
     if (typeof window === 'undefined')
       return
     const el = unref(container)
-    if (!el)
+    // 被 keep-alive 收走（detached）时 rect 全是 0，量了也没意义
+    if (!el || !el.isConnected)
+      return
+    // 过场期间布局是过渡值，等 settle 的补测（见 layoutIsInTransition）
+    if (layoutIsInTransition(el))
       return
     const rect = el.getBoundingClientRect()
     // top <= 0 说明还没真正参与布局（挂载瞬间、或在隐藏的 tab 里）。
@@ -327,6 +369,33 @@ export function useTableAutoHeight(
       // 上方内容可能整块换掉（v-if 切换），重新挂观察者
       observeSiblingsAbove()
     }, 400))
+    scheduleSettleMeasure()
+  }
+
+  /**
+   * 过场结束后补测一次（`measure()` 在过场期间会直接返回）。
+   *
+   * 0 / 120 / 400ms 覆盖不到最长 0.85s 的动画，不补这一刀的话进场那一刻的
+   * 过渡值（或首挂时的 undefined）就会一直留着。用 rAF 轮询到布局稳定：
+   * 无叠页、无纵向/缩放 transform；上限 1.5s 兜底，超时也补测一次。
+   */
+  const SETTLE_TIMEOUT = 1500
+  let settleRaf = 0
+  function scheduleSettleMeasure() {
+    cancelAnimationFrame(settleRaf)
+    const startedAt = performance.now()
+    const tick = () => {
+      const el = unref(container)
+      if (!el || !el.isConnected)
+        return
+      if (!layoutIsInTransition(el) || performance.now() - startedAt > SETTLE_TIMEOUT) {
+        measure()
+        observeSiblingsAbove()
+        return
+      }
+      settleRaf = requestAnimationFrame(tick)
+    }
+    settleRaf = requestAnimationFrame(tick)
   }
 
   onMounted(() => {
@@ -344,6 +413,7 @@ export function useTableAutoHeight(
     window.removeEventListener('resize', measure)
     observer?.disconnect()
     timers.forEach(t => window.clearTimeout(t))
+    cancelAnimationFrame(settleRaf)
   })
 
   // 把算出的高度以 CSS 变量写到容器上，供 arco.scss 里的

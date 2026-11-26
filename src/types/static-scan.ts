@@ -882,6 +882,10 @@ export interface ScanIssueRow {
   file_path: string
   start_line?: number | null
   branch?: string | null
+  /** 首次检出的 commit；历史行为 null */
+  first_seen_commit?: string | null
+  /** 最近一次检出的 commit（代码预览「检出时」版本用） */
+  last_seen_commit?: string | null
   hit_count: number
   risk_level?: string | null
   status: string
@@ -903,6 +907,8 @@ export interface ScanIssueRow {
   wont_fix_reason_code?: string | null
   /** 不处理原因说明（自由文本；重开时清空） */
   wont_fix_reason?: string | null
+  /** 暂缓原因（status=deferred 时填写；恢复处理时清空） */
+  defer_reason?: string | null
   /** DMP 缺陷编码：关联到 DMP 系统的缺陷单号 */
   dmp_defect_code?: string | null
   /** 缺陷编号：DEF-YYYYMMDD-NNNN（平台内唯一，导出/导入以它为准） */
@@ -1165,6 +1171,8 @@ export interface UnifiedScanRunRow {
   commit_sha?: string | null
   trigger_type?: string | null
   status: string
+  /** 本次运行实际拉取的仓库地址（历史运行未记录时为空） */
+  git_url?: string | null
   candidate_count?: number | null
   confirmed_count?: number | null
   started_at?: string | null
@@ -1178,6 +1186,8 @@ export interface CrossRunAggRow {
   branch?: string | null
   commit_sha?: string | null
   commit_time?: string | null
+  /** 本次运行实际拉取的仓库地址（历史运行未记录时为空） */
+  git_url?: string | null
   /** 扫描策略：差量类型（见 deltaKindLabels；空=全量） */
   delta_kind?: string | null
   /** 差量基线 commit（差量运行的比对基准） */
@@ -1257,4 +1267,48 @@ export interface RepositorySyncResponse {
   head_sha: string
   message: string
   duration_ms: number
+}
+
+/** 代码预览的一行：n 是文件真实行号 */
+export interface IssueCodeLine {
+  n: number
+  text: string
+}
+
+/** 预览版本：current=仓库分支最新 commit；detection=缺陷最近一次命中；custom=指定 commit */
+export type IssueCodeVersion = 'current' | 'detection' | 'custom'
+
+/**
+ * 代码预览契约（缺陷 / 候选两个入口共用，响应结构一致）：
+ * - GET /sechub/prescan/issue-code?issue_id=
+ * - GET /sechub/prescan/candidate-code?candidate_id=
+ * source=git 为 mirror 实时读取；source=snippet 表示回退到扫描时存的命中上下文。
+ */
+export interface IssueCodePreview {
+  available: boolean
+  source: 'git' | 'snippet'
+  version: IssueCodeVersion
+  repository_name?: string | null
+  branch?: string | null
+  commit?: string | null
+  commit_short?: string | null
+  /** ISO8601 提交时间 */
+  commit_time?: string | null
+  commit_author?: string | null
+  commit_subject?: string | null
+  /** 本地镜像最近刷新时间：落后远端时提示用 */
+  mirror_updated_at?: string | null
+  /** 本次是否成功把 mirror 拉到远端最新（false 时不保证是最新，必须提示） */
+  remote_synced: boolean
+  file_path: string
+  /** 路径纠偏后实际读取的文件（与 file_path 不同时前端要提示） */
+  resolved_path?: string | null
+  encoding?: string | null
+  total_lines: number
+  start_line: number
+  end_line: number
+  highlight_lines: number[]
+  lines: IssueCodeLine[]
+  truncated: boolean
+  note?: string | null
 }

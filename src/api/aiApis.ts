@@ -22,6 +22,8 @@ export enum ApiAiAgent {
 // ── Skill 管理 ──────────────────────────────────────
 export enum ApiAiSkill {
   getList = '/ai/skill/list',
+  /** 业务页面选择技能用；不受 AI 管理菜单权限约束（别用 getList） */
+  options = '/ai/skill/options',
   getById = '/ai/skill/get_by_id',
   add = '/ai/skill/add',
   edit = '/ai/skill/edit',
@@ -59,6 +61,7 @@ export enum ApiAiExecution {
 // ── 通用 Agent 复盘反馈 ──────────────────────────────
 export enum ApiAiFeedback {
   list = '/ai/agent-feedback/list',
+  export = '/ai/agent-feedback/export',
   prompt = '/ai/agent-feedback/prompt',
   collect = '/ai/agent-feedback/collect',
   status = '/ai/agent-feedback/status',
@@ -162,11 +165,15 @@ export interface AiAgent {
   max_concurrent: number
   health_check_cmd: string | null
   skill_mount_path: string | null
+  /** 任务级 MCP 注入方式：none / qoder / opencode / dsh */
+  mcp_mode: string
   status: string
   remark: string | null
   created_at: string
   updated_at: string
 }
+
+export type AiSkillOption = Pick<AiSkill, 'skill_code' | 'skill_name'>
 
 export interface AiSkill {
   id: string
@@ -192,6 +199,9 @@ export interface AiSkill {
 export interface AiExecution {
   id: string
   agent_id: string
+  /** 执行时的 Agent 快照，Agent 改名/下线后仍可读 */
+  agent_code: string | null
+  agent_name: string | null
   skill_id: string | null
   caller_module: string
   caller_id: string | null
@@ -205,6 +215,16 @@ export interface AiExecution {
   output_files_json: string | null
   exit_code: number | null
   duration_ms: number | null
+  /** 本次实际使用的模型 */
+  model: string | null
+  input_tokens: number | null
+  output_tokens: number | null
+  total_tokens: number | null
+  cache_read_input_tokens: number | null
+  /** qoder-cli 的计费单位；token 恒为 0 时以它为准 */
+  credits: number | null
+  cost_usd: number | null
+  num_turns: number | null
   status: string
   error_message: string | null
   feedback_status: string
@@ -212,6 +232,8 @@ export interface AiExecution {
   feedback_finished_at: string | null
   feedback_error: string | null
   created_by: string | null
+  /** 展示用调用人名称；解析不到时后端留空，前端回退 created_by */
+  created_by_name: string | null
   created_at: string
   started_at: string | null
   finished_at: string | null
@@ -247,6 +269,10 @@ export interface AiExecutionStats {
   running: number
   success_rate: number
   avg_duration_ms: number
+  /** 已上报的 token 合计（kiro/灵基/dsh 不上报） */
+  total_tokens: number
+  /** qoder-cli 的积分合计 */
+  total_credits: number
 }
 
 export interface AiListResult<T> {

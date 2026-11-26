@@ -96,6 +96,8 @@ export enum ApiSysDbApi {
  */
 export enum ApiSysDept {
   getList = '/system/dept/list',
+  /** 当前用户可切换的部门；不受部门管理菜单权限约束（导航栏用） */
+  options = '/system/dept/options',
   getById = '/system/dept/get_by_id',
   getDeptTree = '/system/dept/get_dept_tree',
   add = '/system/dept/add',
@@ -119,6 +121,8 @@ export enum ApiSysPost {
  */
 export enum ApiSysRole {
   getList = '/system/role/list',
+  /** 当前用户可切换的角色；不受角色管理菜单权限约束（导航栏用） */
+  options = '/system/role/options',
   getById = '/system/role/get_by_id',
   add = '/system/role/add',
   edit = '/system/role/edit',

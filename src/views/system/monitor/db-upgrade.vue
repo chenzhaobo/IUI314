@@ -22,6 +22,12 @@ function fmtApplied(sec: number | null) {
   return formatTime(new Date(sec * 1000))
 }
 
+/// 更早几次执行里的失败语句数（不含最近一次）。
+/// 状态只认最近一次执行：修好重跑成功后行要转绿，但历史不能假装没发生。
+function earlierFailures(r: any): number {
+  return Math.max(0, (r.history_failed || 0) - (r.stmt_failed || 0))
+}
+
 /// 一行的状态：已应用 / 失败（有失败语句或压根没记为已应用）
 function statusOf(r: any): { text: string, color: string } {
   if ((r.stmt_failed || 0) > 0)
@@ -100,7 +106,7 @@ function handlePurge(r: any) {
 const columns = [
   { title: '迁移', dataIndex: 'migration', ellipsis: true, tooltip: true },
   { title: '说明', dataIndex: 'title', width: 260, ellipsis: true, tooltip: true },
-  { title: '状态', dataIndex: 'status', width: 180, slotName: 'status' },
+  { title: '状态', dataIndex: 'status', width: 240, slotName: 'status' },
   { title: '升级时间', dataIndex: 'applied_at', width: 175, slotName: 'time' },
   { title: '语句', dataIndex: 'stmt_total', width: 90, slotName: 'stmt' },
   { title: '耗时', dataIndex: 'elapsed_ms', width: 90, slotName: 'elapsed' },
@@ -141,7 +147,8 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
 
       <a-alert class="mb-3" :type="logAvailable ? 'normal' : 'warning'">
         <template v-if="logAvailable">
-          显示的是<b>当前实例所连数据库</b>（{{ database }}）的升级情况。展开一行可看逐条语句与报错原因。
+          显示的是<b>当前实例所连数据库</b>（{{ database }}）的升级情况。状态按<b>最近一次执行</b>计算，
+          灰色标签表示更早的失败（该迁移后来已重跑成功）。展开一行可看逐条语句与报错原因。
           历史迁移在执行日志功能上线前跑的，没有逐条记录，只有「已应用」时间。
         </template>
         <template v-else>
@@ -167,6 +174,9 @@ const { tableHeight } = useTableAutoHeight(tableWrap)
         <template #status="{ record }">
           <a-tag :color="statusOf(record).color">
             {{ statusOf(record).text }}
+          </a-tag>
+          <a-tag v-if="earlierFailures(record) > 0" color="gray" class="ml-1">
+            更早失败 {{ earlierFailures(record) }} 次
           </a-tag>
         </template>
         <template #time="{ record }">

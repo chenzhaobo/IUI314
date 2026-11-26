@@ -273,6 +273,10 @@ export enum ApiSecPrescan {
   ruleSetTree = '/sechub/prescan/rule-set-tree',
   /** 20261008 A：某缺陷的全部检出记录（按检出时间倒序） */
   issueDetections = '/sechub/prescan/issue-detections',
+  /** 缺陷代码预览：默认仓库分支最新 commit，可切到检出时的 commit */
+  issueCode = '/sechub/prescan/issue-code',
+  /** 候选代码预览：仓库/分支/检出 commit 取自候选所属扫描运行 */
+  candidateCode = '/sechub/prescan/candidate-code',
   deltaPreview = '/sechub/static-prescan/delta/preview',
   deltaPlan = '/sechub/static-prescan/delta/{plan_id}',
   deltaExecute = '/sechub/static-prescan/delta/{plan_id}/execute',
@@ -321,6 +325,8 @@ export enum ApiSecPrescan {
   issueFixed = '/sechub/prescan/issue-fixed',
   issueTransfer = '/sechub/prescan/issue-transfer',
   issueTransition = '/sechub/prescan/issue-transition',
+  /** 添加缺陷备注（只写流转事件，不改状态） */
+  issueNote = '/sechub/prescan/issue-note',
   /** 批量设置/清除缺陷的计划处理完成时间（项目组标注） */
   issuePlanFinish = '/sechub/prescan/issue-plan-finish',
   /** 差量基线：当前 active 基线查询 / 人工采纳 */

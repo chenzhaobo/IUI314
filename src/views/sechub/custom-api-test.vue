@@ -13,7 +13,7 @@
  * - 「扫描结果」：报告（Markdown）+ 逐条结论（未找到API / 已排除 / 确认问题）；
  * - 「删除」：软删除任务（运行中不可删）。
  */
-import type { AiAgent } from '@/api/aiApis'
+import type { AiAgentOption } from '@/api/aiApis'
 import type { ModuleWithRepository } from '@/types/static-scan'
 import { Message, Modal } from '@arco-design/web-vue'
 import { MdPreview } from 'md-editor-v3'
@@ -75,18 +75,18 @@ interface ImplTarget {
 interface TaskItem {
   id: string
   call_path: string
-  http_method?: string | null
-  api_name?: string | null
-  api_number?: string | null
-  app_number?: string | null
-  app_name?: string | null
+  http_method: string | null
+  api_name: string | null
+  api_number: string | null
+  app_number: string | null
+  app_name: string | null
   dev_mode?: string | null
   locate_status?: string | null
-  locate_note?: string | null
-  impl_json?: ImplTarget[] | null
-  verdict?: string | null
-  severity?: string | null
-  ai_summary?: string | null
+  locate_note: string | null
+  impl_json: ImplTarget[] | null
+  verdict: string | null
+  severity: string | null
+  ai_summary: string | null
 }
 
 /** 任务内的一个应用（运行弹窗按应用选代码库） */
@@ -240,7 +240,7 @@ const runForm = reactive({ agentCode: '', model: '' })
 const appRepoRows = ref<AppRepoRow[]>([])
 const runDetailLoading = ref(false)
 const unassignedApiCount = computed(() => appRepoRows.value.filter(row => !row.repositoryId).reduce((sum, row) => sum + row.apiCount, 0))
-const agentList = ref<AiAgent[]>([])
+const agentList = ref<AiAgentOption[]>([])
 const repoList = ref<ModuleWithRepository[]>([])
 const runLookupsLoading = ref(false)
 

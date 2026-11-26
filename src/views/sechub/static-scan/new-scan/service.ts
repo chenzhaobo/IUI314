@@ -5,7 +5,7 @@ import type { AiConfirmBody, FullTriggerRequest, RepoOption, RuleSetTree, Unifie
  * 约定：统一用 `@/hooks` 的 `getAction/postAction`（失败返回 null，拦截器已弹错误提示），
  * 页面与组合式函数不直接碰 `@/api` 常量。返回类型显式标注，禁用 any。
  */
-import type { AiAgent, AiSkill } from '@/api/aiApis'
+import type { AiAgentOption, AiSkillOption } from '@/api/aiApis'
 import type { AgentRunProgress, AiConfirmResponse, BranchesControlResponse, ModuleWithRepository, PageResult, PrescanTriggerResponse, RepositoryCommitListResponse, RuleSet, ScanPointSummaryRow } from '@/types/static-scan'
 import { ApiAiAgent, ApiAiSkill } from '@/api/aiApis'
 import { ApiSecModuleRepository, ApiSecPrescan, ApiSecRuleSet } from '@/api/sechubApis'
@@ -97,15 +97,16 @@ export function triggerAiConfirm(body: AiConfirmBody): Promise<AiConfirmResponse
 }
 
 /** 启用状态的 Agent 列表；失败返回 null（调用方保留旧列表） */
-export async function fetchAgents(): Promise<AiAgent[] | null> {
-  const res = await getAction<{ list: AiAgent[] }>(ApiAiAgent.getList, { status: 'active', page_size: 50 })
-  return res?.list ?? null
+export async function fetchAgents(): Promise<AiAgentOption[] | null> {
+  // options 不受 AI 管理菜单权限约束；list 会让扫描用户直接 403
+  const res = await getAction<AiAgentOption[]>(ApiAiAgent.options)
+  return Array.isArray(res) ? res : null
 }
 
 /** 启用状态的技能列表；失败返回 null */
-export async function fetchSkills(): Promise<AiSkill[] | null> {
-  const res = await getAction<{ list: AiSkill[] }>(ApiAiSkill.getList, { status: 'active', page_size: 100 })
-  return res?.list ?? null
+export async function fetchSkills(): Promise<AiSkillOption[] | null> {
+  const res = await getAction<AiSkillOption[]>(ApiAiSkill.options)
+  return Array.isArray(res) ? res : null
 }
 
 /** Agent 自主审计进度（3 秒轮询用） */

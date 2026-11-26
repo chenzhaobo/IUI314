@@ -94,11 +94,19 @@ const columns = computed<TableColumnData[]>(() => [
     align: 'center',
   },
   {
-    title: '地址',
+    title: 'IP',
+    dataIndex: 'oper_ip',
+    ellipsis: true,
+    tooltip: true,
+    width: 140,
+    align: 'center',
+  },
+  {
+    title: '操作地点',
     dataIndex: 'oper_location',
     ellipsis: true,
     tooltip: true,
-    width: 180,
+    width: 160,
     align: 'center',
   },
   {

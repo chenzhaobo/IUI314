@@ -323,7 +323,7 @@ export interface ComplianceDrillItem {
   customer?: string | null
   product_version?: string | null
   cosmic_version?: string | null
-  /** 名称 tooltip：客户维度行显示该客户的产品/苍穹版本 */
+  /** 名称 tooltip：客户维度显示产品/苍穹版本；产品版本维度显示 Top20 客户名称 */
   subtitle?: string | null
 }
 
@@ -487,11 +487,19 @@ export enum ApiPerfPatternLedger {
   // 不走 scopeCounts 的原因：那套结构与计数打在达标率快照上（生产 500 万行，
   // 实测 15 秒级且受 500 节点上限约束），台账自身字段分组又快又只出现有数据的节点。
   scopeTree = '/perf/periodic-report/pattern/scope-tree',
+  /** 详情：客户×版本汇总 + 最近 N 天出现事实 */
+  scope = '/perf/periodic-report/pattern/scope',
+  /** 历史台账客户×版本事实回填（幂等） */
+  scopeBackfill = '/perf/periodic-report/pattern/scope-backfill',
   formDrill = '/perf/periodic-report/pattern/form-drill',
   /** 表单节点展开出的按钮（台账 form_keys 里该表单的按钮聚合） */
   controlDrill = '/perf/periodic-report/pattern/control-drill',
   export = '/perf/periodic-report/pattern/export',
   logs = '/perf/periodic-report/pattern/logs',
+  /** 按版本矩阵缺口创建补样本批次（队列异步执行） */
+  backfill = '/perf/periodic-report/pattern/backfill',
+  backfillProgress = '/perf/periodic-report/pattern/backfill/progress',
+  backfillCancel = '/perf/periodic-report/pattern/backfill/cancel',
   reportMd = '/perf/periodic-report/pattern/report-md',
   /** 单独下载缺陷报告 md 完整原文（不截断、不含原始日志） */
   reportMdDownload = '/perf/periodic-report/pattern/report-md/download',

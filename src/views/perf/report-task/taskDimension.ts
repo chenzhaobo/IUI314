@@ -25,6 +25,10 @@ export interface TargetDimension {
   form_id: string
   control_name?: string
   event_name?: string
+  tenant_code?: string
+  customer_name?: string
+  product_version?: string
+  cosmic_version?: string
 }
 
 /**
@@ -85,6 +89,39 @@ export function tagsToTargetDimensions(tags: string[]): TargetDimension[] | null
     result.push(control_name ? { form_id, control_name } : { form_id })
   }
   return result.length ? result : null
+}
+
+/**
+ * 保留下拉标签编辑器不展示的高级 target 字段（tenant/customer/version）。
+ * 先按 form_id + control/event 匹配原项，再把高级字段带回来；
+ * 用户清空标签时返回 null（= 清空 target_dimensions），不保留旧项。
+ */
+export function mergeTargetDimensions(generated: TargetDimension[] | null, original: unknown): TargetDimension[] | null {
+  if (!generated)
+    return null
+  if (!Array.isArray(original))
+    return generated
+  const byKey = new Map<string, TargetDimension>()
+  for (const raw of original) {
+    if (!raw || typeof raw !== 'object')
+      continue
+    const item = raw as Partial<TargetDimension>
+    const form = String(item.form_id ?? '').trim()
+    if (!form)
+      continue
+    const op = String(item.control_name ?? item.event_name ?? '').trim()
+    byKey.set(`${form}|${op}`, item as TargetDimension)
+  }
+  return generated.map((item) => {
+    const key = `${String(item.form_id ?? '').trim()}|${String(item.control_name ?? item.event_name ?? '').trim()}`
+    const source = byKey.get(key)
+    if (!source)
+      return item
+    return {
+      ...source,
+      ...item,
+    }
+  })
 }
 
 /**

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AiAgent } from '@/api/aiApis'
+import type { AiAgentOption } from '@/api/aiApis'
 import type { ColumnFilterState } from '@/hooks'
 
 import type {
@@ -20,6 +20,7 @@ import { ErrorFlag } from '@/api/apis'
 import { ApiSecModuleRepository, ApiSecPrescan, ApiSecProjectGroup } from '@/api/sechubApis'
 import ColumnFilterPanel from '@/components/common/ColumnFilterPanel.vue'
 import { downloadText, emptyFilter, formatTime, getAction, isFilterActive, toServerFilters, useAutoHeight, useFilterPersistence, useGet, usePost } from '@/hooks'
+import CodePreviewDrawer from './components/CodePreviewDrawer.vue'
 import { buildRuleStatTree, defaultRuleTreeExpandedKeys } from './components/ruleCategoryTree'
 import { useScanPointCategories } from './components/useScanPointCategories'
 import CoverageReportTab from './coverage-report/CoverageReportTab.vue'
@@ -459,6 +460,14 @@ function onPageSizeChange(size: number) {
 }
 
 // ===== 查看报告（MdPreview 抽屉）=====
+// ===== 代码预览（最新 commit / 检出时 commit）=====
+const codeVisible = ref(false)
+const codeRow = ref<CandidateDetailRow | null>(null)
+function viewCode(row: CandidateDetailRow) {
+  codeRow.value = row
+  codeVisible.value = true
+}
+
 const reportVisible = ref(false)
 const reportRow = ref<CandidateDetailRow | null>(null)
 function viewReport(row: CandidateDetailRow) {
@@ -565,12 +574,12 @@ const AUTONOMOUS_AGENT_CODES = ['qoder-cli-scan']
 const retryAgentCode = ref('')
 /** 空串 = 用该 Agent 的默认模型（agent.default_model / auto） */
 const retryModel = ref('')
-const agents = ref<AiAgent[]>([])
+const agents = ref<AiAgentOption[]>([])
 const agentsLoading = ref(false)
 let agentsRequested = false
 const retryBusy = ref(false)
 
-const selectedRetryAgent = computed<AiAgent | null>(() => agents.value.find(a => a.agent_code === retryAgentCode.value) ?? null)
+const selectedRetryAgent = computed<AiAgentOption | null>(() => agents.value.find(a => a.agent_code === retryAgentCode.value) ?? null)
 /** 所选 Agent 是否走自主审计协议（决定重扫范围是整轮还是仅勾选） */
 const retryAutonomous = computed(() => AUTONOMOUS_AGENT_CODES.includes(retryAgentCode.value))
 /** 模型候选来自所选 Agent 的模型清单（auto 是"Agent 默认模型"的占位，不单列） */
@@ -599,8 +608,9 @@ async function ensureAgents() {
   agentsRequested = true
   agentsLoading.value = true
   try {
-    const res = await getAction<{ list: AiAgent[] }>(ApiAiAgent.getList, { status: 'active', page_size: 50 })
-    agents.value = res?.list ?? []
+    // business 页面用 options：list 受 AI 管理菜单权限约束，扫描用户会 403
+    const res = await getAction<AiAgentOption[]>(ApiAiAgent.options)
+    agents.value = Array.isArray(res) ? res : []
   }
   finally {
     agentsLoading.value = false
@@ -703,6 +713,8 @@ function onOpsSelect(value: unknown, row: CandidateDetailRow) {
     openManualModal(row)
   else if (value === 'issue')
     void viewIssue(row)
+  else if (value === 'code')
+    viewCode(row)
 }
 
 /**
@@ -985,8 +997,9 @@ const visibleColumnKeys = ref<string[]>([...DEFAULT_VISIBLE_COLUMNS])
 
 /** 全部候选列（含默认隐藏的），供「显示列」下拉与实际渲染共用 */
 const allCandidateColumns = computed(() => [
-  { key: 'file_path', title: '文件', dataIndex: 'file_path', width: 260, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('file_path') },
-  { key: 'start_line', title: '行号', dataIndex: 'start_line', width: 80, resizable: true, filterable: filterableOf('start_line') },
+  // 文件 / 行号列同时是代码预览入口（命中行就是定位点），整块可点比再加一列按钮省地方
+  { key: 'file_path', title: '文件', dataIndex: 'file_path', slotName: 'filePath', width: 260, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('file_path') },
+  { key: 'start_line', title: '行号', dataIndex: 'start_line', slotName: 'lineNo', width: 80, resizable: true, filterable: filterableOf('start_line') },
   { key: 'method_name', title: '方法', dataIndex: 'method_name', width: 160, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('method_name') },
   { key: 'matched_text', title: '匹配文本', dataIndex: 'matched_text', width: 180, ellipsis: true, tooltip: true, resizable: true, filterable: filterableOf('matched_text') },
   { key: 'ai_status', title: 'AI状态', dataIndex: 'ai_status', slotName: 'aiStatus', width: 90, resizable: true },
@@ -1530,6 +1543,16 @@ watch(() => route.query, (newQ, oldQ) => {
                     </a-tag>
                     <span v-else class="text-muted">-</span>
                   </template>
+                  <template #filePath="{ record }">
+                    <a-tooltip content="查看代码（默认最新提交，可切到检出时）" mini>
+                      <span class="code-link" @click.stop="viewCode(record)">{{ record.file_path }}</span>
+                    </a-tooltip>
+                  </template>
+                  <template #lineNo="{ record }">
+                    <a-tooltip content="查看代码（默认最新提交，可切到检出时）" mini>
+                      <span class="code-link code-link-accent" @click.stop="viewCode(record)">{{ record.start_line ?? '-' }}</span>
+                    </a-tooltip>
+                  </template>
                   <template #confidence="{ record }">
                     {{ record.ai_confidence != null ? Number(record.ai_confidence).toFixed(2) : '-' }}
                   </template>
@@ -1575,6 +1598,9 @@ watch(() => route.query, (newQ, oldQ) => {
                           </a-doption>
                           <a-doption value="issue">
                             联查缺陷
+                          </a-doption>
+                          <a-doption value="code">
+                            查看代码
                           </a-doption>
                         </template>
                       </a-dropdown>
@@ -1761,8 +1787,15 @@ watch(() => route.query, (newQ, oldQ) => {
         </a-descriptions-item>
       </a-descriptions>
       <!-- 下载原始 md：内容已在前端手里，本地存盘即可，不必再走后端 -->
-      <div v-if="reportRow?.ai_detail_report" class="report-toolbar">
-        <a-button size="small" @click="downloadReport">
+      <div class="report-toolbar">
+        <!-- 看报告时最常追问「这段代码现在长什么样」；绿色实心与其它动作区分开 -->
+        <a-button size="small" type="primary" status="success" :disabled="!reportRow" @click="reportRow && viewCode(reportRow)">
+          <template #icon>
+            <icon-code />
+          </template>
+          查看代码
+        </a-button>
+        <a-button v-if="reportRow?.ai_detail_report" size="small" @click="downloadReport">
           <template #icon>
             <icon-download />
           </template>
@@ -1783,6 +1816,14 @@ watch(() => route.query, (newQ, oldQ) => {
         </p>
       </div>
     </a-modal>
+
+    <!-- 代码预览：默认最新 commit，可切到该候选检出时的 commit -->
+    <CodePreviewDrawer
+      v-model:visible="codeVisible"
+      :candidate-id="codeRow?.id ?? ''"
+      :title="codeRow?.file_path"
+      detection-available
+    />
   </div>
 </template>
 
@@ -1794,6 +1835,11 @@ watch(() => route.query, (newQ, oldQ) => {
 .selector-label { color: var(--color-text-2); }
 .card-sub { margin-left: 12px; color: var(--color-text-3); font-weight: normal; font-size: 12px; }
 .text-muted { color: var(--color-text-4); }
+/* 文件 / 行号列：代码预览入口，悬停给下划线提示可点 */
+.code-link { cursor: pointer; }
+.code-link:hover { color: rgb(var(--primary-6)); text-decoration: underline; }
+/* 行号常驻蓝色：它是「点这里看代码」的主要提示，不靠悬停才发现 */
+.code-link-accent { color: rgb(var(--primary-6)); font-variant-numeric: tabular-nums; font-weight: 500; }
 .verdict-panel { padding: 8px 12px; background: var(--color-fill-1); }
 /* flex-basis 必须是 auto：`flex: 1` 是 `1 1 0%`，basis 0% 会让上面实测的 `height`
    被 flex 布局无视 —— 行高退回内容驱动，左树一展开就把整条高度链顶高、内容区出滚动条。
@@ -1844,6 +1890,7 @@ watch(() => route.query, (newQ, oldQ) => {
 .report-toolbar {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
   margin-bottom: 8px;
 }
 

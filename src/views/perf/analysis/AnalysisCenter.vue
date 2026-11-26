@@ -84,7 +84,7 @@
           <a-col :span="8">
             <a-form-item label="执行 Agent" required>
               <a-select v-model="form.agent_code" :loading="agentLoading" placeholder="请选择 AI 中心 Agent">
-                <a-option v-for="agent in agents" :key="agent.id" :value="agent.agent_code">
+                <a-option v-for="agent in agents" :key="agent.agent_code" :value="agent.agent_code">
                   {{ agent.agent_name }}（{{ agent.agent_code }}）
                 </a-option>
               </a-select>
@@ -117,7 +117,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message, Modal } from '@arco-design/web-vue'
-import { ApiAiAgent, type AiAgent, type AiListResult } from '@/api/aiApis'
+import { ApiAiAgent, type AiAgentOption } from '@/api/aiApis'
 import { ApiPerfAnalysisJob, ApiPerfCompliance } from '@/api/perfApis'
 import { useGet, usePost, useTableAutoHeight } from '@/hooks'
 
@@ -143,12 +143,9 @@ const appOptions = ref<any[]>([])
 const appPayload = ref<any>({ level: 'app', product_line: '星瀚' })
 useGet<any>(ApiPerfCompliance.dimensionOptions, appPayload, { immediate: true, onSuccess(value: any) { appOptions.value = Array.isArray(value) ? value : [] } })
 
-const { data: agentData, isFetching: agentLoading } = useGet<AiListResult<AiAgent>>(
-  ApiAiAgent.getList,
-  { status: 'active', page_num: 1, page_size: 100 },
-  { immediate: true },
-)
-const agents = computed(() => agentData.value?.list || [])
+// 用 options：/ai/agent/list 挂在 AI 管理中心菜单权限下，业务角色调用会 403
+const { data: agentData, isFetching: agentLoading } = useGet<AiAgentOption[]>(ApiAiAgent.options, undefined, { immediate: true })
+const agents = computed(() => (Array.isArray(agentData.value) ? agentData.value : []))
 const defaultAgentCode = () => agents.value.find(agent => agent.agent_code === 'kiro-cli')?.agent_code || agents.value[0]?.agent_code || 'kiro-cli'
 const agentDisplayName = (agentCode?: string) => {
   if (!agentCode) return '-'

@@ -14,6 +14,21 @@
           </a-select>
         </a-col>
         <a-col :span="3">
+          <!-- 客户过滤读客户×版本事实表（tenant_code 优先，名称兜底）；左树客户节点会自动带入 -->
+          <a-input v-model="searchForm.customer_key" placeholder="客户编码/名称" allow-clear @press-enter="handleSearch" />
+        </a-col>
+        <a-col :span="3">
+          <a-input v-model="searchForm.product_version" placeholder="产品版本" allow-clear @press-enter="handleSearch" />
+        </a-col>
+        <a-col :span="3">
+          <a-select v-model="searchForm.version_state" placeholder="版本状态" allow-clear>
+            <a-option value="observed">已观测</a-option>
+            <a-option value="inherited_unverified">升级继承未验证</a-option>
+            <a-option value="not_observed">足够样本未命中</a-option>
+            <a-option value="resolved">已解决</a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="3">
           <!-- 项目组：生产上有 9 个取值，是真正有区分度的维度。
                原来这里是「维度类型 + 维度值」，但台账 364 条的 dimension_type
                全是 product_domain、dimension_value 全是「集团财务」——
@@ -53,6 +68,11 @@
             <a-option v-for="t in tagOptions" :key="t.value" :value="t.value">
               {{ t.label }}
             </a-option>
+          </a-select>
+        </a-col>
+        <a-col :span="3">
+          <a-select v-model="searchForm.regression_type" placeholder="回归分类" allow-clear>
+            <a-option v-for="o in regressionOptions" :key="o.value" :value="o.value">{{ o.label }}</a-option>
           </a-select>
         </a-col>
         <a-col :span="3">
@@ -202,7 +222,7 @@
           <!-- 表格 -->
           <div ref="tableWrap" class="table-fill">
           <a-table :data="tableData" :loading="loading" :pagination="pagination" @page-change="handlePageChange"
- @page-size-change="handlePageSizeChange" row-key="id" column-resizable :scroll="{ minWidth: 1970, y: tableHeight }"
+ @page-size-change="handlePageSizeChange" row-key="id" column-resizable :scroll="{ minWidth: 2140, y: tableHeight }"
  v-model:selected-keys="selectedKeys" :row-selection="rowSelection" @sorter-change="handleSorterChange"
  @filter-change="onEnumFilterChange">
             <template #columns>
@@ -233,6 +253,12 @@
                   <span v-else>--</span>
                 </template>
               </a-table-column>
+              <a-table-column title="回归分类" data-index="regression_type" :width="120" :filterable="enumFilterable(regressionOptions, searchForm.regression_type)">
+                <template #cell="{ record }">
+                  <a-tag v-if="record.regression_type" :color="regressionColor(record.regression_type)" size="small">{{ regressionText(record.regression_type) }}</a-tag>
+                  <span v-else style="color: #86909c">未分类</span>
+                </template>
+              </a-table-column>
               <a-table-column title="维度" data-index="dimension_value" :width="150" :filterable="filterableOf('dimension_value')">
                 <template #cell="{ record }">
                   <span>{{ dimensionTypeText(record.dimension_type) }} / {{ record.dimension_value }}</span>
@@ -259,6 +285,28 @@
               <a-table-column title="应用" data-index="app_number" :width="90" :filterable="filterableOf('app_number')">
                 <template #cell="{ record }">
                   {{ record.app_number || '--' }}
+                </template>
+              </a-table-column>
+              <!-- 客户×版本摘要：一条台账可能跨多个客户/版本，列表只给汇总；详情展开每日事实 -->
+              <a-table-column title="客户 / 版本" :width="170">
+                <template #cell="{ record }">
+                  <template v-if="record.scope_summary">
+                    <a-tooltip>
+                      <template #content>
+                        <div v-for="(item, idx) in record.scope_summary.top || []" :key="idx">
+                          {{ item.customer_name || '未知客户' }} / {{ item.product_version }} · {{ versionStateText(item.state) }}
+                        </div>
+                      </template>
+                      <span>{{ record.scope_summary.customer_count }} 客户 / {{ record.scope_summary.version_count }} 版本</span>
+                    </a-tooltip>
+                    <a-tag v-if="record.scope_summary.inherited" color="orange" size="small" style="margin-left: 4px" title="客户升级后尚未在新版本观测到复现">
+                      继承 {{ record.scope_summary.inherited }}
+                    </a-tag>
+                    <a-tag v-if="record.scope_summary.not_observed" color="green" size="small" style="margin-left: 4px" title="有足够成功样本且未命中，不等于人工确认已修复">
+                      未命中 {{ record.scope_summary.not_observed }}
+                    </a-tag>
+                  </template>
+                  <span v-else class="muted">--</span>
                 </template>
               </a-table-column>
               <a-table-column title="产品线" data-index="product_line" :width="80" ellipsis tooltip :filterable="enumFilterable(productLineOptions, searchForm.product_line)" />
@@ -468,6 +516,11 @@
           </template>
           <span v-else>--</span>
         </a-descriptions-item>
+        <a-descriptions-item label="回归分类">
+          <a-tag v-if="currentRecord?.regression_type" :color="regressionColor(currentRecord.regression_type)" size="small">{{ regressionText(currentRecord.regression_type) }}</a-tag>
+          <span v-else>未分类</span>
+          <span v-if="currentRecord?.version_matrix?.classification?.reason" style="margin-left: 8px; color: #86909c; font-size: 12px">{{ currentRecord.version_matrix.classification.reason }}</span>
+        </a-descriptions-item>
         <a-descriptions-item label="影响面">
           <ImpactCell :record="currentRecord || {}" />
         </a-descriptions-item>
@@ -557,6 +610,62 @@
       </div>
       <div v-else class="content-block">暂无</div>
 
+      <a-divider>客户×版本演进（事实表）</a-divider>
+      <a-spin :loading="scopeLoading" style="display: block">
+        <a-table v-if="scopeVersions.length" :data="scopeVersions" size="small" :pagination="false" row-key="id" style="margin-bottom: 12px">
+          <template #columns>
+            <a-table-column title="客户" data-index="customer_name" :width="220" ellipsis tooltip />
+            <a-table-column title="版本" data-index="product_version" :width="140" />
+            <a-table-column title="状态" :width="130">
+              <template #cell="{ record }">
+                <a-tag :color="versionStateColor(record.state)" size="small">{{ versionStateText(record.state) }}</a-tag>
+              </template>
+            </a-table-column>
+            <a-table-column title="首次出现" data-index="first_seen_date" :width="110" />
+            <a-table-column title="最近观测" data-index="last_observed_run_date" :width="110" />
+            <a-table-column title="最近慢请求" data-index="last_slow_count" :width="100" />
+            <a-table-column title="来源" data-index="source" :width="110" />
+          </template>
+        </a-table>
+        <div v-else class="content-block">暂无客户×版本记录；历史台账可执行一次 scope 回填。</div>
+        <template v-if="scopeFacts.length">
+          <div style="margin: 8px 0; color: #86909c; font-size: 12px">
+            最近 90 天出现事实（{{ scopeSince }} 起，共 {{ scopeFacts.length }} 条；按日保留）
+          </div>
+          <a-table :data="scopeFacts.slice(0, 80)" size="mini" :pagination="false" row-key="id">
+            <template #columns>
+              <a-table-column title="日期" data-index="run_date" :width="100" />
+              <a-table-column title="客户" data-index="customer_name" :width="180" ellipsis tooltip />
+              <a-table-column title="版本" data-index="product_version" :width="130" />
+              <a-table-column title="表单/按钮" :width="180" ellipsis tooltip>
+                <template #cell="{ record }">{{ record.form_id }} / {{ record.control_name || '未归因操作' }}</template>
+              </a-table-column>
+              <a-table-column title="慢请求" data-index="slow_count" :width="80" />
+              <a-table-column title="选中/成功" :width="90">
+                <template #cell="{ record }">{{ record.selected_count }} / {{ record.ok_count }}</template>
+              </a-table-column>
+              <a-table-column title="来源" data-index="source" :width="110" />
+            </template>
+          </a-table>
+        </template>
+      </a-spin>
+
+      <a-divider>版本 / 客户矩阵</a-divider>
+      <a-table v-if="versionMatrixRows().length" :data="versionMatrixRows()" size="small" :pagination="false" row-key="key" style="margin-bottom: 12px">
+        <template #columns>
+          <a-table-column title="客户" data-index="customer" :width="220" ellipsis tooltip />
+          <a-table-column title="影响" data-index="affected" :width="60" />
+          <a-table-column title="版本" data-index="version" :width="140" />
+          <a-table-column title="超3秒" data-index="slow" :width="80" />
+          <a-table-column title="总请求" data-index="total" :width="90" />
+          <a-table-column title="样本" data-index="sample" :width="70" />
+          <a-table-column title="成功" data-index="ok" :width="70" />
+          <a-table-column title="失败/无数据" data-index="failed" :width="100" />
+          <a-table-column title="来源" data-index="source" :width="130" />
+        </template>
+      </a-table>
+      <div v-else class="content-block">暂无版本矩阵（旧台账或尚无版本证据）</div>
+
       <a-divider>影响客户 (customer_names)</a-divider>
       <div v-if="currentRecord?.customer_names && Array.isArray(currentRecord.customer_names)" class="content-block">
         <a-tag v-for="(name, idx) in currentRecord.customer_names" :key="idx" style="margin: 2px">{{ name }}</a-tag>
@@ -584,6 +693,11 @@
           <!-- tooltip 必须包在 span 上：Arco 的 disabled 按钮不派发鼠标事件，
                直接把 a-tooltip 套在 a-button 外面时，禁用态下浮动提示不会弹 ——
                而"为什么不能点"恰恰是禁用态最需要说明的。 -->
+          <a-button
+            v-if="currentRecord?.regression_type === 'insufficient' || currentRecord?.version_matrix?.universe?.missing_strata?.length"
+            :loading="backfillLoading"
+            @click="handleBackfillSamples()"
+          >补样本</a-button>
           <a-tooltip :content="bundleTip(currentRecord)">
             <span style="display: inline-block">
               <a-button
@@ -600,6 +714,21 @@
             下载报告 md
           </a-button>
         </a-space>
+        <div v-if="backfillBatch" class="backfill-progress">
+          <span>
+            补样本 {{ backfillBatch.batch_no }}：完成 {{ backfillBatch.done }}/{{ backfillBatch.total_items }}
+            <template v-if="backfillBatch.running">，执行中 {{ backfillBatch.running }}</template>
+            <template v-if="backfillBatch.failed">，失败 {{ backfillBatch.failed }}</template>
+            <template v-if="backfillBatch.cancelled">，已取消 {{ backfillBatch.cancelled }}</template>
+            <template v-if="backfillBatch.cancel_requested && !isBackfillTerminal(backfillBatch.status)">（取消请求已提交）</template>
+          </span>
+          <a-button
+            v-if="!backfillBatch.cancel_requested && !isBackfillTerminal(backfillBatch.status)"
+            size="mini"
+            :loading="backfillCancelling"
+            @click="cancelBackfill"
+          >取消</a-button>
+        </div>
       </template>
     </a-drawer>
     <!-- 行内「更多 → 流转记录」：与详情底部同一个时间线组件，不用打开整个详情 -->
@@ -764,6 +893,7 @@ const searchForm = reactive({
   dimension_type: '',
   dimension_value: '',
   attribution_tag: '',
+  regression_type: '',
   // 默认只看待处置：这个页面的用途是"决定这些问题要不要修"，而生产实测 61 条里
   // 60 条从来没人下过判断。默认列全部等于把待办埋在已处置的行里 ——
   // 筛选框会显示「待处置」，想看全部清掉它即可。
@@ -777,6 +907,11 @@ const searchForm = reactive({
   form_id: '',
   // 左树表单下的按钮层（未归因操作为哨兵 __unattributed__）
   control_name: '',
+  // 客户×版本事实过滤（scope 表）；左树客户/版本节点会写入这里
+  customer_key: '',
+  customer_name: '',
+  product_version: '',
+  version_state: '',
   // 是否二开：true=二开 / false=非二开（含历史未标记的 NULL）
   is_custom: '',
   // 排序在后端做：影响面与分析权重要按**全量**排序，
@@ -832,6 +967,8 @@ function onEnumFilterChange(dataIndex: string, filteredValues: string[]) {
     searchForm.status = value
   else if (dataIndex === 'is_custom')
     searchForm.is_custom = value
+  else if (dataIndex === 'regression_type')
+    searchForm.regression_type = value
   else if (dataIndex === 'product_line')
     searchForm.product_line = value
   pageNum.value = 1
@@ -843,7 +980,10 @@ function resetColumnFilters() {
 }
 
 // 从达标率看板「联查问题」带入的范围：右表先按它过滤，左树挂载后定位到对应节点
-const clearedScope = { project_group_code: '', cloud_number: '', business_area: '', product_domain: '', app_number: '', form_id: '', control_name: '' }
+const clearedScope = {
+  project_group_code: '', cloud_number: '', business_area: '', product_domain: '', app_number: '', form_id: '', control_name: '',
+  customer_key: '', customer_name: '', product_version: '',
+}
 const { initialScope: routeScope } = useRouteScope('pattern-ledger', (scope) => {
   Object.assign(searchForm, clearedScope, scope)
   scopeTreeKey.value += 1
@@ -860,16 +1000,105 @@ const scopeCountFilters = computed(() => ({
   dimension_type: searchForm.dimension_type,
   dimension_value: searchForm.dimension_value,
   attribution_tag: searchForm.attribution_tag,
+  regression_type: searchForm.regression_type,
   status: searchForm.status,
   is_custom: searchForm.is_custom,
   filters: activeColumnFilters.value,
 }))
 const drawerVisible = ref(false)
 const currentRecord = ref<any>(null)
+// 详情里的客户×版本事实：版本汇总是主视图，日粒度事实用于追溯
+const scopePayload = ref<any>({})
+const scopeRequest = useGet<any>(ApiPerfPatternLedger.scope, scopePayload, { immediate: false })
+const scopeVersions = computed<any[]>(() => scopeRequest.data.value?.versions || [])
+const scopeFacts = computed<any[]>(() => scopeRequest.data.value?.facts || [])
+const scopeSince = computed<string>(() => scopeRequest.data.value?.since || '')
+const scopeLoading = computed(() => scopeRequest.isFetching.value)
 // 单独下载报告 md（完整原文，见 useReportMdDownload）
 const { mdDownloading, downloadReportMd } = useReportMdDownload()
 const detailExporting = ref(false)
 const logsDownloading = ref(false)
+interface BackfillPayload {
+  pattern_id: string
+  max_samples_per_stratum: number
+  dry_run?: boolean
+}
+interface BackfillStartResult {
+  batch_id: string
+  batch_no: string
+  total: number
+  queued: number
+  skipped: number
+  dry_run: boolean
+}
+interface BackfillItemProgress {
+  pattern_id: string
+  pattern_no: string
+  run_date?: string
+  status: string
+  requested: number
+  downloaded: number
+  error?: string
+}
+interface BackfillProgress {
+  batch_id: string
+  batch_no: string
+  total_items: number
+  status: string
+  cancel_requested: boolean
+  pending: number
+  running: number
+  done: number
+  failed: number
+  skipped: number
+  cancelled: number
+  items: BackfillItemProgress[]
+}
+const backfillLoading = ref(false)
+const backfillCancelling = ref(false)
+const backfillBatch = ref<BackfillProgress | null>(null)
+const backfillPayload = ref<BackfillPayload>({ pattern_id: '', max_samples_per_stratum: 3 })
+const { data: startRes, execute: startBackfill } = usePost<BackfillStartResult>(ApiPerfPatternLedger.backfill, backfillPayload, { immediate: false })
+const progressQuery = computed(() => ({ batch_id: backfillBatch.value?.batch_id ?? '' }))
+const { data: progressRes, execute: fetchBackfillProgress } = useGet<BackfillProgress>(ApiPerfPatternLedger.backfillProgress, progressQuery, { immediate: false })
+const cancelPayload = ref<{ batch_id: string }>({ batch_id: '' })
+const { execute: cancelBackfillRequest } = usePost<{ batch_id: string, cancel_requested: boolean }>(ApiPerfPatternLedger.backfillCancel, cancelPayload, { immediate: false })
+let backfillTimer: ReturnType<typeof setInterval> | undefined
+
+function isBackfillTerminal(status: string | undefined) {
+  return status === 'success' || status === 'partial' || status === 'failed' || status === 'cancelled'
+}
+
+function stopBackfillPolling() {
+  if (backfillTimer) {
+    clearInterval(backfillTimer)
+    backfillTimer = undefined
+  }
+}
+
+async function pollBackfill() {
+  if (!backfillBatch.value?.batch_id)
+    return
+  await fetchBackfillProgress()
+  if (progressRes.value)
+    backfillBatch.value = progressRes.value
+  if (isBackfillTerminal(progressRes.value?.status)) {
+    stopBackfillPolling()
+    if (progressRes.value?.status === 'success')
+      Message.success('补样本完成')
+    else if (progressRes.value?.status === 'cancelled')
+      Message.info('补样本已取消')
+    else
+      Message.warning('补样本结束，存在失败条目')
+    await fetchData()
+  }
+}
+
+function startBackfillPolling() {
+  stopBackfillPolling()
+  void pollBackfill()
+  backfillTimer = setInterval(() => { void pollBackfill() }, 2000)
+}
 /** 下载 zip 是否带同桶对照样本：thin_log 台账默认带上，否则只有一个坏样本。 */
 const includeContrast = ref(true)
 
@@ -1108,6 +1337,7 @@ const handleRecomputeImpact = async () => {
   }
 }
 onUnmounted(stopImpactRefresh)
+onUnmounted(stopBackfillPolling)
 /** 表头点击排序 → 转成后端参数重新查询。
  *
  * 必须走后端：表格自带的 sortable 只排当前页 20 条，
@@ -1139,6 +1369,69 @@ const tagOptions = computed(() => {
   if (!Array.isArray(raw)) return []
   return raw.map((d: any) => ({ value: d.value ?? d.dict_value, label: d.label ?? d.dict_label }))
 })
+
+interface DictEntry {
+  value?: string
+  label?: string
+  dict_value?: string
+  dict_label?: string
+}
+const regressionDict = useDicts('perf_regression_type')
+const regressionOptions = computed(() => {
+  const raw: unknown = regressionDict.value.perf_regression_type
+  if (!Array.isArray(raw)) return []
+  return raw.map((d: DictEntry) => ({ value: d.value ?? d.dict_value ?? '', label: d.label ?? d.dict_label ?? '' }))
+})
+function regressionText(value: string | null | undefined) {
+  return regressionOptions.value.find(o => o.value === value)?.label || value || '未分类'
+}
+function regressionColor(value: string | null | undefined) {
+  return ({ cross_version: 'arcoblue', new_version: 'orangered', old_version_only: 'orange', customer_specific: 'purple', customer_customized: 'magenta', insufficient: 'gray' } as Record<string, string>)[value || ''] || 'gray'
+}
+const versionStateMap: Record<string, { text: string, color: string }> = {
+  observed: { text: '已观测', color: 'arcoblue' },
+  inherited_unverified: { text: '升级继承未验证', color: 'orange' },
+  not_observed: { text: '足够样本未命中', color: 'green' },
+  resolved: { text: '已解决', color: 'gray' },
+}
+function versionStateText(value: string | null | undefined) {
+  return versionStateMap[value || '']?.text || value || '--'
+}
+function versionStateColor(value: string | null | undefined) {
+  return versionStateMap[value || '']?.color || 'gray'
+}
+interface MatrixVersionStat {
+  slow_count?: number
+  total_count?: number
+  sample_count?: number
+  selected_count?: number
+  ok_count?: number
+  failed_count?: number
+  no_data_count?: number
+  source?: string
+}
+interface MatrixCustomer {
+  tenant_code?: string
+  customer_name?: string
+  affected?: boolean
+  versions?: Record<string, MatrixVersionStat>
+}
+function versionMatrixRows() {
+  const customers: MatrixCustomer[] | undefined = currentRecord.value?.version_matrix?.customers
+  if (!Array.isArray(customers)) return []
+  return customers.flatMap(customer => Object.entries(customer.versions ?? {}).map(([version, stat]) => ({
+    key: `${customer.customer_name || customer.tenant_code}|${version}`,
+    customer: customer.customer_name || customer.tenant_code,
+    affected: customer.affected ? '是' : '否',
+    version,
+    slow: stat.slow_count ?? 0,
+    total: stat.total_count ?? 0,
+    sample: stat.sample_count ?? stat.ok_count ?? 0,
+    ok: stat.ok_count ?? 0,
+    failed: (stat.failed_count ?? 0) + (stat.no_data_count ?? 0),
+    source: stat.source || '',
+  })))
+}
 
 // 产品线也走数据字典 perf_product_line（星瀚/星空），不要写死历史值
 const productLineDict = useDicts('perf_product_line')
@@ -1565,6 +1858,67 @@ const bundleTip = (record: any): string =>
     : '该台账没有可打包的日志与缺陷报告（无样本 trace，也没有报告文件）'
 
 // 下载该问题命中的原始天梯日志与缺陷报告 md（同一个 zip）。
+function handleBackfillSamples() {
+  const record = currentRecord.value
+  if (!record)
+    return
+  Modal.confirm({
+    title: '补样本',
+    content: '按版本矩阵缺失的客户/版本层创建补样本批次，由队列串行下载少量 trace。补样本不等于重新分析，缺版本结论仍可能保持“证据不足”。',
+    okText: '开始',
+    cancelText: '取消',
+    onOk: () => submitBackfill(record.id),
+  })
+}
+async function submitBackfill(patternId: string) {
+  backfillLoading.value = true
+  try {
+    backfillPayload.value = { pattern_id: patternId, max_samples_per_stratum: 3 }
+    await startBackfill()
+    if (isRequestFailed(startRes) || !startRes.value)
+      return
+    const started = startRes.value
+    if (started.queued === 0) {
+      Message.info(started.skipped ? '没有可补的缺失客户/版本层' : '没有可执行的补样本条目')
+      return
+    }
+    backfillBatch.value = {
+      batch_id: started.batch_id,
+      batch_no: started.batch_no,
+      total_items: started.total,
+      status: 'pending',
+      cancel_requested: false,
+      pending: started.queued,
+      running: 0,
+      done: 0,
+      failed: 0,
+      skipped: started.skipped,
+      cancelled: 0,
+      items: [],
+    }
+    Message.success(`补样本批次 ${started.batch_no} 已入队`)
+    startBackfillPolling()
+  }
+  finally {
+    backfillLoading.value = false
+  }
+}
+async function cancelBackfill() {
+  const batch = backfillBatch.value
+  if (!batch)
+    return
+  backfillCancelling.value = true
+  try {
+    cancelPayload.value = { batch_id: batch.batch_id }
+    await cancelBackfillRequest()
+    Message.info('已请求取消，当前正在下载的条目完成后停止')
+    startBackfillPolling()
+  }
+  finally {
+    backfillCancelling.value = false
+  }
+}
+
 const handleLogsDownload = async (target?: any) => {
   // **必须挡掉 MouseEvent**：模板里写 `@click="handleLogsDownload"`（不带括号）时
   // Vue 会把事件对象当第一个参数传进来，于是 target 是 MouseEvent、
@@ -1666,6 +2020,9 @@ const handleScopeChange = (scope: {
   app_number?: string
   form_id?: string
   control_name?: string
+  customer_key?: string
+  customer_name?: string
+  product_version?: string
 }) => {
   // 左侧范围树可切换星瀚/星空；应用下拉必须跟着产品线重取，不能一直显示首次加载的数据。
   if (scope.product_line && appQuery.value.product_line !== scope.product_line) {
@@ -1680,6 +2037,9 @@ const handleScopeChange = (scope: {
     app_number: '',
     form_id: '',
     control_name: '',
+    customer_key: '',
+    customer_name: '',
+    product_version: '',
     ...scope,
   })
   pageNum.value = 1
@@ -1707,7 +2067,7 @@ const handleProductLineFilterChange = () => {
 const handleReset = () => {
   Object.assign(searchForm, {
     // status 回到 'new' 而不是空：与初始状态一致，否则"重置"会变成"看全部"
-    keyword: '', product_line: '星瀚', dimension_type: '', dimension_value: '', attribution_tag: '', status: 'new',
+    keyword: '', product_line: '星瀚', dimension_type: '', dimension_value: '', attribution_tag: '', regression_type: '', status: 'new',
     report_status: '',
     project_group_code: '',
     cloud_number: '',
@@ -1716,6 +2076,10 @@ const handleReset = () => {
     app_number: '',
     form_id: '',
     control_name: '',
+    customer_key: '',
+    customer_name: '',
+    product_version: '',
+    version_state: '',
     is_custom: '',
   })
   resetColumnFilters()
@@ -1766,6 +2130,11 @@ const handleDetail = (record: any) => {
   mdPayload.value = { pattern: key }
   mdLoading.value = true
   fetchPatternMd().finally(() => { mdLoading.value = false })
+  // 客户×版本事实按台账 id 单独拉；列表只带摘要，详情要看每日证据
+  if (record?.id) {
+    scopePayload.value = { pattern_id: record.id, days: 90 }
+    void scopeRequest.execute()
+  }
   // 追加分析由 PatternReanalysis 组件按 pattern-id / active 自己加载，这里不再触发
 }
 
@@ -2030,5 +2399,14 @@ const handleLinkIssue = async () => {
 .table-fill {
   flex: 1;
   min-height: 0;
+}
+
+.backfill-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--color-text-3);
+  font-size: 12px;
 }
 </style>

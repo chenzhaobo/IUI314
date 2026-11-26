@@ -23,12 +23,16 @@ const AI_TUNING_NUMERIC_CONFIGS: Record<string, { min: number, max: number, plac
   static_scan_unit_max_knowledge_chars: { min: 1000, max: 200000, placeholder: '如 60000' },
   static_scan_unit_idle_timeout_secs: { min: 0, max: 5400, placeholder: '如 900', unit: '秒' },
   static_scan_ai_confirm_concurrency: { min: 1, max: 20, placeholder: '如 3' },
+  static_scan_ai_confirm_shard_size: { min: 100, max: 20000, placeholder: '如 2000，各批并行处理', unit: '条' },
+  static_scan_ai_confirm_no_progress_timeout_secs: { min: 0, max: 604800, placeholder: '如 86400，0 = 关闭', unit: '秒' },
+  static_scan_ai_confirm_token_ttl_secs: { min: 86400, max: 7776000, placeholder: '如 2592000（30天）', unit: '秒' },
   static_scan_blame_max_candidates: { min: 0, max: 1000000, placeholder: '如 2000，0 表示不限' },
   static_scan_prescan_stall_secs: { min: 60, max: 86400, placeholder: '如 300', unit: '秒' },
   static_scan_prescan_queue_timeout_secs: { min: 60, max: 604800, placeholder: '如 86400', unit: '秒' },
   ai_agent_queue_lane_scan_reserved: { min: 0, max: 32, placeholder: '如 1，0 = 不保底', unit: '个' },
   ai_agent_queue_lane_attribution_reserved: { min: 0, max: 32, placeholder: '如 1，0 = 不保底', unit: '个' },
   ai_agent_queue_lane_verify_reserved: { min: 0, max: 32, placeholder: '如 1，0 = 不保底', unit: '个' },
+  monaudit_log_concurrency: { min: 1, max: 4, placeholder: '默认 2', unit: '个' },
 }
 
 const WINDOWS_DRIVE_RE = /^[a-zA-Z]:[/\\]/
@@ -143,6 +147,7 @@ const groupLabels: Record<string, string> = {
   static_scan: '静态扫描配置',
   dmp: 'DMP 数据爬取',
   agent: '压测 Agent',
+  monaudit: '监控审计配置',
 }
 
 // 判断是否为布尔类型配置（值为 true/false）

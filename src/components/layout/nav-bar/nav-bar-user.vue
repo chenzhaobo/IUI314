@@ -8,7 +8,7 @@ import AboutInfo from './about-info.vue'
 import ChangeCom from './changeCom.vue'
 import { ErrorFlag } from '@/api/apis'
 import { ApiSysDept, ApiSysRole, ApiSysUser } from '@/api/sysApis'
-import { useGet, usePut } from '@/hooks'
+import { hasPermission, useGet, usePut } from '@/hooks'
 import { router } from '@/router'
 import { useUserStore } from '@/stores'
 import type { dept, deptList } from '@/types/system/dept'
@@ -25,40 +25,22 @@ const deptOptions = ref<dept[]>([])
 const deptMapOptions = ref<Record<string, string>>({})
 
 async function get_options() {
-  const queryParams = {
-    page_num: 1,
-    page_size: Number.MAX_SAFE_INTEGER,
-  }
-
-  const { data: roles, execute: e_roles } = useGet<roleList>(
-    ApiSysRole.getList,
-    queryParams,
-  )
-  const { data: depts, execute: e_depts } = useGet<deptList>(
-    ApiSysDept.getList,
-    queryParams,
-  )
+  // 用 options：/system/role|dept/list 是管理页权限项，业务角色没授权时
+  // 每次进页面都弹「无权访问该功能」，下拉还是空的（2026-11-10 扫码用户实证）。
+  const { data: roles, execute: e_roles } = useGet<Array<Pick<role, 'role_id' | 'role_name'>>>(ApiSysRole.options)
+  const { data: depts, execute: e_depts } = useGet<Array<Pick<dept, 'dept_id' | 'dept_name'>>>(ApiSysDept.options)
   await Promise.all([e_roles(), e_depts()])
   const map: Record<string, string> = {}
-  // 这里原来写 `roles.value?.list.filter(...)`：`?.` 只保护了 `.value`，
-  // **没保护 `.list`** —— 请求失败时 data.value 是错误哨兵（不是 null，
-  // 见 useRequest 的 updateDataOnError），`.list` 为 undefined，
-  // `.filter` 直接抛 "t.value.list is undefined"，把整个导航栏 setup 打断。
-  // 用户可见的现象是右上角用户菜单里角色/部门是空的。
-  const roleList = Array.isArray(roles.value?.list) ? roles.value!.list : []
-  const deptList = Array.isArray(depts.value?.list) ? depts.value!.list : []
-  const r = roleList.filter((item) => {
-    return userStore.user.roles.includes(item.role_id!)
-  })
-  const d = deptList.filter((item) => {
+  const roleList = Array.isArray(roles.value) ? roles.value : []
+  const deptList = Array.isArray(depts.value) ? depts.value : []
+  for (const item of deptList) {
     map[item.dept_id!] = item.dept_name!
-    return userStore.user.depts.includes(item.dept_id!)
-  })
-  roleOptions.value = r
+  }
+  roleOptions.value = roleList as unknown as role[]
+  deptOptions.value = deptList as unknown as dept[]
   role_id.value = userStore.user.role
-  deptOptions.value = d
-  deptMapOptions.value = map
   dept_id.value = userStore.user.dept
+  deptMapOptions.value = map
 }
 async function roleChanged(v: string | number | boolean) {
   const { data, execute } = usePut(ApiSysUser.changeRole, {
@@ -187,7 +169,7 @@ get_options()
         >
       </div>
       <template #content>
-        <a-doption>
+        <a-doption v-if="hasPermission(ApiSysUser.changeRole)">
           <a-popover position="lt">
             <span class="m-l--20px" @click="roleChangeModal">
               <span class="m-l-20px">
@@ -199,7 +181,7 @@ get_options()
             </template>
           </a-popover>
         </a-doption>
-        <a-doption>
+        <a-doption v-if="hasPermission(ApiSysUser.changeDept)">
           <a-popover position="lt">
             <span class="m-l--20px" @click="deptChangeModal">
               <span class="m-l-20px">

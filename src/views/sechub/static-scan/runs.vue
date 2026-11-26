@@ -298,7 +298,9 @@ function schedulePollIfNeeded() {
     clearTimeout(pollTimer.value)
     pollTimer.value = null
   }
-  if (hasActiveWork())
+  // 页面在后台时不轮询：浏览器会对隐藏标签页降频，但请求仍会占服务端
+  // 连接与 SQL 时间（慢请求里这个接口长期排第一）。回到前台再补刷。
+  if (hasActiveWork() && document.visibilityState !== 'hidden')
     pollTimer.value = setTimeout(() => void loadCrossRows(true), 15000)
 }
 
@@ -317,8 +319,22 @@ onActivated(() => {
     void loadCrossRows(true)
   void applyNewScanQuery()
 })
-onMounted(() => void applyNewScanQuery())
-onUnmounted(pausePoll)
+function onVisibilityChange() {
+  if (document.visibilityState === 'hidden') {
+    pausePoll()
+    return
+  }
+  if (hasActiveWork())
+    void loadCrossRows(true)
+}
+onMounted(() => {
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  void applyNewScanQuery()
+})
+onUnmounted(() => {
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  pausePoll()
+})
 
 // ===== 新建扫描 / AI 确认（入口从扫描看板迁来）=====
 const newScanRef = ref<InstanceType<typeof NewScanModal>>()
@@ -795,9 +811,14 @@ const settlingRunId = ref('')
 async function settleRunRecord(row: CrossRunAggRow) {
   settlingRunId.value = row.run_id
   try {
-    const resp = await postAction<{ finalized: boolean, message?: string }>(ApiSecPrescan.settleRun, { run_id: row.run_id })
+    const resp = await postAction<{ finalized: boolean, state?: string | null, unfinished?: number, message?: string }>(ApiSecPrescan.settleRun, { run_id: row.run_id })
     if (resp) {
-      Message.success(resp.message || '已补定稿')
+      // 成败以 finalized 为准：补定稿最常见的失败是仍有未完成候选或问题回写报错，
+      // 这两种都不能再报「已完成」（否则状态没变却提示成功）。
+      if (resp.finalized)
+        Message.success(resp.message || '已补定稿')
+      else
+        Message.warning(resp.message || '补定稿未生效，请查看服务日志')
       await loadCrossRows()
     }
   }
@@ -1150,6 +1171,10 @@ function commitTooltip(row: CrossRunAggRow): string {
     parts.push(`完整 SHA：${row.commit_sha}`)
   if (row.commit_time)
     parts.push(`提交时间：${row.commit_time}`)
+  if (row.git_url)
+    parts.push(`仓库地址：${row.git_url}`)
+  else
+    parts.push('仓库地址：未记录（历史运行）')
   return parts.join('\n') || ''
 }
 
